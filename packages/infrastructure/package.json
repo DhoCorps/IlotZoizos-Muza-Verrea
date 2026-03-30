@@ -1,0 +1,16 @@
+{
+  "name": "@ilot/infrastructure",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@ilot/config": "workspace:*",
+    "@ilot/types": "workspace:*",
+    "mongoose": "^8.3.4",
+    "neo4j-driver": "^5.20.0",
+    "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "@types/uuid": "^11.0.0"
+  }
+}

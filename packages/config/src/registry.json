@@ -1,0 +1,17 @@
+﻿{
+  "nexus_version": "1.0",
+  "inceptions": [
+    { "id": "tom-hat-toes", "mode": "hybrid", "status": "active" },
+    { "id": "renewall", "mode": "standard", "status": "ready" },
+    { "id": "letr-in", "mode": "standard", "status": "pending" },
+    { "id": "kontakt-rh", "mode": "hybrid", "status": "pending" },
+    { "id": "pix-ou", "mode": "standard", "status": "pending" },
+    { "id": "crazy-morpion", "mode": "standard", "status": "pending" },
+    { "id": "kooon-treez", "mode": "ghost", "status": "pending" },
+    { "id": "atomik-k-fard", "mode": "standard", "status": "pending" },
+    { "id": "soonart", "mode": "ghost", "status": "pending" },
+    { "id": "ekoz", "mode": "standard", "status": "pending" },
+    { "id": "yath-zee", "mode": "standard", "status": "pending" },
+    { "id": "black-job", "mode": "full", "status": "pending" }
+  ]
+}

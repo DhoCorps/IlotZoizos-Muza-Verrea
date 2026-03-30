@@ -1,0 +1,23 @@
+{
+  "nav": {
+    "title": "Ilot Zoizos",
+    "subtitle": "Nexus System",
+    "motto": "Données collectives & Conscience"
+  },
+    "auth": {
+    "welcomeBack": "Retour au Nid",
+    "loginSubtitle": "Identifie-toi pour synchroniser tes fragments.",
+    "loginButton": "Prendre son envol"
+  },
+
+    "Auth": {
+    "title": "Réinitialisation",
+    "passwordLabel": "Nouveau mot de passe",
+    "confirmLabel": "Confirmer le mot de passe",
+    "submitButton": "Valider",
+    "successMessage": "Mot de passe modifié avec succès !"
+  }
+
+
+}
+

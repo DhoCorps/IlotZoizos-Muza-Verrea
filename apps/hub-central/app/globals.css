@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 🩸 L'ambiance Bio-Tech Éco-OLED 2030 */
+:root {
+  /* Gris bleuté abyssal (Éteint les pixels OLED à 95%) */
+  --bio-bg: #05070A; 
+  --bio-card: rgba(10, 13, 18, 0.4); 
+  /* Le Rouge Organique : Puissant mais non-éblouissant */
+  --bio-accent: #E5484D; 
+  --bio-accent-glow: rgba(229, 72, 77, 0.12); 
+  --bio-border: rgba(255, 255, 255, 0.03);
+  --bio-grid: rgba(255, 255, 255, 0.015);
+}
+
+@layer base {
+  body {
+    background-color: var(--bio-bg);
+    color: #EDEDED;
+    -webkit-font-smoothing: antialiased;
+    /* La fusion : Grille de data (Technik) + Lueur centrale (Organique) */
+    background-image: 
+      linear-gradient(var(--bio-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--bio-grid) 1px, transparent 1px),
+      radial-gradient(circle at 50% 0%, var(--bio-accent-glow) 0%, transparent 50%);
+    background-size: 64px 64px, 64px 64px, 100% 100%;
+    background-attachment: fixed;
+  }
+}
+
+@layer components {
+  /* La Cellule Organique */
+  .bio-card {
+    background-color: var(--bio-card);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid var(--bio-border);
+    border-radius: 1.5rem; /* Courbes plus généreuses (Organique) */
+    box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1); /* Animation type Spring/Élastique */
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Le sang de la matrice (Lueur interne au survol) */
+  .bio-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(800px circle at var(--mouse-x, 50%) var(--mouse-y, -20%), rgba(229, 72, 77, 0.06), transparent 40%);
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    z-index: 0;
+  }
+
+  button.bio-card:hover, 
+  a.bio-card:hover {
+    border-color: rgba(229, 72, 77, 0.25);
+    box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.9), 0 0 40px var(--bio-accent-glow);
+    transform: translateY(-4px) scale(1.01);
+  }
+
+  button.bio-card:hover::before, 
+  a.bio-card:hover::before {
+    opacity: 1;
+  }
+
+  /* Pour s'assurer que le contenu reste au-dessus du glow */
+  .bio-card > * {
+    position: relative;
+    z-index: 1;
+  }
+}

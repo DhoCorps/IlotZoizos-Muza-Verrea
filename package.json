@@ -1,0 +1,30 @@
+{
+  "name": "ilot-zoizos-nexus",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Système nerveux central hybride",
+  "packageManager": "pnpm@9.1.0",
+  "engines": {
+    "node": ">=18.17.0",
+    "pnpm": ">=8.0.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "vitest run",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@types/uuid": "^11.0.0",
+    "prettier": "^3.2.5",
+    "turbo": "^1.13.0",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  },
+  "dependencies": {
+    "mongoose": "^8.3.4",
+    "pnpm": "^10.32.1"
+  }
+}

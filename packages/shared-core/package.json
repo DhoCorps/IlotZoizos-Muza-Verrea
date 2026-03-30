@@ -1,0 +1,11 @@
+{
+  "name": "@ilot/shared-core",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@ilot/types": "workspace:*",
+    "@ilot/infrastructure": "workspace:*",
+    "zod": "^3.23.8"
+  }
+}

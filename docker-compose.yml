@@ -1,0 +1,49 @@
+services:
+  # --- MONGODB (Version Forteresse Autonome) ---
+  mongo_db:
+    image: mongo:7.0
+    container_name: ilot_mongo
+    restart: always
+    # 🛡️ Cette commande génère la clé dans le container SI elle n'existe pas
+    command: >
+      bash -c "
+      if [ ! -f /data/configdb/mongodb.key ]; then
+        echo '🔑 Génération d une nouvelle clé de sécurité interne...'
+        openssl rand -base64 756 > /data/configdb/mongodb.key
+      fi;
+      chmod 400 /data/configdb/mongodb.key &&
+      chown 999:999 /data/configdb/mongodb.key &&
+      exec mongod --replSet rs0 --bind_ip_all --keyFile /data/configdb/mongodb.key
+      "
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password1234
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb # 👈 Volume Docker interne (plus de bug de chemin Windows)
+
+  # --- NEO4J (Gare Centrale) ---
+  # --- NEO4J (Gare Centrale optimisée) ---
+  neo4j_db:
+    image: neo4j:5.12
+    container_name: ilot_neo4j
+    restart: always
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/password777
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
+      # 🛡️ AJOUTE CES DEUX LIGNES :
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      - NEO4J_dbms_security_procedures_allowlist=apoc.*
+    volumes:
+      - neo4j_data:/data
+      
+volumes:
+  mongo_data:
+  neo4j_data:
+  mongo_config: # 👈 On déclare le nouveau volume de sécurité
