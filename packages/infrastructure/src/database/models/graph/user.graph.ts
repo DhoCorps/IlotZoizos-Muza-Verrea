@@ -1,9 +1,10 @@
+import { IRole } from '@ilot/types';
 import { getNeo4jSession } from '../../neo4j'; // Ton utilitaire de session
 
 export const baguerOiseau = async (user: { 
   uid: string; // ✅ Aligné avec l'orchestrateur
   username: string; 
-  role: string 
+  roles: string[]; 
 }) => {
   const session = getNeo4jSession();
   
@@ -12,7 +13,7 @@ export const baguerOiseau = async (user: {
     MERGE (u:User { uid: $uid })
     ON CREATE SET 
       u.username = $username,
-      u.role = $role,
+      u.roles = $roles,
       u.dateArrivee = datetime(),
       u.status = 'Libre'
     RETURN u

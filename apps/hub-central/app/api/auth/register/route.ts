@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import mongoose from 'mongoose';
-import { connectToDatabase, UserModel } from "@ilot/infrastructure"; 
-import { SyncOrchestrator, MoralChecker } from "@ilot/shared-core"; // 👈 On utilise le shared-core
+import { connectToDatabase, UserModel, RoleModel } from "@ilot/infrastructure"; 
+import { UserOrchestrator, MoralChecker } from "@ilot/shared-core";
 import bcrypt from 'bcryptjs';
 
 export async function POST(req: Request) {
@@ -24,13 +24,19 @@ export async function POST(req: Request) {
 
     const hashedPassword = await bcrypt.hash(password, 12);
     
-    // ⚠️ ATTENTION : On n'utilise plus de mongoId manuel, on laisse le schéma générer l'UID 
-    // ou on s'assure qu'il est cohérent.
+    // Récupération du grade de base
+    const gradeMembre = await RoleModel.findOne({ intitule: 'MEMBRE' });
+
+    if (!gradeMembre) {
+      return NextResponse.json({ error: "Le grade 'MEMBRE' n'a pas encore été forgé dans le système." }, { status: 500 });
+    }
+
     const newUser = new UserModel({ 
       email: email.toLowerCase(), 
       username, 
       password: hashedPassword,
-      role: "BATISSEUR", 
+      // ✅ Dans MongoDB, on garde bien 'roles' au pluriel avec un tableau (ObjectId)
+      roles: [gradeMembre._id], 
       signature: "<(:<" 
     });
     
@@ -38,14 +44,13 @@ export async function POST(req: Request) {
     const savedUser = await newUser.save(); 
     console.log("✅ [MongoDB] L'oiseau est niché :", savedUser.uid);
 
-    // 🛡️ 4. SYNCHRONISATION NÉCESSAIRE (On ne "catch" pas ici !)
-    // Si Neo4j échoue, l'erreur remontera au gros catch en bas.
-    await SyncOrchestrator.syncUserCreation({ 
+    // 🛡️ 4. SYNCHRONISATION NEO4J
+    await UserOrchestrator.syncUserCreation({ 
       uid: savedUser.uid, 
       username: savedUser.username,
-      // ⚡ FIX : Ton orchestrateur attendait 'role' mais ton schéma Mongo utilise 'role' ou 'roles' ?
-      // On envoie le premier rôle du tableau ou la string pure.
-      role: Array.isArray(savedUser.roles) ? savedUser.roles[0] : (savedUser as any).role || "MEMBER" 
+      // ✅ CORRECTION VITALE : "role" au singulier, et on envoie l'UID sous forme de string pure !
+      role: gradeMembre.uid,
+      roles: [gradeMembre.uid]
     });
 
     console.log("🔥 [Neo4j] POINT MARQUÉ : Graphe synchronisé.");
@@ -56,13 +61,8 @@ export async function POST(req: Request) {
     }, { status: 201 });
 
   } catch (error: any) {
-    // 🚨 SI ÇA CRASH ICI, ON SAIT QUE RIEN N'EST SYNCHRO
     console.error('🔥 [CRASH] Panne moteur lors de l\'inception :', error);
     
-    // Optionnel : Si Neo4j a échoué mais Mongo a réussi, 
-    // on devrait techniquement supprimer le user de Mongo pour rester propre.
-    // await UserModel.deleteOne({ uid: ... });
-
     return NextResponse.json({ 
       error: 'Erreur technique lors de l\'inception.',
       details: error.message 

@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 /* 🩸 L'ambiance Bio-Tech Éco-OLED 2030 */
 :root {

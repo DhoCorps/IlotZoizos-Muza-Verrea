@@ -1,21 +1,17 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 import { v4 as uuidv4 } from 'uuid';
-import { IUser } from "@ilot/types";
-
-export interface UserDocument extends Omit<IUser, '_id'>, Document { 
+import { IUser } from "@ilot/types"; // 👈 L'interface étendue
+import { IRole } from "@ilot/types";
+/**
+ * 👤 USER DOCUMENT
+ * Fusion de l'interface Zod et des propriétés système de Mongoose.
+ */
+export interface UserDocument extends IUser, Document { 
   _id: mongoose.Types.ObjectId; 
-  synapseId?: string;       
-  signature?: string;       
-  currentMode: 'standard' | 'ghost'; 
-  password?: string;
   resetPasswordToken?: string;
   resetPasswordExpires?: number;
-  lastActive: Date;
-  isOnline: boolean;
-  isOpenToInvitations: boolean;
-  airplaneMode: boolean;
-  teams: string[]; 
-  projects: string[];
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const UserSchema = new Schema<UserDocument>(
@@ -24,35 +20,71 @@ const UserSchema = new Schema<UserDocument>(
     uid: { type: String, required: true, unique: true, default: () => uuidv4(), index: true },
     synapseId: { type: String, index: true }, 
 
-    // --- 👤 INFOS DE BASE ---
+    // --- 👤 INFOS DE BASE & SIGNATURE ---
     username: { type: String, required: true, unique: true, trim: true, index: true },
-    name: { type: String }, // Optionnel, pour un affichage plus humain
+    name: { type: String }, 
     email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
     password: { type: String, select: false },
-    avatar: { type: String, default: '/assets/avatars/default.png' },
     signature: { type: String },
 
+    // --- 📸 IDENTITÉ VISUELLE ---
+    profilePicture: { type: String },
+    avatarUrl: { type: String, default: '/assets/avatars/default.png' },
+    coverPicture: { type: String },
+
+    // --- 📜 DOSSIER D'IDENTITÉ (CV & Bio) ---
+    identity: {
+      cvUrl: { type: String },
+      biography: { type: String },
+      location: { type: String },
+      links: [{
+        label: { type: String },
+        url: { type: String }
+      }]
+    },
+
+    // --- 🎮 FICHE DE PERSONNAGE (Gamification) ---
+    characterSheet: {
+      jobTitle: { type: String },
+      level: { type: Number, default: 1 },
+      xp: { type: Number, default: 0 },
+      mood: { type: String, default: '😐' },
+      skills: [{ type: String }],
+      alignment: { 
+        type: String, 
+        enum: ['lawfull', 'neutral', 'chaotic', 'good', 'evil'] 
+      }
+    },
+
     // --- 🚦 STATUTS & CONNEXIONS ---
-    status: { type: String, enum: ['pending', 'active', 'inactive', 'banned'], default: 'pending' },
-    currentMode: { type: String, enum: ['standard', 'ghost'], default: 'standard' },
+    status: { 
+      type: String, 
+      enum: ['pending', 'active', 'inactive', 'banned'], 
+      default: 'pending' 
+    },
+    currentMode: { 
+      type: String, 
+      enum: ['standard', 'ghost'], 
+      default: 'standard' 
+    },
     isOnline: { type: Boolean, default: false },
     airplaneMode: { type: Boolean, default: false },
     lastActive: { type: Date, default: Date.now },
-    isOpenToInvitations: { type : Boolean, default: true},
+    isOpenToInvitations: { type: Boolean, default: true },
+
     // --- 🔐 SÉCURITÉ & ROLES ---
-    roles: { type: [String], default: ['MEMBER'] },
+    roles: [{
+    type: Schema.Types.ObjectId,
+    ref: 'Role' 
+    }],
+    role: { type: String, default: 'MEMBRE' },
     resetPasswordToken: { type: String },
     resetPasswordExpires: { type: Number },
 
-    // --- 🎮 GAMIFICATION ---
-    jobTitle: { type: String },
-    level: { type: Number, default: 1 },
-    xp: { type: Number, default: 0 },
-    mood: { type: String, default: '😐' },
-
-    // --- 🏗️ ÉQUIPES & PROJETS ---
-    teams: [{ type: String }],
-    projects: [{ type: String }],
+    // --- 🏗️ ÉCOSYSTÈME ---
+    // Utilisation d'ObjectIDs pour les relations Mongo natives
+    teams: [{ type: Schema.Types.ObjectId, ref: 'Team' }],
+    projects: [{ type: Schema.Types.ObjectId, ref: 'Project' }],
 
     // --- 🧠 MODULES L-ILOT-ZOIZOS ---
     moderation: {
@@ -68,7 +100,6 @@ const UserSchema = new Schema<UserDocument>(
       lastCheckIn: { type: Date }
     }
   },
-  
   { 
     timestamps: true,
     toJSON: { 
@@ -83,5 +114,5 @@ const UserSchema = new Schema<UserDocument>(
   }
 );
 
-// Le fix Next.js sécurisé pour le Hot Reload
-export const UserModel = (mongoose.models.User as Model<UserDocument>) || mongoose.model<UserDocument>('User', UserSchema);
+export const UserModel = (mongoose.models.User as Model<UserDocument>) || 
+                         mongoose.model<UserDocument>('User', UserSchema);

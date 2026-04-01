@@ -1,4 +1,5 @@
 import { baguerOiseau } from '@ilot/infrastructure'; 
+import { IRole } from '@ilot/types';
 
 export interface SyncResult {
   source: 'mongodb' | 'neo4j';
@@ -6,7 +7,7 @@ export interface SyncResult {
   timestamp: number;
 }
 
-export class SyncOrchestrator {
+export class UserOrchestrator {
   /**
    * Synchronise un nouvel utilisateur entre Mongo et Neo4j
    * On bague l'oiseau avec son UID technique unique
@@ -14,7 +15,8 @@ export class SyncOrchestrator {
   static async syncUserCreation(userData: { 
     uid: string; 
     username: string; 
-    role: string 
+    roles: string[] // Changé de [string] (tuple d'un seul élément) à any[] (tableau dynamique)
+    role: string;
   }) {
     console.log(`✨ [Orchestrator] Début du baguage pour l'oiseau : ${userData.username}`);
     
@@ -23,7 +25,7 @@ export class SyncOrchestrator {
       const node = await baguerOiseau({
         uid: userData.uid,
         username: userData.username,
-        role: userData.role
+        roles: userData.roles
       });
       
       console.log(`✅ [Orchestrator] Baguage réussi dans Neo4j pour l'UID: ${userData.uid}`);

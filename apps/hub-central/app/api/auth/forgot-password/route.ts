@@ -40,7 +40,10 @@ export async function POST(req: Request) {
     await user.save();
 
     // 3. Configuration de l'URL et de l'expéditeur
-    const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL}/auth/reset-password?token=${resetToken}`;
+    const locale = "fr"; 
+
+    // 🗺️ On inclut la locale dans le chemin
+    const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL}/${locale}/auth/reset-password?token=${resetToken}`;
     
     // ⚠️ IMPORTANT : Si tu n'as pas de domaine vérifié, utilise l'adresse de test obligatoire
     const fromAddress = process.env.NODE_ENV === "production" 

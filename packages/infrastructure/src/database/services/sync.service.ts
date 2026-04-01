@@ -1,8 +1,5 @@
 import { runQuery } from '../neo4j'; 
 import { UserModel } from '../models/nosql/user.model';
-import { ProjectModel } from '../models/nosql/project.model';
-import { ProjectRole } from '@ilot/types';
-
 /**
  * 👤 SYNCHRONISATION OISEAU (User)
  */
@@ -79,41 +76,6 @@ export const inviteMember = async (teamUid: string, userEmail: string, initialCa
   }
 };
 
-/**
- * 🏗️ PROJET : Mise à jour synchronisée (Mongo + Neo4j)
- */
-export const updateProjectSync = async (uid: string, data: any) => {
-  try {
-    const finaltitle = data.title || data.name;
-
-    // 1. Mise à jour MongoDB
-    const updatedMongo = await ProjectModel.findOneAndUpdate(
-      { uid: uid },
-      { $set: { 
-          title: finaltitle, 
-          description: data.description,
-          status: data.status 
-        } 
-      },
-      { new: true }
-    );
-
-    if (!updatedMongo) throw new Error("Projet introuvable dans MongoDB.");
-
-    // 2. Mise à jour Neo4j
-    const cypher = `
-      MATCH (p:Project {uid: $uid})
-      SET p.title = $title, p.updatedAt = datetime()
-      RETURN p
-    `;
-    await runQuery(cypher, { uid: uid, title: finaltitle });
-
-    return updatedMongo;
-  } catch (error: any) {
-    console.error("❌ Erreur synchro projet :", error.message);
-    throw error;
-  }
-};
 
 /**
  * 🔐 DROITS DANS LE GRAPHE (Relation User -> Project)
@@ -121,7 +83,7 @@ export const updateProjectSync = async (uid: string, data: any) => {
 export const updateUserProjectCapabilities = async (
   projectUid: string,
   targetUserUid: string,
-  newRole: ProjectRole,
+  // newRole: ProjectRole, TODO 1
   newCaps: string[]
 ) => {
   const cypher = `
@@ -138,7 +100,7 @@ export const updateUserProjectCapabilities = async (
     const records = await runQuery(cypher, {
       userUid: targetUserUid,
       projectUid: projectUid,
-      role: newRole,
+      // role: newRole, TODO 2
       caps: newCaps
     });
 
