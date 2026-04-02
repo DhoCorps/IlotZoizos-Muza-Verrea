@@ -2,10 +2,13 @@
 
 import { useState, Suspense } from 'react';
 import { signIn } from 'next-auth/react';
-import { useSearchParams, useRouter } from 'next/navigation'; 
-import Link from 'next/link';
+import { useSearchParams } from 'next/navigation'; 
+import { Link, useRouter } from '../../../../navigation'; // Utilisation de ta navigation i18n
 
-// --- LE COMPOSANT FORMULAIRE ---
+/**
+ * 🦅 FORMULAIRE DE CONNEXION DE L'ÎLOT
+ * Ce composant est le sas d'entrée pour les oiseaux identifiés.
+ */
 function LoginForm() {
   const router = useRouter(); 
   const searchParams = useSearchParams();
@@ -30,59 +33,60 @@ function LoginForm() {
     });
 
     if (result?.error) {
-      setError("L'oiseau n'a pas été reconnu... Vérifie tes accès.");
+      // Message d'erreur personnalisé selon ton lore
+      setError("L'oiseau n'a pas été reconnu... Vérifie ton chant d'accès.");
       setLoading(false);
     } else {
-      // ✅ Redirection explicite vers la zone i18n
-      router.push('/fr/dashboard'); 
+      // ✅ Redirection fluide vers le Dashboard localisé
+      router.push(`/tom-hat-toes`); 
       router.refresh(); 
     }
   };
 
   return (
-    <div className="w-full max-w-md rounded-2xl border border-emerald-500/30 bg-slate-900/50 p-8 backdrop-blur-xl shadow-2xl shadow-emerald-500/10">
-      
+    <div className="w-full max-w-md bio-card p-8"> {/* Utilisation de ta classe .bio-card */}
       <div className="mb-8 text-center">
-        <h2 className="text-3xl font-bold tracking-tight text-white mb-2">Retour au Nid</h2>
-        <p className="text-slate-400 text-sm">Identifie-toi pour accéder à la matrice.</p>
+        <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Identification</h1>
+        <p className="text-slate-400">Entre dans la matrice de l'Îlot Zoizos</p>
       </div>
-      
+
       {isNewlyRegistered && (
-        <div className="mb-6 rounded-lg bg-emerald-500/10 p-3 text-sm text-emerald-400 border border-emerald-500/20 text-center font-medium">
-          Ton œuf a éclos avec succès ! Connecte-toi pour prendre ton envol.
+        <div className="mb-6 p-4 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400 text-sm text-center">
+          Ton nid a été préparé avec succès. Tu peux maintenant t'identifier.
         </div>
       )}
 
       {error && (
-        <div className="mb-6 rounded-lg bg-red-500/10 p-3 text-sm text-red-400 border border-red-500/20 text-center font-medium">
+        <div className="mb-6 p-4 rounded-lg bg-red-500/10 border border-[#E5484D]/30 text-[#E5484D] text-sm text-center">
           {error}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} className="space-y-6">
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-1">Email de l'oiseau</label>
+          <label className="block text-sm font-medium text-slate-300 mb-2" htmlFor="email">
+            Email de l'oiseau
+          </label>
           <input
+            id="email"
             name="email"
             type="email"
             required
-            className="w-full rounded-lg border border-slate-700 bg-slate-800/50 p-3 text-white outline-none focus:border-emerald-500/50 transition-colors"
-            placeholder="geo@ilot.com"
+            className="w-full rounded-xl border border-white/5 bg-white/5 p-3 text-white outline-none focus:border-[#E5484D]/50 transition-all"
+            placeholder="oiseau@ilot.zoizos"
           />
         </div>
 
         <div>
-          <div className="flex justify-between items-center mb-1">
-            <label className="block text-sm font-medium text-slate-300">Mot de passe secret</label>
-            <Link href="/auth/forgot-password" disable-nprogress="true" className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors">
-              Clé perdue ?
-            </Link>
-          </div>
+          <label className="block text-sm font-medium text-slate-300 mb-2" htmlFor="password">
+            Chant de sécurité (Mot de passe)
+          </label>
           <input
+            id="password"
             name="password"
             type="password"
             required
-            className="w-full rounded-lg border border-slate-700 bg-slate-800/50 p-3 text-white outline-none focus:border-emerald-500/50 transition-colors"
+            className="w-full rounded-xl border border-white/5 bg-white/5 p-3 text-white outline-none focus:border-[#E5484D]/50 transition-all"
             placeholder="••••••••"
           />
         </div>
@@ -90,19 +94,19 @@ function LoginForm() {
         <button
           type="submit"
           disabled={loading}
-          className={`w-full py-3 px-4 mt-2 rounded-lg text-white font-bold transition-all shadow-lg ${
+          className={`w-full py-3 px-4 mt-2 rounded-xl text-white font-bold transition-all shadow-lg ${
             loading 
-              ? 'bg-slate-700 cursor-not-allowed opacity-50' 
-              : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/20'
-          }`}
+              ? 'bg-slate-800 cursor-not-allowed opacity-50' 
+              : 'bg-[#E5484D] hover:bg-[#E5484D]/80 shadow-[#E5484D]/10'
+          }`} // Couleurs basées sur ton Rouge Organique
         >
-          {loading ? 'Vérification dans la canopée...' : 'Entrer dans l\'Îlot'}
+          {loading ? 'Vérification dans la canopée...' : "Prendre son envol"}
         </button>
       </form>
 
-      <div className="mt-6 text-center text-sm text-slate-500 border-t border-slate-800 pt-6">
+      <div className="mt-8 text-center text-sm text-slate-500 border-t border-white/5 pt-6">
         Nouveau dans la volée ?{' '}
-        <Link href="/auth/register" className="text-emerald-400 font-medium hover:text-emerald-300 transition-colors">
+        <Link href="/auth/register" className="text-[#E5484D] font-medium hover:underline transition-colors">
           Créer un profil
         </Link>
       </div>
@@ -110,17 +114,12 @@ function LoginForm() {
   );
 }
 
-// --- LA PAGE EXPORTÉE (Unique) ---
 export default function LoginPage() {
   return (
-    <main className="min-h-screen flex items-center justify-center bg-slate-950 p-4">
-      <Suspense fallback={
-        <div className="text-slate-500 italic">
-          Chargement de la porte d'accès...
-        </div>
-      }>
+    <div className="min-h-[80vh] flex items-center justify-center p-4">
+      <Suspense fallback={<div className="text-[#E5484D]">Initialisation du nid...</div>}>
         <LoginForm />
       </Suspense>
-    </main>
+    </div>
   );
 }

@@ -7,29 +7,26 @@ import { TeamSchema } from "../../../../../packages/types";
 
 /**
  * 📥 GET : Récupérer toutes les escouades de l'oiseau
- * Route : /api/teams
  */
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    
-    if (!session?.user?.uid) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    }
+    if (!session?.user?.uid) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
 
     await connectToDatabase();
     
-    // On récupère les équipes liées à l'utilisateur
+    // On utilise l'UID de session (string) pour filtrer
     const teams = await TeamModel.find({
       $or: [
         { ownerId: session.user.uid },
-        { "members.uid": session.user.uid }
+        { leaderId: session.user.uid }
+        // On pourrait aussi chercher via Neo4j pour plus de précision sur les membres
       ]
     }).lean();
 
     return NextResponse.json(teams, { status: 200 });
   } catch (error) {
-    return NextResponse.json({ error: "Erreur lors de la récupération" }, { status: 500 });
+    return NextResponse.json({ error: "Erreur de récupération" }, { status: 500 });
   }
 }
 

@@ -41,6 +41,7 @@ export const UserSchema = z.object({
     .optional(), 
     
   signature: z.string().max(100).optional(),
+  isAvailableForTeamRequest: z.boolean().default(true),
 
   // --- 📸 IDENTITÉ VISUELLE ---
   profilePicture: z.string().url().optional(),

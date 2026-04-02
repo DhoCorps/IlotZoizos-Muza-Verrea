@@ -15,7 +15,7 @@ export class UserOrchestrator {
   static async syncUserCreation(userData: { 
     uid: string; 
     username: string; 
-    roles: string[] // Changé de [string] (tuple d'un seul élément) à any[] (tableau dynamique)
+    roles?: string[] // Changé de [string] (tuple d'un seul élément) à any[] (tableau dynamique)
     role: string;
   }) {
     console.log(`✨ [Orchestrator] Début du baguage pour l'oiseau : ${userData.username}`);

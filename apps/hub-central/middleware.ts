@@ -27,8 +27,12 @@ export default withAuth(
       authorized: ({ req, token }) => {
         const { pathname } = req.nextUrl;
         
-        // ACCÈS PUBLIC : On autorise la racine et les pages d'accueil localisées
-        const isPublicPage = pathname === '/' || locales.some(l => pathname === `/${l}`);
+        // ACCÈS PUBLIC : La racine ET tout le secteur d'authentification
+        const isPublicPage = 
+          pathname === '/' || 
+          locales.some(l => pathname === `/${l}`) ||
+          pathname.includes('/auth/'); // 🩸 LA CLÉ POUR ÉVITER LA BOUCLE INFINIE
+
         if (isPublicPage) return true;
 
         // Pour tous les autres secteurs (Dashboard, Teams, Tom-Hat-Toes), token requis.
@@ -45,30 +49,9 @@ export default withAuth(
 export const config = {
   matcher: [
     /*
-     * 1. La Racine : indispensable pour que le middleware intercepte l'arrivée 
-     * d'un oiseau et le redirige vers /fr ou /en.
-     */
-    "/",
-
-    /*
-     * 2. Les Secteurs Dashboard :
-     * On ne met que "/dashboard/:path*" car cela couvre automatiquement 
-     * /dashboard/projects, /dashboard/teams et leurs sous-dossiers [projectId], etc.
-     */
-    "/dashboard/:path*",
-    "/:locale(fr|en)/dashboard/:path*",
-
-    /*
-     * 3. Les Inceptions (Hors Dashboard) :
-     * Tom-Hat-Toes est à la racine dans ton dossier (inceptions).
-     */
-    "/tom-hat-toes/:path*",
-    "/:locale(fr|en)/tom-hat-toes/:path*",
-
-    /*
-     * EXCLUSIONS CRUCIALES :
-     * On évite de matcher les fichiers statiques (images, favicon) et les routes API 
-     * pour ne pas créer de boucles de redirection infinies sur les données brutes.
+     * Le Sceau de Protection global.
+     * Intercepte toutes les requêtes SAUF les API et les fichiers statiques.
+     * Plus besoin de lister chaque route, le middleware trie tout seul.
      */
     '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],

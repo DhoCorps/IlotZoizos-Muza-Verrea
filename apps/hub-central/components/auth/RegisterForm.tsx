@@ -2,8 +2,8 @@
 
 import { NextResponse } from 'next/server';
 import mongoose from 'mongoose';
-import { connectToDatabase, UserModel } from "@ilot/infrastructure"; 
-import { SyncOrchestrator, MoralChecker } from "@ilot/shared-core";
+import { connectToDatabase, UserModel } from "../../../../packages/infrastructure"; 
+import { UserOrchestrator, MoralChecker } from "../../../../packages/shared-core";
 import bcrypt from 'bcryptjs';
 
 export async function POST(req: Request) {
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     // 🛡️ 4. Synchronisation via l'Orchestrator (Neo4j)
     // SUTURE : On envoie 'uid' et non 'mongodbId' pour rester cohérent avec le graphe
     try {
-      await SyncOrchestrator.syncUserCreation({ 
+      await UserOrchestrator.syncUserCreation({ 
         uid: userUid,
         username: savedUser.username,
         role: savedUser.role 

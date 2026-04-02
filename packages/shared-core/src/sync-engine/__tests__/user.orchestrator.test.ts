@@ -12,11 +12,12 @@ vi.mock('@ilot/infrastructure', () => ({
 }));
 
 describe('UserOrchestrator - syncUserCreation', () => {
+  // 🩸 CORRECTION ICI : On satisfait l'interface stricte de l'Orchestrateur
   const mockUserData = {
     uid: 'user_999',
     username: 'OiseauDeNuit',
-    roles: ['MEMBRE'],
-    role: 'MEMBRE'
+    role: 'MEMBRE',     // <- Le champ obligatoire attendu depuis MongoDB
+    roles: ['MEMBRE'],  // <- Le champ optionnel
   };
 
   beforeEach(() => {
@@ -33,12 +34,11 @@ describe('UserOrchestrator - syncUserCreation', () => {
     // 2. Action
     const result = await UserOrchestrator.syncUserCreation(mockUserData);
 
-    // 3. Vérifications
+    // 3. Vérifications (L'infrastructure, elle, n'attend que le tableau "roles")
     expect(mockedBaguer).toHaveBeenCalledWith({
       uid: mockUserData.uid,
       username: mockUserData.username,
-      roles: mockUserData.roles,
-      role: mockUserData.role
+      roles: mockUserData.roles, 
     });
     
     expect(result.status).toBe('success');
@@ -56,7 +56,7 @@ describe('UserOrchestrator - syncUserCreation', () => {
     await expect(UserOrchestrator.syncUserCreation(mockUserData))
       .rejects.toThrow('Erreur de Graphe');
 
-    // On vérifie que l'erreur a bien été logguée (optionnel)
+    // On vérifie que l'erreur a bien été logguée
     expect(mockedBaguer).toHaveBeenCalledTimes(1);
   });
 });

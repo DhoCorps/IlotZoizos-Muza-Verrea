@@ -26,6 +26,7 @@ const UserSchema = new Schema<UserDocument>(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
     password: { type: String, select: false },
     signature: { type: String },
+    isAvailableForTeamRequest: { type: Boolean, default: true},
 
     // --- 📸 IDENTITÉ VISUELLE ---
     profilePicture: { type: String },

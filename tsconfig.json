@@ -14,13 +14,7 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "baseUrl": ".",
-    "paths": {
-      "@ilot/types": ["./packages/types/src/index.ts"],
-      "@ilot/config": ["./packages/config/src/index.ts"],
-      "@ilot/infrastructure": ["./packages/infrastructure/src/index.ts"],
-      "@ilot/shared-core": ["./packages/shared-core/src/index.ts"]
-    },
+    
     /* 🪄 Ajouts critiques pour la stabilité */
     "moduleDetection": "force",
     "allowImportingTsExtensions": false,
@@ -30,6 +24,7 @@
   },
   "include": [
     "next-env.d.ts",
+    "declaration.d.ts",
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts"

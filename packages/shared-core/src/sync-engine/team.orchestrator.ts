@@ -5,11 +5,12 @@ import { TransactionManager } from './transactionManager';
 
 /**
  * 🛰️ TEAM ORCHESTRATOR 
- * Le Forgeur de Nids. Assure la cohérence entre le document (Mongo) et le lien (Neo4j).
+ * L'Architecte des liens. Assure la cohérence entre Mongo et Neo4j.
  */
 export const TeamOrchestrator = {
 
-  // 🌟 FONDATION : Création d'une escouade avec double-ancrage
+  // --- 🌟 FONDATION : CRÉATION DU NID ---
+
   async fosterTeam(teamData: { 
     name: string, 
     creatorUid: string, 
@@ -19,12 +20,14 @@ export const TeamOrchestrator = {
     nuances: string[]; 
     isPrivate: boolean;
   }) {
-    // 🛡️ Vérification morale avant d'entrer dans la matrice
+    // 🛡️ SUTURE VITEST : On vérifie la morale AVANT d'ouvrir la transaction
     const check = MoralChecker.analyze(teamData.name);
-    if (!check.isSafe) throw new Error(`Nom invalide : ${check.suggestion}`);
+    if (!check.isSafe) {
+      throw new Error(`Nom invalide : ${check.suggestion}`);
+    }
 
     const creator = await UserModel.findOne({ uid: teamData.creatorUid });
-    if (!creator) throw new Error("Créateur introuvable.");
+    if (!creator) throw new Error("Créateur introuvable dans la canopée.");
 
     let parentObjectId = null;
     if (teamData.parentId) {
@@ -34,7 +37,7 @@ export const TeamOrchestrator = {
     }
 
     return await TransactionManager.execute("Fondation d'Escouade", async (mongoSession, neo4jTx) => {
-      // 1. MONGO : Création du nid
+      // 1. MONGO : Création du document
       const [newTeam] = await TeamModel.create([{
         name: teamData.name,
         description: teamData.description,
@@ -43,24 +46,20 @@ export const TeamOrchestrator = {
         parentId: parentObjectId 
       }], { session: mongoSession });
 
-      // Liaison du nid au créateur dans Mongo
       await UserModel.findByIdAndUpdate(
         creator._id,
         { $push: { teams: newTeam._id } }, 
         { session: mongoSession }
       );
 
-      // 2. NEO4J : Tissage des liens sociaux
+      // 2. NEO4J : Tissage du graphe social
       const cypher = `
         MERGE (u:User { uid: $creatorUid })
         ON CREATE SET u.username = $creatorName
-        
         MERGE (t:Team { uid: $teamUid })
         ON CREATE SET t.name = $name, t.createdAt = datetime()
-        
         MERGE (u)-[r:MEMBER_OF]->(t)
-        ON CREATE SET r.role = 'ADMIN', r.since = datetime()
-        
+        SET r.role = 'ADMIN', r.since = datetime()
         WITH t
         OPTIONAL MATCH (p:Team { uid: $parentId })
         FOREACH (_ IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
@@ -81,7 +80,45 @@ export const TeamOrchestrator = {
     });
   },
 
-  // 🎭 MUTATION : Mise à jour sécurisée du nid
+  // --- 🤝 RECRUTEMENT DYNAMIQUE (FUSIONNÉ) ---
+
+  /**
+   * 🔍 Chercher les oiseaux qui acceptent les invitations
+   */
+  async getRecruitableBirds(search: string = "") {
+    return await UserModel.find({
+      isAvailableForTeamRequest: true, // Respect du flag de l'oiseau
+      username: { $regex: search, $options: 'i' }
+    })
+    .select('uid username signature bio')
+    .limit(10)
+    .lean();
+  },
+
+  /**
+   * 📨 Envoyer une invitation (Marquage Neo4j)
+   */
+  async inviteBird(teamUid: string, targetUserUid: string) {
+    const target = await UserModel.findOne({ uid: targetUserUid });
+    if (!target || !target.isAvailableForTeamRequest) {
+      throw new Error("Cet oiseau n'est pas disponible pour un recrutement.");
+    }
+
+    return await TransactionManager.execute("Invitation d'Oiseau", async (_, neo4jTx) => {
+      const cypher = `
+        MATCH (u:User { uid: $targetUserUid })
+        MATCH (t:Team { uid: $teamUid })
+        MERGE (u)-[r:INVITED_TO]->(t)
+        SET r.invitedAt = datetime()
+        RETURN u.username as name
+      `;
+      const result = await neo4jTx.run(cypher, { targetUserUid, teamUid });
+      return result.records[0]?.get('name');
+    });
+  },
+
+  // --- 🎭 MUTATION & DISSOLUTION ---
+
   async mutateTeam(teamUid: string, data: Partial<ITeam>) {
     if (data.name) {
       const check = MoralChecker.analyze(data.name);
@@ -107,107 +144,20 @@ export const TeamOrchestrator = {
     });
   },
 
-  // 🌋 DISSOLUTION : Désintégration totale et propre
   async dissolveTeam(teamUid: string) {
     return await TransactionManager.execute("Dissolution de Nid", async (mongoSession, neo4jTx) => {
-      // 1. Suppression Neo4j (Détachement des liens)
       await neo4jTx.run(`MATCH (t:Team {uid: $teamUid}) DETACH DELETE t`, { teamUid });
       
-      // 2. Suppression Mongo
       const deletedTeam = await TeamModel.findOneAndDelete({ uid: teamUid }, { session: mongoSession });
       
       if (deletedTeam) {
-        // Nettoyage des références chez tous les utilisateurs
         await UserModel.updateMany(
           { teams: deletedTeam._id },
           { $pull: { teams: deletedTeam._id } },
           { session: mongoSession }
         );
       }
-      
       return true;
     });
-  },
-
-  // 🎖️ RÔLES : Promotion et Assignation (Désormais sous transaction !)
-  async assignRole(teamUid: string, targetUserUid: string, role: string, permissions: string[] = []) {
-    return await TransactionManager.execute("Assignation de Rôle", async (mongoSession, neo4jTx) => {
-      const cypher = `
-        MATCH (u:User { uid: $userUid })
-        MATCH (t:Team { uid: $teamUid })
-        MERGE (u)-[r:MEMBER_OF]->(t)
-        SET r.role = $role, 
-            r.permissions = $permissions, 
-            r.since = coalesce(r.since, datetime())
-        RETURN r.role AS assignedRole, r.permissions AS assignedPermissions
-      `;
-      const result = await neo4jTx.run(cypher, { userUid: targetUserUid, teamUid, role, permissions });
-      
-      if (result.records.length === 0) throw new Error("Impossible de lier l'oiseau.");
-      
-      return { 
-        success: true, 
-        role: result.records[0].get('assignedRole'), 
-        permissions: result.records[0].get('assignedPermissions') 
-      };
-    });
-  },
-
-  // 🚪 MEMBRES : Expulsion sécurisée
-  async removeMember(teamUid: string, targetUserUid: string, requesterUid: string) {
-    if (targetUserUid === requesterUid) {
-      throw new Error("🔒 Sécurité : Un oiseau ne peut pas s'expulser lui-même du nid.");
-    }
-
-    return await TransactionManager.execute("Bannissement d'Oiseau", async (mongoSession, neo4jTx) => {
-      const cypher = `
-        MATCH (u:User {uid: $targetUserUid})-[r:MEMBER_OF]->(t:Team {uid: $teamUid})
-        DELETE r
-        RETURN coalesce(u.username, 'Inconnu') AS birdName
-      `;
-      const result = await neo4jTx.run(cypher, { targetUserUid, teamUid });
-      
-      if (result.records.length === 0) throw new Error("Impossible de bannir : oiseau introuvable.");
-
-      // Optionnel : Retirer l'ID de l'équipe du tableau teams de l'utilisateur dans Mongo
-      const targetUser = await UserModel.findOne({ uid: targetUserUid });
-      const team = await TeamModel.findOne({ uid: teamUid });
-      if (targetUser && team) {
-        await UserModel.findByIdAndUpdate(targetUser._id, { $pull: { teams: team._id } }, { session: mongoSession });
-      }
-
-      return result.records[0].get('birdName');
-    });
-  },
-
-  // 📖 LECTURES (Hors transaction pour plus de vitesse)
-  async getTeamDetails(teamUid: string) {
-    const team = await TeamModel.findOne({ uid: teamUid }).lean();
-    if (!team) throw new Error("Ce nid n'existe pas ou a été détruit.");
-
-    const session = getNeo4jSession();
-    try {
-      const cypher = `
-        MATCH (u:User)-[r:MEMBER_OF]->(t:Team {uid: $teamUid})
-        RETURN coalesce(u.uid, u.mongodbId) as uid, u.username as username, r.role as role, r.permissions as permissions
-      `;
-      const result = await session.run(cypher, { teamUid });
-      
-      const members = await Promise.all(result.records.map(async (record: any) => {
-        const birdUid = record.get('uid');
-        const mongoUser = await UserModel.findOne({ uid: birdUid }).select('email').lean();
-        return {
-          uid: birdUid,
-          username: record.get('username') || 'Oiseau Fantôme',
-          email: mongoUser?.email || "email.inconnu@ilot.fr",
-          role: record.get('role'),
-          permissions: record.get('permissions') || [] 
-        };
-      }));
-
-      return { ...team, members };
-    } finally {
-      await session.close();
-    }
   }
 };

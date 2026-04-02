@@ -4,7 +4,7 @@ import { getNeo4jSession } from '../../neo4j'; // Ton utilitaire de session
 export const baguerOiseau = async (user: { 
   uid: string; // ✅ Aligné avec l'orchestrateur
   username: string; 
-  roles: string[]; 
+  roles: string[] | undefined; 
 }) => {
   const session = getNeo4jSession();
   
