@@ -2,6 +2,7 @@ import { TeamModel, UserModel, getNeo4jSession } from '@ilot/infrastructure';
 import { ITeam } from '@ilot/types';
 import { MoralChecker } from '../integrity/moral.checker';
 import { TransactionManager } from './transactionManager';
+import { randomUUID } from 'crypto';
 
 /**
  * 🛰️ TEAM ORCHESTRATOR 
@@ -20,7 +21,7 @@ export const TeamOrchestrator = {
     nuances: string[]; 
     isPrivate: boolean;
   }) {
-    // 🛡️ SUTURE VITEST : On vérifie la morale AVANT d'ouvrir la transaction
+    // 🛡️ SUTURE VITEST : Vérification morale
     const check = MoralChecker.analyze(teamData.name);
     if (!check.isSafe) {
       throw new Error(`Nom invalide : ${check.suggestion}`);
@@ -36,9 +37,13 @@ export const TeamOrchestrator = {
       parentObjectId = parentTeam._id;
     }
 
+    // 2. Génération de l'UID en amont
+    const teamUid = `team_${randomUUID()}`;
+
     return await TransactionManager.execute("Fondation d'Escouade", async (mongoSession, neo4jTx) => {
-      // 1. MONGO : Création du document
+      // 3. MONGO : Utilisation de l'UID généré
       const [newTeam] = await TeamModel.create([{
+        uid: teamUid, // On injecte l'UID ici
         name: teamData.name,
         description: teamData.description,
         ownerId: creator._id,
@@ -52,7 +57,7 @@ export const TeamOrchestrator = {
         { session: mongoSession }
       );
 
-      // 2. NEO4J : Tissage du graphe social
+      // 4. NEO4J : Tissage avec le même UID
       const cypher = `
         MERGE (u:User { uid: $creatorUid })
         ON CREATE SET u.username = $creatorName
@@ -71,7 +76,7 @@ export const TeamOrchestrator = {
       await neo4jTx.run(cypher, {
         creatorUid: teamData.creatorUid,
         creatorName: creator.username, 
-        teamUid: newTeam.uid,
+        teamUid: teamUid, // Utilisation de notre constante
         name: newTeam.name,
         parentId: teamData.parentId || null
       });
@@ -79,7 +84,6 @@ export const TeamOrchestrator = {
       return { success: true, team: newTeam };
     });
   },
-
   // --- 🤝 RECRUTEMENT DYNAMIQUE (FUSIONNÉ) ---
 
   /**

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { connectToDatabase } from '@ilot/infrastructure';
+import { connectToDatabase } from '../../../../infrastructure';
 import mongoose from 'mongoose';
 
 export async function GET() {

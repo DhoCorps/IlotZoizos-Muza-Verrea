@@ -1,15 +1,20 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Loader2, Plus, Network, UserPlus, ShieldCheck, Trash2, X, BarChart3, Paperclip, AlertTriangle } from 'lucide-react';
-// Importation des composants de chantiers (à adapter selon ton arborescence)
+import { Loader2, Plus, Network, UserPlus, ShieldCheck, Trash2, X, BarChart3, Paperclip, AlertTriangle, Clock, Users } from 'lucide-react';
+// Importation des composants (Chemins adaptés à ton architecture)
 import { ProjectDashboard } from '../../../../components/projects/ProjectDashboard';
 import { ProjectForm } from '../../../../components/projects/ProjectForm';
+import { TaskCard } from '../../../../components/tasks/TaskCard';
+import { TaskForm } from '../../../../components/tasks/TaskForm';
+import { ContextualGraph } from '../../../../components/graph/ContextualGraph'; // Ajout du graphe contextuel
 
 export default function TomHatToesHub() {
   // --- 🧊 ÉTATS DE LA SILICE ---
   const [inceptions, setInceptions] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
+  const [projectTasks, setProjectTasks] = useState<any[]>([]); // Nouvel état pour les atomes
+  const [selectedProjectUid, setSelectedProjectUid] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeInceptionId, setActiveInceptionId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'teams' | 'projects'>('teams');
@@ -23,7 +28,6 @@ export default function TomHatToesHub() {
   const refreshData = async () => {
     setLoading(true);
     try {
-      // Suture simultanée des deux mondes [cite: 2026-03-09]
       const [teamsRes, projectsRes] = await Promise.all([
         fetch('/api/teams').then(res => res.json()),
         fetch('/api/projects').then(res => res.json())
@@ -31,6 +35,11 @@ export default function TomHatToesHub() {
       
       setInceptions(Array.isArray(teamsRes) ? teamsRes : []);
       setProjects(Array.isArray(projectsRes) ? projectsRes : []);
+
+      // Si un projet est ouvert, on rafraîchit aussi ses tâches
+      if (selectedProjectUid) {
+        await fetchTasks(selectedProjectUid);
+      }
     } catch (err) {
       console.error("🚨 Erreur Hub Sync:", err);
     } finally {
@@ -39,6 +48,53 @@ export default function TomHatToesHub() {
   };
 
   useEffect(() => { refreshData(); }, []);
+
+  // --- 📦 LOGIQUE DES TÂCHES (TOM-HAT-TOES) ---
+  const fetchTasks = async (pUid: string) => {
+    try {
+      const res = await fetch(`/api/tasks?projectUid=${pUid}`).then(r => r.json());
+      setProjectTasks(res);
+      setSelectedProjectUid(pUid);
+    } catch (err) {
+      console.error("🔥 Erreur radar tâches:", err);
+    }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    
+    // Construction de l'atome collaboratif
+    const taskPayload = {
+      projectUid: selectedProjectUid,
+      creatorUid: "user_999", // TODO: Remplacer par l'oiseau connecté
+      parentUid: formData.get('parentUid') || null,
+      assigneeUids: Array.from(formData.getAll('assignees')),
+      content: {
+        title: formData.get('title'),
+        description: formData.get('description'),
+      },
+      priority: formData.get('priority'),
+      pomodoros: {
+        estimated: Number(formData.get('pomoEst')),
+        completed: 0
+      },
+      metrics: {
+        mentalLoad: Number(formData.get('mentalLoad'))
+      }
+    };
+
+    try {
+      await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(taskPayload)
+      });
+      handleCreateSuccess();
+    } catch (err) {
+      console.error("🔥 Erreur création atome:", err);
+    }
+  };
 
   // --- 🛰️ LOGIQUE RADAR & INVITATION ---
   const handleSearchBirds = async (val: string) => {
@@ -68,7 +124,6 @@ export default function TomHatToesHub() {
     setActiveInceptionId(null);
   };
 
-  // Fondation de Nid (Team)
   const createNewTeam = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -89,15 +144,26 @@ export default function TomHatToesHub() {
     } catch (err) { console.error("Erreur création nid", err); }
   };
 
-  if (loading) return (
+  if (loading && inceptions.length === 0) return (
     <div className="min-h-screen flex items-center justify-center bg-[#05070A]">
       <Loader2 className="w-10 h-10 animate-spin text-[#E5484D]" />
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-[#05070A] text-slate-100 p-6 md:p-12">
+    <div className="min-h-screen bg-[#05070A] text-slate-100 p-6 md:p-12 relative">
       
+      {/* 🔮 LA BULLE DU NEXUS (Graphe Contextuel) */}
+      {(selectedProjectUid || activeInceptionId) && (
+        <ContextualGraph 
+          rootUid={selectedProjectUid || activeInceptionId || ''} 
+          onNodeDoubleClick={(uid) => {
+            // Un double-clic sur un nœud ouvre la modale de l'élément
+            setActiveInceptionId(uid);
+          }}
+        />
+      )}
+
       {/* 🏷️ HEADER BIO-TECH */}
       <header className="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
@@ -201,23 +267,79 @@ export default function TomHatToesHub() {
             ))}
           </div>
         ) : (
-          <ProjectDashboard 
-            projects={projects} 
-            onEditProject={(uid) => setActiveInceptionId(uid)} 
-          />
+          <div className="space-y-12">
+            <ProjectDashboard 
+              projects={projects} 
+              onEditProject={(uid) => setActiveInceptionId(uid)} 
+              onViewTasks={(uid: string) => fetchTasks(uid)}
+            />
+
+            {/* 📦 ZONE CONTEXTUELLE DES TÂCHES */}
+            {selectedProjectUid && (
+              <div className="mt-12 p-8 bg-white/[0.02] border border-white/5 rounded-3xl animate-in fade-in slide-in-from-right-4 duration-500">
+                <div className="flex justify-between items-center mb-8">
+                  <div>
+                    <h3 className="text-2xl font-black uppercase tracking-tighter italic flex items-center gap-3">
+                      <BarChart3 className="text-[#E5484D]" />
+                      Atomes du Chantier
+                    </h3>
+                    <p className="text-[10px] text-slate-500 uppercase font-mono mt-1">Gestion des Pomodoros et de la charge mentale</p>
+                  </div>
+                  <button onClick={() => setSelectedProjectUid(null)} className="p-2 hover:bg-white/5 rounded-full text-slate-500 hover:text-white transition-all">
+                    <X size={24} />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {projectTasks.map(task => (
+                    <TaskCard 
+                      key={task.uid} 
+                      task={task} 
+                      onStatusChange={() => refreshData()} 
+                    />
+                  ))}
+                  
+                  <button 
+                    onClick={() => setActiveInceptionId('task_new')}
+                    className="border-2 border-dashed border-white/5 rounded-2xl flex flex-col items-center justify-center p-8 text-slate-600 hover:text-[#E5484D] hover:border-[#E5484D]/20 transition-all group"
+                  >
+                    <Plus className="mb-2 group-hover:scale-110 transition-transform" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Nouvel Atome</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </main>
 
       {/* 🏗️ MODALE DE FONDATION UNIFIÉE */}
-      {activeInceptionId === 'global' && (
+      {activeInceptionId && (activeInceptionId === 'global' || activeInceptionId === 'task_new') && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-[#05070A]/95 backdrop-blur-xl">
-          <div className="w-full max-w-2xl bio-card p-10 border border-white/5">
+          <div className="w-full max-w-2xl bio-card p-10 border border-white/5 relative">
+            
+            {/* Bouton de fermeture de la modale */}
+            <button 
+                onClick={() => setActiveInceptionId(null)}
+                className="absolute top-4 right-4 p-2 text-slate-500 hover:text-white transition-colors"
+            >
+                <X size={20} />
+            </button>
+
             <h3 className="text-2xl font-black uppercase mb-8 text-[#E5484D] flex items-center gap-3">
               <Plus className="w-6 h-6" />
-              {activeTab === 'teams' ? "Amorcer un Nid" : "Sceller un Chantier"}
+              {activeInceptionId === 'task_new' ? "Sceller un Atome" : (activeTab === 'teams' ? "Amorcer un Nid" : "Sceller un Chantier")}
             </h3>
             
-            {activeTab === 'teams' ? (
+            {activeInceptionId === 'task_new' ? (
+              <TaskForm 
+                projectUid={selectedProjectUid}
+                birds={foundBirds} // Liste des oiseaux pour l'assignation
+                existingTasks={projectTasks}
+                onSubmit={handleCreateTask}
+                onCancel={() => setActiveInceptionId(null)}
+              />
+            ) : activeTab === 'teams' ? (
               <form onSubmit={createNewTeam} className="space-y-6">
                 <input name="name" placeholder="Nom de l'escouade" required className="bio-input" />
                 <textarea name="description" placeholder="Mission du nid..." className="bio-input h-32" />
@@ -232,7 +354,7 @@ export default function TomHatToesHub() {
               </form>
             ) : (
               <ProjectForm 
-                ownerUid="user_999" // TODO: Remplacer par l'UID de l'oiseau connecté
+                ownerUid="user_999"
                 existingProjects={projects}
                 onSuccess={handleCreateSuccess}
                 onCancel={() => setActiveInceptionId(null)}

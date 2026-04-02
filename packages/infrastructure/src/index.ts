@@ -7,6 +7,7 @@ export * from './database/models/nosql/role.model';
 export * from './database/models/nosql/permission.model';
 
 export * from './database/models/nosql/project.model';
+export * from './database/models/nosql/task.model';
 
 export * from './database/services/mutation.service';
 export * from './database/services/sync.service';

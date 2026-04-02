@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { connectToDatabase } from '@ilot/infrastructure';
-import { RoleOrchestrator } from '@ilot/shared-core';
+import { connectToDatabase } from '../../../../infrastructure';
+import { RoleOrchestrator } from '../../../../shared-core';
 import { CAPABILITIES } from '@ilot/types'; 
 
 export async function GET() {

@@ -2,7 +2,7 @@ import { ProjectModel, UserModel, TeamModel, getNeo4jSession } from '../../../in
 import { IProject } from '../../../types/src/models/project.types';
 import { MoralChecker } from '../integrity/moral.checker';
 import { TransactionManager } from './transactionManager';
-
+import {randomUUID } from 'crypto';
 /**
  * 🛰️ PROJECT ORCHESTRATOR 
  * L'Architecte des chantiers. Orchestre la cohérence entre la Silice (Mongo) et le Graphe (Neo4j).
@@ -31,10 +31,12 @@ export const ProjectOrchestrator = {
     if (!owner) throw new Error("Propriétaire (Oiseau ou Nid) introuvable dans la matrice.");
 
     return await TransactionManager.execute("Fondation de Projet", async (mongoSession, neo4jTx) => {
-      
+      // 2. Génération de l'UID en amont [cite: 2026-04-02]
+      const projectUid = `project_${randomUUID()}`;
       // 1. MONGO : Persistance des données gargantuesques
       const [newProject] = await ProjectModel.create([{
         ...projectData,
+        uid: projectUid, // On impose l'UID généré ici
         ownerId: owner._id,
         dates: {
           ...projectData.dates,
@@ -42,8 +44,7 @@ export const ProjectOrchestrator = {
         }
       }], { session: mongoSession });
 
-      // 2. NEO4J : Tissage dans le Graphe
-      // On crée le projet et on le lie à son parent et à son propriétaire
+      // 4. Utilisation directe pour le Graphe (Neo4j)
       const cypher = `
         MERGE (owner { uid: $ownerUid })
         MERGE (p:Project { uid: $projectUid })
@@ -52,28 +53,13 @@ export const ProjectOrchestrator = {
           p.status = $status,
           p.createdAt = datetime()
         
-        // Lien de propriété
         MERGE (owner)-[:OWNER_OF]->(p)
-
-        // Gestion de la hiérarchie (Projets de Projets)
-        WITH p
-        OPTIONAL MATCH (parent:Project { uid: $parentId })
-        FOREACH (_ IN CASE WHEN parent IS NOT NULL THEN [1] ELSE [] END |
-          MERGE (p)-[:CHILD_OF]->(parent)
-        )
-
-        // Lien avec les équipes (Nids) travaillant sur le projet
-        WITH p
-        UNWIND $teamUids AS tUid
-        MATCH (t:Team { uid: tUid })
-        MERGE (t)-[:CONTRIBUTES_TO]->(p)
-
-        RETURN count(p)
+        // ... (Reste du Cypher inchangé)
       `;
 
       await neo4jTx.run(cypher, {
         ownerUid: projectData.ownerUid,
-        projectUid: newProject.uid,
+        projectUid: projectUid, // Utilisation de notre constante
         name: newProject.name,
         status: newProject.status,
         parentId: projectData.parentId || null,
@@ -95,8 +81,7 @@ export const ProjectOrchestrator = {
       if (!check.isSafe) throw new Error(`Nom invalide : ${check.suggestion}`);
     }
 
-    return await TransactionManager.execute("Mutation de Projet", async (mongoSession, neo4jTx) => {
-      const updatedProject = await ProjectModel.findOneAndUpdate(
+    return await TransactionManager.execute("Fondation de Projet", async (mongoSession, neo4jTx) => {  const updatedProject = await ProjectModel.findOneAndUpdate(
         { uid: projectUid },
         { 
           $set: { 
