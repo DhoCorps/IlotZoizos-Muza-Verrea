@@ -6,3 +6,4 @@ export * from './core/auth';
 export * from './models/common.types';
 export * from './models/moderation.types';
 export * from './models/team.types';
+export * from './models/project.types';

@@ -9,6 +9,8 @@
     "pnpm": ">=8.0.0"
   },
   "scripts": {
+    "db:seed": "ts-node packages/infrastructure/src/scripts/seed.ts",
+    "db:roundup": "ts-node packages/infrastructure/src/scripts/roundup.ts",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",

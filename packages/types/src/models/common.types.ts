@@ -1,9 +1,10 @@
 import { z } from 'zod';
 
 // 1. Renommé pour éviter la collision avec status.types.ts
-export type StatusEnum = 'TODO' | 'IN_PROGRESS' | 'DONE' | 'ARCHIVED' | 'BLOCKED' | 'ABANDONED';
+export type StatusEnum = 'CONCEPT' |'TODO' | 'IN_PROGRESS' | 'DONE' | 'ARCHIVED' | 'BLOCKED' | 'ABANDONED';
 
 export const STATUS_CONFIG: Record<StatusEnum, { label: string, color: string }> = {
+  CONCEPT:{ label: '0', color:'brown'},
   TODO: { label: '?', color: 'gray' },
   IN_PROGRESS: { label: '...', color: 'blue' },
   DONE: { label: '!', color: 'green' },
@@ -23,7 +24,7 @@ export const BaseNodeSchema = z.object({
 export type IBaseNode = z.infer<typeof BaseNodeSchema>;
 
 // 📊 Constantes Globales (TRADUITES EN ANGLAIS)
-export const ProjectStatusSchema = z.enum(['PLANNED', 'IN_PROGRESS', 'COMPLETED', 'PAUSED', 'REDUCED_SPEED']);
+export const ProjectStatusSchema = z.enum(['CONCEPT', 'PLANNED', 'IN_PROGRESS', 'COMPLETED', 'PAUSED', 'REDUCED_SPEED']);
 export const ProjectPrioritySchema = z.enum(['TRIVIAL', 'EASY', 'MEDIUM', 'HARD', 'EXTREME', 'CRITICAL']);
 
 // 👉 L'EXPORT MANQUANT POUR TASKS

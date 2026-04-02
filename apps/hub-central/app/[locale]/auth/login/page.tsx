@@ -12,7 +12,7 @@ import { Link, useRouter } from '../../../../navigation'; // Utilisation de ta n
 function LoginForm() {
   const router = useRouter(); 
   const searchParams = useSearchParams();
-  const isNewlyRegistered = searchParams.get('registered') === 'true';
+  const isNewlyRegistered = searchParams?.get('registered') === 'true';
   
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
