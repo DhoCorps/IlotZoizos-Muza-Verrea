@@ -1,4 +1,4 @@
-import { ITeam, IUser } from "../../../packages/types";
+import { ITeam, IUser, IProject, ITask, IStatus } from "../../../packages/types";
 
 const BASE_URL = '/api';
 
@@ -69,7 +69,7 @@ export const user = {
  /**
  * 🌿 MODULE : LES FRAGMENTS (Projets)
  */
-/* export const projects = {
+export const projects = {
   getAll: () => apiFetch<IProject[]>('/projects'),
   getById: (uid: string) => apiFetch<IProject>(`/projects/${uid}`),
   create: (data: Partial<IProject>) => 
@@ -79,11 +79,11 @@ export const user = {
   delete: (uid: string) => apiFetch<void>(`/projects/${uid}`, { method: 'DELETE' }),
   getStatuses: () => apiFetch<IStatus[]>('/projects/statuses/all'),
 };
-*/
+
 /**
  * 🍂 MODULE : LES BRINDILLES (Tasks)
  */
-/*export const tasks = {
+export const tasks = {
   // 🛡️ SUTURE : projectUid -> projectId
   getAll: (projectId?: string) => 
     apiFetch<ITask[]>(`/tasks${projectId ? `?projectId=${projectId}` : ''}`),
@@ -97,7 +97,7 @@ export const user = {
   
   burn: (uid: string) => apiFetch<void>(`/tasks/${uid}`, { method: 'DELETE' }),
 };
-*/
+
 /**
  * 🛡️ MODULE : LE LIVRE DES SORTILÈGES (Rôles & Permissions)
  */

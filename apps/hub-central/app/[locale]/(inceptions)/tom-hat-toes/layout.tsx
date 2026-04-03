@@ -1,4 +1,9 @@
-import Sidebar from "../../../../components/navigation/Sidebar"; // Ton nouveau composant
+'use client';
+
+import Sidebar from "../../../../components/navigation/Sidebar";
+// 🍅 Importation des organes temporels
+import { PomodoroProvider } from "../../../../context/PomodoroContext";
+import PomodoroHUD from "../../../../components/hub/PomodoroHUD";
 
 export default function InceptionLayout({
   children,
@@ -6,15 +11,21 @@ export default function InceptionLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative min-h-screen">
-      {/* 🦅 Ta Boussole Flottante à gauche */}
-      <Sidebar />
+    // 🛡️ L'enveloppe protectrice du temps
+    <PomodoroProvider>
+      <div className="relative min-h-screen">
+        {/* 🦅 Ta Boussole Flottante à gauche */}
+        <Sidebar />
 
-      {/* 🌍 Le reste de l'Îlot (Tes pages comme tom-hat-toes) */}
-      <main className="pl-40 pr-8 py-8"> 
-        {/* On ajoute du padding à gauche (pl-24) pour ne pas que le contenu soit caché par le Header */}
-        {children}
-      </main>
-    </div>
+        {/* 🌍 Le reste de l'Îlot (Tes pages comme tom-hat-toes) */}
+        <main className="pl-40 pr-8 py-8"> 
+          {/* On ajoute du padding à gauche (pl-40) pour l'équilibre visuel */}
+          {children}
+        </main>
+
+        {/* 🛸 Le HUD surgit ici, au-dessus de la matrice */}
+        <PomodoroHUD />
+      </div>
+    </PomodoroProvider>
   );
 }

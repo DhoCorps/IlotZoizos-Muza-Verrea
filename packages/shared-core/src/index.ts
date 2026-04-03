@@ -5,3 +5,4 @@ export * from './sync-engine/role.orchestrator';
 export * from './sync-engine/team.orchestrator';
 export * from './sync-engine/project.orchestrator';
 export * from './sync-engine/task.orchestrator';
+export * from './sync-engine/kanban.orchestrator';

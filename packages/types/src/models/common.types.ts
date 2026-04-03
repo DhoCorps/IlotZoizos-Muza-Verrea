@@ -5,7 +5,7 @@ export type StatusEnum = 'CONCEPT' |'TODO' | 'IN_PROGRESS' | 'DONE' | 'ARCHIVED'
 
 export const STATUS_CONFIG: Record<StatusEnum, { label: string, color: string }> = {
   CONCEPT:{ label: '0', color:'brown'},
-  TODO: { label: '?', color: 'gray' },
+  TODO: { label: 'TODO', color: 'gray' },
   IN_PROGRESS: { label: '...', color: 'blue' },
   DONE: { label: '!', color: 'green' },
   ARCHIVED: { label: 'M', color: 'purple' },

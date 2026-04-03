@@ -1,34 +1,52 @@
-import { NextResponse } from 'next/server';
-import { connectToDatabase } from '../../../../infrastructure';
-import { RoleOrchestrator } from '../../../../shared-core';
-import { CAPABILITIES } from '@ilot/types'; 
+const path = require('path');
+const dotenv = require('dotenv');
+const mongoose = require('mongoose');
 
-export async function GET() {
+// 🦅 En .cjs, le require('..') cherche automatiquement le index.js
+// Assure-toi que les fichiers compilés (.js) existent dans ces dossiers
+const { connectToDatabase, RoleModel, PermissionModel } = require('../../'); 
+const { RoleOrchestrator } = require('../../../../shared-core/src');
+const { CAPABILITIES } = require('../../../../types');
+
+// Chargement de l'environnement
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
+if (!process.env.MONGODB_URI) {
+    dotenv.config({ path: path.resolve(process.cwd(), 'apps/hub-central/.env.local') });
+}
+
+async function runSeed() {
   try {
+    console.log("🐘 [Silice] Connexion au Nexus via CJS...");
     await connectToDatabase();
 
-    // 1. FORGE DES PERMISSIONS (Alignées sur l'ADN exact de l'Îlot)
+    console.log("🧹 Nettoyage des anciennes tablettes...");
+    await RoleModel.deleteMany({});
+    await PermissionModel.deleteMany({});
+
+    console.log("🔨 Forge des Permissions...");
+    
+    // On utilise les CAPABILITIES directement
     const p1 = await RoleOrchestrator.createPermission({ 
       intitule: 'Gérer la Volée', 
-      code: CAPABILITIES.TEAM.MANAGE, // "team:manage-members"
+      code: CAPABILITIES.TEAM.MANAGE, 
       description: 'Ajouter ou bannir des oiseaux du Nid' 
     });
     
     const p2 = await RoleOrchestrator.createPermission({ 
       intitule: 'Forger des Fragments', 
-      code: CAPABILITIES.PROJECT.CREATE, // "project:create"
+      code: CAPABILITIES.PROJECT.CREATE, 
       description: 'Créer de nouveaux chantiers' 
     });
     
     const p3 = await RoleOrchestrator.createPermission({ 
       intitule: 'Détruire le Nid', 
-      code: CAPABILITIES.TEAM.DELETE, // "team:delete"
+      code: CAPABILITIES.TEAM.DELETE, 
       description: 'Purge absolue de l\'escouade' 
     });
     
     const p4 = await RoleOrchestrator.createPermission({ 
       intitule: 'Modifier les Privilèges', 
-      code: CAPABILITIES.MEMBER.UPDATE, // "member:update"
+      code: CAPABILITIES.MEMBER.UPDATE, 
       description: 'Changer les rôles des autres membres' 
     });
 
@@ -50,35 +68,37 @@ export async function GET() {
       description: 'Permet de construire un nid' 
     });
 
-    // 2. FORGE DES GRADES (Mis à jour)
+    console.log("👑 Forge des Grades...");
+
     await RoleOrchestrator.createRole({ 
       intitule: 'ADMIN', 
       description: 'Superviseur absolu', 
       isSystem: true, 
-      permissions: [p1._id, p2._id, p3._id, p4._id, p5._id, p6._id, p7._id] // 👈 On ajoute tout
+      permissions: [p1._id, p2._id, p3._id, p4._id, p5._id, p6._id, p7._id] 
     });
 
     await RoleOrchestrator.createRole({ 
       intitule: 'BATISSEUR', 
       description: 'Ouvrier du Nid', 
       isSystem: true, 
-      permissions: [p2._id, p5._id, p7._id] // 👈 Le bâtisseur peut créer des nids et inviter
+      permissions: [p2._id, p5._id, p7._id] 
     });
 
     await RoleOrchestrator.createRole({ 
       intitule: 'MEMBRE', 
       description: 'Habitant de la Canopée', 
       isSystem: true, 
-      permissions: [p2._id] // Droits standards
+      permissions: [p2._id] 
     });
     
-    return NextResponse.json({ 
-      success: true, 
-      message: '✨ Le Livre des Sortilèges a été restauré avec l\'ADN exact de l\'Îlot !' 
-    });
+    console.log("✨ [Nexus] Le Livre des Sortilèges a été restauré !");
 
-  } catch (error: any) {
-    console.error("❌ Échec de la restauration :", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error) {
+    console.error("❌ [Erreur] Échec de la forge :", error.message);
+  } finally {
+    await mongoose.connection.close();
+    process.exit(0);
   }
 }
+
+runSeed();

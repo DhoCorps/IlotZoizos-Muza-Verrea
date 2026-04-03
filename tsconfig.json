@@ -28,6 +28,6 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts"
-  ],
+, "packages/infrastructure/src/scripts/seed/seed-script.cjs"  ],
   "exclude": ["node_modules", "dist", ".next"]
 }

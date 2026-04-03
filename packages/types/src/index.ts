@@ -8,3 +8,4 @@ export * from './models/moderation.types';
 export * from './models/team.types';
 export * from './models/project.types';
 export * from './models/task.types';
+export * from './models/status.types';

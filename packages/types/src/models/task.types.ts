@@ -1,11 +1,11 @@
 // packages/types/src/models/task.types.ts
 
 export enum TaskStatus {
-  TODO = '?',
-  DOING = '...',
-  DONE = '!',
-  BLOCKED = 'B',
-  CANCELLED = 'X'
+  TODO = 'TODO',
+  IN_PROGRESS = 'IN_PROGRESS',
+  DONE = 'DONE',
+  BLOCKED = 'BLOCKED',
+  CANCELLED = 'CANCELLED'
 }
 
 export enum TaskPriority {
