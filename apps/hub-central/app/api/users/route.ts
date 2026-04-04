@@ -45,3 +45,40 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Le Nexus n'a pas pu lister les oiseaux." }, { status: 500 });
   }
 }
+
+export async function POST(req: Request) {
+  try {
+    await connectToDatabase();
+    const body = await req.json();
+
+    // 🛡️ On vérifie si l'oiseau n'existe pas déjà
+    const existingUser = await UserModel.findOne({ 
+      $or: [{ email: body.email }, { username: body.username }] 
+    });
+
+    if (existingUser) {
+      return NextResponse.json(
+        { error: "Cet oiseau chante déjà dans une autre cage (Email ou Username déjà pris)." }, 
+        { status: 400 }
+      );
+    }
+
+    // 🐣 Inception du nouveau Zoizo
+    // Le 'uid' sera généré automatiquement par le default: uuidv4() de ton modèle
+    const newUser = new UserModel(body);
+    await newUser.save();
+
+    // 🔗 Note : Ton moteur de synchro "UP" détectera ce 'save' 
+    // et créera le nœud (:Bird) dans Neo4j avec son UID.
+
+    return NextResponse.json({
+      success: true,
+      message: "L'oiseau a éclos dans le Nexus !",
+      uid: newUser.uid
+    }, { status: 201 });
+
+  } catch (error: any) {
+    console.error("🔥 Erreur d'éclosion :", error);
+    return NextResponse.json({ error: "L'œuf a été brisé lors de l'éclosion." }, { status: 500 });
+  }
+}
