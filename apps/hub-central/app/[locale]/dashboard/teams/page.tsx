@@ -1,8 +1,8 @@
 import { useTranslations } from 'next-intl';
+import { getTranslations } from 'next-intl/server'; // Assure-toi d'utiliser la version server
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../../../hub-central/lib/auth';
-import { getTranslations }  from '../../../../i18n';
 import { Jade }  from '../../../../components/hub/HubHeader'; //Surnom poétique donné à un bug tenace
 import { Users, Wrench } from 'lucide-react';
 
@@ -16,13 +16,11 @@ export async function generateMetadata({ params: { locale } }: { params: { local
 
 export default async function TeamsPage({ params: { locale } }: { params: { locale: string } }) {
   const session = await getServerSession(authOptions);
+  
+  if (!session) redirect(`/${locale}/auth/login`);
 
-  // Redirection vers login si non-identifié
-  if (!session) {
-    redirect(`/${locale}/auth/login`);
-  }
-
-  const t = useTranslations('teams');
+  // ✅ Suture : await getTranslations au lieu de useTranslations
+  const t = await getTranslations({ locale, namespace: 'teams' });;
   
   return (
     <div className="hub-layout relative">

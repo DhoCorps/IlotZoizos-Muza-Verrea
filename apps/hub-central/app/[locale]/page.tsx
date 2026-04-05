@@ -1,8 +1,23 @@
 'use client';
 
 // 🌟 LA SOUDURE : Utilisation du Link qui connaît les langues
+import dynamic from 'next/dynamic';
+
 import { Link } from "../../navigation"; 
 import { Users, Target, LogIn } from "lucide-react";
+
+const ContextualGraph = dynamic<{ 
+  rootUid: string; 
+  onNodeDoubleClick: (id: string) => void; 
+}>(
+  () => import('../../components/graph/ContextualGraph').then((mod) => mod.ContextualGraph),
+  { 
+    ssr: false, // 🛡️ Empêche l'erreur "window is not defined"
+    loading: () => <div className="absolute inset-0 bg-transparent animate-pulse" /> 
+  }
+);
+
+
 
 export default function HomePage() {
   return (
@@ -13,6 +28,14 @@ export default function HomePage() {
 
       <div className="z-10 w-full max-w-5xl space-y-20 text-center animate-in fade-in slide-in-from-bottom-12 duration-1000 ease-out">
         
+{/* 🕸️ LE GRAPHE CONTEXTUEL : L'âme du système en fond de toile */}
+      <div className="absolute inset-0 z-0 opacity-30 pointer-events-none">
+        <ContextualGraph 
+          rootUid="global" 
+          onNodeDoubleClick={(id) => console.log(`Oiseau détecté dans le Nexus : ${id}`)} 
+        />
+      </div>
+
         {/* En-tête : Minimalisme Brut */}
         <div className="space-y-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/5 border border-[#E5484D]/20 shadow-[0_0_40px_rgba(229,72,77,0.1)] backdrop-blur-md">

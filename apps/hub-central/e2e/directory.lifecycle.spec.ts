@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Navigation dans l’Annuaire', () => {
   test('un utilisateur peut chercher et voir un profil', async ({ page }) => {
     // ⚠️ PELLE DE PATIENCE : Vérifie si la route de ton annuaire est bien /fr/directory ou /fr/users
-    await page.goto('/fr/directory'); 
+    await page.goto('/fr/tom-hat-toes'); 
     await expect(page.locator('h1')).toContainText('Annuaire');
 
     const searchInput = page.locator('input[placeholder="Chercher un nom..."]');
@@ -21,7 +21,7 @@ test.describe('Navigation dans l’Annuaire', () => {
   });
 
   test('les filtres de grade mettent à jour la liste', async ({ page }) => {
-    await page.goto('/fr/directory'); // ⚠️ Pareil ici
+    await page.goto('/fr/tom-hat-toes'); // ⚠️ Pareil ici
     
     const select = page.locator('select');
     await select.selectOption('BATISSEUR');

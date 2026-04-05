@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('Cycle de vie : Création et visualisation d\'une tâche', async ({ page }) => {
-  await page.goto('/hub');
+  await page.goto('/fr/tom-hat-toes');
   
   // 1. Navigation vers les projets
   await page.click('text=Chantiers (Projets)');

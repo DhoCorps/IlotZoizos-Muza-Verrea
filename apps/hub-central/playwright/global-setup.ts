@@ -15,8 +15,8 @@ async function globalSetup(config: FullConfig) {
     await page.waitForLoadState('load'); // Plus stable que networkidle dans certains environnements
 
     // 2. Identification (via variables d'env pour la pureté de la Silice)
-    await page.fill('input[name="email"]', process.env.TEST_USER_EMAIL || 'geoffroydaillauddecaseneuve@gmail.com');
-    await page.fill('input[name="password"]', process.env.TEST_USER_PASSWORD || '777MuSe!!!???');
+    await page.fill('input[name="email"]',  'geoffroydaillauddecaseneuve@gmail.com');
+    await page.fill('input[name="password"]',  '777MuSe!!!???');
 
     // 3. Le Grand Saut
     // On attend la navigation en parallèle du clic pour éviter les "race conditions"
