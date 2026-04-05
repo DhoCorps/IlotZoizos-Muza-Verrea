@@ -1,12 +1,11 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Poste de Pilotage - Module Kanban', () => {
-  
   test.beforeEach(async ({ page }) => {
-    // On atterrit sur le Nexus principal
-    await page.goto('/');
+    // On force l'atterrissage sur le QG multilingue
+    await page.goto('/fr/tom-hat-toes');
   });
-
+  
   test('👁️ Le tiroir Kanban doit rester caché au chargement', async ({ page }) => {
     const kanbanHeader = page.locator('h2:has-text("Tableau de Bord Zoizos")');
     await expect(kanbanHeader).toBeHidden();

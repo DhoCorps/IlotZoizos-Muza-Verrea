@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Loader2, Plus, Network, UserPlus, ShieldCheck, Trash2, X, BarChart3, Paperclip, AlertTriangle, Clock, Users, LayoutDashboard, Calendar as CalendarIcon } from 'lucide-react';
-
+import { TeamCard } from '../../../../components/teams/TeamCard';
 // Importation des composants
 import { ProjectDashboard } from '../../../../components/projects/ProjectDashboard';
 import { ProjectForm } from '../../../../components/projects/ProjectForm';
@@ -58,7 +58,15 @@ export default function TomHatToesHub() {
     }
   };
 
-  useEffect(() => { refreshData(); }, []);
+  // 🎯 Dans ton useEffect de chargement
+  useEffect(() => { 
+    refreshData().then(() => {
+      // Si on a des projets mais pas de nids, on bascule sur 'projects' d'office
+      if (inceptions.length === 0 && projects.length > 0) {
+        setActiveTab('projects');
+      }
+    }); 
+  }, []);
 
   // --- 📦 LOGIQUE DES TÂCHES (TOM-HAT-TOES) ---
   const fetchTasks = async (pUid: string) => {
@@ -216,65 +224,21 @@ export default function TomHatToesHub() {
           {activeTab === 'teams' ? (
             <div className="grid grid-cols-1 gap-8">
               {inceptions.map((team) => (
-                <section key={team.uid} className="bio-card p-6 border-l-4 border-l-[#E5484D]">
-                  <div className="flex items-center justify-between mb-6">
-                    <div className="flex items-center gap-4">
-                      <Network className="w-5 h-5 text-[#E5484D]" />
-                      <h2 className="text-xl font-bold uppercase">{team.name}</h2>
-                    </div>
-                    <div className="flex gap-4">
-                      <button 
-                        onClick={() => setActiveInceptionId(team.uid)}
-                        className="p-2 hover:bg-white/5 rounded-lg text-slate-400 hover:text-[#E5484D] transition-all"
-                      >
-                        <UserPlus size={18} />
-                      </button>
-                      <button className="p-2 hover:bg-red-500/10 rounded-lg text-slate-500 hover:text-red-500">
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {team.members?.map((member: any) => (
-                      <div key={member.uid} className="bg-white/5 p-3 rounded-lg flex items-center justify-between border border-white/5">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-bold">{member.username}</span>
-                          <span className="text-[10px] text-[#E5484D] uppercase tracking-widest">{member.role}</span>
-                        </div>
-                        <ShieldCheck size={14} className="text-slate-600" />
-                      </div>
-                    ))}
-                  </div>
-
-                  {activeInceptionId === team.uid && (
-                    <div className="mt-6 p-4 border-t border-white/5 animate-in slide-in-from-top-2 duration-300">
-                      <div className="flex items-center justify-between mb-4">
-                        <label className="text-[10px] uppercase font-mono text-slate-500">Radar à Oiseaux</label>
-                        <X size={14} className="cursor-pointer hover:text-[#E5484D]" onClick={() => setActiveInceptionId(null)} />
-                      </div>
-                      <input 
-                        type="text" 
-                        placeholder="Chercher un pseudo..."
-                        className="w-full bg-black/40 border border-white/10 p-3 rounded-lg text-sm outline-none focus:border-[#E5484D]/50 mb-3"
-                        onChange={(e) => handleSearchBirds(e.target.value)}
-                      />
-                      <div className="space-y-2">
-                        {foundBirds.map(bird => (
-                          <div key={bird.uid} className="flex items-center justify-between p-2 bg-white/5 rounded border border-white/5 hover:border-[#E5484D]/30 transition-all">
-                            <span className="text-xs">{bird.username}</span>
-                            <button 
-                              onClick={() => inviteBirdToTeam(team.uid, bird.uid)}
-                              className="text-[9px] bg-[#E5484D] px-3 py-1 rounded font-black uppercase"
-                            >
-                              Inviter
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </section>
+                // 🚀 On appelle le nouveau composant forgé !
+                <TeamCard 
+                  key={team.uid} 
+                  team={{
+                    id: team.uid,
+                    name: team.name,
+                    description: team.description,
+                    members: team.members?.map((m: any) => ({
+                      id: m.uid,
+                      username: m.username,
+                      role: m.role,
+                      avatarUrl: m.avatarUrl
+                    })) || []
+                  }}
+                />
               ))}
             </div>
           ) : activeTab === 'projects' ? (

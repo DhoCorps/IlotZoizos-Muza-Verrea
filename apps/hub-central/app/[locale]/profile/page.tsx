@@ -34,7 +34,7 @@ export default function HomePage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left max-w-5xl mx-auto">
           
           {/* Carte 1 : Les Escouades */}
-          <Link href="/dashboard/teams" className="bio-card flex flex-col h-full group p-8 border border-white/5 hover:border-[#E5484D]/30 transition-all duration-500">
+          <Link href="/tom-hat-toes" className="bio-card flex flex-col h-full group p-8 border border-white/5 hover:border-[#E5484D]/30 transition-all duration-500">
             <div className="mb-6 inline-flex p-3 rounded-xl bg-white/5 border border-white/5 group-hover:border-[#E5484D]/30 group-hover:bg-[#E5484D]/10 transition-colors duration-500">
               <Users className="w-6 h-6 text-slate-400 group-hover:text-[#E5484D] group-hover:scale-110 transition-all duration-500" />
             </div>
@@ -47,7 +47,7 @@ export default function HomePage() {
           </Link>
 
           {/* Carte 2 : Tom-Hat-Toes (Projets) */}
-          <Link href="/dashboard/tasks" className="bio-card flex flex-col h-full group p-8 border border-white/5 hover:border-[#E5484D]/30 transition-all duration-500">
+          <Link href="/tom-hat-toes" className="bio-card flex flex-col h-full group p-8 border border-white/5 hover:border-[#E5484D]/30 transition-all duration-500">
              <div className="mb-6 inline-flex p-3 rounded-xl bg-white/5 border border-white/5 group-hover:border-[#E5484D]/30 group-hover:bg-[#E5484D]/10 transition-colors duration-500">
               <Target className="w-6 h-6 text-slate-400 group-hover:text-[#E5484D] group-hover:scale-110 transition-all duration-500" />
             </div>

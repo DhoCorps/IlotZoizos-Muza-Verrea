@@ -16,6 +16,11 @@
     "confirmLabel": "Confirmer le mot de passe",
     "submitButton": "Valider",
     "successMessage": "Mot de passe modifié avec succès !"
+  },
+
+  "teams": {
+    "header_title":"Ilot Zoizos"
+
   }
 
 

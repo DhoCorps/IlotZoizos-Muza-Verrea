@@ -1,4 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
+import path from 'path';
+
+// 🌟 LA CLEF : On définit le chemin vers le Passe-Partout
+const STORAGE_STATE = path.join(__dirname, 'apps', 'hub-central', 'playwright', '.auth', 'user.json');
 
 /**
  * Configuration de l'Îlot Zoizos pour Playwright
@@ -9,7 +13,7 @@ export default defineConfig({
   testDir: './apps/hub-central/e2e',
 
   /* 🛡️ LE BOUCLIER D'EXCLUSION : 
-     On interdit à Playwright de toucher aux dossiers de Vitest (__tests__)
+     On interdit à Playwright de toucher aux dossiers de Vitest
   */
   testIgnore: [
     '**/node_modules/**',
@@ -37,37 +41,38 @@ export default defineConfig({
   // Rapporteur de résultats : "list" pour la console, "html" pour la preuve visuelle
   reporter: [['list'], ['html', { open: 'never' }]],
 
+  // 🌟 NOUVEAU : Le script qui forge le Passe-Partout avant tout le monde
+  globalSetup: require.resolve('./apps/hub-central/playwright/global-setup'),
+
+  // 🌟 L'UNIQUE BLOC 'use' POUR LES TESTS
   use: {
     // 🌐 L'URL de ton serveur de dev local
     baseURL: 'http://localhost:3000',
-
-    // Capture une trace en cas d'échec (génial pour ta soutenance !)
+    // Capture une trace en cas d'échec
     trace: 'on-first-retry',
-    
-    // Capture une vidéo ou screenshot si ça rate
+    // Capture un screenshot si ça rate
     screenshot: 'only-on-failure',
+    // 🌟 INJECTION DU COOKIE POUR TOUS LES TESTS
+    storageState: STORAGE_STATE, 
   },
 
   /* 🎭 LES NAVIGATEURS (Les différentes espèces d'oiseaux) */
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: { 
+        ...devices['Desktop Chrome'],
+        channel: 'chrome', // 👈 Indispensable sur Windows pour utiliser ton vrai Chrome
+      },
     },
-    /* Tu peux décommenter Firefox ou Safari si besoin
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    */
   ],
 
-  /* 🚀 LE SERVEUR AUTOMATIQUE (Optionnel)
-     Si tu veux que Playwright lance 'pnpm dev' tout seul, décommente ça :
+  /* 🚀 LE SERVEUR AUTOMATIQUE
+     Playwright lancera 'pnpm dev' tout seul et l'éteindra à la fin.
+  */
   webServer: {
     command: 'pnpm dev',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
   },
-  */
 });

@@ -1,10 +1,10 @@
+// pomodoro.lifecycle.spec.ts
 import { test, expect } from '@playwright/test';
 
 test.describe('Horlogerie Bionique - Module Pomodoro', () => {
-  
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    // 1. Simuler l'ouverture d'un projet pour afficher les TaskCards
+    // On force l'atterrissage sur le QG multilingue
+    await page.goto('/fr/tom-hat-toes');
     await page.locator('.bio-card').first().click();
   });
 

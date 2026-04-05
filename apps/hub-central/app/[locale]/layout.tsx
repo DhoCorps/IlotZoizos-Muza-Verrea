@@ -1,35 +1,25 @@
-import { ReactNode } from 'react';
-import { NextIntlClientProvider } from 'next-intl';
-import { getMessages } from 'next-intl/server';
-import { AuthProvider } from '../AuthProvider'; // 👈 Le pont d'identité
+import type { Metadata } from 'next';
+import { NextAuthProvider } from '../../components/providers/NextAuthProvider';
 import '../globals.css';
 
-export default async function LocaleLayout({
+export const metadata: Metadata = {
+  title: 'IlotZoizos-Muza-Verrea Hub-Central',
+  description: 'La dimension où ton désir est Forever grounded.',
+};
+
+export default function RootLayout({
   children,
-  params: { locale }
+  params: { locale },
 }: {
-  children: ReactNode;
+  children: React.ReactNode;
   params: { locale: string };
 }) {
-  const messages = await getMessages();
-
   return (
     <html lang={locale}>
-      {/* 🌑 FONDATIONS DE LA MATRICE :
-        Fond abyssal OLED, texte purifié (antialiased), hauteur minimale garantie, 
-        et sélection de texte rouge organique (Bio-Tech).
-      */}
-      <body className="bg-[#05070A] text-slate-200 antialiased min-h-screen flex flex-col selection:bg-[#E5484D]/30 selection:text-white">
-        
-        {/* 🛰️ LE CŒUR DU NEXUS : Maintient la session de l'oiseau active partout */}
-        <AuthProvider>
-          
-          {/* 🌐 LA MATRICE LINGUISTIQUE : Assure la traduction dans tout l'Îlot */}
-          <NextIntlClientProvider locale={locale} messages={messages}>
-            {children}
-          </NextIntlClientProvider>
-          
-        </AuthProvider>
+      <body className="font-sans antialiased text-white bg-black/90">
+        <NextAuthProvider>
+          {children}
+        </NextAuthProvider>
       </body>
     </html>
   );

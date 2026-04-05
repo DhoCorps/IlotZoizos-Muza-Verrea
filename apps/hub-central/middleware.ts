@@ -1,58 +1,54 @@
+import createMiddleware from 'next-intl/middleware';
+import { locales, localePrefix, defaultLocale } from './i18n';
 import { withAuth } from "next-auth/middleware";
-import { NextResponse } from "next/server";
+import { NextResponse } from 'next/server';
 
-const locales = ['fr', 'en'];
-const defaultLocale = 'fr'; 
+// Middleware d'Internationalization
+const intlMiddleware = createMiddleware({
+  locales,
+  defaultLocale,
+  localePrefix,
+});
 
 export default withAuth(
-  function middleware(req) {
+  async function middleware(req) {
     const { pathname } = req.nextUrl;
+    const isAuth = !!req.nextauth.token;
 
-    // 1. Analyse de la trajectoire : présence d'une locale ?
+    // 1. Détection de la zone publique (Login, Register, etc.)
+    // On vérifie si le chemin contient '/auth/' pour ne pas exiger d'auth sur ces pages
+    const isPublicPage = pathname.includes('/auth/');
+
+    // Suture de l'v1.3.1 : Vérification de la locale dans l'URL
     const pathnameHasLocale = locales.some(
       (locale) => pathname.startsWith(`/${locale}/`) || pathname === `/${locale}`
     );
 
-    // 2. Redirection si pas de locale (ex: /dashboard -> /fr/dashboard)
-    if (!pathnameHasLocale) {
+    // 2. LA BRÈCHE CORRIGÉE :
+    // Si un Zoizo n'est pas identifié ET qu'il n'est pas déjà sur une page publique
+    if (!isAuth && !isPublicPage) {
+      const currentLocale = pathnameHasLocale ? pathname.split('/')[1] : defaultLocale;
+      return NextResponse.redirect(new URL(`/${currentLocale}/auth/login`, req.url));
+    }
+
+    // Gérer les redirections basées sur la locale si absente
+    if (!pathnameHasLocale && !pathname.includes('.')) {
       return NextResponse.redirect(
-        new URL(`/${defaultLocale}${pathname}`, req.url)
+        new URL(`/${defaultLocale}${pathname.startsWith('/') ? '' : '/'}${pathname}`, req.url)
       );
     }
 
-    return NextResponse.next();
+    // 3. Application du middleware d'internationalisation
+    return intlMiddleware(req);
   },
   {
     callbacks: {
-      authorized: ({ req, token }) => {
-        const { pathname } = req.nextUrl;
-        
-        // ACCÈS PUBLIC : La racine ET tout le secteur d'authentification
-        const isPublicPage = 
-          pathname === '/' || 
-          locales.some(l => pathname === `/${l}`) ||
-          pathname.includes('/auth/'); // 🩸 LA CLÉ POUR ÉVITER LA BOUCLE INFINIE
-
-        if (isPublicPage) return true;
-
-        // Pour tous les autres secteurs (Dashboard, Teams, Tom-Hat-Toes), token requis.
-        return !!token;
-      },
-    },
-    pages: {
-      // Point d'entrée pour les oiseaux non identifiés
-      signIn: `/${defaultLocale}/auth/login`, 
+      authorized: () => true, // On garde le contrôle manuel dans la fonction ci-dessus
     },
   }
 );
 
 export const config = {
-  matcher: [
-    /*
-     * Le Sceau de Protection global.
-     * Intercepte toutes les requêtes SAUF les API et les fichiers statiques.
-     * Plus besoin de lister chaque route, le middleware trie tout seul.
-     */
-    '/((?!api|_next/static|_next/image|favicon.ico).*)',
-  ],
+  // Suture de l'v1.3.1 : Matcher purifié pour les fichiers statiques
+  matcher: ['/((?!api|favicon.ico|.*\\..*|_next/static|_next/image).*)']
 };
