@@ -1,36 +1,37 @@
+// apps/hub-central/lib/auth.ts
 import { NextAuthOptions, DefaultSession, DefaultUser } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
-import { connectToDatabase, UserModel } from "@ilot/infrastructure"; 
+import { connectToDatabase, OiseauModel } from "@ilot/infrastructure"; 
 
 /**
- * 💡 SUTURE FINALE DES TYPES
- * On utilise exactement les types optionnels (?) demandés par le compilateur
- * pour fusionner parfaitement avec les déclarations précédentes.
+ * 🛡️ HARMONISATION GLOBALE DES TYPES
+ * On aligne les déclarations sur le schéma le plus strict pour éviter 
+ * l'erreur des "identical modifiers". L'Oiseau doit être complet.
  */
 declare module "next-auth" {
   interface Session {
     user: {
-      id?: string;
-      uid?: string;
-      role?: string;
-      signature?: string;
+      id: string;
+      uid: string;
+      signature: string;
+      capabilities: string[]; // Suture de l'aura
     } & DefaultSession["user"];
   }
 
   interface User extends DefaultUser {
-    uid?: string;
-    role?: string;
-    signature?: string;
+    uid: string;
+    signature: string;
+    capabilities: string[];
   }
 }
 
 declare module "next-auth/jwt" {
   interface JWT {
-    id?: string;
-    uid?: string;
-    role?: string;
-    signature?: string;
+    id: string;
+    uid: string;
+    signature: string;
+    capabilities: string[];
   }
 }
 
@@ -53,7 +54,8 @@ export const authOptions: NextAuthOptions = {
 
         await connectToDatabase();
 
-        const user = await UserModel.findOne({ 
+        // On s'assure de récupérer les champs nécessaires, y compris les capacités
+        const user = await OiseauModel.findOne({ 
           email: credentials.email.toLowerCase() 
         }).select("+password");
 
@@ -67,41 +69,45 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Chant incorrect.");
         }
 
-        console.log(`🦅 [Auth] Identification réussie pour l'oiseau : ${user.username}`);
+        console.log(`🦅 [Auth] Identification réussie : ${user.pseudo || user.username}`);
 
+        // 🛡️ RETOUR SUTURÉ : On fournit TOUS les champs requis par l'interface User
         return {
           id: user._id.toString(),
-          uid: user.uid || user._id.toString(), // On garantit l'UID
+          uid: user.uid, 
           email: user.email,
-          name: user.username,
-          role: user.role,
-          signature: user.signature || "<(:<",
+          name: user.pseudo,
+          signature: user.sanctuaire?.signature || "<(:<",
+          // 🛡️ SUTURE : On cherche capabilities, et si vide, on bascule sur aura
+          capabilities: (user.capabilities && user.capabilities.length > 0) 
+            ? user.capabilities 
+            : (user.aura && user.aura.length > 0 ? user.aura : []), 
         };
       }
     }),
   ],
   callbacks: {
     async jwt({ token, user }) {
-      // 🛡️ Le 'user' n'est présent qu'au moment du login initial
       if (user) {
-        token.id = user.id;
+        token.id = user.id; // On stocke l'ID dans le jeton
         token.uid = user.uid;
-        token.role = user.role;
-        token.signature = user.signature;
+        token.signature = user.signature; // 🪡 SUTURE : On n'abandonne pas la signature lors du transit dans le jeton
+        token.capabilities = user.capabilities;
       }
       return token;
     },
     async session({ session, token }) {
-      if (session.user) {
-        // 🛡️ On s'assure de ne jamais écraser avec du vide
-        session.user.id = token.id as string;
+      if (session.user && token) {
+        // 🛡️ SUTURE CRUCIALE : On injecte l'id du token dans la session
+        session.user.id = token.id as string; 
         session.user.uid = token.uid as string;
-        session.user.role = token.role as string;
-        session.user.signature = token.signature as string;
+        session.user.signature = token.signature as string; // 🪡 SUTURE : La signature se propage jusqu'au front-end
+        session.user.capabilities = (token.capabilities as string[]) || [];
       }
       return session;
     },
   },
+  
   pages: {
     signIn: '/auth/login',
   },

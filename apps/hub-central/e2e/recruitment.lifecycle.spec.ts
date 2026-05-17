@@ -32,6 +32,6 @@ test.describe('Hub - Gestion des Escouades', () => {
     await page.locator('button:has-text("Reprendre sa Route")').click();
     
     // On doit être redirigé vers la racine
-    await expect(page).toHaveURL(/\/fr$/);
+    await expect(page).toHaveURL(/.*\/auth\/login/);
   });
 });

@@ -1,11 +1,14 @@
 // packages/types/src/models/task.types.ts
 
 export enum TaskStatus {
+  CONCEPT = 'CONCEPT',
   TODO = 'TODO',
   IN_PROGRESS = 'IN_PROGRESS',
   DONE = 'DONE',
   BLOCKED = 'BLOCKED',
-  CANCELLED = 'CANCELLED'
+  CANCELLED = 'CANCELLED',
+  REDUCED_SPEED = 'REDUCED_SPEED',
+  ARCHIVED = 'ARCHIVED'
 }
 
 export enum TaskPriority {
@@ -16,15 +19,14 @@ export enum TaskPriority {
 }
 
 export interface ITask {
-  _id?: any;
+  // 🌉 LE PONT (Graphe Muet - Unique source de vérité relationnelle)
   uid: string;
-  projectId: any;
   projectUid: string;
-  parentId?: any;
-  parentUid?: string;
+  parentUid?: string | null;
   creatorUid: string;
   assigneeUids: string[]; // 👥 Transformation en tableau pour le travail en escouade
   
+  // 🏷️ L'ARCHIVE (Silice Concrète)
   content: {
     title: string;
     description?: string;
@@ -34,17 +36,20 @@ export interface ITask {
   status: TaskStatus;
   priority: TaskPriority;
 
+  // ⏳ HORLOGERIE (Le temps volatile)
   pomodoros: {
     estimated: number;
     completed: number;
   };
 
+  // 🧠 MÉTRIQUE
   metrics: {
-    mentalLoad: number;
+    complexity: number; // 🩸 CORRECTION : Remplacement de mentalLoad par complexity
   };
 
   fileUploads: string[];
 
+  // 📅 TEMPOREL
   dates: {
     createdAt: Date;
     updatedAt: Date;

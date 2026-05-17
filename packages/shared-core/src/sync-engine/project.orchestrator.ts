@@ -1,143 +1,187 @@
-import { ProjectModel, UserModel, TeamModel, getNeo4jSession } from '../../../infrastructure';
+// packages/shared-core/src/sync-engine/project.orchestrator.ts
+import { TeamModel } from '../../../infrastructure/src/database/models/nosql/team.model';
+import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
+import { ProjectModel } from '../../../infrastructure/src/database/models/nosql/project.model';
+import { getNeo4jSession } from '../../../infrastructure/src/database/neo4j';
 import { IProject } from '../../../types/src/models/project.types';
+import { CAPABILITIES, ActionSignature } from '@ilot/types';
 import { MoralChecker } from '../integrity/moral.checker';
 import { TransactionManager } from './transactionManager';
-import {randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
+import { IlotError} from '../errors/ilot.errors';
+import { v4 as uuidv4 } from 'uuid';
+
+const generateSlug = (text: string) => {
+  return text.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
+};
+
+export interface ProjectSyncResult {
+  success: boolean;
+  status: string; // 'success' ou 'error'
+  mongo: any;    // Le document MongoDB (POJO via .lean())
+  neo4j: any;    // Le résultat de la transaction Neo4j
+}
+
+
 /**
  * 🛰️ PROJECT ORCHESTRATOR 
- * L'Architecte des chantiers. Orchestre la cohérence entre la Silice (Mongo) et le Graphe (Neo4j).
+ * Modèle : "Zero-Identity" - L'Orchestrateur exécute selon la Signature.
  */
-export const ProjectOrchestrator = {
+export class ProjectOrchestrator {
 
-  // --- 🌟 FONDATION : CRÉATION D'UN PROJET ---
+  // --- 🌟 FONDATION : CRÉATION DU CHANTIER (ANCRAGE DOUBLE) ---
 
-  /**
-   * Crée un projet et tisse ses liens hiérarchiques.
-   * Gère les projets de projets (parentId) et l'ancrage au propriétaire (ownerId).
-   */
-  async fosterProject(projectData: Partial<IProject> & { ownerUid: string }) {
-    // 🛡️ ANALYSE MORALE : On vérifie l'intégrité du nom avant toute chose
-    if (projectData.name) {
-      const check = MoralChecker.analyze(projectData.name);
-      if (!check.isSafe) {
-        throw new Error(`Nom de projet invalide : ${check.suggestion}`);
-      }
+  async fosterProject(
+    projectData: any, 
+    signature: ActionSignature // Zéro-Identité
+  ): Promise<ProjectSyncResult> {
+    
+    // 🛡️ 1. Vérification de l'Aura via la signature
+    if (!signature.capabilities.includes(CAPABILITIES.PROJECT.CREATE) && !signature.capabilities.includes('*')) {
+      throw new IlotError("Aura insuffisante pour sceller un chantier", "FORBIDDEN", 403);
     }
 
-    // 🔍 IDENTIFICATION DU PROPRIÉTAIRE (Oiseau ou Nid)
-    const owner = await UserModel.findOne({ uid: projectData.ownerUid }) || 
-                  await TeamModel.findOne({ uid: projectData.ownerUid });
+    // 🛡️ 2. PRÉPARATION DE LA MATIÈRE
+    // ownerUid = Le Nid (Team) | creatorUid = L'Oiseau (User)
+    const teamUid = projectData.ownerUid; 
+    const actorUid = signature.actorUid;
     
-    if (!owner) throw new Error("Propriétaire (Oiseau ou Nid) introuvable dans la matrice.");
+    if (!teamUid) {
+        throw new IlotError("Un chantier doit être ancré à un Nid (ownerUid manquant).", "BAD_REQUEST", 400);
+    }
 
-    return await TransactionManager.execute("Fondation de Projet", async (mongoSession, neo4jTx) => {
-      // 2. Génération de l'UID en amont [cite: 2026-04-02]
-      const projectUid = `project_${randomUUID()}`;
-      // 1. MONGO : Persistance des données gargantuesques
-      const [newProject] = await ProjectModel.create([{
+    const uid = projectData.uid || uuidv4();
+
+    return await TransactionManager.execute("Fondation Chantier", async (mongoSession, neo4jTx) => {
+      
+      // 🐘 A. MONGO : La Silice (Double identité stockée)
+      const finalProjectData = {
         ...projectData,
-        uid: projectUid, // On impose l'UID généré ici
-        ownerId: owner._id,
-        dates: {
-          ...projectData.dates,
-          lastActivity: new Date()
-        }
-      }], { session: mongoSession });
+        uid,
+        ownerUid: teamUid,     // Lien vers la Team
+        creatorUid: actorUid,   // Lien vers l'Oiseau
+        slug: projectData.slug || (projectData.name ? generateSlug(projectData.name) : uid)
+      };
 
-      // 4. Utilisation directe pour le Graphe (Neo4j)
+      const [newProject] = await ProjectModel.create([finalProjectData], { session: mongoSession });
+
+      // 🕸️ B. NEO4J : Le Système Nerveux (L'Ancrage Double)
       const cypher = `
-        MERGE (owner { uid: $ownerUid })
-        MERGE (p:Project { uid: $projectUid })
-        ON CREATE SET 
-          p.name = $name, 
-          p.status = $status,
-          p.createdAt = datetime()
-        
-        MERGE (owner)-[:OWNER_OF]->(p)
-        // ... (Reste du Cypher inchangé)
+        MATCH (u:User { uid: $actorUid })
+        MATCH (t:Team { uid: $teamUid })
+        CREATE (p:Project { 
+          uid: $uid, 
+          name: $name, 
+          slug: $slug,
+          createdAt: datetime(),
+          status: $status 
+        })
+        // Double ancrage bionique :
+        CREATE (u)-[:CREATED { at: datetime() }]->(p)
+        CREATE (t)-[:HAS_PROJECT]->(p)
+        RETURN p
       `;
-
-      await neo4jTx.run(cypher, {
-        ownerUid: projectData.ownerUid,
-        projectUid: projectUid, // Utilisation de notre constante
+      
+      const neoResult = await neo4jTx.run(cypher, { 
+        actorUid: actorUid,
+        teamUid: teamUid,
+        uid: uid, 
         name: newProject.name,
-        status: newProject.status,
-        parentId: projectData.parentId || null,
-        teamUids: projectData.teamIds || []
+        slug: newProject.slug,
+        status: newProject.status || 'CONCEPT'
       });
 
-      return { success: true, project: newProject };
+      return { 
+        success: true, 
+        status: 'success', 
+        mongo: newProject, 
+        neo4j: neoResult 
+      };
     });
-  },
+  }
 
-  // --- 🎭 MUTATION & GESTION DES FLUX ---
+  // --- 🎨 MUTATION (Update) ---
+  async mutateProject(projectUid: string, updates: any, signature: ActionSignature): Promise<ProjectSyncResult> {
+    const project = await ProjectModel.findOne({ uid: projectUid });
+    if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
 
-  /**
-   * Modifie un projet (Roadmap, Fichiers, Santé, etc.)
-   */
-  async mutateProject(projectUid: string, data: Partial<IProject>) {
-    if (data.name) {
-      const check = MoralChecker.analyze(data.name);
-      if (!check.isSafe) throw new Error(`Nom invalide : ${check.suggestion}`);
-    }
-
-    return await TransactionManager.execute("Fondation de Projet", async (mongoSession, neo4jTx) => {  const updatedProject = await ProjectModel.findOneAndUpdate(
-        { uid: projectUid },
-        { 
-          $set: { 
-            ...data,
-            "dates.lastActivity": new Date() 
-          } 
-        },
-        { new: true, session: mongoSession }
-      );
+    return await TransactionManager.execute("Mutation Chantier", async (mongoSession, neo4jTx) => {
       
-      if (!updatedProject) throw new Error("Projet introuvable pour la mutation.");
+      // 🛡️ LE DOUBLE VERROU (Propriétaire du Nid ou Créateur ou Admin)
+      const isCreator = project.creatorUid === signature.actorUid;
+      const isArchitect = signature.capabilities.includes('*');
 
-      // Mise à jour de l'identité dans le graphe si nécessaire
-      if (data.name || data.status) {
-        await neo4jTx.run(
-          `MATCH (p:Project {uid: $projectUid}) 
-           SET p.name = COALESCE($name, p.name), 
-               p.status = COALESCE($status, p.status)`, 
-          { projectUid, name: data.name, status: data.status }
-        );
+      if (!isCreator && !isArchitect) {
+        // Vérification territoriale dans le Graphe
+        const check = await neo4jTx.run(`
+          MATCH (u:User {uid: $actorUid})-[r:MEMBER_OF|OWNER_OF]->(t:Team)-[:HAS_PROJECT]->(p:Project {uid: $pUid})
+          RETURN r.capabilities AS caps
+        `, { actorUid: signature.actorUid, pUid: projectUid });
+
+        const record = check.records[0];
+        const capsFromGraph = record ? record.get('caps') : [];
+        // 🪡 SUTURE : On force la conversion en tableau au cas où Neo4j renvoie un objet
+        const userCapsOnTeam = Array.isArray(capsFromGraph) ? capsFromGraph : []; 
+
+        const hasTeamRight = userCapsOnTeam.includes(CAPABILITIES.PROJECT.UPDATE) || userCapsOnTeam.includes('*');
+        if (!hasTeamRight) {
+          throw new IlotError("Aura insuffisante sur ce territoire.", "FORBIDDEN", 403);
+        }
       }
-      
-      return updatedProject;
+
+      const updatedProject = await ProjectModel.findOneAndUpdate(
+        { uid: projectUid }, { $set: updates }, { new: true, session: mongoSession }
+      ).lean();
+
+      await neo4jTx.run(`
+        MATCH (p:Project {uid: $projectUid})
+        SET p.name = $name, p.status = $status, p.updatedAt = datetime()
+      `, { projectUid, name: updatedProject!.name, status: updatedProject!.status });
+
+      return { success: true, status: 'success', mongo: updatedProject, neo4j: null };
     });
-  },
+  }
 
-  /**
-   * Ajoute des fichiers au projet (Tableau d'URLs)
-   */
-  async appendFiles(projectUid: string, fileUrls: string[]) {
-    return await ProjectModel.findOneAndUpdate(
-      { uid: projectUid },
-      { 
-        $push: { fileUploads: { $each: fileUrls } },
-        $set: { "dates.lastActivity": new Date() }
-      },
-      { new: true }
-    );
-  },
+  // --- 💀 DISSOLUTION (Delete) ---
+  async dissolveProject(projectUid: string, signature: ActionSignature) {
+    const project = await ProjectModel.findOne({ uid: projectUid });
+    if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
 
-  // --- 🧨 DISSOLUTION ---
-
-  /**
-   * Efface le projet de la Silice et du Graphe.
-   */
-  async dissolveProject(projectUid: string) {
     return await TransactionManager.execute("Dissolution de Projet", async (mongoSession, neo4jTx) => {
-      // 1. Suppression dans Neo4j (Détachement des relations CHILD_OF et OWNER_OF)
-      await neo4jTx.run(`MATCH (p:Project {uid: $projectUid}) DETACH DELETE p`, { projectUid });
       
-      // 2. Suppression dans Mongo
-      const deletedProject = await ProjectModel.findOneAndDelete({ uid: projectUid }, { session: mongoSession });
-      
-      if (!deletedProject) throw new Error("Projet introuvable pour la dissolution.");
+      const isCreator = project.creatorUid === signature.actorUid;
+      const isArchitect = signature.capabilities.includes('*');
 
+      if (!isCreator && !isArchitect) {
+        throw new IlotError("Seul le Gardien de ce chantier peut le dissoudre.", "FORBIDDEN", 403);
+      }
+
+      await neo4jTx.run(`MATCH (p:Project {uid: $projectUid}) DETACH DELETE p`, { projectUid });
+      await ProjectModel.findOneAndDelete({ uid: projectUid }, { session: mongoSession });
+      
       return true;
     });
   }
-};
+
+
+  // --- 📎 ATTACHEMENT : AJOUT DE FICHIERS ---
+
+  async appendFiles(
+    projectUid: string, 
+    fileUrls: string[], 
+    signature: ActionSignature // Zéro-Identité
+  ) {
+    if (!signature.capabilities.includes(CAPABILITIES.PROJECT.UPDATE) && !signature.capabilities.includes('*')) {
+      throw new IlotError("Aura insuffisante pour injecter des données dans ce chantier.", "FORBIDDEN", 403);
+    }
+
+    const updated = await ProjectModel.findOneAndUpdate(
+      { uid: projectUid }, 
+      { $push: { fileUploads: { $each: fileUrls } }, $set: { "dates.lastActivity": new Date() } }, 
+      { new: true }
+    );
+    
+    if (!updated) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
+    return updated;
+  }
+}

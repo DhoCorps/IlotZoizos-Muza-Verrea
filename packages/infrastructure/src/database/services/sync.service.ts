@@ -1,132 +1,29 @@
-import { runQuery } from '../neo4j'; 
-import { UserModel } from '../models/nosql/user.model';
-/**
- * 👤 SYNCHRONISATION OISEAU (User)
- */
-export const syncUserToGraph = async (user: any) => {
-  const cypher = `
-    MERGE (u:User {uid: $uid})
-    SET u.username = $username,
-        u.email = $email,
-        u.avatarUrl = $avatarUrl,
-        u.updatedAt = datetime()
-    RETURN u
-  `;
-  
-  try {
-    await runQuery(cypher, {
-      uid: user.uid || user._id?.toString(), 
-      username: user.username,
-      email: user.email, 
-      avatarUrl: user.avatarUrl || null
-    });
-    console.log(`✨ [Graphe] Sync réussie pour l'oiseau : ${user.username}`);
-  } catch (error) {
-    console.error("❌ Erreur syncUserToGraph :", error);
-    throw error;
-  }
-};
+// packages/shared-core/src/services/sync.service.ts
+import { OiseauOrchestrator } from '../../../../shared-core/src/sync-engine/user.orchestrator';
+import { TeamOrchestrator } from '../../../../shared-core/src/sync-engine/team.orchestrator';
+import { ProjectOrchestrator } from '../../../../shared-core/src/sync-engine/project.orchestrator';
+import { TaskOrchestrator } from '../../../../shared-core/src/sync-engine/task.orchestrator';
+import { KanbanOrchestrator } from '../../../../shared-core/src/sync-engine/kanban.orchestrator';
 
 /**
- * 🎖️ SYNCHRONISATION RÔLE
- * ⚡ FIX : Harmonisation de 'id' vers 'uid' pour matcher l'Orchestrateur et RoleForm
+ * 🛰️ SYNC SERVICE
+ * Le Registre central des Orchestrateurs. 
+ * Permet d'accéder à toutes les méthodes de synchronisation depuis un point unique.
  */
-export const syncRoleToGraph = async (role: any) => {
-  const cypher = `
-    MERGE (r:Role {uid: $uid}) 
-    SET r.name = $name,
-        r.color = $color,
-        r.updatedAt = datetime()
-    RETURN r
-  `;
-  try {
-    // On s'assure d'utiliser les clés définies dans ton nouveau modèle 'Role'
-    await runQuery(cypher, {
-      uid: role.uid || role._id?.toString(),
-      name: role.name || role.intitule,
-      color: role.color || '#6366f1'
-    });
-    console.log(`✅ [Graphe] Rôle synchronisé : ${role.name || role.intitule}`);
-  } catch (error) {
-    console.error("❌ Erreur syncRoleToGraph :", error);
-    throw error;
-  }
-};
+class SyncService {
+  public readonly oiseaux = new OiseauOrchestrator();
+  public readonly teams = new TeamOrchestrator();
+  public readonly projects = new ProjectOrchestrator();
+  public readonly tasks = new TaskOrchestrator();
+  public readonly kanban = new KanbanOrchestrator();
 
-/**
- * 🔗 INVITATION : Lie un oiseau à une équipe
- */
-export const inviteMember = async (teamUid: string, userEmail: string, initialCaps: any[]) => {
-  try {
-    const user = await UserModel.findOne({ email: userEmail.toLowerCase() });
-    if (!user) throw new Error("Cet oiseau n'est pas encore inscrit sur l'Îlot.");
-
-    const query = `
-      MATCH (u:User {uid: $userUid})
-      MERGE (t:Team {uid: $teamUid})
-      MERGE (u)-[r:MEMBER_OF]->(t)
-      SET r.caps = $initialCaps, r.grantedAt = datetime()
-      RETURN r
-    `;
-    await runQuery(query, { teamUid, userUid: user.uid, initialCaps });
-    return { success: true, message: `Liaison établie pour ${user.username}.` };
-  } catch (error: any) {
-    console.error("❌ Erreur invitation (Graphe) :", error.message);
-    throw error;
-  }
-};
-
-
-/**
- * 🔐 DROITS DANS LE GRAPHE (Relation User -> Project)
- */
-export const updateUserProjectCapabilities = async (
-  projectUid: string,
-  targetUserUid: string,
-  // newRole: ProjectRole, TODO 1
-  newCaps: string[]
-) => {
-  const cypher = `
-    MATCH (u:User {uid: $userUid})
-    MATCH (p:Project {uid: $projectUid})
-    MERGE (u)-[r:MEMBER_OF]->(p)
-    SET r.role = $role,
-        r.capabilities = $caps,
-        r.updatedAt = datetime()
-    RETURN r
-  `;
-
-  try {
-    const records = await runQuery(cypher, {
-      userUid: targetUserUid,
-      projectUid: projectUid,
-      // role: newRole, TODO 2
-      caps: newCaps
-    });
-
-    if (records.records.length === 0) {
-      throw new Error("Utilisateur ou Projet introuvable dans Neo4j.");
-    }
-
-    return records.records[0].get('r').properties;
-  } catch (error) {
-    console.error("❌ Erreur Neo4j (updateUserProjectCapabilities) :", error);
-    throw error;
-  }
-};
-
-/**
- * 🧹 DELETE BIRD
- */
-export async function deleteBird(userUid: string): Promise<void> {
-  try {
-    await runQuery(
-      'MATCH (u:User {uid: $userUid}) DETACH DELETE u',
-      { userUid }
-    );
-    console.log(`✅ [Sync] Zoizo ${userUid} effacé du ciel de l'Îlot.`);
-  } catch (error) {
-    console.error(`❌ [Sync] Erreur lors de la suppression du Zoizo ${userUid}:`, error);
-    throw error;
+  /**
+   * Vérification de l'état des deux mondes.
+   */
+  async healthCheck() {
+    // Logique pour vérifier si Mongo et Neo4j sont "UP"
+    return { status: 'UP', timestamp: new Date() };
   }
 }
+
+export const syncService = new SyncService();

@@ -5,41 +5,59 @@ import { ITask, TaskStatus, TaskPriority } from '@ilot/types';
 export type TaskDocument = ITask & Document;
 
 const TaskSchema = new Schema<TaskDocument>({
+  // 🌉 LE PONT (Graphe Muet)
   uid: { type: String, required: true, unique: true },
-  projectId: { type: Schema.Types.ObjectId, ref: 'Project', required: true },
-  projectUid: { type: String, required: true },
-  parentId: { type: Schema.Types.ObjectId, ref: 'Task', default: null },
-  parentUid: { type: String, default: null },
+  
+  // 🩸 PURGE : Suppression de `projectId` et `parentId` (les ObjectId Mongoose).
+  // Seuls les UID comptent pour le maillage.
+  projectUid: { type: String, required: true, index: true }, 
+  parentUid: { type: String, default: null, index: true }, 
   creatorUid: { type: String, required: true },
   assigneeUids: [{ type: String }],
   
+  // 🏷️ L'ARCHIVE (Silice Concrète)
   content: {
     title: { type: String, required: true, trim: true },
     description: { type: String },
     tags: [{ type: String }]
   },
 
-  status: { type: String, enum: Object.values(TaskStatus), default: TaskStatus.TODO },
+  // ⚙️ ÉTATS
+  status: { type: String, enum: Object.values(TaskStatus), default: TaskStatus.TODO, index: true },
   priority: { type: String, enum: Object.values(TaskPriority), default: TaskPriority.MEDIUM },
 
+  // ⏳ HORLOGERIE (Le temps volatile)
   pomodoros: {
     estimated: { type: Number, default: 1 },
     completed: { type: Number, default: 0 }
   },
 
+  // 🧠 MÉTRIQUE (Optionnelle, par ex: Complexité ressentie)
   metrics: {
-    mentalLoad: { type: Number, default: 0, min: 0, max: 100 }
+    complexity: { type: Number, default: 1, min: 1, max: 10 } // Renommé pour plus de clarté
   },
 
-  fileUploads: [{ type: String }], // URLs des fichiers joints
+  fileUploads: [{ type: String }], // URLs temporaires ou légères
 
   dates: {
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
     deadline: { type: Date }
   }
-}, { timestamps: true });
+}, { 
+  timestamps: true,
+  toJSON: {
+    virtuals: true,
+    transform: (_, ret: Record<string, any>) => { 
+      delete ret._id; 
+      delete ret.__v;
+      return ret;
+    }
+  }
+});
 
+// Index pour les recherches rapides côté Silice
 TaskSchema.index({ assigneeUids: 1 });
+TaskSchema.index({ projectUid: 1, status: 1 }); // Pour charger les kanbans vite
 
 export const TaskModel = mongoose.models.Task || mongoose.model<TaskDocument>('Task', TaskSchema);

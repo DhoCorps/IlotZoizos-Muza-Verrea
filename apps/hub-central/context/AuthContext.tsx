@@ -20,7 +20,6 @@ function AuthInternalProvider({ children }: { children: ReactNode }) {
     user: session?.user,
     status,
     isAuthenticated: !!session,
-    isArchitect: (session?.user as any)?.role === 'architect',
     signature: (session?.user as any)?.signature || "🔭"
   };
 

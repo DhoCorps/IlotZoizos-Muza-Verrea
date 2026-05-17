@@ -1,10 +1,10 @@
 import mongoose, { Schema, Document, Model, Types } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
-import { ITeam } from '@ilot/types'; // 👈 Source de vérité unique issue de Zod
+import { ITeam } from '@ilot/types'; // 👈 Source de vérité unique issue de Zod purifié
 
 /**
  * 🏗️ TEAM DOCUMENT
- * On étend l'interface ITeam (Zod) avec les propriétés système de Mongoose.
+ * On étend l'interface ITeam (Zod purifié) avec les propriétés système de Mongoose.
  */
 export interface ITeamDocument extends Omit<ITeam, '_id'>, Document {
   _id: Types.ObjectId; 
@@ -14,84 +14,39 @@ export interface ITeamDocument extends Omit<ITeam, '_id'>, Document {
 
 const TeamSchema = new Schema<ITeamDocument>(
   {
-    // --- 🌉 LE PONT NEO4J ---
+    // --- 🌉 LE PONT NEO4J (Le Graphe Muet) ---
     uid: { 
       type: String, 
       required: true, 
       unique: true, 
       default: () => uuidv4(), 
       index: true 
-    }, //
+    },
 
-    // --- 🏷️ IDENTITÉ SUPRÊME ---
-    name: { type: String, required: true, unique: true, trim: true, index: true }, //
-    tag: { type: String, uppercase: true, trim: true }, // ex: [ZOIZO]
-    description: { type: String, maxlength: 500 }, //
-    slogan: { type: String, maxlength: 100 }, //
-    avatarUrl: { type: String, default: '' }, //
-    bannerUrl: { type: String, default: '' }, //
+    // --- 🏷️ IDENTITÉ (L'Archive Concrète) ---
+    name: { type: String, required: true, unique: false, trim: true, index: true },
+    description: { type: String, maxlength: 500 },
     
     // --- 🕸️ STRUCTURE & HIÉRARCHIE ---
     category: { 
       type: String, 
-      enum: ['PROFESSIONAL', 'ESPORT', 'COLLECTIVE', 'SOCIAL', 'EDUCATION', 'DAWN'], 
+      enum: ['SOCIAL', 'SYSTEM', 'DAWN'], // 🩸 Les boîtes sociologiques ont disparu
       default: 'SOCIAL' 
-    }, //
-    ownerId: { type: String, required: true, index: true }, //
-    leaderId: { type: String, index: true }, //
-    parentId: { type: String, default: null, index: true }, //
-    isPrivate: { type: Boolean, default: true }, //
-
-    // --- 💼 CONTEXTE PROFESSIONNEL ---
-    professional: {
-      industry: String,
-      companySize: String,
-      department: String,
-      budget: {
-        allocated: { type: Number, default: 0 },
-        currency: { type: String, default: 'EUR' }
-      },
-      tools: [String]
-    }, //
-
-    // --- 🎮 CONTEXTE E-SPORT ---
-    esport: {
-      mainGame: String,
-      division: String,
-      rank: String,
-      achievements: [{
-        title: String,
-        date: Date
-      }],
-      matchHistory: [String]
-    }, //
-
-    // --- 🛒 CONTEXTE ACHAT COLLECTIF ---
-    collectiveBuy: {
-      targetItem: String,
-      targetPrice: Number,
-      currentPool: { type: Number, default: 0 },
-      minParticipants: { type: Number, default: 1 },
-      deadline: Date,
-      status: { 
-        type: String, 
-        enum: ['OPEN', 'LOCKED', 'COMPLETED', 'CANCELLED'], 
-        default: 'OPEN' 
+    },
+    frequency: { // 🩸 NOUVEAU : La Vibration qui remplace "themeColor"
+      type: String, 
+      default: '#2A3B4C',
+      validate: {
+        validator: function(v: string) {
+          return /^#[0-9A-F]{6}$/i.test(v);
+        },
+        message: props => `${props.value} n'est pas une couleur HEX valide!`
       }
-    }, //
-
-    // --- 🎯 OBJECTIFS & RESSOURCES ---
-    milestones: [{
-      label: String,
-      isCompleted: { type: Boolean, default: false },
-      dueDate: Date
-    }], //
-    
-    resources: [{
-      label: String,
-      url: String,
-      type: { type: String, enum: ['DOC', 'LINK', 'TOOL', 'FINANCE'] }
-    }], //
+    },
+    ownerUid: { type: String, required: true, index: true }, // ✅ Changé ownerId -> ownerUid
+    leaderUid: { type: String, index: true },                // ✅ Changé leaderId -> leaderUid
+    parentId: { type: String, default: null, index: true },
+    isPrivate: { type: Boolean, default: true },
 
     // --- ⚖️ GOUVERNANCE ---
     governance: {
@@ -100,31 +55,27 @@ const TeamSchema = new Schema<ITeamDocument>(
         enum: ['DEMOCRATIC', 'AUTOCRATIC', 'CONSENSUS'], 
         default: 'DEMOCRATIC' 
       },
-      allowMemberInvite: { type: Boolean, default: true },
-      restrictedContent: { type: Boolean, default: false }
-    }, //
+      allowMemberInvite: { type: Boolean, default: true }
+    },
 
-    // --- ⚙️ RÉGLAGES DU NEXUS ---
+    // --- ⚙️ RÉGLAGES DE L'HORLOGERIE ---
     settings: {
-      isGlobalReducedSpeed: { type: Boolean, default: false }, //
-      allowSearch: { type: Boolean, default: true }, //
-      themeColor: { type: String, default: '#10b981' } // Emerald-500 par défaut
+      isGlobalReducedSpeed: { type: Boolean, default: false },
+      allowSearch: { type: Boolean, default: true }
     },
 
     // --- 🧠 SANTÉ COLLECTIVE & MODÉRATION ---
     collectiveHealth: {
-      averageMentalLoad: { type: Number, min: 0, max: 100, default: 0 }, //
-      isOverloaded: { type: Boolean, default: false }, //
-      lastPulseCheck: Date //
+      lastPulseCheck: Date
     },
 
     moderation: {
-      isFlagged: { type: Boolean, default: false }, //
-      reportCount: { type: Number, default: 0 } //
+      isFlagged: { type: Boolean, default: false },
+      reportCount: { type: Number, default: 0 }
     },
   }, 
   { 
-    timestamps: true, //
+    timestamps: true,
     toJSON: { 
       virtuals: true,
       transform: (_, ret: any) => { 
@@ -137,4 +88,4 @@ const TeamSchema = new Schema<ITeamDocument>(
 );
 
 export const TeamModel = (mongoose.models.Team as Model<ITeamDocument>) || 
-                         mongoose.model<ITeamDocument>('Team', TeamSchema); //
+                         mongoose.model<ITeamDocument>('Team', TeamSchema);

@@ -1,5 +1,5 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-
+import { IlotError } from '../../../../packages/shared-core'
 /**
  * L'ALCHIMIE DU VOLUME - NEXT.JS STORAGE SERVICE
  * Ce service utilitaire gère l'upload vers Cloudflare R2 via l'API S3.
@@ -46,11 +46,17 @@ class StorageService {
    */
   async uploadFile(file: File, customKey: string) {
     if (!file) {
-      throw new Error('Maladresse technique : La brindille est manquante.');
+      throw new IlotError('Maladresse technique : La brindille est manquante.', 'BAD_REQUEST', 400);
     }
 
     if (!customKey) {
-      throw new Error('KâÔdz d\'amateur : Une "customKey" structurée est obligatoire.');
+      throw new IlotError('KâÔdz d\'amateur : Une "customKey" structurée est obligatoire.', 'BAD_REQUEST', 400);
+    }
+
+    // 🛡️ BOUCLIER ANTI-CRASH (Exemple: limite à 10 Mo)
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 Megabytes
+    if (file.size > MAX_FILE_SIZE) {
+      throw new IlotError(`Ineptie de volume : La brindille dépasse la limite de 10Mo.`, 'PAYLOAD_TOO_LARGE', 413);
     }
 
     console.log(`🌀 [Storage] Suture d'upload en cours : ${file.name} -> ${customKey}...`);
@@ -84,10 +90,9 @@ class StorageService {
 
     } catch (error: any) {
       console.error(`❌ [Storage] Ineptitude technique fatale lors de l'upload vers R2 : ${error.message}`);
-      throw new Error(`Technical Blunder : L'upload de "${file.name}" a échoué.`);
+      throw new IlotError(`Technical Blunder : L'upload de "${file.name}" a échoué.`, 'INTERNAL_SERVER_ERROR', 500);
     }
   }
-
   /**
    * Helper technique pour structurer ton KarKois et anticiper l'option multilingue.
    */

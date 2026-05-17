@@ -1,23 +1,20 @@
+// apps/hub-central/components/layout/Manifeste.tsx
 'use client';
 
 import React, { ReactNode, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { Toaster } from 'sonner';
 
-// 💠 Imports Locaux (Le Corps - Next.js)
-// Assure-toi que ces fichiers existent bien dans apps/hub-central/context/ ou components/
+// 💠 Imports Locaux
 import { AuthProvider, useAuth } from '../../context/AuthContext'; 
 import { VibeProvider, useVibe } from '../../context/VibeContext';
 import { WebSocketProvider } from '../../context/WebSocketContext';
 import { AuthButton } from '../ui/AuthButton'; 
 import { LangSwitcher } from '../ui/LangSwitcher';
 
-// 🛡️ Types et Identités (L'ADN partagé)
-// Maintenant que packages/types/src/index.ts existe, ceci fonctionnera !
-import { ROLE_BADGES, CAPABILITIES, UserRole } from '@ilot/types';
-/**
- * 🎨 CONFIGURATION DES VIBES
- */
+// 🛡️ Types et Identités (Sans rôles)
+import { CAPABILITIES } from '@ilot/types';
+
 const VIBE_MAP: Record<string, string> = {
   stable: "bg-slate-950 text-emerald-50/90 shadow-[inset_0_0_100px_rgba(16,185,129,0.05)]",
   vibrant: "bg-indigo-950 text-cyan-50 shadow-[inset_0_0_120px_rgba(6,182,212,0.1)]",
@@ -47,12 +44,11 @@ function LayoutInterieur({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const t = useTranslations('nav');
 
-  // Déduction du rôle et du badge
-  const userRole = (user?.role?.toUpperCase() as UserRole) || 'GUEST';
-  const currentBadge = ROLE_BADGES[userRole];
+  // 🕵️ Détection de l'Architecte par Capacité Universelle
+  // L'Architecte est celui qui possède le "Master Access" (*)
+  const isArchitect = user?.capabilities?.includes(CAPABILITIES.SYSTEM.ALL) || user?.capabilities?.includes('*');
   
-  // Signature dynamique : <(:< pour l'Architecte, >:)> pour les autres
-  const isArchitect = userRole === 'ARCHITECTE';
+  // Signature : <(:< représente l'Architecte/Utilisateur principal
   const signature = isArchitect ? '<(:<' : '>:)>';
 
   const containerStyle = useMemo(() => 
@@ -69,7 +65,12 @@ function LayoutInterieur({ children }: { children: ReactNode }) {
       <nav className="p-6 border-b border-white/5 flex justify-between items-center backdrop-blur-md sticky top-0 z-50">
         <div className="flex flex-col">
           <div className="font-mono tracking-tighter text-xl flex items-center gap-2">
-            <span className={mode === 'stable' ? 'text-emerald-500' : 'text-cyan-400'}>💠</span>
+            <span 
+              className="transition-colors duration-1000" 
+              style={{ color: user?.frequenceHEX || '#10b981' }} // Utilise la fréquence de l'Oiseau
+            >
+              💠
+            </span>
             {t('title')}
             <span className="text-[10px] opacity-30 px-2 py-0.5 border border-current rounded-full ml-2">
               {t('subtitle')}
@@ -78,13 +79,18 @@ function LayoutInterieur({ children }: { children: ReactNode }) {
         </div>
 
         <div className="flex items-center gap-4">
-          {currentBadge && (
-            <div className={`flex items-center gap-2 px-3 py-1 rounded-full border text-[9px] font-bold tracking-widest transition-all duration-500 ${currentBadge.color}`}>
-              <span>{currentBadge.icon}</span>
-              <span className="hidden md:inline uppercase">{currentBadge.label}</span>
+          {/* L'Aura de l'Oiseau remplace le Badge de rôle */}
+          {user?.pseudo && (
+            <div 
+              className="flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 text-[9px] font-bold tracking-widest transition-all duration-700"
+              style={{ borderColor: `${user.frequenceHEX}44`, color: user.frequenceHEX }}
+            >
+              <span>{isArchitect ? '⚛️' : '🐦'}</span>
+              <span className="hidden md:inline uppercase">{user.pseudo}</span>
             </div>
           )}
 
+          {/* Bouton de destruction (Gating par capacité pure) */}
           {user?.capabilities?.includes(CAPABILITIES.FILE.BURN) && (
             <button className="p-2 text-red-400 hover:text-red-200 hover:scale-125 transition-all" title="NUCLEUS:BURN">
               🔥
@@ -107,12 +113,13 @@ function LayoutInterieur({ children }: { children: ReactNode }) {
         <div className="pointer-events-auto group">
           <div className="bg-black/20 backdrop-blur-2xl p-5 rounded-tr-3xl border-t border-r border-white/10 transition-all hover:bg-black/40 shadow-2xl">
             <p className="text-[9px] uppercase tracking-[0.2em] mb-3 opacity-30">
-              {isArchitect ? "Master Control" : "Session Identity"}
+              {isArchitect ? "Master Control" : "Bird Identity"}
             </p>
             <div className="flex items-center gap-4">
               <span 
                 className={`text-3xl transition-all duration-700 cursor-help ${isArchitect ? 'grayscale-0' : 'grayscale'}`} 
-                title={user?.name || "DhÖ"}
+                style={{ color: isArchitect ? user?.frequenceHEX : 'inherit' }}
+                title={user?.pseudo || "DhÖ"}
               >
                 {signature}
               </span>
@@ -125,7 +132,7 @@ function LayoutInterieur({ children }: { children: ReactNode }) {
         </div>
 
         <div className="text-right opacity-20 text-[8px] uppercase tracking-[0.4em] leading-loose">
-          Role_ID : {userRole} <br />
+          HEX_FREQ : {user?.frequenceHEX?.toUpperCase() || 'OFFLINE'} <br />
           Vibe : {mode.toUpperCase()} <br />
           Integrity : 100%
         </div>

@@ -1,7 +1,8 @@
+// apps/hub-central/components/pomodoro/PomodoroHUD.tsx
 "use client";
 
 import { usePomodoro } from '../../context/PomodoroContext';
-import { Timer, Coffee, BatteryCharging, XCircle } from 'lucide-react';
+import { Timer, Zap, BatteryCharging, XCircle } from 'lucide-react';
 
 export default function PomodoroHUD() {
   const { secondsLeft, status, consecutiveCount, stopFocus } = usePomodoro();
@@ -17,51 +18,54 @@ export default function PomodoroHUD() {
   // Calcul du cycle actuel (ex: 1/4, 2/4...)
   const cycleDisplay = isLongBreak ? 4 : (consecutiveCount % 4) + (isWork ? 1 : 0);
 
-  // Thèmes dynamiques selon l'état
+  // Thèmes dynamiques selon l'état [cite: 2026-03-27]
   let themeClasses = "";
   let Icon = Timer;
   let label = "";
 
   if (isWork) {
-    themeClasses = "bg-red-950/40 border-red-500/30 text-red-500";
+    // 🩸 Rouge Signature de l'Îlot (Effort de Sédimentation)
+    themeClasses = "bg-[#E5484D]/10 border-[#E5484D]/30 text-[#E5484D]";
     Icon = Timer;
-    label = "Phase de Focus";
+    label = "Sédimentation";
   } else if (isLongBreak) {
-    // Le gris bleuté pour la récupération profonde
-    themeClasses = "bg-slate-800/80 border-slate-500/50 text-slate-300";
+    // 🌑 Gris Bleuté Profond (Stase Longue)
+    themeClasses = "bg-slate-900/80 border-slate-700/50 text-slate-400";
     Icon = BatteryCharging;
-    label = "Récupération Profonde";
+    label = "Grande Stase";
   } else {
-    themeClasses = "bg-emerald-950/40 border-emerald-500/30 text-emerald-500";
-    Icon = Coffee;
-    label = "Pause Courte";
+    // 💨 Gris Bleuté Lumineux (Micro-Stase)
+    themeClasses = "bg-slate-800/80 border-slate-600/50 text-slate-300";
+    Icon = Zap;
+    label = "Micro-Stase";
   }
 
   return (
-    <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-10 duration-500`}>
-      <div className={`flex items-center gap-6 px-6 py-4 rounded-2xl border backdrop-blur-xl shadow-2xl transition-all duration-700 ${themeClasses}`}>
+    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-10 duration-500">
+      <div className={`flex items-center gap-6 px-6 py-4 rounded-2xl border backdrop-blur-xl shadow-2xl transition-all duration-700 bg-[#05070A]/90 ${themeClasses}`}>
         
         <div className="flex items-center gap-3">
-          <Icon className={isWork ? "animate-pulse" : ""} />
+          <Icon className={isWork ? "animate-pulse" : ""} size={24} />
           <span className="text-2xl font-black font-mono tracking-tighter text-white">
             {String(minutes).padStart(2, '0')}:{String(seconds).padStart(2, '0')}
           </span>
         </div>
 
-        <div className="h-8 w-[1px] bg-white/20" />
+        <div className="h-8 w-[1px] bg-white/10" />
 
         <div className="flex flex-col">
-          <span className="text-[10px] font-black uppercase tracking-widest opacity-70 text-white">
+          <span className="text-[10px] font-black uppercase tracking-widest opacity-70">
             {label}
           </span>
-          <span className="text-xs font-bold text-white/90">
-            Cycle : {cycleDisplay} / 4 🍅
+          <span className="text-xs font-bold text-slate-400">
+            Cycle : {cycleDisplay} / 4 ⚡
           </span>
         </div>
 
         <button 
           onClick={stopFocus}
-          className="ml-4 p-2 hover:bg-white/10 rounded-full text-white/50 hover:text-white transition-all"
+          className="ml-4 p-2 hover:bg-white/10 rounded-full text-slate-500 hover:text-white transition-all"
+          title="Briser le sceau temporel"
         >
           <XCircle size={20} />
         </button>

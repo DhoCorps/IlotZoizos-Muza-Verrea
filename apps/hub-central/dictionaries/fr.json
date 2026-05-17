@@ -16,8 +16,14 @@
     "confirmLabel": "Confirmer le mot de passe",
     "submitButton": "Valider",
     "successMessage": "Mot de passe modifié avec succès !"
+  },
+
+  "teams": {
+    "title": "Vos Escouades",
+    "description": "Gérez les nids et les bâtisseurs de l'Îlot.",
+    "header_title": "Ilot Zoizos",
+    "your_teams": "Vos Équipes",
+    "placeholder_text": "Aucune escouade pour le moment..."
   }
 
-
 }
-

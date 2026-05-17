@@ -1,20 +1,12 @@
+// packages/infrastructure/src/database/mongoose.ts
 import mongoose from 'mongoose';
 
-/**
- * 🎯 IDENTIFIANT DE FRÉQUENCE : ilotzoizos
- * On privilégie la variable d'environnement pour le Replica Set, 
- * avec un fallback de secours sur le localhost.
- */
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://admin:password1234@127.0.0.1:27017/ilotzoizos?replicaSet=rs0&authSource=admin';
-
+// 🎯 SUTURE : On simplifie le fallback pour éviter les erreurs de Replica Set en local
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://admin:password1234@127.0.0.1:27017/ilotzoizos';
 if (!MONGODB_URI) {
   throw new Error('⚠️ Signal perdu : MONGODB_URI est introuvable dans la matrice (.env.local)');
 }
 
-/**
- * Le cache global est notre ancrage pour éviter de multiplier les connexions 
- * lors des rechargements (Hot Reload) de Next.js.
- */
 let cached = (global as any).mongoose;
 
 if (!cached) {
@@ -22,48 +14,31 @@ if (!cached) {
 }
 
 export async function connectToDatabase() {
-  // 1. Si le pont est déjà établi, on traverse.
-  if (cached.conn) {
-    return cached.conn;
-  }
+  if (cached.conn) return cached.conn;
 
-  // 2. Si aucune promesse de Suture n'existe, on lance l'inception.
   if (!cached.promise) {
     const opts = {
-      bufferCommands: true, // Crucial pour éviter les erreurs d'appels prématurés
+      bufferCommands: true,
       maxPoolSize: 10,
+      // 🛡️ Ajout de sécurités pour l'authentification
+      authSource: "admin", 
+      connectTimeoutMS: 5000,
     };
 
-    console.log(`🐘 [MongoDB] Tentative de connexion sur la base : ilotzoizos...`);
+    console.log(`🐘 [MongoDB] Tentative de connexion sur : ${MONGODB_URI.split('@').pop()}`);
 
     cached.promise = mongoose.connect(MONGODB_URI, opts)
-      .then(async (m) => {
-        try {
-          // 🛡️ Vérification réelle : On envoie un ping au cœur de la base
-          await m.connection.db!.admin().ping();
-          console.log("✅ [MongoDB] Connexion établie et vérifiée sur 'rs0' (ilotzoizos).");
-          return m;
-        } catch (pingError) {
-          console.error("❌ [MongoDB] Le serveur ne répond pas au ping métabolique.");
-          throw pingError;
-        }
+      .then((m) => {
+        console.log("✅ [MongoDB] Connexion établie (ilotzoizos).");
+        return m;
       })
       .catch((err) => {
-        console.error("❌ [MongoDB] Échec critique de la Suture :", err.message);
-        cached.promise = null; // On libère la promesse pour permettre une nouvelle tentative
+        console.error("❌ [MongoDB] Échec de la Suture :", err.message);
+        cached.promise = null;
         throw err;
       });
   }
 
-  // 3. On attend que la promesse se stabilise en connexion réelle.
-  try {
-    cached.conn = await cached.promise;
-  } catch (e) {
-    cached.promise = null;
-    throw e;
-  }
-
+  cached.conn = await cached.promise;
   return cached.conn;
 }
-
-export default connectToDatabase;

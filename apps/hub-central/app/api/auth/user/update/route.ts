@@ -1,30 +1,55 @@
+// apps/hub-central/app/api/users/me/route.ts 
+// (Je suppose que c'est l'équivalent de l'action sur "soi-même")
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { connectToDatabase, UserModel } from "@ilot/infrastructure";
-import { MutationTrigger } from "@ilot/infrastructure"; // Importe ton nouveau service !
+import { getServerSession } from 'next-auth/next';
+import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauOrchestrator } from '@ilot/shared-core';
+// import { authOptions } from "../../../lib/auth"; // Décommente si nécessaire
 
-export async function PATCH(req: Request) {
-  const session = await getServerSession();
-  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-
+export async function PUT(req: Request) {
   try {
-    const { username, avatarUrl } = await req.json();
-    await connectToDatabase();
-
-    // 1. Update MongoDB
-    const updatedUser = await UserModel.findOneAndUpdate(
-      { email: session.user?.email },
-      { $set: { username, avatarUrl } },
-      { new: true }
-    );
-
-    if (updatedUser) {
-      // 2. Déclenchement de la Mutation Neo4j (La fameuse double écriture)
-      await MutationTrigger.handleUserSync(updatedUser);
+    // 🛡️ DOUANE ABSOLUE : Qui es-tu ?
+    const session = await getServerSession();
+    const userUid = (session?.user as any)?.uid;
+    
+    if (!userUid) {
+      return NextResponse.json({ message: "Oiseau non identifié. Le vent rejette tes murmures." }, { status: 401 });
     }
 
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+    // On extrait les mutations demandées (on ignore tout 'uid' qui serait envoyé par malice)
+    const { frequenceHEX, sanctuaire, variationEntropie } = await req.json();
+
+    // On utilise l'uid certifié par la session, jamais celui du body !
+    const oiseau = await OiseauModel.findOne({ uid: userUid });
+    if (!oiseau) return NextResponse.json({ message: "Fréquence introuvable." }, { status: 404 });
+
+    // 🛡️ SÉCURITÉ LORE : L'Anneau de Sauron (Lockdown du compte)
+    if (oiseau.sanctuaireVerrouille) {
+      return NextResponse.json({ 
+        message: "Votre sanctuaire est verrouillé. Le silence est de mise." 
+      }, { status: 403 });
+    }
+
+    // Mise à jour de la forme libre (Elfe, Balrog, ou simple humain)
+    if (sanctuaire) {
+      oiseau.sanctuaire = { ...oiseau.sanctuaire, ...sanctuaire };
+    }
+
+    // 🌟 L'Orchestrateur gère la magie (Neo4j + Mongo + Algorithme d'Entropie)
+    const oiseauOrch = new OiseauOrchestrator();
+    const resultat = await oiseauOrch.appliquerFluctuation(
+      oiseau, 
+      frequenceHEX, 
+      variationEntropie 
+    );
+
+    return NextResponse.json({
+      message: "La structure a muté.",
+      etat: resultat
+    }, { status: 200 });
+
+  } catch (error: any) {
+    console.error("🔥 Erreur de fluctuation :", error);
+    return NextResponse.json({ message: "La magie s'est dissipée avant d'agir." }, { status: 500 });
   }
 }

@@ -1,59 +1,125 @@
+// packages/shared-core/src/sync-engine/__tests__/project.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProjectOrchestrator } from '../project.orchestrator';
-import { ProjectModel, UserModel, TeamModel } from '@ilot/infrastructure';
-import { TransactionManager } from '../transactionManager'; // On l'importe pour le dompter
+import { TransactionManager } from '../transactionManager';
+import { CAPABILITIES, ActionSignature } from '@ilot/types';
+import { IlotError } from '../../errors/ilot.errors';
 
-// ✨ SUTURE DE HOISTING : On prépare l'espion Neo4j
-const { mockNeo4jRun } = vi.hoisted(() => ({
-  mockNeo4jRun: vi.fn().mockResolvedValue({ records: [] })
+// 🛡️ SUTURE 1 : Mock du modèle ProjectModel (Sédimentation Silice)
+vi.mock('../../../../infrastructure/src/database/models/nosql/project.model', () => ({
+  ProjectModel: {
+    findOne: vi.fn().mockImplementation(() => ({
+      // Simule le chaînage Mongoose (.exec()) utilisé dans l'orchestrateur
+      exec: vi.fn().mockResolvedValue({ 
+        uid: 'proj_123', 
+        ownerUid: 'team-777', // Le Nid
+        creatorUid: 'bird-alpha-777' // L'Oiseau créateur
+      }),
+      lean: vi.fn().mockReturnThis()
+    })),
+    create: vi.fn().mockImplementation((data) => Promise.resolve(Array.isArray(data) ? data : [data])),
+    findOneAndUpdate: vi.fn().mockImplementation(() => ({
+      lean: vi.fn().mockResolvedValue({ uid: 'proj_123', name: 'Mutation OK' })
+    })),
+    findOneAndDelete: vi.fn().mockImplementation(() => ({
+      lean: vi.fn().mockResolvedValue({ uid: 'proj_123' })
+    }))
+  }
 }));
 
-// 🛡️ Mock de l'infrastructure
-vi.mock('@ilot/infrastructure', () => ({
-  ProjectModel: { create: vi.fn(), findOneAndUpdate: vi.fn(), findOneAndDelete: vi.fn() },
-  UserModel: { findOne: vi.fn() },
-  TeamModel: { findOne: vi.fn() },
-  getNeo4jSession: vi.fn().mockReturnValue({
-    run: mockNeo4jRun,
-    beginTransaction: vi.fn().mockReturnValue({
-      run: mockNeo4jRun,
-      commit: vi.fn().mockResolvedValue(null),
-      rollback: vi.fn().mockResolvedValue(null),
-    }),
-    close: vi.fn().mockResolvedValue(null),
-  }),
+// 🛡️ SUTURE 2 : Mock de la Transaction (Graphe Sync)
+vi.mock('../transactionManager', () => ({
+  TransactionManager: {
+    execute: vi.fn().mockImplementation(async (name, callback) => {
+      const mockNeo4jTx = {
+        run: vi.fn().mockResolvedValue({ 
+          // 🪡 SUTURE : On renvoie un tableau de capacités pour éviter l'erreur .includes()
+          records: [{ get: () => [CAPABILITIES.PROJECT.UPDATE] }] 
+        })
+      };
+      return callback(null as any, mockNeo4jTx as any);
+    })
+  }
 }));
 
 describe('ProjectOrchestrator - Fondation de Chantier', () => {
+  let orchestrator: ProjectOrchestrator;
+  const mockBirdUid = 'bird-alpha-777';
+  const mockTeamUid = 'team-777';
+
   beforeEach(() => {
     vi.clearAllMocks();
-    
-    // 🕊️ NEUTRALISATION DU TRANSACTION MANAGER (Fin du timeout de 10s)
-    // On force l'exécution immédiate du callback avec des mocks
-    vi.spyOn(TransactionManager, 'execute').mockImplementation(async (name, callback) => {
-      return callback(null as any, { run: mockNeo4jRun } as any);
-    });
+    orchestrator = new ProjectOrchestrator();
   });
 
-  it('doit créer un projet dans Mongo et tisser le lien OWNER_OF dans Neo4j', async () => {
-    const mockProject = { uid: 'proj-123', name: 'Renewall', status: 'CONCEPT' };
-    const mockOwner = { _id: 'mongo-id-owner', username: 'DhÖ' };
-
-    (UserModel.findOne as any).mockResolvedValue(mockOwner);
-    (ProjectModel.create as any).mockResolvedValue([mockProject]);
-
-    const result = await ProjectOrchestrator.fosterProject({
-      name: 'Renewall',
-      ownerUid: 'user-999'
-    });
-
-    // ✅ ASSERTIONS
-    expect(result.success).toBe(true);
-    expect(mockNeo4jRun).toHaveBeenCalledWith(
-      expect.stringContaining('MERGE (owner { uid: $ownerUid })'),
-      expect.objectContaining({ ownerUid: 'user-999' })
-    );
+  it("✅ doit fonder un chantier (fosterProject) quand l'Aura est alignée", async () => {
+    // 🪡 SUTURE : Politique Matrioshka - ownerUid (le Nid) est désormais OBLIGATOIRE
+    const payload = { 
+      name: 'Renewall', 
+      status: 'CONCEPT',
+      ownerUid: mockTeamUid 
+    };
     
-    expect(ProjectModel.create).toHaveBeenCalled();
+    const validSignature: ActionSignature = {
+      actorUid: mockBirdUid,
+      capabilities: [CAPABILITIES.PROJECT.CREATE] 
+    };
+
+    const result = await orchestrator.fosterProject(payload, validSignature);
+
+    expect(result.success).toBe(true);
+    expect(result.mongo.name).toBe('Renewall');
+    // On vérifie que le propriétaire est bien le Nid transmis
+    expect(result.mongo.ownerUid).toBe(mockTeamUid);
+    expect(TransactionManager.execute).toHaveBeenCalledWith("Fondation Chantier", expect.any(Function));
+  });
+
+  it("❌ doit rejeter la fondation si le Nid (ownerUid) est manquant", async () => {
+    const payload = { name: 'Chantier Orphelin' };
+    const validSignature: ActionSignature = {
+      actorUid: mockBirdUid,
+      capabilities: [CAPABILITIES.PROJECT.CREATE]
+    };
+    
+    // 🪡 SUTURE : Test du garde-fou de l'ancrage double
+    await expect(orchestrator.fosterProject(payload, validSignature))
+      .rejects.toThrow("Un chantier doit être ancré à un Nid");
+  });
+
+  it("❌ doit rejeter la fondation si l'Aura est insuffisante", async () => {
+    const payload = { name: 'Projet Interdit', ownerUid: mockTeamUid };
+    const badSignature: ActionSignature = {
+      actorUid: 'bird-imposteur',
+      capabilities: [] 
+    };
+    
+    await expect(orchestrator.fosterProject(payload, badSignature))
+      .rejects.toThrow("Aura insuffisante pour sceller un chantier");
+  });
+
+  it("🚨 doit échouer proprement si le projet est introuvable durant une mutation", async () => {
+    const { ProjectModel } = await import('../../../../infrastructure/src/database/models/nosql/project.model');
+    (ProjectModel.findOne as any).mockReturnValueOnce(null);
+
+    const adminSignature: ActionSignature = {
+      actorUid: mockBirdUid,
+      capabilities: ['*'] 
+    };
+
+    await expect(orchestrator.mutateProject('inconnu', {}, adminSignature))
+      .rejects.toThrow("Chantier introuvable");
+  });
+
+  it("🛡️ doit valider le Double Verrou territorial lors d'une mutation", async () => {
+    const validSignature: ActionSignature = {
+      actorUid: 'bird-invite', // N'est pas le créateur originel
+      capabilities: [CAPABILITIES.PROJECT.UPDATE]
+    };
+
+    // La mutation doit passer car le mock de Neo4j renvoie les capacités MEMBER_OF suffisantes
+    const result = await orchestrator.mutateProject('proj_123', { name: 'New Name' }, validSignature);
+    
+    expect(result.success).toBe(true);
+    expect(TransactionManager.execute).toHaveBeenCalledWith("Mutation Chantier", expect.any(Function));
   });
 });

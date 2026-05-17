@@ -1,30 +1,26 @@
 'use client';
 
 import { CheckCircle2, Clock, AlertCircle, Paperclip, Users, Play, Loader2 } from 'lucide-react';
-import { usePomodoro } from '../../context/PomodoroContext'; // 🍅 Ajout du Cœur Temporel (Ajuste le chemin si besoin)
+import { usePomodoro } from '../../context/PomodoroContext';
 
 export function TaskCard({ task, onStatusChange }: { task: any, onStatusChange: (id: string, s: string) => void }) {
   const { startFocus, activeTaskUid, status } = usePomodoro();
   
   const pomoPercent = (task.pomodoros.completed / task.pomodoros.estimated) * 100;
   
-  // Vérifie si cet atome est celui actuellement dans le chronomètre
   const isActive = activeTaskUid === task.uid;
   const isWorking = isActive && status === 'WORK';
 
-  
-
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("taskUid", task.uid);
-    // Optionnel : donner un effet visuel de "fantôme" lors du drag
     e.dataTransfer.effectAllowed = "move";
   };
 
   return (
    <div 
-      draggable // 🧲 Rend l'atome saisissable
+      draggable
       onDragStart={handleDragStart}
-      className="group cursor-grab active:cursor-grabbing ..." // Style de curseur bio-tech
+      className="group cursor-grab active:cursor-grabbing" 
     >
       <div className={`bg-white/5 border p-4 rounded-2xl transition-all group ${
         isActive ? 'border-[#E5484D] shadow-[0_0_20px_rgba(229,72,77,0.15)]' : 'border-white/10 hover:border-[#E5484D]/30'
@@ -40,7 +36,6 @@ export function TaskCard({ task, onStatusChange }: { task: any, onStatusChange: 
           </span>
         </div>
 
-        {/* 🍅 Barre Pomodoro */}
         <div className="space-y-2 mb-4">
           <div className="flex justify-between items-center text-[9px] font-mono text-slate-500 uppercase">
             <div className="flex items-center gap-2">
@@ -48,7 +43,6 @@ export function TaskCard({ task, onStatusChange }: { task: any, onStatusChange: 
               <span className="text-slate-400">{task.pomodoros.completed} / {task.pomodoros.estimated}</span>
             </div>
             
-            {/* 🕹️ Le Déclencheur du HUD */}
             {isWorking ? (
               <span className="text-[#E5484D] flex items-center gap-1 animate-pulse">
                 <Loader2 size={10} className="animate-spin" /> Focus
@@ -73,7 +67,6 @@ export function TaskCard({ task, onStatusChange }: { task: any, onStatusChange: 
         </div>
 
         <div className="flex items-center justify-between border-t border-white/5 pt-3">
-          {/* Escouade assignée */}
           <div className="flex -space-x-2">
             {task.assigneeUids?.map((uid: string) => (
               <div key={uid} className="w-5 h-5 rounded-full bg-[#E5484D] border-2 border-[#05070A] flex items-center justify-center text-[8px] font-black text-white" title={uid}>
@@ -86,8 +79,9 @@ export function TaskCard({ task, onStatusChange }: { task: any, onStatusChange: 
           <div className="flex gap-3 text-slate-500">
             {task.fileUploads?.length > 0 && <Paperclip size={12} />}
             <div className="flex items-center gap-1">
-              <AlertCircle size={12} className={task.metrics.mentalLoad > 70 ? 'text-red-500' : ''} />
-              <span className="text-[10px] font-mono">{task.metrics.mentalLoad}%</span>
+              {/* 🩸 SUTURE : mentalLoad devient complexity (sur 10) */}
+              <AlertCircle size={12} className={task.metrics?.complexity >= 8 ? 'text-red-500' : ''} />
+              <span className="text-[10px] font-mono">{task.metrics?.complexity || 1}/10</span>
             </div>
           </div>
         </div>

@@ -1,140 +1,117 @@
+// apps/hub-central/__test__/sync/task-sync.test.ts
 import mongoose from 'mongoose';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
-import { TaskOrchestrator } from '../../../../packages/shared-core';
-import { getNeo4jDriver, ProjectModel, TaskModel } from '../../../../packages/infrastructure';
-import { TaskStatus, TaskPriority } from '../../../../packages/types';
+import { TaskOrchestrator } from '@ilot/shared-core';
+import { getNeo4jDriver, ProjectModel, TaskModel, connectToDatabase } from '@ilot/infrastructure';
+import { TaskStatus, TaskPriority, CAPABILITIES } from '@ilot/types';
 
 describe('Moteur de Synchronisation (Integration)', () => {
   let createdTaskUid: string | null = null;
   const TEST_PROJECT_UID = `proj_seven_${Date.now()}`;
   const TEST_USER_UID = "user_test_999";
 
+  // 🛰️ L'Orchestrateur est l'artisan de la mutation
+  const orchestrator = new TaskOrchestrator(); 
+
+  // 🛡️ La Signature (L'Aura) pour franchir la Douane de l'Orchestrateur
+  const mockSignature = {
+    actorUid: TEST_USER_UID,
+    capabilities: [CAPABILITIES.TASK.CREATE, '*'], 
+    issuedAt: new Date()
+  };
+
   /**
-   * 🧪 PRÉPARATION DU NID (Alchimie du Mercure)
+   * 🐘 PRÉPARATION DU NID (Éveil de la Silice et du Graphe)
    */
   beforeAll(async () => {
-    const URI_AUTH = "mongodb://admin:password1234@127.0.0.1:27017/ilot_zoizos_test?authSource=admin&replicaSet=rs0";
-    process.env.MONGODB_URI = URI_AUTH;
-
-    // 1. Déconnexion propre de toute session précédente
-    if (mongoose.connection.readyState !== 0) {
-      await mongoose.disconnect();
-    }
-
-    // 2. Connexion et attente explicite de l'ouverture
-    await mongoose.connect(URI_AUTH);
+    await connectToDatabase();
     
-    // 3. Sécurité : On attend que Mongoose soit en mode 'connected' (readyState 1)
-    if (mongoose.connection.readyState !== 1) {
-       await new Promise((resolve) => mongoose.connection.once('connected', resolve));
-    }
-
-    console.log("🐘 La Silice est éveillée.");
-
-    // 4. Diagnostic d'Autorité (maintenant que db est garanti)
-    const status = await mongoose.connection.db!.admin().command({ connectionStatus: 1 });
-    console.log("👤 Autorité confirmée pour :", status.authInfo.authenticatedUsers);
-
-    // 5. Préparation du terrain
-    await ProjectModel.deleteMany({ uid: TEST_PROJECT_UID });
+    // ✅ SUTURE : On nettoie par UID et par SLUG pour éviter le blocage d'index unique
+    const TEST_SLUG = "chantier-seven";
+    await ProjectModel.deleteMany({ $or: [{ uid: TEST_PROJECT_UID }, { slug: TEST_SLUG }] });
+    
     const project = new ProjectModel({
       uid: TEST_PROJECT_UID,
-      name: "Chantier de Test Seven",
-      ownerId: TEST_USER_UID, 
-      status: 'ACTIVE',
-      dates: { createdAt: new Date(), updatedAt: new Date() }
+      name: "Chantier Seven",
+      slug: TEST_SLUG, 
+      ownerUid: TEST_USER_UID,
+      creatorUid: TEST_USER_UID, // 🪡 SUTURE : Ajout du créateur obligatoire pour la validation
+      status: "CONCEPT",
     });
     await project.save();
 
+    // 3. Tissage du Graphe Initial (Neo4j)
     const session = getNeo4jDriver().session();
     try {
       await session.run(`
-        MERGE (u:User { uid: $uUid }) SET u.username = "Seven_Pilot", u.status = 'Libre'
-        MERGE (p:Project { uid: $pUid }) SET p.name = "Chantier Seven", p.status = 'ACTIVE'
+        MERGE (u:User { uid: $uUid }) SET u.username = "Seven_Pilot"
+        MERGE (p:Project { uid: $pUid }) SET p.name = "Chantier Seven"
+        MERGE (u)-[:CONTRIBUTOR_OF]->(p)
       `, { uUid: TEST_USER_UID, pUid: TEST_PROJECT_UID });
-      console.log("✅ Nexus Graphe ancré.");
     } finally {
       await session.close();
     }
   });
 
   /**
-   * 🐣 L'ENVOL (Le Test de Double-Suture) - C'est ce qu'il manquait !
-   */
-  it('doit propager la création d\'une tâche dans le Nexus (Mongo + Neo4j)', async () => {
-    const mockTask = { 
-      projectUid: TEST_PROJECT_UID, 
-      creatorUid: TEST_USER_UID,
-      content: { 
-        title: "Suture Système Alpha",
-        description: "Vérification de la double-suture",
-        tags: ["alchimie", "mercure"]
-      },
-      status: TaskStatus.TODO,
-      priority: TaskPriority.HIGH
-    };
-    
-    // Action de l'Orchestrateur
-    const result = await TaskOrchestrator.fosterTask(mockTask as any);
-    createdTaskUid = result.uid;
-
-    // --- VÉRIFICATION : LA SILICE (MongoDB) ---
-    // --- VÉRIFICATION : LA SILICE (MongoDB) ---
-    // On glisse un "as any" pour dire au compilateur d'arrêter ses hypothèses sur FlattenMaps
-    const mongoTask = await TaskModel.findOne({ uid: result.uid }).lean() as any;
-    
-    expect(mongoTask?.status).toBe(TaskStatus.TODO);
-    console.log("✅ Atome vérifié dans la Silice :", mongoTask?.status);
-    // --- VÉRIFICATION : LE GRAPHE (Neo4j) ---
-    const session = getNeo4jDriver().session();
-    try {
-      const cypher = `
-        MATCH (u:User { uid: $uUid })-[:CREATED]->(t:Task { uid: $tUid })-[:TASK_OF]->(p:Project { uid: $pUid })
-        RETURN t
-      `;
-      const graphResult = await session.run(cypher, { 
-        pUid: TEST_PROJECT_UID, 
-        tUid: result.uid, 
-        uUid: TEST_USER_UID 
-      });
-
-      if (graphResult.records.length === 0) {
-        console.error("🌌 Empty Sky : L'oiseau n'a pas pu s'ancrer dans le Graphe.");
-      } else {
-        console.log("🔍 Oiseau repéré dans le Graphe ! Suture confirmée.");
-      }
-
-      expect(graphResult.records.length).toBe(1);
-    } finally {
-      await session.close();
-    }
-  });
-
-  /**
-   * 🧹 NETTOYAGE DU NID
+   * 🧹 NETTOYAGE DU NEXUS (Après le vol)
    */
   afterAll(async () => {
+    const session = getNeo4jDriver().session();
     try {
-      // On ne tente le nettoyage que si on est toujours connecté
-      if (mongoose.connection.readyState === 1) {
-        if (createdTaskUid) await TaskOrchestrator.disintegrateTask(createdTaskUid);
-        await ProjectModel.deleteOne({ uid: TEST_PROJECT_UID });
-      }
-      
-      const session = getNeo4jDriver().session();
-      try {
-        await session.run(`MATCH (p:Project { uid: $uid }) DETACH DELETE p`, { uid: TEST_PROJECT_UID });
-        await session.run(`MATCH (u:User { uid: $uUid }) DETACH DELETE u`, { uUid: TEST_USER_UID });
-      } finally {
-        await session.close();
-      }
-    } catch (err: any) {
-      console.warn("⚠️ Nettoyage partiel :", err.message);
+      // ✅ SUTURE : Correction syntaxe Neo4j (WITH requis entre les opérations de suppression)
+      await session.run(`
+        MATCH (t:Task { projectUid: $pUid }) DETACH DELETE t
+        WITH $pUid as pUid
+        MATCH (p:Project { uid: pUid }) DETACH DELETE p
+      `, { pUid: TEST_PROJECT_UID });
     } finally {
-      const driver = getNeo4jDriver();
-      if (driver) await driver.close();
+      await session.close();
+    }
+
+    // Déconnexion de la Silice
+    if (mongoose.connection.readyState !== 0) {
       await mongoose.disconnect();
-      console.log("🧹 Nexus refermé.");
+    }
+    console.log("🧹 Vallée des ombres nettoyée.");
+  });
+
+  it('✅ doive synchroniser une nouvelle Tâche entre Mongo et Neo4j', async () => {
+    // 🏗️ Préparation de l'Atome (Task)
+    const taskData = {
+      content: {
+        title: "Forger la première fonctionnalité",
+        description: "Sédimentation de l'Îlot Zoizos",
+        tags: [] 
+      },
+      status: TaskStatus.TODO,
+      priority: TaskPriority.HIGH,
+      projectUid: TEST_PROJECT_UID
+    };
+
+    // 🚀 ACTION : L'Orchestrateur lance la Suture synchronisée
+    const newTask = await orchestrator.fosterTask(taskData, mockSignature);
+    createdTaskUid = newTask.uid;
+
+    // --- VÉRIFICATIONS OMEGA ---
+
+    // 1. Vérification dans la Silice (MongoDB)
+    const mongoTask = await TaskModel.findOne({ uid: createdTaskUid });
+    expect(mongoTask).toBeDefined();
+    expect(mongoTask?.content.title).toBe(taskData.content.title);
+    console.log("💎 Atome trouvé dans la Silice.");
+
+    // 2. Vérification dans le Graphe (Neo4j)
+    const session = getNeo4jDriver().session();
+    try {
+      const neoResult = await session.run(
+        'MATCH (t:Task { uid: $uid }) RETURN t',
+        { uid: createdTaskUid }
+      );
+      expect(neoResult.records.length).toBe(1);
+      console.log("🔗 Synchronisation Neo4j confirmée.");
+    } finally {
+      await session.close();
     }
   });
 });

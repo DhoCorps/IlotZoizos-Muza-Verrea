@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import crypto from "crypto";
-import { connectToDatabase, UserModel } from "@ilot/infrastructure";
+import { connectToDatabase, OiseauModel } from "@ilot/infrastructure";
 import { ForgotPasswordSchema } from "@ilot/types";
 
 export async function POST(req: Request) {
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     const { email } = validation.data;
     await connectToDatabase();
 
-    const user = await UserModel.findOne({ email });
+    const user = await OiseauModel.findOne({ email });
     
     // 🕵️ Sécurité : On ne confirme pas si l'email existe ou non pour éviter le "scraping"
     if (!user) {

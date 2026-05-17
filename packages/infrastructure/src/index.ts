@@ -3,9 +3,6 @@ export * from './database/neo4j';
 export * from './database/models/nosql/user.model';
 export * from './database/models/nosql/team.model';
 
-export * from './database/models/nosql/role.model';
-export * from './database/models/nosql/permission.model';
-
 export * from './database/models/nosql/project.model';
 export * from './database/models/nosql/task.model';
 

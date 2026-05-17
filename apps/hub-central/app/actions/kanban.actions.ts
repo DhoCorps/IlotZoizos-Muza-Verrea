@@ -1,22 +1,87 @@
 "use server";
 
 import { revalidatePath } from 'next/cache';
-import { TaskOrchestrator } from '../../../../packages/shared-core';
-import { updateTaskStatusOrchestrator } from '../../../../packages/shared-core';
-import { TransactionManager } from '../../../../packages/shared-core/src/sync-engine/transactionManager';
-import { TaskModel } from '@ilot/infrastructure';
-import { ITask } from '@ilot/types';
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "../../lib/auth"; // 🪡 SUTURE : On importe les options pour activer la session
+import { TaskOrchestrator, ActionSignature } from '@ilot/shared-core';
+import { TaskModel, getNeo4jSession } from '@ilot/infrastructure'; 
+import { ITask, TaskStatus, CAPABILITIES } from '@ilot/types';
 
 /**
- * 🌟 C : CREATE (Fondation d'un nouvel oiseau)
+ * 🛡️ UTILITAIRE DE DOUANE
+ * Vérifie les droits organiques (Tâche) ou ascendants (Projet).
+ */
+async function getKanbanActionCapabilities(userUid: string, taskUid?: string, projectUid?: string): Promise<string[]> {
+  const session = getNeo4jSession();
+  try {
+    let cypher = `MATCH (u:User {uid: $userUid})`;
+    let params: any = { userUid };
+
+    if (taskUid) {
+      cypher += `
+        MATCH (t:Task {uid: $taskUid})
+        // 🪡 SUTURE : On suit la direction Task -> Project (t)-[:TASK_OF]->(p)
+        OPTIONAL MATCH (t)-[:TASK_OF]->(p:Project)
+        OPTIONAL MATCH (u)-[rDirect:ASSIGNED_TO|CREATED]->(t)
+        OPTIONAL MATCH (u)-[rProj:CONTRIBUTES_TO|OWNER_OF]->(p)
+        RETURN rDirect IS NOT NULL AS isDirectlyInvolved, rProj.capabilities AS projectCaps
+      `;
+      params.taskUid = taskUid;
+    } else if (projectUid) {
+      cypher += `
+        MATCH (p:Project {uid: $projectUid})
+        OPTIONAL MATCH (u)-[rProj:CONTRIBUTES_TO|OWNER_OF]->(p)
+        RETURN false AS isDirectlyInvolved, rProj.capabilities AS projectCaps
+      `;
+      params.projectUid = projectUid;
+    } else {
+      return []; 
+    }
+
+    const result = await session.run(cypher, params);
+    if (result.records.length === 0) return []; 
+
+    const record = result.records[0];
+    const isDirectlyInvolved = record.get('isDirectlyInvolved');
+    const projectCaps = record.get('projectCaps') || [];
+
+    let compiledCaps = [...projectCaps];
+    if (isDirectlyInvolved) {
+      if (!compiledCaps.includes(CAPABILITIES.TASK.READ)) compiledCaps.push(CAPABILITIES.TASK.READ);
+      if (!compiledCaps.includes(CAPABILITIES.TASK.UPDATE)) compiledCaps.push(CAPABILITIES.TASK.UPDATE);
+    }
+    return compiledCaps;
+  } finally {
+    await session.close();
+  }
+}
+
+/**
+ * 🌟 C : CREATE (Fondation d'un nouvel Atome)
  */
 export async function createTaskAction(
-  data: Partial<ITask> & { projectUid: string, creatorUid: string }
+  data: Partial<ITask> & { projectUid: string } 
 ) {
   try {
-    const result = await TaskOrchestrator.fosterTask(data);
-    revalidatePath('/kanban');
-    return { success: true, data: result };
+    // 1. Authentification
+    const session = await getServerSession(authOptions); // 🪡 SUTURE : Ajout authOptions
+    const userUid = (session?.user as any)?.uid;
+    if (!userUid) throw new Error("Le Nexus est fermé. Connecte-toi.");
+
+    // 2. Autorisation (Douane)
+    const caps = await getKanbanActionCapabilities(userUid, undefined, data.projectUid);
+    if (!caps.includes(CAPABILITIES.TASK.CREATE) && !caps.includes('*')) {
+      throw new Error("Aura insuffisante pour forger un Atome.");
+    }
+
+    // 3. 🛡️ Signature & Instanciation
+    const signature: ActionSignature = { actorUid: userUid, capabilities: caps };
+    const taskOrch = new TaskOrchestrator();
+
+    const result = await taskOrch.fosterTask(data, signature);
+    revalidatePath('/tom-hat-toes'); // 🪡 SUTURE : On revalide le chemin réel du hub
+    
+    return { success: true, data: JSON.parse(JSON.stringify(result)) };
   } catch (error: any) {
     console.error("❌ [ACTION] Échec de la fondation :", error.message);
     return { success: false, error: error.message };
@@ -25,13 +90,20 @@ export async function createTaskAction(
 
 /**
  * 📖 R : READ (Lecture de la matrice pour alimenter le tableau)
- * Pas besoin de TransactionManager ici, on lit simplement la Silice.
  */
-export async function fetchKanbanTasksAction(projectId: string) {
+export async function fetchKanbanTasksAction(projectUid: string) {
   try {
-    // On suppose ici qu'on filtre par l'ObjectId du projet parent
-    const tasks = await TaskModel.find({ projectId }).lean();
-    return { success: true, data: tasks };
+    const session = await getServerSession(authOptions); // 🪡 SUTURE : Ajout authOptions
+    const userUid = (session?.user as any)?.uid;
+    if (!userUid) throw new Error("Non autorisé.");
+
+    const caps = await getKanbanActionCapabilities(userUid, undefined, projectUid);
+    if (!caps.includes(CAPABILITIES.PROJECT.READ) && !caps.includes('*')) {
+      throw new Error("L'accès à ce Chantier t'est interdit.");
+    }
+
+    const tasks = await TaskModel.find({ projectUid }).lean();
+    return { success: true, data: JSON.parse(JSON.stringify(tasks)) };
   } catch (error: any) {
     console.error("❌ [ACTION] Échec de la lecture :", error.message);
     return { success: false, error: "Impossible de lire la Silice." };
@@ -40,12 +112,24 @@ export async function fetchKanbanTasksAction(projectId: string) {
 
 /**
  * 🎭 U : UPDATE (Déplacement sur le Kanban)
- * Utilise l'orchestrateur spécifique qu'on a refactorisé avec le Squelette d'Acier.
  */
-export async function moveTaskAction(taskUid: string, newStatus: string) {
+export async function moveTaskAction(taskUid: string, newStatus: TaskStatus) {
   try {
-    const result = await updateTaskStatusOrchestrator(taskUid, newStatus);
-    revalidatePath('/kanban');
+    const session = await getServerSession(authOptions); // 🪡 SUTURE : Ajout authOptions
+    const userUid = (session?.user as any)?.uid;
+    if (!userUid) throw new Error("Non autorisé.");
+
+    const caps = await getKanbanActionCapabilities(userUid, taskUid);
+    if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !caps.includes('*')) {
+      throw new Error("Tu n'as pas le droit de déplacer cet Oiseau.");
+    }
+
+    const signature: ActionSignature = { actorUid: userUid, capabilities: caps };
+    const taskOrch = new TaskOrchestrator();
+
+    await taskOrch.updateTask(taskUid, { status: newStatus }, signature);
+    
+    revalidatePath('/tom-hat-toes'); // 🪡 SUTURE : Cohérence du chemin
     return { success: true, message: `L'oiseau a migré vers ${newStatus}` };
   } catch (error: any) {
     console.error("❌ [ACTION] Échec de la migration :", error.message);
@@ -55,15 +139,24 @@ export async function moveTaskAction(taskUid: string, newStatus: string) {
 
 /**
  * 🧨 D : DELETE (Dissolution de la tâche)
- * Note : Il faudra ajouter un 'dissolveTask' dans ton TaskOrchestrator 
- * sur le même modèle que 'dissolveProject' pour gérer Neo4j + Mongo.
  */
 export async function deleteTaskAction(taskUid: string) {
   try {
-    // Appel futur vers ton Squelette d'Acier :
-    // await TaskOrchestrator.dissolveTask(taskUid);
+    const session = await getServerSession(authOptions); // 🪡 SUTURE : Ajout authOptions
+    const userUid = (session?.user as any)?.uid;
+    if (!userUid) throw new Error("Non autorisé.");
+
+    const caps = await getKanbanActionCapabilities(userUid, taskUid);
+    if (!caps.includes(CAPABILITIES.TASK.DELETE) && !caps.includes('*')) {
+      throw new Error("La désintégration de cet Atome est réservée à l'Architecte.");
+    }
+
+    const signature: ActionSignature = { actorUid: userUid, capabilities: caps };
+    const taskOrch = new TaskOrchestrator();
+
+    await taskOrch.disintegrateTask(taskUid, signature);
     
-    revalidatePath('/kanban');
+    revalidatePath('/tom-hat-toes'); // 🪡 SUTURE : Cohérence du chemin
     return { success: true, message: "L'oiseau a été libéré de la matrice." };
   } catch (error: any) {
     console.error("❌ [ACTION] Échec de la dissolution :", error.message);
@@ -73,39 +166,32 @@ export async function deleteTaskAction(taskUid: string) {
 
 /**
  * 🍅 P : POMODORO (Valider un cycle d'effort)
- * Incrémente le compteur de Pomodoros terminés d'un atome (Tâche) via le Squelette d'Acier.
  */
 export async function completePomodoroAction(taskUid: string) {
   try {
-    const result = await TransactionManager.execute("Validation Pomodoro", async (mongoSession, neo4jTx) => {
-      
-      // 1. SILICE (MongoDB) : Incrémenter le compteur
-      const updatedTask = await TaskModel.findOneAndUpdate(
-        { uid: taskUid },
-        { 
-          $inc: { "pomodoros.completed": 1 },
-          $set: { "dates.updatedAt": new Date() }
-        },
-        { new: true, session: mongoSession }
-      );
+    const session = await getServerSession(authOptions); // 🪡 SUTURE : Ajout authOptions
+    const userUid = (session?.user as any)?.uid;
+    if (!userUid) throw new Error("Non autorisé.");
 
-      if (!updatedTask) throw new Error("Atome introuvable dans la matrice.");
+    const caps = await getKanbanActionCapabilities(userUid, taskUid);
+    if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !caps.includes('*')) {
+      throw new Error("Seul l'artisan lié à cette tâche peut y consacrer un Pomodoro.");
+    }
 
-      // 2. GRAPHE (Neo4j) : Maintenir le miroir à jour
-      await neo4jTx.run(
-        `MATCH (t:Task {uid: $taskUid}) 
-         SET t.pomodorosDone = t.pomodorosDone + 1, t.updatedAt = datetime()
-         RETURN t`,
-        { taskUid }
-      );
+    const updatedTask = await TaskModel.findOneAndUpdate(
+      { uid: taskUid },
+      { 
+        $inc: { "pomodoros.completed": 1 },
+        $set: { "dates.updatedAt": new Date() }
+      },
+      { new: true }
+    );
 
-      return updatedTask;
-    });
+    if (!updatedTask) throw new Error("Atome introuvable dans la matrice.");
 
-    // Rafraîchissement global pour que le compteur s'incrémente visuellement sur la carte
-    revalidatePath('/');
+    revalidatePath('/tom-hat-toes'); // 🪡 SUTURE : Cohérence du chemin
 
-    return { success: true, newCount: result.pomodoros.completed };
+    return { success: true, newCount: updatedTask.pomodoros.completed };
   } catch (error: any) {
     console.error("❌ [ACTION] Échec de la validation Pomodoro :", error.message);
     return { success: false, error: error.message };

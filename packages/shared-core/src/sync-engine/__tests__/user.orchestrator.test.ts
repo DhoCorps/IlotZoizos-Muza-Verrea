@@ -1,62 +1,85 @@
+// packages/shared-core/src/sync-engine/__tests__/user.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { UserOrchestrator } from '../user.orchestrator';
-import { baguerOiseau } from '@ilot/infrastructure';
+import { OiseauOrchestrator } from '../user.orchestrator'; 
+import { TransactionManager } from '../transactionManager';
+import { CAPABILITIES, ActionSignature } from '@ilot/types';
 
-/**
- * 🛡️ LE BOUCLIER DE TEST
- * On intercepte le module d'infrastructure pour ne pas réellement
- * solliciter Neo4j pendant les tests unitaires.
- */
-vi.mock('@ilot/infrastructure', () => ({
-  baguerOiseau: vi.fn(),
+// 🛡️ SUTURE 1 : Mock du modèle par son chemin RELATIF exact (4 crans en arrière depuis __tests__)
+vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
+  OiseauModel: {
+    findOneAndUpdate: vi.fn().mockImplementation(() => ({
+      // .lean() est crucial pour les perfs et la synchronisation
+      lean: vi.fn().mockResolvedValue({ 
+        uid: 'bird-123', 
+        pseudo: 'L_Oiseau_Libre', 
+        aura: ['Poésie'],
+        frequenceHEX: '#E5484D'
+      })
+    })),
+    findOneAndDelete: vi.fn().mockImplementation(() => ({
+      lean: vi.fn().mockResolvedValue({ uid: 'bird-123' })
+    })),
+    create: vi.fn().mockImplementation((data) => Promise.resolve(Array.isArray(data) ? data : [data]))
+  }
 }));
 
-describe('UserOrchestrator - syncUserCreation', () => {
-  // 🩸 CORRECTION ICI : On satisfait l'interface stricte de l'Orchestrateur
-  const mockUserData = {
-    uid: 'user_999',
-    username: 'OiseauDeNuit',
-    role: 'MEMBRE',     // <- Le champ obligatoire attendu depuis MongoDB
-    roles: ['MEMBRE'],  // <- Le champ optionnel
+// 🛡️ SUTURE 2 : Mock global du TransactionManager (Le Graphe Muet)
+vi.mock('../transactionManager', () => ({
+  TransactionManager: {
+    execute: vi.fn().mockImplementation(async (name, callback) => {
+      const mockNeo4jTx = { 
+        run: vi.fn().mockResolvedValue({ 
+          records: [{ get: () => ({ properties: { pseudo: 'L_Oiseau_Libre', capabilities: ['Poésie'] } }) }] 
+        }) 
+      };
+      
+      // On simule le succès immédiat sans toucher à la vraie base [cite: 2026-03-09]
+      const result = await callback(null as any, mockNeo4jTx as any);
+      return result;
+    })
+  }
+}));
+
+describe("OiseauOrchestrator - L'Intégrité de l'Oiseau", () => {
+  let orchestrator: OiseauOrchestrator;
+
+  const mockOiseau = {
+    uid: 'bird-123',
+    pseudo: 'L_Oiseau_Libre',
+    aura: ['TypeScript', 'Poésie'],
+    frequenceHEX: '#E5484D'
+  };
+
+  const mockSignature: ActionSignature = {
+    actorUid: 'bird-123',
+    capabilities: [CAPABILITIES.MEMBER?.UPDATE || 'MEMBER.UPDATE'] 
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    orchestrator = new OiseauOrchestrator();
   });
 
-  it('doit baguer l\'oiseau avec succès dans Neo4j', async () => {
-    // 1. Préparation de l'espion
-    const mockedBaguer = vi.mocked(baguerOiseau);
-    const mockNode = { identity: { low: 1 }, properties: mockUserData };
-    
-    mockedBaguer.mockResolvedValue(mockNode as any);
+  it("✅ doit synchroniser l'identité totale sans perte de données via une signature valide", async () => {
+    // L'envol de l'Oiseau
+    const result = await orchestrator.syncOiseau(mockOiseau as any, mockSignature);
 
-    // 2. Action
-    const result = await UserOrchestrator.syncUserCreation(mockUserData);
-
-    // 3. Vérifications (L'infrastructure, elle, n'attend que le tableau "roles")
-    expect(mockedBaguer).toHaveBeenCalledWith({
-      uid: mockUserData.uid,
-      username: mockUserData.username,
-      roles: mockUserData.roles, 
-    });
+    expect(result.success).toBe(true);
+    expect(result.mongo.pseudo).toBe('L_Oiseau_Libre');
     
-    expect(result.status).toBe('success');
-    expect(result.source).toBe('neo4j');
-    expect(result.data).toEqual(mockNode);
-    expect(result.timestamp).toBeDefined();
+    // On vérifie que le TransactionManager a bien été sollicité
+    expect(TransactionManager.execute).toHaveBeenCalledWith("L'Envol de l'Oiseau", expect.any(Function));
   });
 
-  it('doit remonter une erreur si le baguage échoue', async () => {
-    // 1. On simule un échec de l'infrastructure (ex: Neo4j hors ligne)
-    const mockedBaguer = vi.mocked(baguerOiseau);
-    mockedBaguer.mockRejectedValue(new Error('Erreur de Graphe'));
+  it("❌ doit rejeter l'action si la signature ne possède pas l'Aura requise", async () => {
+    const badSignature: ActionSignature = {
+      actorUid: 'bird-malicious',
+      capabilities: [] 
+    };
 
-    // 2. Action & Vérification
-    await expect(UserOrchestrator.syncUserCreation(mockUserData))
-      .rejects.toThrow('Erreur de Graphe');
-
-    // On vérifie que l'erreur a bien été logguée
-    expect(mockedBaguer).toHaveBeenCalledTimes(1);
+    // La barrière karmique doit s'activer [cite: 2026-02-11]
+    await expect(
+      orchestrator.syncOiseau(mockOiseau as any, badSignature)
+    ).rejects.toThrow("Aura insuffisante");
   });
 });

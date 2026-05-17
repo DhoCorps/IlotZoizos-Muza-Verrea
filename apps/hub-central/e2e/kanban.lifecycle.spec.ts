@@ -1,49 +1,56 @@
+// tests/e2e/kanban-souverainete.spec.ts
 import { test, expect } from '@playwright/test';
 
-test.describe('Poste de Pilotage - Module Kanban', () => {
+test.describe('Poste de Pilotage - Souveraineté & Atomes', () => {
   
   test.beforeEach(async ({ page }) => {
-    // On atterrit sur le Nexus principal
-    await page.goto('/');
+    // 🛡️ SUTURE : Traversée du Middleware
+    await page.goto('/fr/tom-hat-toes');
+    
+    if (page.url().includes('/auth/login')) {
+      await page.fill('input[type="email"]', 'oiseau.libre@nexus.fr');
+      await page.fill('input[type="password"]', 'motdepassepropre');
+      await page.click('button[type="submit"]');
+    }
   });
 
-  test('👁️ Le tiroir Kanban doit rester caché au chargement', async ({ page }) => {
-    const kanbanHeader = page.locator('h2:has-text("Tableau de Bord Zoizos")');
-    await expect(kanbanHeader).toBeHidden();
+  test('👁️ Validation de l’ADN (Adieu les Rôles)', async ({ page }) => {
+    // On vérifie que l'absurdité du rôle figé a laissé place à la liberté
+    // "Oiseau Libre" est le label par défaut que nous avons suturé
+    const freedomLabel = page.locator('span:has-text("Oiseau Libre")').first();
+    await expect(freedomLabel).toBeVisible();
   });
 
-  test('💎 Le clic sur la Pierre Précieuse déploie le Kanban', async ({ page }) => {
-    // 1. Il faut d'abord qu'un projet soit sélectionné pour voir le bouton Kanban
-    // On simule le clic sur le premier projet disponible pour activer la zone contextuelle
-    const firstProject = page.locator('.bio-card').first();
-    await firstProject.click();
+  test('💎 L’Oiseau déploie ses Atomes (Flux Projet)', async ({ page }) => {
+    // 1. Il faut basculer sur l'onglet "Chantiers" pour trouver un projet
+    await page.getByRole('button', { name: /Chantiers/i }).click();
 
-    // 2. On cible le bouton d'appel bionique
+    // 2. Sélection d'un Chantier (Bio-card dans la vue projet)
+    const firstChantier = page.locator('.bio-card').first();
+    await expect(firstChantier).toBeVisible();
+    await firstChantier.click();
+
+    // 3. Appel du Tableau de Bord (Le bouton bionique apparaît enfin)
     const openKanbanBtn = page.getByRole('button', { name: /Ouvrir le Kanban/i });
     await expect(openKanbanBtn).toBeVisible();
     await openKanbanBtn.click();
 
-    // 3. On vérifie que le tiroir a bien coulissé
-    const kanbanHeader = page.locator('h2:has-text("Tableau de Bord")');
-    await expect(kanbanHeader).toBeVisible();
-
-    // 4. On vérifie que tes colonnes organiques sont bien là
-    await expect(page.locator('h3', { hasText: 'XYX' })).toBeVisible();
-    await expect(page.locator('h3', { hasText: '...' })).toBeVisible();
-    await expect(page.locator('h3', { hasText: '!' })).toBeVisible();
+    // 4. Vérification de la structure de la Silice (Les Atomes)
+    await expect(page.locator('h3', { hasText: 'CONCEPT' })).toBeVisible();
+    await expect(page.locator('h3', { hasText: 'IN_PROGRESS' })).toBeVisible();
   });
 
-  test('❌ Le clic sur Fermer rétracte le tiroir', async ({ page }) => {
-    // Raccourci pour ouvrir le Kanban
-    await page.locator('.bio-card').first().click();
-    await page.getByRole('button', { name: /Ouvrir le Kanban/i }).click();
-
-    // On ferme
-    const closeBtn = page.getByRole('button', { name: 'Fermer' });
-    await closeBtn.click();
-
-    // Le vide créateur est de retour
-    const kanbanHeader = page.locator('h2:has-text("Tableau de Bord Zoizos")');
-    await expect(kanbanHeader).toBeHidden();
+  test('💀 L’Oiseau acte sa sortie définitive (Souveraineté)', async ({ page }) => {
+    // 🛡️ Vérification du bouton d'Exil (La Suture de Liberté)
+    const leaveBtn = page.getByRole('button', { name: /Quitter Définitivement l'îlot/i });
+    await expect(leaveBtn).toBeVisible();
+    
+    // On vérifie que le Nexus demande confirmation avant la désintégration
+    page.on('dialog', dialog => {
+      expect(dialog.message()).toContain("quitter définitivement l'îlot");
+      dialog.dismiss(); 
+    });
+    
+    await leaveBtn.click();
   });
 });

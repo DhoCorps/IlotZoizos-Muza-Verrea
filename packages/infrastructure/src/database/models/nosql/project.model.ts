@@ -1,10 +1,10 @@
+// packages/infrastructure/src/database/models/nosql/project.model.ts
 import mongoose, { Schema, Document, Model, Types } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
-import { IProject } from '../../../../../types/src/models/project.types'; // Ta source de vérité Zod
+import { IProject } from '@ilot/types'; // 🛡️ Utilisation de l'interface purifiée
 
 /**
  * 🏗️ PROJECT DOCUMENT
- * Extension de l'interface IProject avec les types Mongoose
  */
 export interface IProjectDocument extends Omit<IProject, '_id'>, Document {
   _id: Types.ObjectId;
@@ -24,19 +24,25 @@ const ProjectSchema = new Schema<IProjectDocument>(
     },
 
     // --- 🏷️ IDENTITÉ & HIÉRARCHIE ---
-    name: { type: String, required: true, trim: true, index: true },
-    tag: { type: String, uppercase: true, trim: true }, // ex: [RENEWALL]
+    name: { type: String, required: true, trim: true, index: true, unique: false },
+    slug: { type: String, required: true, unique: false, trim: true, index: true }, 
+    tag: { type: String, uppercase: true, trim: true }, 
     description: { type: String, maxlength: 2000 },
     
-    parentId: { type: String, default: null, index: true }, // Pour les projets de projets
-    ownerId: { type: String, required: true, index: true }, // L'ID du créateur ou du Nid
-    managerId: { type: String, index: true },
-    teamIds: [{ type: String, index: true }], // Les Nids (Teams) travaillant sur le projet
+    parentId: { type: String, default: null, index: true }, 
+    ownerUid: { type: String, required: true, index: true },
+    creatorUid: { type: String, required: true, index: true },  
+    
+    // 🛡️ SUTURE : Remplacement de managerId par guardianUid [cite: 2026-02-11]
+    guardianUid: { type: String, index: true }, 
+    
+    teamIds: [{ type: String, index: true }], 
 
-    // --- 🎨 APPARENCE (Logique Bio-Tech) ---
+    // --- 🎨 APPARENCE (Vibration Bio-Tech) ---
     appearance: {
       icon: { type: String, default: 'folder' },
-      color: { type: String, default: '#E5484D' }, // Ton rouge organique
+      // 🛡️ SUTURE : Gris Bleuté par défaut [cite: 2026-03-27]
+      color: { type: String, default: '#8b9dc3' }, 
       bannerUrl: String,
       avatarUrl: String,
     },
@@ -44,7 +50,7 @@ const ProjectSchema = new Schema<IProjectDocument>(
     // --- 📊 ÉTAT & TEMPORALITÉ ---
     status: { 
       type: String, 
-      enum: ['CONCEPT', 'PLANNING', 'ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED', 'ARCHIVED'],
+      enum: ['CONCEPT', 'PLANNED', 'IN_PROGRESS', 'DONE', 'BLOCKED', 'REDUCED_SPEED', 'ARCHIVED'],
       default: 'CONCEPT' 
     },
     priority: { 
@@ -70,10 +76,10 @@ const ProjectSchema = new Schema<IProjectDocument>(
       lastActivity: { type: Date, default: Date.now }
     },
 
-    // --- 📂 GESTION DES FICHIERS (Ta demande spécifique) ---
-    fileUploads: [{ type: String }], // Tableau d'URLs des fichiers uploadés
+    // --- 📂 SÉDIMENTATION (Fichiers) ---
+    fileUploads: [{ type: String }], 
 
-    // --- 🎯 ROADMAP & AVANCEMENT ---
+    // --- 🎯 ROADMAP & VIBRATIONS ---
     roadmap: {
       progress: { type: Number, min: 0, max: 100, default: 0 },
       milestones: [{
@@ -83,7 +89,8 @@ const ProjectSchema = new Schema<IProjectDocument>(
         dueDate: Date,
         weight: { type: Number, default: 1 }
       }],
-      kpis: [{
+      // 🛡️ SUTURE : Adieu KPIs, bonjour Vibrations [cite: 2025-06-14]
+      vibrations: [{
         label: String,
         target: Number,
         current: { type: Number, default: 0 },
@@ -91,19 +98,20 @@ const ProjectSchema = new Schema<IProjectDocument>(
       }]
     },
 
-    // --- 💰 ÉCONOMIE & INFRASTRUCTURE ---
-    financials: {
-      budget: {
+    // --- 🌳 LA SÈVE (Énergie & Ressources) ---
+    // 🛡️ SUTURE : Remplacement de financials par energySap [cite: 2025-06-14]
+    energySap: {
+      resourceFlow: {
         estimated: { type: Number, default: 0 },
         spent: { type: Number, default: 0 },
         currency: { type: String, default: 'EUR' }
       },
-      fundingSources: [String],
+      sources: [String],
       isMonetized: { type: Boolean, default: false }
     },
 
     infrastructure: {
-      tools: [String], // ex: ["Next.js", "Neo4j"]
+      tools: [String], 
       physicalLocation: String,
       hardwareRequirements: [String]
     },
@@ -111,7 +119,6 @@ const ProjectSchema = new Schema<IProjectDocument>(
     // --- 🧠 SANTÉ COLLECTIVE & GOUVERNANCE ---
     health: {
       complexityLevel: { type: Number, min: 1, max: 10, default: 5 },
-      averageMentalLoad: { type: Number, min: 0, max: 100, default: 0 },
       riskLevel: { 
         type: String, 
         enum: ['SAFE', 'STABLE', 'WARNING', 'CRITICAL'], 
@@ -127,10 +134,9 @@ const ProjectSchema = new Schema<IProjectDocument>(
       restrictedAccess: { type: Boolean, default: false }
     },
 
-    // --- 🛡️ MODÉRATION ---
+    // --- 🛡️ SÉCURITÉ DU SANCTUAIRE ---
     moderation: {
       isFlagged: { type: Boolean, default: false },
-      reportCount: { type: Number, default: 0 },
       internalNotes: String
     }
   },
@@ -147,7 +153,6 @@ const ProjectSchema = new Schema<IProjectDocument>(
   }
 );
 
-// Indexation pour la recherche performante dans le Nexus
 ProjectSchema.index({ name: 'text', description: 'text', tag: 'text' });
 
 export const ProjectModel = (mongoose.models.Project as Model<IProjectDocument>) || 

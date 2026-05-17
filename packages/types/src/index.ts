@@ -1,4 +1,3 @@
-export * from './core/role.types';
 export * from './core/permission.types';
 export * from './core/user.types';
 export * from './core/auth.schema';
@@ -9,3 +8,8 @@ export * from './models/team.types';
 export * from './models/project.types';
 export * from './models/task.types';
 export * from './models/status.types';
+
+export interface ActionSignature {
+  actorUid: string;       
+  capabilities: string[]; 
+}

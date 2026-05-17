@@ -7,7 +7,6 @@ export function ContextualGraph({ rootUid, onNodeDoubleClick }: { rootUid: strin
   const [data, setData] = useState({ nodes: [], links: [] });
   const fgRef = useRef<any>();
   
-  // 🕒 Le chronomètre pour notre "double-clic" maison
   const lastClickTime = useRef<{ [nodeId: string]: number }>({});
 
   useEffect(() => {
@@ -20,17 +19,14 @@ export function ContextualGraph({ rootUid, onNodeDoubleClick }: { rootUid: strin
       });
   }, [rootUid]);
 
-  // 🖱️ Logique de détection du double-clic
   const handleNodeClick = (node: any) => {
     const now = Date.now();
     const previousClick = lastClickTime.current[node.id] || 0;
 
-    // Si l'oiseau clique deux fois en moins de 300ms, c'est un double-clic !
     if (now - previousClick < 300) {
       onNodeDoubleClick(node.id);
-      lastClickTime.current[node.id] = 0; // On reset le chrono
+      lastClickTime.current[node.id] = 0; 
     } else {
-      // Sinon, c'est un simple clic : on centre simplement la caméra sur le nœud
       lastClickTime.current[node.id] = now;
       fgRef.current?.centerAt(node.x, node.y, 300);
     }
@@ -39,7 +35,6 @@ export function ContextualGraph({ rootUid, onNodeDoubleClick }: { rootUid: strin
   return (
     <div className="fixed bottom-8 right-8 w-72 h-72 bg-[#05070A]/80 backdrop-blur-2xl border border-white/10 rounded-full shadow-[0_0_40px_rgba(229,72,77,0.15)] overflow-hidden z-50 animate-in zoom-in duration-500 group hover:w-96 hover:h-96 transition-all">
       
-      {/* Petit label purement esthétique */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 text-[8px] font-black uppercase tracking-[0.2em] text-[#E5484D] opacity-50 pointer-events-none z-10">
         Nexus Contextuel
       </div>
@@ -50,12 +45,39 @@ export function ContextualGraph({ rootUid, onNodeDoubleClick }: { rootUid: strin
         width={384}
         height={384}
         backgroundColor="rgba(0,0,0,0)"
-        nodeColor={(node: any) => node.type === 'Project' ? '#E5484D' : node.type === 'Task' ? '#64748b' : '#f1f5f9'}
-        nodeLabel="name"
-        nodeRelSize={6}
+        
+        // 🩸 SUTURE : Utilisation de la Fréquence (HEX) pour les Équipes, rouge pour les projets.
+        nodeColor={(node: any) => {
+          if (node.type === 'Team') return node.frequency || '#10b981'; // Vert par défaut si pas de fréquence
+          if (node.type === 'Project') return '#E5484D';
+          if (node.type === 'Task') {
+            // Les tâches finies brillent légèrement plus
+            return node.status === 'DONE' ? '#94a3b8' : '#334155';
+          }
+          return '#f1f5f9'; // Utilisateurs ou autres
+        }}
+
+        // 🩸 SUTURE : Graphe Muet. Si la tâche n'a pas de nom, on affiche juste son type et statut.
+        nodeLabel={(node: any) => {
+          if (node.type === 'Task') {
+             // Afficher le poids sédimenté si c'est fini, sinon juste le statut
+             return `Atome [${node.status}] ${node.energyWeight ? `| Énergie: ${node.energyWeight}` : ''}`;
+          }
+          return node.name || node.pseudo || node.uid; // Reste classique pour les autres
+        }}
+
+        // 🩸 SUTURE : Les nœuds gonflent selon l'énergie sédimentée !
+        nodeVal={(node: any) => {
+           // Si c'est une tâche achevée avec du poids, on augmente sa taille
+           if (node.type === 'Task' && node.energyWeight) {
+              return 4 + (node.energyWeight * 0.5); 
+           }
+           // Taille par défaut selon le type
+           return node.type === 'Project' || node.type === 'Team' ? 8 : 4;
+        }}
+
         linkDirectionalParticles={2}
         linkDirectionalParticleSpeed={0.005}
-        // 🎯 On utilise notre fonction maison au lieu de onNodeDoubleClick
         onNodeClick={handleNodeClick}
         onNodeDragEnd={node => {
           node.fx = node.x;

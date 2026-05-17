@@ -1,5 +1,5 @@
 import mongoose, { ClientSession } from 'mongoose';
-import { getNeo4jDriver } from '@ilot/infrastructure';
+import { getNeo4jDriver } from '@ilot/infrastructure/src/database/neo4j';
 import { Transaction } from 'neo4j-driver'; // 🌟 Typage précis
 
 export const TransactionManager = {

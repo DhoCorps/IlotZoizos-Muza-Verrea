@@ -24,7 +24,7 @@ export const BaseNodeSchema = z.object({
 export type IBaseNode = z.infer<typeof BaseNodeSchema>;
 
 // 📊 Constantes Globales (TRADUITES EN ANGLAIS)
-export const ProjectStatusSchema = z.enum(['CONCEPT', 'PLANNED', 'IN_PROGRESS', 'COMPLETED', 'PAUSED', 'REDUCED_SPEED']);
+export const ProjectStatusSchema = z.enum(['CONCEPT', 'PLANNED', 'IN_PROGRESS', 'DONE', 'BLOCKED', 'REDUCED_SPEED', 'ARCHIVED']);
 export const ProjectPrioritySchema = z.enum(['TRIVIAL', 'EASY', 'MEDIUM', 'HARD', 'EXTREME', 'CRITICAL']);
 
 // 👉 L'EXPORT MANQUANT POUR TASKS

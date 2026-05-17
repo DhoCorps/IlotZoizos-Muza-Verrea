@@ -1,49 +1,78 @@
 // apps/hub-central/app/api/users/[userId]/route.ts
 import { NextResponse } from 'next/server';
-import { connectToDatabase, UserModel, getNeo4jSession } from "@ilot/infrastructure";
+import { getServerSession } from "next-auth/next";
+import { OiseauModel } from '@ilot/infrastructure/src/database/models/nosql/user.model';
+import {IOiseau} from '@ilot/types'
 
-// 📝 ÉDITION DU PROFIL
-export async function PUT(req: Request, { params }: { params: { userId: string } }) {
+export async function GET(req: Request, { params }: { params: { userId: string } }) {
   try {
-    await connectToDatabase();
-    const body = await req.json();
-    
-    // On ne met à jour que les champs autorisés
-    const updatedUser = await UserModel.findOneAndUpdate(
-      { uid: params.userId },
-      { $set: body },
-      { new: true, runValidators: true }
-    ).select('-password');
+    // 🛡️ DOUANE : Qui regarde dans le miroir ?
+    const session = await getServerSession();
+    const visitorUid = (session?.user as any)?.uid;
+    const isSelf = visitorUid === params.userId;
 
-    if (!updatedUser) return NextResponse.json({ error: "Oiseau introuvable" }, { status: 404 });
+    // .lean() pour alléger la mémoire, car on ne fait que lire.
+    const oiseau = await OiseauModel.findOne({ uid: params.userId }).lean() as IOiseau | null;
+    if (!oiseau) {
+      return NextResponse.json({ message: "L'onde s'est dissipée." }, { status: 404 });
+    }
 
-    return NextResponse.json(updatedUser);
+    // --- LE MIROIR INTIME (C'est moi qui me regarde) ---
+    // Si l'Oiseau consulte son PROPRE profil, on lui renvoie toutes ses statistiques
+    // privées (entropie, email, etc.) sans appliquer les filtres d'anonymisation.
+    if (isSelf) {
+      return NextResponse.json({
+        pseudo: oiseau.pseudo,
+        email: oiseau.email,
+        frequenceHEX: oiseau.frequenceHEX,
+        entropieActive: oiseau.entropieActive,
+        sanctuaire: oiseau.sanctuaire,
+        sanctuaireVerrouille: oiseau.sanctuaireVerrouille,
+        isGhostMode: oiseau.isGhostMode,
+        avatarUrl: oiseau.avatarUrl,
+        coverPicture: oiseau.coverPicture,
+        capabilities: oiseau.capabilities
+      }, { status: 200 });
+    }
+
+    // --- LE FILTRE DE RÉSONANCE (C'est un autre qui me regarde) ---
+    // On ne renvoie pas le profil brut, on le formate selon son état d'âme actuel.
+
+    if (oiseau.sanctuaireVerrouille) {
+      // Le Balrog a disparu. On ne montre que l'épitaphe.
+      return NextResponse.json({
+        pseudo: oiseau.pseudo,
+        frequenceHEX: '#000000', // Noir total
+        sanctuaire: oiseau.sanctuaire, // Contiendra le message cryptique d'écrasement
+        avatarUrl: null, // On cache l'avatar
+        coverPicture: null
+      }, { status: 200 });
+    }
+
+    if (oiseau.isGhostMode) {
+      // Le Mode Ghost (Gris Bleuté / Silence). Le profil est embrumé.
+      return NextResponse.json({
+        pseudo: oiseau.pseudo,
+        frequenceHEX: oiseau.frequenceHEX,
+        message_statut: "Cet esprit observe en silence.",
+        avatarUrl: oiseau.avatarUrl,
+        capabilities: oiseau.capabilities
+        // On ne renvoie pas le sanctuaire en mode Ghost
+      }, { status: 200 });
+    }
+
+    // Mode Standard : Rencontre totale, polymorphisme affiché.
+    return NextResponse.json({
+      pseudo: oiseau.pseudo,
+      frequenceHEX: oiseau.frequenceHEX,
+      sanctuaire: oiseau.sanctuaire,
+      avatarUrl: oiseau.avatarUrl,
+      coverPicture: oiseau.coverPicture,
+      capabilities: oiseau.capabilities
+    }, { status: 200 });
+
   } catch (error) {
-    return NextResponse.json({ error: "Échec de la mutation de l'oiseau" }, { status: 500 });
-  }
-}
-
-// 🗑️ SUPPRESSION DU PROFIL (L'Effacement du Nexus)
-export async function DELETE(req: Request, { params }: { params: { userId: string } }) {
-  const session = getNeo4jSession();
-  try {
-    await connectToDatabase();
-
-    // 1. Suppression dans MongoDB (Silice)
-    const deletedInMongo = await UserModel.findOneAndDelete({ uid: params.userId });
-    
-    // 2. Suppression dans Neo4j (Le Graphe)
-    // On utilise DETACH DELETE pour supprimer le nœud et toutes ses relations (Nids, amitiés)
-    await session.run(
-      'MATCH (u:Bird {uid: $uid}) DETACH DELETE u',
-      { uid: params.userId }
-    );
-
-    return NextResponse.json({ message: "L'oiseau a quitté le Nexus définitivement." });
-  } catch (error) {
-    console.error("🔥 Erreur d'effacement :", error);
-    return NextResponse.json({ error: "L'oiseau refuse de quitter le Graphe." }, { status: 500 });
-  } finally {
-    await session.close();
+    console.error("🔥 Interférence réseau (GET User):", error);
+    return NextResponse.json({ message: "Interférence réseau." }, { status: 500 });
   }
 }

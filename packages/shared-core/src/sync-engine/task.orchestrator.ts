@@ -1,157 +1,178 @@
-import { TaskModel, ProjectModel, TaskDocument } from '../../../infrastructure';
+// packages/shared-core/src/sync-engine/task.orchestrator.ts
+import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model';
+import { ProjectModel } from '../../../infrastructure/src/database/models/nosql/project.model';
 import { TransactionManager } from './transactionManager';
-import { ITask, TaskStatus } from '../../../types';
+import { ITask, TaskStatus, CAPABILITIES, ActionSignature } from '@ilot/types'; 
+import { IlotError } from '../errors/ilot.errors'; 
 import { randomUUID } from 'crypto';
 
-/**
- * TaskOrchestrator : Le chef d'orchestre de l'Îlot Zoizos.
- * Assure la double-suture atomique entre MongoDB (Silice) et Neo4j (Graphe).
- */
-export const TaskOrchestrator = {
+export interface TaskSyncResult {
+  success: boolean;
+  status: string;
+  mongo: any;
+  neo4j: any;
+}
+
+export class TaskOrchestrator {
   
   /**
-   * 🐣 fosterTask : Fondation d'un nouvel Atome de travail.
+   * 🌟 FONDATION : FORGER UN ATOME
+   * Synchronisation entre la Silice (Mongo) et le Graphe (Neo4j)
    */
-  async fosterTask(data: Partial<ITask> & { projectUid: string; creatorUid: string }) {
-    // 🛡️ Rouage 1 : Validation Fail-fast du parent
+  async fosterTask(
+    data: any, // On accepte un payload flexible pour la normalisation
+    signature: ActionSignature 
+  ) {
+    // 1. Identification du Chantier parent
     const project = await ProjectModel.findOne({ uid: data.projectUid });
-    if (!project) throw new Error("Chantier parent (Project) introuvable.");
+    if (!project) throw new IlotError("Chantier parent introuvable.", "NOT_FOUND", 404);
 
-    return await TransactionManager.execute("Fondation de Tâche", async (mongoSession, neo4jTx) => {
-      const taskUid = `task_${randomUUID()}`;
+    return await TransactionManager.execute("Fondation d'Atome", async (mongoSession, neo4jTx) => {
+      
+      // 🛡️ LE DOUBLE VERROU : Souveraineté vs Territoire
+      const isCreator = project.creatorUid === signature.actorUid;
+      const isArchitect = signature.capabilities.includes('*');
+      
+      if (!isCreator && !isArchitect) {
+        // 🪡 SUTURE : On vérifie l'Aura territoriale (Directe ou via l'escouade/Team)
+        const checkCypher = `
+          MATCH (u:User {uid: $actorUid})
+          OPTIONAL MATCH (u)-[r:CONTRIBUTES_TO|OWNER_OF|CREATED]->(p:Project {uid: $pUid})
+          OPTIONAL MATCH (u)-[:MEMBER_OF]->(t:Team)-[:HAS_PROJECT]->(p)
+          RETURN collect(r.capabilities) + collect(t.defaultProjectCapabilities) AS allCaps
+        `;
+        const check = await neo4jTx.run(checkCypher, { 
+          actorUid: signature.actorUid, 
+          pUid: data.projectUid
+        });
 
-      // 🧪 Rouage 2 : Cristallisation dans la Silice (MongoDB)
+        const caps = check.records[0]?.get('allCaps').flat() || [];
+        const isAuthorized = caps.includes(CAPABILITIES.TASK.CREATE) || caps.includes('*');
+
+        if (!isAuthorized) {
+          throw new IlotError("Ton Aura ne résonne pas assez fort sur ce territoire.", "FORBIDDEN", 403);
+        }
+      }
+
+      // 🐘 2. SÉDIMENTATION DANS LA SILICE (MongoDB)
+      const taskUid = data.uid || `task_${randomUUID()}`;
+      
+      // Normalisation du contenu (Gestion du titre/nom pour les deux bases)
+      const title = data.title || data.content?.title || "Atome sans nom";
+      const description = data.description || data.content?.description || "";
+
       const created = await TaskModel.create([{
         ...data,
         uid: taskUid,
-        projectId: project._id,
-        projectUid: project.uid, // On s'assure que l'UID est bien propagé
-        creatorUid: data.creatorUid,
+        projectUid: project.uid, 
+        parentUid: data.parentUid || null,
+        creatorUid: signature.actorUid, 
         content: {
-          title: data.content?.title || "Atome sans nom",
-          description: data.content?.description || "",
+          title: title,
+          description: description,
           tags: data.content?.tags || []
         },
         status: data.status || TaskStatus.TODO,
         assigneeUids: data.assigneeUids || [],
-        pomodoros: {
-          estimated: data.pomodoros?.estimated || 1,
-          completed: 0
+        pomodoros: { 
+          estimated: Number(data.pomoEst || data.pomodoros?.estimated || 1), 
+          completed: 0 
         },
-        dates: { 
-          createdAt: new Date(), 
-          updatedAt: new Date() 
-        }
+        dates: { createdAt: new Date(), updatedAt: new Date() }
       }], { session: mongoSession });
 
-      // Extraction chirurgicale avec garantie de type
-      const newTask = (created as unknown as TaskDocument[])[0];
+      const newTask = created[0];
 
-      // 🕸️ Rouage 3 : Tissage dans le Graphe (Neo4j)
+      // 🕸️ 3. TISSAGE DANS LE GRAPHE (Neo4j)
       const cypher = `
-        MERGE (p:Project { uid: $projectUid })
-        MERGE (creator:User { uid: $creatorUid })
+        MATCH (p:Project { uid: $projectUid })
+        MATCH (creator:User { uid: $actorUid })
         
         CREATE (t:Task { 
           uid: $taskUid, 
-          title: $title, 
-          status: $status,
-          pomodorosEst: toInteger($pomodorosEst),
-          pomodorosDone: toInteger($pomodorosDone)
+          name: $name, // 🪡 SUTURE : Le nom est scellé ici pour la visibilité radar
+          status: $status, 
+          createdAt: datetime() 
         })
         
-        MERGE (t)-[:TASK_OF]->(p)
-        MERGE (creator)-[:CREATED]->(t)
+        // 🪡 SUTURE : Direction Task -> Project
+        CREATE (t)-[:TASK_OF]->(p)
+        CREATE (creator)-[:CREATED]->(t)
         
-        WITH t
-        OPTIONAL MATCH (bird:User) WHERE bird.uid IN $assigneeUids
-        FOREACH (ignore IN CASE WHEN bird IS NOT NULL THEN [1] ELSE [] END |
+        // Gestion des assignés (Oiseaux de l'Atome)
+        WITH t, $assigneeUids AS birdUids
+        FOREACH (birdUid IN birdUids |
+          MERGE (bird:User { uid: birdUid })
           MERGE (bird)-[:ASSIGNED_TO]->(t)
         )
-        
+
+        // Gestion de la hiérarchie (Atome parent)
+        WITH t
+        OPTIONAL MATCH (parentTask:Task { uid: $parentUid })
+        FOREACH (ignore IN CASE WHEN parentTask IS NOT NULL THEN [1] ELSE [] END |
+          MERGE (t)-[:CHILD_OF]->(parentTask)
+        )
         RETURN t.uid
       `;
 
       await neo4jTx.run(cypher, {
-        projectUid: data.projectUid,
-        creatorUid: data.creatorUid,
-        assigneeUids: newTask.assigneeUids,
-        taskUid: newTask.uid,
-        title: newTask.content.title,
-        status: newTask.status,
-        pomodorosEst: newTask.pomodoros.estimated,
-        pomodorosDone: newTask.pomodoros.completed
+        projectUid: project.uid, 
+        actorUid: signature.actorUid,
+        parentUid: data.parentUid || null, 
+        assigneeUids: newTask.assigneeUids || [], 
+        taskUid: newTask.uid, 
+        name: title,
+        status: newTask.status
       });
 
       return newTask;
     });
-  },
-
+  }
+  
   /**
-   * 🛠️ updateTask : Mutation d'un Atome existant.
+   * 🎭 MUTATION : FAIRE ÉVOLUER UN ATOME
    */
-  async updateTask(taskUid: string, updates: Partial<ITask>) {
-    return await TransactionManager.execute("Mutation de Tâche", async (mongoSession, neo4jTx) => {
-      
-      // 1. Mise à jour dans MongoDB
+  async updateTask(taskUid: string, updates: Partial<ITask>, signature: ActionSignature): Promise<ITask> {
+    const hasPower = signature.capabilities.includes(CAPABILITIES.TASK.UPDATE) || 
+                     signature.capabilities.includes('*');
+
+    if (!hasPower) throw new IlotError("Aura insuffisante.", "FORBIDDEN", 403);
+
+    // 🪡 SUTURE : On précise que le TransactionManager renvoie un ITask
+    return await TransactionManager.execute<ITask>("Mutation d'Atome", async (mongoSession, neo4jTx) => {
       const updatedTask = await TaskModel.findOneAndUpdate(
-        { uid: taskUid },
-        { $set: { ...updates, "dates.updatedAt": new Date() } },
+        { uid: taskUid }, 
+        { $set: { ...updates, "dates.updatedAt": new Date() } }, 
         { new: true, session: mongoSession }
-      );
+      ).lean();
 
-      if (!updatedTask) throw new Error("Atome de travail introuvable.");
+      if (!updatedTask) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
 
-      // Conversion en objet simple pour la suite (évite les conflits de types Document)
-      const taskData = typeof updatedTask.toObject === 'function' 
-        ? updatedTask.toObject() 
-        : updatedTask;
-
-      // 2. Synchronisation du Graphe
-      const needsGraphUpdate = updates.content?.title || updates.status || updates.assigneeUids;
-
-      if (needsGraphUpdate) {
-        let updatePropsCypher = `MATCH (t:Task { uid: $taskUid }) SET t.status = $status `;
-        if (updates.content?.title) {
-          updatePropsCypher += `, t.title = $title `;
-        }
-
-        await neo4jTx.run(updatePropsCypher, { 
-          taskUid, 
-          status: taskData.status, 
-          title: taskData.content.title 
-        });
-        
-        if (updates.assigneeUids) {
-          await neo4jTx.run(`
-            MATCH (t:Task { uid: $taskUid })
-            OPTIONAL MATCH (oldBird:User)-[r:ASSIGNED_TO]->(t)
-            DELETE r
-            WITH t
-            UNWIND $newUids AS aUid
-            MATCH (newBird:User { uid: aUid })
-            MERGE (newBird)-[:ASSIGNED_TO]->(t)
-          `, { 
-            taskUid, 
-            newUids: updates.assigneeUids 
-          });
-        }
+      if (updates.status) {
+        await neo4jTx.run(
+          `MATCH (t:Task { uid: $taskUid }) SET t.status = $status, t.updatedAt = datetime()`,
+          { taskUid, status: updates.status }
+        );
       }
       
-      return updatedTask;
-    });
-  },
-
-  /**
-   * 🗑️ disintegrateTask : Effacement des traces.
-   */
-  async disintegrateTask(taskUid: string) {
-    return await TransactionManager.execute("Désintégration de Tâche", async (mongoSession, neo4jTx) => {
-      await TaskModel.findOneAndDelete({ uid: taskUid }, { session: mongoSession });
-      await neo4jTx.run(`
-        MATCH (t:Task { uid: $taskUid })
-        DETACH DELETE t
-      `, { taskUid });
+      // 🪡 SUTURE : On cast explicitement le retour
+      return updatedTask as unknown as ITask; 
     });
   }
-};
+  
+  /**
+   * 💀 DÉSINTÉGRATION
+   */
+  async disintegrateTask(taskUid: string, signature: ActionSignature) {
+    const hasPower = signature.capabilities.includes(CAPABILITIES.TASK.DELETE) || 
+                     signature.capabilities.includes('*');
+
+    if (!hasPower) throw new IlotError("Aura insuffisante.", "FORBIDDEN", 403);
+
+    return await TransactionManager.execute("Désintégration d'Atome", async (mongoSession, neo4jTx) => {
+      await TaskModel.findOneAndDelete({ uid: taskUid }, { session: mongoSession });
+      await neo4jTx.run(`MATCH (t:Task { uid: $taskUid }) DETACH DELETE t`, { taskUid });
+      return { success: true };
+    });
+  }
+}

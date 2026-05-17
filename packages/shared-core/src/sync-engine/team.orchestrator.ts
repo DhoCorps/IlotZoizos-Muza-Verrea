@@ -1,167 +1,329 @@
-import { TeamModel, UserModel, getNeo4jSession } from '@ilot/infrastructure';
-import { ITeam } from '@ilot/types';
+// packages/shared-core/src/sync-engine/team.orchestrator.ts
+import { OiseauModel } from '@ilot/infrastructure/src/database/models/nosql/user.model';
+import { TeamModel } from '@ilot/infrastructure/src/database/models/nosql/team.model';
+import { ProjectModel } from '@ilot/infrastructure/src/database/models/nosql/project.model'; // 🌟 SUTURE : Import du modèle des Chantiers
+import { TaskModel } from '@ilot/infrastructure/src/database/models/nosql/task.model';       // 🌟 SUTURE : Import du modèle des Atomes
+import { ITeam, CAPABILITIES, ActionSignature } from '@ilot/types';
 import { MoralChecker } from '../integrity/moral.checker';
 import { TransactionManager } from './transactionManager';
+import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
+
+export interface TeamSyncResult {
+  success: boolean;
+  status: string;
+  mongo: any;
+  neo4j: any;
+}
 
 /**
  * 🛰️ TEAM ORCHESTRATOR 
- * L'Architecte des liens. Assure la cohérence entre Mongo et Neo4j.
+ * L'Architecte des liens. Assure la cohérence entre la Silice (Mongo) et le Graphe (Neo4j).
+ * Modèle : "Zero-Identity"
  */
-export const TeamOrchestrator = {
-
-  // --- 🌟 FONDATION : CRÉATION DU NID ---
-
-  async fosterTeam(teamData: { 
-    name: string, 
-    creatorUid: string, 
-    description?: string,
-    parentId?: string,
-    category: string; 
-    nuances: string[]; 
-    isPrivate: boolean;
-  }) {
-    // 🛡️ SUTURE VITEST : Vérification morale
-    const check = MoralChecker.analyze(teamData.name);
-    if (!check.isSafe) {
-      throw new Error(`Nom invalide : ${check.suggestion}`);
+export class TeamOrchestrator {
+  async fosterTeam(
+    teamData: { 
+      name: string, 
+      description?: string,
+      parentId?: string | null; // ✅ SYNCHRONISATION : On accepte le null de Zod
+      category: string; 
+      frequency?: string; 
+      isPrivate: boolean; 
+      ownerUid: string;
+      leaderUid: string | null; // ✅ On harmonise aussi avec le schéma Zod
+    },
+    signature: ActionSignature
+  ): Promise<TeamSyncResult> {
+        
+    // 1. Barrière de la Signature
+    if (!signature.capabilities.includes(CAPABILITIES.TEAM.CREATE) && !signature.capabilities.includes('*')) {
+      throw new IlotError("Aura insuffisante pour fonder une escouade", "FORBIDDEN", 403);
     }
+    
+    // 2. Le Veilleur (MoralChecker)
+    const moralCheck = new MoralChecker();
+    const check = moralCheck.analyze(teamData.name);
+    if (!check.isSafe) throw new IlotError(`Nom invalide : ${check.suggestion}`, "BAD_REQUEST", 400);
 
-    const creator = await UserModel.findOne({ uid: teamData.creatorUid });
-    if (!creator) throw new Error("Créateur introuvable dans la canopée.");
+    // 3. Vérification de l'Empreinte
+    const creator = await OiseauModel.findOne({ uid: signature.actorUid });
+    if (!creator) throw new IlotError("Empreinte créatrice introuvable dans la canopée.", "NOT_FOUND", 404);
 
-    let parentObjectId = null;
-    if (teamData.parentId) {
-      const parentTeam = await TeamModel.findOne({ uid: teamData.parentId });
-      if (!parentTeam) throw new Error("L'escouade parente n'existe pas.");
-      parentObjectId = parentTeam._id;
-    }
-
-    // 2. Génération de l'UID en amont
     const teamUid = `team_${randomUUID()}`;
+    const defaultFreq = teamData.frequency || '#2A3B4C';
 
     return await TransactionManager.execute("Fondation d'Escouade", async (mongoSession, neo4jTx) => {
-      // 3. MONGO : Utilisation de l'UID généré
+      // 🐘 MONGO : Sédimentation
       const [newTeam] = await TeamModel.create([{
-        uid: teamUid, // On injecte l'UID ici
+        uid: teamUid, 
         name: teamData.name,
         description: teamData.description,
-        ownerId: creator._id,
-        leaderId: creator._id,
-        parentId: parentObjectId 
+        category: teamData.category,
+        frequency: defaultFreq,
+        isPrivate: teamData.isPrivate,
+        ownerUid: creator.uid, // ✅ SUTURE : ownerId -> ownerUid
+        leaderUid: creator.uid, // ✅ SUTURE : Ajout du leaderUid par défaut
+        parentId: teamData.parentId || null
       }], { session: mongoSession });
 
-      await UserModel.findByIdAndUpdate(
-        creator._id,
+      // Liaison dans la Silice
+      await OiseauModel.findOneAndUpdate(
+        { uid: creator.uid },
         { $push: { teams: newTeam._id } }, 
         { session: mongoSession }
       );
 
-      // 4. NEO4J : Tissage avec le même UID
+      // 🕸️ NEO4J : Le Graphe Muet
+      const founderCapabilities = [
+        ...Object.values(CAPABILITIES.TEAM),
+        ...Object.values(CAPABILITIES.MEMBER),
+        ...Object.values(CAPABILITIES.PROJECT)
+      ];
+
       const cypher = `
-        MERGE (u:User { uid: $creatorUid })
-        ON CREATE SET u.username = $creatorName
+        MERGE (u:User { uid: $actorUid })
         MERGE (t:Team { uid: $teamUid })
-        ON CREATE SET t.name = $name, t.createdAt = datetime()
+        ON CREATE SET 
+          t.createdAt = datetime(),
+          t.frequency = $frequency,
+          t.isPrivate = $isPrivate,
+          t.category = $category
+
+        // 1. Le lien d'Origine (Immuable)
+        MERGE (u)-[:FOUNDED]->(t)
+
+        // 2. Le lien d'Appartenance (Fluide)
         MERGE (u)-[r:MEMBER_OF]->(t)
-        SET r.role = 'ADMIN', r.since = datetime()
+        SET r.since = datetime(), 
+            r.capabilities = $capabilities // L'Aura suffit à définir le pouvoir
+        
         WITH t
         OPTIONAL MATCH (p:Team { uid: $parentId })
         FOREACH (_ IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
           MERGE (t)-[:CHILD_OF]->(p)
         )
-        RETURN count(t)
+        RETURN t
       `;
 
-      await neo4jTx.run(cypher, {
-        creatorUid: teamData.creatorUid,
-        creatorName: creator.username, 
-        teamUid: teamUid, // Utilisation de notre constante
-        name: newTeam.name,
-        parentId: teamData.parentId || null
+      const neoResult = await neo4jTx.run(cypher, {
+        actorUid: signature.actorUid,
+        teamUid: teamUid, 
+        parentId: teamData.parentId || null,
+        frequency: defaultFreq,
+        isPrivate: teamData.isPrivate,
+        category: teamData.category,
+        capabilities: founderCapabilities
       });
 
-      return { success: true, team: newTeam };
+      return { 
+        success: true, 
+        status: 'success', 
+        mongo: newTeam, 
+        neo4j: neoResult 
+      };
     });
-  },
-  // --- 🤝 RECRUTEMENT DYNAMIQUE (FUSIONNÉ) ---
+  }
 
-  /**
-   * 🔍 Chercher les oiseaux qui acceptent les invitations
-   */
+  // --- 🤝 RECRUTEMENT DYNAMIQUE ---
+
   async getRecruitableBirds(search: string = "") {
-    return await UserModel.find({
-      isAvailableForTeamRequest: true, // Respect du flag de l'oiseau
-      username: { $regex: search, $options: 'i' }
-    })
-    .select('uid username signature bio')
-    .limit(10)
-    .lean();
-  },
+    return await OiseauModel.find({
+      isOpenToInvitations: true, 
+      pseudo: { $regex: search, $options: 'i' }
+    }).select('uid pseudo frequenceHEX capabilities bio').limit(10).lean();
+  }
 
-  /**
-   * 📨 Envoyer une invitation (Marquage Neo4j)
-   */
-  async inviteBird(teamUid: string, targetUserUid: string) {
-    const target = await UserModel.findOne({ uid: targetUserUid });
-    if (!target || !target.isAvailableForTeamRequest) {
-      throw new Error("Cet oiseau n'est pas disponible pour un recrutement.");
+  async inviteBird(
+    data: { teamUid: string; targetUserUid: string; capabilities?: string[] },
+    signature: ActionSignature
+  ) {
+    // 1. On va chercher le Nid dans la Silice pour vérifier qui en est le Gardien
+    const team = await TeamModel.findOne({ uid: data.teamUid });
+    if (!team) {
+      throw new IlotError("Ce Nid n'existe pas dans la Silice.", "NOT_FOUND", 404);
     }
 
-    return await TransactionManager.execute("Invitation d'Oiseau", async (_, neo4jTx) => {
+    // 🌟 LA RÈGLE SOUVERAINE : Si tu es le fondateur (owner) de l'équipe, tu as le droit inhérent d'inviter !
+    const isNestOwner = team.ownerUid === signature.actorUid;
+    const hasGlobalPower = signature.capabilities.includes(CAPABILITIES.MEMBER.INVITE) || 
+                           signature.capabilities.includes('*');
+
+    if (!isNestOwner && !hasGlobalPower) {
+      throw new IlotError("Aura insuffisante pour recruter dans ce Nid.", "FORBIDDEN", 403);
+    }
+
+    const target = await OiseauModel.findOne({ uid: data.targetUserUid });
+    if (!target) throw new IlotError("Oiseau introuvable.", "NOT_FOUND", 404);
+
+    return await TransactionManager.execute("Invitation d'Oiseau", async (mongoSession, neo4jTx) => {
+      // 🛡️ SUTURE : MERGE assure que l'utilisateur existe dans le Graphe pour porter le lien
       const cypher = `
-        MATCH (u:User { uid: $targetUserUid })
+        MERGE (target:User { uid: $targetUserUid })
+        ON CREATE SET target.pseudo = $pseudo, target.frequenceHEX = $hex
+        
+        WITH target
         MATCH (t:Team { uid: $teamUid })
-        MERGE (u)-[r:INVITED_TO]->(t)
-        SET r.invitedAt = datetime()
-        RETURN u.username as name
+        
+        // Création du lien d'invitation avec ses plumes spécifiques
+        MERGE (target)-[r:INVITED_TO]->(t)
+        SET r.invitedAt = datetime(),
+            r.capabilities = $caps // 🛡️ Suture des droits millimétrés
+        RETURN r
       `;
-      const result = await neo4jTx.run(cypher, { targetUserUid, teamUid });
-      return result.records[0]?.get('name');
+
+      const neoResult = await neo4jTx.run(cypher, { 
+        targetUserUid: data.targetUserUid, 
+        pseudo: target.pseudo,
+        hex: target.frequenceHEX,
+        teamUid: data.teamUid,
+        caps: data.capabilities || [CAPABILITIES.PROJECT.READ, CAPABILITIES.TASK.CREATE] 
+      });
+
+      return { success: true, status: 'success', mongo: target, neo4j: neoResult };
     });
-  },
+  }
 
   // --- 🎭 MUTATION & DISSOLUTION ---
 
-  async mutateTeam(teamUid: string, data: Partial<ITeam>) {
+  async mutateTeam(
+    teamUid: string, 
+    data: Partial<ITeam>, 
+    signature: ActionSignature
+  ): Promise<TeamSyncResult> {
+    if (!signature.capabilities.includes(CAPABILITIES.TEAM.UPDATE) && !signature.capabilities.includes('*')) {
+      throw new IlotError("Action interdite par la matrice.", "FORBIDDEN", 403);
+    }
+
     if (data.name) {
-      const check = MoralChecker.analyze(data.name);
-      if (!check.isSafe) throw new Error(`Nom invalide : ${check.suggestion}`);
+      const moralCheck = new MoralChecker(); // ✅ Correction typo
+      const check = moralCheck.analyze(data.name);
+      if (!check.isSafe) throw new IlotError(`Nom invalide : ${check.suggestion}`, "BAD_REQUEST", 400);
     }
 
     return await TransactionManager.execute("Mutation de Nid", async (mongoSession, neo4jTx) => {
       const updatedTeam = await TeamModel.findOneAndUpdate(
-        { uid: teamUid },
-        { $set: data },
-        { new: true, session: mongoSession }
-      );
+        { uid: teamUid }, { $set: data }, { new: true, session: mongoSession }
+      ).lean();
       
-      if (!updatedTeam) throw new Error("Nid introuvable pour la mutation.");
+      if (!updatedTeam) throw new IlotError("Nid introuvable.", "NOT_FOUND", 404);
 
-      if (data.name) {
-        await neo4jTx.run(
-          `MATCH (t:Team {uid: $teamUid}) SET t.name = $name`, 
-          { teamUid, name: data.name }
+      let neoResult = null;
+      if (data.frequency !== undefined || data.isPrivate !== undefined) {
+        neoResult = await neo4jTx.run(
+          `MATCH (t:Team {uid: $teamUid}) SET t.frequency = $freq, t.isPrivate = $priv RETURN t`,
+          { 
+            teamUid, 
+            freq: data.frequency ?? updatedTeam.frequency, 
+            priv: data.isPrivate ?? updatedTeam.isPrivate 
+          }
         );
       }
-      return updatedTeam;
+      
+      return { 
+        success: true, 
+        status: 'success', 
+        mongo: updatedTeam, 
+        neo4j: neoResult 
+      };
     });
-  },
+  }
 
-  async dissolveTeam(teamUid: string) {
+  async dissolveTeam(
+    teamUid: string, 
+    signature: ActionSignature
+  ): Promise<boolean> {
+    if (!signature.capabilities.includes(CAPABILITIES.TEAM.DELETE) && !signature.capabilities.includes('*')) {
+      throw new IlotError("Aura insuffisante pour dissoudre ce Nid.", "FORBIDDEN", 403);
+    }
+
     return await TransactionManager.execute("Dissolution de Nid", async (mongoSession, neo4jTx) => {
       await neo4jTx.run(`MATCH (t:Team {uid: $teamUid}) DETACH DELETE t`, { teamUid });
-      
       const deletedTeam = await TeamModel.findOneAndDelete({ uid: teamUid }, { session: mongoSession });
       
       if (deletedTeam) {
-        await UserModel.updateMany(
-          { teams: deletedTeam._id },
-          { $pull: { teams: deletedTeam._id } },
+        await OiseauModel.updateMany(
+          { teams: deletedTeam._id }, 
+          { $pull: { teams: deletedTeam._id } }, 
           { session: mongoSession }
         );
       }
       return true;
     });
   }
-};
+
+  /**
+   * 🕊️ L'ENVOL VOLONTAIRE (Quitter une Escouade)
+   * Mode 'CLEAN' : L'oiseau efface son lien et désintègre ses créations dans ce Nid.
+   * Mode 'TRACE' : L'oiseau rompt le lien mais laisse ses Atomes en héritage.
+   */
+  async leaveTeam(
+    teamUid: string,
+    userUid: string,
+    mode: 'CLEAN' | 'TRACE',
+    signature: ActionSignature
+  ): Promise<{ success: boolean; message: string }> {
+    
+    // 🛡️ SÉCURITÉ : Un oiseau ne peut signer que son propre départ volontaire
+    if (signature.actorUid !== userUid) {
+      throw new IlotError("Tu ne peux pas forcer l'envol d'un autre oiseau via cette route.", "FORBIDDEN", 403);
+    }
+
+    const team = await TeamModel.findOne({ uid: teamUid });
+    if (!team) throw new IlotError("Nid introuvable dans la Silice.", "NOT_FOUND", 404);
+    if (team.ownerUid === userUid) {
+      throw new IlotError("L'Architecte ne peut pas abandonner son propre Nid. Dissous-le ou transmets sa clé.", "BAD_REQUEST", 400);
+    }
+
+    return await TransactionManager.execute("L'Envol Volontaire", async (mongoSession, neo4jTx) => {
+      
+      if (mode === 'CLEAN') {
+        // 🕸️ A.1 NEO4J : On cherche et détruit ses Atomes liés aux projets de ce Nid spécifiquement
+        const cypherClean = `
+          MATCH (u:User {uid: $userUid})-[r:MEMBER_OF|INVITED_TO]->(t:Team {uid: $teamUid})
+          OPTIONAL MATCH (t)-[:HAS_PROJECT]->(p:Project)<-[:TASK_OF]-(tk:Task)
+          WHERE tk.creatorUid = $userUid
+          WITH r, collect(DISTINCT tk) AS userTasks
+          FOREACH (task IN userTasks | DETACH DELETE task)
+          DELETE r
+          RETURN 1
+        `;
+        await neo4jTx.run(cypherClean, { userUid, teamUid });
+
+        // 🐘 A.2 MONGO PURIFIÉ : Utilisation de ProjectModel et TaskModel avec liaison de session saine
+        const projects = await ProjectModel.find({ ownerUid: teamUid }).session(mongoSession).lean();
+        const projectUids = projects.map(p => p.uid);
+
+        if (projectUids.length > 0) {
+          await TaskModel.deleteMany({ 
+            projectUid: { $in: projectUids }, 
+            creatorUid: userUid 
+          }).session(mongoSession);
+        }
+
+      } else {
+        // 🕸️ B.1 NEO4J : Mode TRACE - On tranche uniquement le lien d'appartenance
+        const cypherTrace = `
+          MATCH (u:User {uid: $userUid})-[r:MEMBER_OF|INVITED_TO]->(t:Team {uid: $teamUid})
+          DELETE r
+          RETURN 1
+        `;
+        await neo4jTx.run(cypherTrace, { userUid, teamUid });
+      }
+
+      // 🐘 NETTOYAGE COMMUN : Extraction du Nid du catalogue de l'Oiseau
+      await OiseauModel.findOneAndUpdate(
+        { uid: userUid },
+        { $pull: { teams: team._id } },
+        { session: mongoSession }
+      );
+
+      return {
+        success: true,
+        message: mode === 'CLEAN' 
+          ? "Vous avez quitté le Nid en emportant toutes vos plumes. Vos traces sont effacées."
+          : "Vous avez repris votre vol libre. Vos Atomes restent gravés dans l'histoire du Nid."
+      };
+    });
+  }
+}

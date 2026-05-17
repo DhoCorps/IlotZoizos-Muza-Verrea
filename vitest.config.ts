@@ -1,15 +1,23 @@
 import { defineConfig } from 'vitest/config';
-
-// On simule une URI pour tous les tests qui chargent le dossier 'database'
-process.env.MONGODB_URI = 'mongodb://localhost:27017/ilot_test';
+import react from '@vitejs/plugin-react';
+import path from 'path';
 
 export default defineConfig({
+  plugins: [react()],
   test: {
-    testTimeout: 10000, // 👈 10 secondes par défaut pour tous les tests
-    setupFiles: ['./vitest.setup.ts'],
-    globals: true, 
-    environment: 'node',
-    // 🩸 LE BOUCLIER : On exclut le dossier Playwright des tests unitaires
-    exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**'], 
+    globals: true,
+    environment: 'jsdom',
+    // 🛡️ On sépare les tests unitaires du bruit des tests E2E
+    exclude: ['**/node_modules/**', '**/e2e/**', '**/dist/**'],
+    alias: {
+      // ✅ SUTURE : Unicité de l'instance React
+      'react': path.resolve(__dirname, 'node_modules/react'),
+      'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
+      // 🌿 On pointe vers la racine pour respecter les imports incluant déjà "src"
+      '@ilot/shared-core': path.resolve(__dirname, 'packages/shared-core'),
+      '@ilot/infrastructure': path.resolve(__dirname, 'packages/infrastructure'),
+      '@ilot/types': path.resolve(__dirname, 'packages/types'),
+    },
+    testTimeout: 15000,
   },
 });

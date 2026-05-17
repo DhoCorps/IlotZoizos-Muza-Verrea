@@ -1,23 +1,51 @@
-import { BarChart3, Paperclip, AlertTriangle, Zap } from 'lucide-react';
+// apps/hub-central/components/projects/ProjectCard.tsx
+'use client';
 
-export function ProjectCard({ project, onEdit }: { project: any, onEdit: (id: string) => void }) {
+import { Paperclip, Zap, Layers, Plus } from 'lucide-react';
+
+interface ProjectCardProps {
+  project: any;
+  onEdit: (id: string) => void;
+  onCreateTask: (uid: string) => void; // 🪡 SUTURE : La Matrioshka continue vers l'Atome
+}
+
+export function ProjectCard({ project, onEdit, onCreateTask }: ProjectCardProps) {
   return (
-    <div className="bio-card p-6 border-l-4" style={{ borderLeftColor: project.appearance?.color || '#E5484D' }}>
+    <div className="bio-card p-6 border-l-4 transition-all hover:shadow-[0_0_20px_rgba(229,72,77,0.05)]" style={{ borderLeftColor: project.appearance?.color || '#E5484D' }}>
       <div className="flex justify-between items-start mb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-[9px] font-black px-2 py-0.5 rounded bg-white/5 text-slate-400 uppercase">
               {project.tag || 'PROJ'}
             </span>
-            <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${project.status === 'ACTIVE' ? 'bg-green-500/10 text-green-500' : 'bg-slate-500/10 text-slate-500'}`}>
+            <span className={`text-[9px] font-black px-2 py-0.5 rounded uppercase ${project.status === 'IN_PROGRESS' ? 'bg-green-500/10 text-green-500' : 'bg-slate-500/10 text-slate-500'}`}>
               {project.status}
             </span>
           </div>
           <h3 className="text-xl font-bold uppercase tracking-tight">{project.name}</h3>
         </div>
-        <button onClick={() => onEdit(project.uid)} className="p-2 hover:bg-white/5 rounded-lg text-slate-500">
-          <Zap size={16} />
-        </button>
+        
+        <div className="flex gap-2">
+          {/* 🪡 SUTURE : Création d'Atome (Tâche) directement dans la poupée Chantier */}
+          <button
+            onClick={(e) => {
+            e.stopPropagation(); // On évite de déclencher d'autres événements de la carte
+            onCreateTask(project.uid); // Ce signal doit remonter au Hub
+            }} 
+            className="p-2 hover:bg-[#E5484D]/10 rounded-lg text-slate-500 hover:text-[#E5484D] transition-all"
+            title="Sceller un Atome (Tâche)"
+          >
+            <Plus size={16} />
+          </button>
+
+          <button 
+            onClick={() => onEdit(project.uid)} 
+            className="p-2 hover:bg-white/5 rounded-lg text-slate-500 hover:text-white transition-all"
+            title="Modifier le Chantier"
+          >
+            <Zap size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Barre de Progression Roadmap */}
@@ -28,18 +56,18 @@ export function ProjectCard({ project, onEdit }: { project: any, onEdit: (id: st
         </div>
         <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
           <div 
-            className="h-full bg-[#E5484D] transition-all duration-1000" 
-            style={{ width: `${project.roadmap?.progress || 0}%` }}
+            className="h-full transition-all duration-1000" 
+            style={{ width: `${project.roadmap?.progress || 0}%`, backgroundColor: project.appearance?.color || '#E5484D' }}
           />
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 border-t border-white/5 pt-4">
+      <div className="flex gap-6 border-t border-white/5 pt-4">
         <div className="flex flex-col gap-1">
-          <span className="text-[8px] text-slate-500 uppercase">Charge Mentale</span>
+          <span className="text-[8px] text-slate-500 uppercase">Complexité</span>
           <div className="flex items-center gap-1">
-            <AlertTriangle size={10} className={project.health?.averageMentalLoad > 70 ? 'text-orange-500' : 'text-slate-600'} />
-            <span className="text-xs font-bold">{project.health?.averageMentalLoad || 0}%</span>
+            <Layers size={10} className="text-slate-600" />
+            <span className="text-xs font-bold">{project.health?.complexityLevel || 5}/10</span>
           </div>
         </div>
         <div className="flex flex-col gap-1">

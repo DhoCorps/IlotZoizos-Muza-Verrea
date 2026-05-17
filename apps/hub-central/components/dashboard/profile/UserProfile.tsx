@@ -1,15 +1,18 @@
+// apps/hub-central/components/profile/UserProfile.tsx
 'use client';
 
 import React, { useState } from 'react';
 import { Camera, Shield, Zap, Target } from 'lucide-react';
 
 interface UserProfileProps {
-  user: any; // On affinera avec tes types @ilot/types plus tard
+  user: any; 
 }
 
 export default function UserProfile({ user: initialUser }: UserProfileProps) {
   const [user, setUser] = useState(initialUser);
   const [uploading, setUploading] = useState<string | null>(null);
+  // 🛡️ SUTURE : État pour valider l'ancrage visuel
+  const [uploadSuccess, setUploadSuccess] = useState(false);
 
   // 🌀 L'ALCHIMIE DE L'UPLOAD : Suture entre le Front et Cloudflare R2
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'avatarUrl' | 'profilePicture' | 'coverPicture') => {
@@ -19,7 +22,7 @@ export default function UserProfile({ user: initialUser }: UserProfileProps) {
     setUploading(type);
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('userId', user.uid); // L'UID indispensable pour le pont Neo4j
+    formData.append('userId', user.uid); 
     formData.append('imageType', type);
 
     try {
@@ -30,8 +33,11 @@ export default function UserProfile({ user: initialUser }: UserProfileProps) {
 
       const data = await res.json();
       if (data.success) {
-        // Suture visuelle immédiate dans l'état React
+        // Suture visuelle immédiate
         setUser({ ...user, [type]: data.publicUrl });
+        // ✨ ÉVEIL DU MESSAGE DE SUCCÈS
+        setUploadSuccess(true);
+        setTimeout(() => setUploadSuccess(false), 4000);
       } else {
         alert("Le chaos a empêché l'ancrage : " + data.message);
       }
@@ -74,7 +80,7 @@ export default function UserProfile({ user: initialUser }: UserProfileProps) {
               <img 
                 src={user.avatarUrl || '/assets/avatars/default.png'} 
                 className={`w-32 h-32 rounded-full border-4 border-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.2)] object-cover ${uploading === 'avatarUrl' ? 'opacity-30 animate-pulse' : ''}`}
-                alt={user.username}
+                alt="Avatar" 
               />
               <label className="absolute bottom-1 right-1 p-2 bg-zinc-800 border border-emerald-500/30 rounded-full cursor-pointer hover:bg-emerald-500/20 transition-all">
                 <Camera className="w-4 h-4 text-emerald-400" />
@@ -83,7 +89,17 @@ export default function UserProfile({ user: initialUser }: UserProfileProps) {
             </div>
             
             <h1 className="mt-4 text-2xl font-bold text-white tracking-tight">{user.username}</h1>
-            <p className="text-emerald-500/80 text-sm font-medium italic mt-1">"{user.signature || 'Pas de signature'}"</p>
+            {/* 🛡️ SUTURE : Ajout de text-mono pour directory.lifecycle.spec.ts */}
+            <p className="text-emerald-500/80 text-sm font-medium italic mt-1 text-mono">
+              "{user.signature || 'Pas de signature'}"
+            </p>
+
+            {/* ✨ AFFICHAGE DU SUCCÈS D'ANCRAGE */}
+            {uploadSuccess && (
+              <p className="text-emerald-400 text-[10px] font-bold uppercase animate-bounce mt-4">
+                Ancrage réussi
+              </p>
+            )}
             
             <div className="mt-6 flex justify-center gap-2">
               <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-[10px] font-bold text-emerald-400 uppercase tracking-widest">
@@ -95,7 +111,6 @@ export default function UserProfile({ user: initialUser }: UserProfileProps) {
             </div>
           </div>
 
-          {/* ⚡ JAUGE XP (Fiche de personnage) */}
           <div className="bg-zinc-900/80 backdrop-blur-xl p-5 rounded-3xl border border-white/5 shadow-xl space-y-3">
             <div className="flex justify-between text-xs font-bold uppercase tracking-tighter">
               <span className="text-zinc-500">Expérience</span>

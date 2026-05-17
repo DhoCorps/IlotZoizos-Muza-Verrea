@@ -1,108 +1,52 @@
+// Fichier : @ilot/types/index.ts
 import { z } from 'zod';
 
 /**
- * 🎭 RÔLES & MODES
+ * 🌌 CONSTANTES & ÉQUATIONS DE L'ÎLOT
+ * L'utilisateur n'est plus défini par un métier ou un niveau, mais par sa fréquence.
  */
-export const UserStatusSchema = z.enum(['pending', 'active', 'inactive', 'banned']);
-export const UserVibeModeSchema = z.enum(['standard', 'ghost']);
 
-/**
- * 🎭 SYSTÈME DE RÔLES DYNAMIQUE
- * Aligné sur la nécessité de gameplay "multi-domaine"
- */
-export const RoleItemSchema = z.object({
-  uid: z.string(), // UID technique du rôle (Neo4j/Mongo)
-  intitule: z.string(),
-  status: z.enum(['active', 'deprecated']).default('active'),
-  isSystem: z.boolean().default(false),
-  domain: z.string().optional(),
-});
-
-/**
- * 🏗️ USER SCHEMA (La Source de Vérité Unique)
- */
-export const UserSchema = z.object({
-  // --- 🌉 IDENTITÉ NÉE DU GRAPH ---
-  // On utilise .string() car tes UIDs sont des Hex strings de 24 chars (Mongo), pas des UUIDs.
+// 🌱 I. LA GRAINE (Ce qui est incompressible et identitaire)
+export const OiseauSeedSchema = z.object({
   uid: z.string(), 
-  synapseId: z.string().optional(),
-  username: z.string().min(3).max(25),
-  name: z.string().optional(),
+  pseudo: z.string().min(3).max(30), // L'identité chantée
   email: z.string().email(),
+  password: z.string().min(8).optional(),
   
-  // Validation musclée pour le mot de passe
-  password: z.string()
-    .min(8, "8 caractères minimum")
-    .max(50)
-    .regex(/[A-Z]/, "Il faut au moins une majuscule")
-    .regex(/[0-9]/, "Il faut au moins un chiffre")
-    .regex(/[a-z]/, "Il faut au moins une minuscule")
-    .regex(/[!@#$%^&*(),.?":{}|<>]/, "Il faut au moins un caractère spécial")
-    .optional(), 
-    
-  signature: z.string().max(100).optional(),
-  isAvailableForTeamRequest: z.boolean().default(true),
+  // Le Color Picker ! Un code Hexadécimal pour l'écologie visuelle (ex: Gris Bleuté / Rouge sombre)
+  frequenceHEX: z.string().regex(/^#([0-9A-F]{3}){1,2}$/i).default('#2F4F4F'), 
 
-  // --- 📸 IDENTITÉ VISUELLE ---
-  profilePicture: z.string().url().optional(),
-  avatarUrl: z.string().url().optional(),
-  coverPicture: z.string().url().optional(),
-
-  // --- 📜 DOSSIER D'IDENTITÉ ---
-  identity: z.object({
-    cvUrl: z.string().url().optional(),
-    biography: z.string().max(1000).optional(),
-    links: z.array(z.object({
-      label: z.string(),
-      url: z.string().url()
-    })).default([]),
-    location: z.string().optional(),
-  }).default({}),
-
-  // --- 🎮 FICHE DE PERSONNAGE (Gamification) ---
-  characterSheet: z.object({
-    jobTitle: z.string().optional(),
-    level: z.number().int().min(1).default(1),
-    xp: z.number().int().min(0).default(0),
-    mood: z.string().default('😐'),
-    skills: z.array(z.string()).default([]),
-    alignment: z.enum(['lawfull', 'neutral', 'chaotic', 'good', 'evil']).optional(),
-  }).default({ level: 1, xp: 0, mood: '😐' }),
-
-  // --- 🚦 ÉTAT & PRÉSENCE ---
-  status: UserStatusSchema.default('pending'),
-  currentMode: UserVibeModeSchema.default('standard'),
-  isOnline: z.boolean().default(false),
-  airplaneMode: z.boolean().default(false),
-  lastActive: z.date().default(() => new Date()),
-  isOpenToInvitations: z.boolean().default(true),
-
-  // --- 🏗️ ÉCOSYSTÈME ---
-  // ✅ SUTURE : On utilise maintenant le RoleItemSchema pour le multi-rôle
-  role: z.string().default('MEMBRE'),
-  roles: z.array(RoleItemSchema).default([]),
-  teams: z.array(z.string()).default([]), 
-  projects: z.array(z.string()).default([]),
-
-  // --- 🧠 MODULES L'ÎLOT ZOIZOS ---
-  moderation: z.object({
-    reportCount: z.number().default(0),
-    isFlagged: z.boolean().default(false)
-  }).default({ reportCount: 0, isFlagged: false }),
-
-  collectiveData: z.object({
-    optIn: z.boolean().default(true),
-    contributionScore: z.number().default(0)
-  }).default({ optIn: true, contributionScore: 0 }),
-
-  wellbeing: z.object({
-    mentalLoadScore: z.number().min(0).max(100).default(0),
-    lastCheckIn: z.date().optional()
-  }).default({ mentalLoadScore: 0 })
+  // --- NOUVEAUX ATTRIBUTS (Identité Visuelle et Compétences) ---
+  avatarUrl: z.string().url().optional().nullable(),
+  coverPicture: z.string().url().optional().nullable(),
+  
+  // L'Aura : L'énergie dégagée par l'Oiseau (ex: ["TypeScript", "Designer", "Balrog"])
+  capabilities: z.array(z.string()).default([]),
 });
 
-/**
- * ✅ L'INTERFACE UNIQUE
- * Typage global déduit du schéma pour le Front et le Back
- */
-export type IUser = z.infer<typeof UserSchema>;
+// 🌿 II. LE SANCTUAIRE (La Liberté Polymorphe et l'État d'Âme)
+export const OiseauLeafSchema = z.object({
+  // Fini le CV, le profil RPG ou l'autel pré-formaté. 
+  // L'utilisateur injecte l'objet JSON qu'il veut.
+  sanctuaire: z.record(z.any()).default({}), 
+  
+  // --- NOUVEL ATTRIBUT (Le Verrou) ---
+  // L'Anneau de Sauron : Protection ultime de la santé mentale de l'utilisateur
+  sanctuaireVerrouille: z.boolean().default(false),
+
+  // L'Entropie remplace la charge mentale. Si elle tombe à 0, le Caprice s'active.
+  entropieActive: z.number().min(0).max(100).default(100),
+  
+  // Le statut de stase ou d'envol
+  isGhostMode: z.boolean().default(false),
+  isOpenToInvitations: z.boolean().default(true),
+});
+
+// 🏗️ III. L'OISEAU COMPLET
+// L'Oiseau est la fusion de sa Graine (Identité) et de son Sanctuaire (État)
+export const OiseauSchema = OiseauSeedSchema.merge(OiseauLeafSchema);
+
+// ✨ TYPESCRIPT : Extraction automatique !
+// Plus besoin de taper les interfaces à la main, Zod s'en charge.
+export type IOiseau = z.infer<typeof OiseauSchema>;
+export type ISeed = z.infer<typeof OiseauSeedSchema>;

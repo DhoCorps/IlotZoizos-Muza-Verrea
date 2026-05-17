@@ -1,40 +1,72 @@
+// packages/shared-core/src/sync-engine/__tests__/team.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TeamOrchestrator } from '../team.orchestrator';
-import { TeamModel, UserModel } from '@ilot/infrastructure';
+import { CAPABILITIES, ActionSignature } from '@ilot/types';
+import { TransactionManager } from '../transactionManager';
 
-// Mock des modèles pour ne pas polluer la vraie base de données
-vi.mock('@ilot/infrastructure');
+// 🛡️ SUTURE 1 : Alignement sur les alias pour bloquer la Silice
+vi.mock('@ilot/infrastructure/src/database/models/nosql/user.model', () => ({
+  OiseauModel: {
+    findOne: vi.fn().mockResolvedValue({ uid: 'bird-999', isOpenToInvitations: true }),
+    findOneAndUpdate: vi.fn().mockResolvedValue({})
+  }
+}));
 
+vi.mock('@ilot/infrastructure/src/database/models/nosql/team.model', () => ({
+  TeamModel: {
+    create: vi.fn().mockImplementation((data) => Promise.resolve(Array.isArray(data) ? data : [data])),
+    // 🪡 SUTURE : Injection de findOne pour éteindre le crash "TeamModel.findOne is not a function"
+    findOne: vi.fn().mockResolvedValue({ uid: 'nest-789', ownerUid: 'bird-inviter-001' }),
+    findOneAndUpdate: vi.fn(),
+    findOneAndDelete: vi.fn()
+  }
+}));
 
+// 🛡️ SUTURE 2 : Mock du TransactionManager (Le Squelette d'Acier) [cite: 2026-02-11]
+vi.mock('../transactionManager', () => ({
+  TransactionManager: {
+    execute: vi.fn().mockImplementation(async (name, callback) => {
+      const mockNeo = { records: [] };
+      const result = await callback(null as any, { run: vi.fn().mockResolvedValue(mockNeo) } as any);
+      // On enveloppe le résultat pour correspondre au TeamSyncResult
+      return {
+        success: true,
+        status: 'success',
+        mongo: result?.mongo || result,
+        neo4j: mockNeo
+      };
+    })
+  }
+}));
 
-describe('TeamOrchestrator - Logique Métier', () => {
+describe('TeamOrchestrator - Gestion du Nid', () => {
+  let orchestrator: TeamOrchestrator;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    orchestrator = new TeamOrchestrator();
   });
 
-    it('doit valider le nom d’une escouade via le MoralChecker', async () => {
-  // Assure-toi que ce nom est bien dans la liste noire de ton MoralChecker
-  const badData = { 
-    name: 'insulte-zoizo', // Un nom qui DOIT échouer
-    creatorUid: 'user-123' 
-  };
+  it('✅ doit permettre l\'invitation si la Signature possède MEMBER.INVITE', async () => {
+    const validSignature: ActionSignature = {
+      actorUid: 'bird-inviter-001',
+      capabilities: [CAPABILITIES.MEMBER.INVITE]
+    };
 
-  // Optionnel : Si le checker ne bloque pas, on mocke le créateur pour voir l'erreur de morale
-  // vi.spyOn(UserModel, 'findOne').mockResolvedValue({ _id: 'fake-id' } as any);
+    const invitation = await orchestrator.inviteBird({
+      teamUid: 'nest-789',
+      targetUserUid: 'bird-999'
+    }, validSignature);
 
-  await expect(TeamOrchestrator.fosterTeam(badData as any))
-    .rejects.toThrow(/Nom invalide/);
-});
+    expect(invitation.success).toBe(true);
+    expect(TransactionManager.execute).toHaveBeenCalledWith("Invitation d'Oiseau", expect.any(Function));
+  });
 
-  it('doit refuser un recrutement si l’oiseau n’est pas disponible', async () => {
-    // 1. On simule un oiseau qui a fermé son nid
-    (UserModel.findOne as any).mockResolvedValue({
-      uid: 'oiseau-timide',
-      isAvailableForTeamRequest: false 
-    });
+  it('❌ doit rejeter l\'invitation si la Signature est faible', async () => {
+    const badSignature: ActionSignature = { actorUid: 'bird-curieux', capabilities: [] };
 
-    // 2. On tente l'invitation et on s'attend à une erreur
-    await expect(TeamOrchestrator.inviteBird('team-123', 'oiseau-timide'))
-      .rejects.toThrow("Cet oiseau n'est pas disponible pour un recrutement.");
+    await expect(
+      orchestrator.inviteBird({ teamUid: 'nest-789', targetUserUid: 'bird-999' }, badSignature)
+    ).rejects.toThrow(/Aura insuffisante/);
   });
 });

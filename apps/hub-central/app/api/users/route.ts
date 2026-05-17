@@ -2,83 +2,46 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { connectToDatabase, UserModel } from "@ilot/infrastructure";
+import { getServerSession } from 'next-auth/next'; 
+import { connectToDatabase } from "@ilot/infrastructure/src/database/mongoose";
+import { OiseauModel } from "@ilot/infrastructure/src/database/models/nosql/user.model";
 
 export async function GET(req: Request) {
   try {
-    await connectToDatabase();
-    
-    // 🔍 Extraction des filtres depuis l'URL
-    const { searchParams } = new URL(req.url);
-    const search = searchParams.get('search');
-    const role = searchParams.get('role');
-    const status = searchParams.get('status');
-
-    // 🏗️ Construction de la requête MongoDB
-    let query: any = {};
-
-    if (search) {
-      query.$or = [
-        { username: { $regex: search, $options: 'i' } },
-        { name: { $regex: search, $options: 'i' } }
-      ];
-    }
-
-    if (role && role !== 'ALL') {
-      query.role = role;
-    }
-
-    if (status && status !== 'ALL') {
-      query.status = status;
-    }
-
-    // 🛰️ On récupère les oiseaux (en excluant le mot de passe pour la sécurité)
-    const users = await UserModel.find(query)
-      .select('-password')
-      .sort({ lastActive: -1 })
-      .limit(50)
-      .lean();
-
-    return NextResponse.json(users);
-  } catch (error) {
-    console.error("🔥 Erreur lors du recensement des oiseaux :", error);
-    return NextResponse.json({ error: "Le Nexus n'a pas pu lister les oiseaux." }, { status: 500 });
-  }
-}
-
-export async function POST(req: Request) {
-  try {
-    await connectToDatabase();
-    const body = await req.json();
-
-    // 🛡️ On vérifie si l'oiseau n'existe pas déjà
-    const existingUser = await UserModel.findOne({ 
-      $or: [{ email: body.email }, { username: body.username }] 
-    });
-
-    if (existingUser) {
+    // 🛡️ Passage obligatoire par la Douane (Sécurité contrôlée)
+    const session = await getServerSession();
+    if (!session) {
       return NextResponse.json(
-        { error: "Cet oiseau chante déjà dans une autre cage (Email ou Username déjà pris)." }, 
-        { status: 400 }
+        { error: "Garde-frontière : Accès non autorisé, session manquante." }, 
+        { status: 401 }
       );
     }
 
-    // 🐣 Inception du nouveau Zoizo
-    // Le 'uid' sera généré automatiquement par le default: uuidv4() de ton modèle
-    const newUser = new UserModel(body);
-    await newUser.save();
+    await connectToDatabase();
+    
+    const { searchParams } = new URL(req.url);
+    const search = searchParams.get('search');
 
-    // 🔗 Note : Ton moteur de synchro "UP" détectera ce 'save' 
-    // et créera le nœud (:Bird) dans Neo4j avec son UID.
+    let query: any = {};
 
-    return NextResponse.json({
-      success: true,
-      message: "L'oiseau a éclos dans le Nexus !",
-      uid: newUser.uid
-    }, { status: 201 });
+    // 🏗️ Harmonisation sémantique : On utilise 'pseudo' et 'frequenceHEX'
+    if (search) {
+      query.$or = [
+        { pseudo: { $regex: search, $options: 'i' } },
+        { frequenceHEX: { $regex: search, $options: 'i' } }
+      ];
+    }
 
-  } catch (error: any) {
-    console.error("🔥 Erreur d'éclosion :", error);
-    return NextResponse.json({ error: "L'œuf a été brisé lors de l'éclosion." }, { status: 500 });
+    // 🛰️ Récupération des oiseaux (password et email sont déjà exclus par le modèle)
+    const oiseaux = await OiseauModel.find(query)
+      .limit(20) 
+      .lean();
+
+    // 📦 Enveloppe pour l'intégrité du Test
+    return NextResponse.json({ results: oiseaux });
+    
+  } catch (error) {
+    console.error("🔥 Erreur lors du recensement :", error);
+    return NextResponse.json({ error: "Le Nexus n'a pas pu lister les oiseaux." }, { status: 500 });
   }
 }

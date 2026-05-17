@@ -15,7 +15,13 @@
     "jsx": "preserve",
     "incremental": true,
     
-    /* 🪄 Ajouts critiques pour la stabilité */
+    /* 🛡️ SUTURE FINALE : Pas de baseUrl, pas de ignoreDeprecations. 
+       On utilise uniquement des chemins relatifs commençant par ./ 
+    */
+    "paths": {
+      "@ilot/*": ["./packages/*/src", "./apps/*/src"]
+    },
+    
     "moduleDetection": "force",
     "allowImportingTsExtensions": false,
     "noUnusedLocals": false,
@@ -26,10 +32,12 @@
   },
   "include": [
     "next-env.d.ts",
+    "next-env.d.ts",
     "declaration.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts"
-, "packages/infrastructure/src/scripts/seed/seed-script.cjs"  ],
+    ".next/types/**/*.ts",
+    "packages/infrastructure/src/scripts/seed/seed-script.cjs"
+  ],
   "exclude": ["node_modules", "dist", ".next"]
 }

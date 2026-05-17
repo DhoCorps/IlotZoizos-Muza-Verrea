@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { connectToDatabase, UserModel } from "@ilot/infrastructure";
+import { connectToDatabase, OiseauModel } from "@ilot/infrastructure";
 import { ResetPasswordSchema } from "@ilot/types";
 
 export async function POST(req: Request) {
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     const hashedPassword = await bcrypt.hash(password, 12);
 
     // 🚀 2. On utilise findOneAndUpdate pour l'atomicité (Trouve, Change et Nettoie d'un coup)
-    const user = await UserModel.findOneAndUpdate(
+    const user = await OiseauModel.findOneAndUpdate(
       { 
         resetPasswordToken: token, 
         resetPasswordExpires: { $gt: Date.now() } 

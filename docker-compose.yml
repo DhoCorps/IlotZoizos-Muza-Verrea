@@ -18,13 +18,13 @@ services:
     ports:
       - "27017:27017"
     environment:
+      # 🛡️ NETTOYAGE : J'ai supprimé la variable NEO4J_* parasite ici.
       - MONGO_INITDB_ROOT_USERNAME=admin
       - MONGO_INITDB_ROOT_PASSWORD=password1234
     volumes:
       - mongo_data:/data/db
       - mongo_config:/data/configdb # 👈 Volume Docker interne (plus de bug de chemin Windows)
 
-  # --- NEO4J (Gare Centrale) ---
   # --- NEO4J (Gare Centrale optimisée) ---
   neo4j_db:
     image: neo4j:5.12
@@ -37,7 +37,8 @@ services:
       - NEO4J_AUTH=neo4j/password777
       - NEO4J_PLUGINS=["apoc"]
       - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
-      # 🛡️ AJOUTE CES DEUX LIGNES :
+      # 🛡️ VALIDATION : Tes ajouts sont corrects ici (Gare Centrale).
+      # ✅ Correction syntaxe : J'ai mis des '=' partout pour la cohérence.
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*
       - NEO4J_dbms_security_procedures_allowlist=apoc.*
     volumes:

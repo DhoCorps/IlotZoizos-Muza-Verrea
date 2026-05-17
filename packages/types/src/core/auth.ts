@@ -1,17 +1,13 @@
-import { IUser } from './user.types'; 
-import { UserRole } from './role.types';
-
-export interface IAuthOptions {
-  providers: any[]; 
-  callbacks: any;
-  pages?: {
-    signIn?: string;
-    error?: string;
-  };
-}
+// apps/hub-central/types/auth.types.ts (Version Purifiée)
+import { IOiseau } from './user.types';
 
 export interface AuthSession {
-  user: IUser;      
-  role: UserRole;
+  user: IOiseau; // Contient déjà pseudo, frequenceHEX, aura, etc.
+  
+  // On extrait les capacités au premier niveau pour un accès rapide 
+  // par le composant <RequireCapability />
+  capabilities: string[]; 
+  
   accessToken?: string;
+  expires: string;
 }

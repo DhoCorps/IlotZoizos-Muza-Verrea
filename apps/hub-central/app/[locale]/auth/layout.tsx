@@ -1,17 +1,15 @@
 import React from 'react';
-// 🌟 ON IMPORTE LE GÉNÉRATEUR (le pont qu'on a créé ensemble)
-import { AuthProvider } from '../../AuthProvider'; 
-import { VibeProvider } from "../../../context/VibeContext"; // Ajuste le chemin selon ton projet
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <VibeProvider> 
-      <AuthProvider>
-        <div className="min-h-screen bg-[#05070A] flex items-center justify-center relative overflow-hidden">
-          {children}
-          {/* Ton halo rouge... */}
+    <div className="min-h-screen flex items-center justify-center bg-[#0a0a0a] text-gray-300 font-mono">
+      <div className="w-full max-w-md p-8 bg-black/40 backdrop-blur-md border border-gray-800 rounded-lg shadow-2xl">
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-bold tracking-widest text-white/90">LE BORDEL DE DHÖ</h1>
+          <p className="text-sm text-gray-500 mt-2 italic">L'onde est la seule vérité.</p>
         </div>
-      </AuthProvider>
-    </VibeProvider>
+        {children}
+      </div>
+    </div>
   );
 }

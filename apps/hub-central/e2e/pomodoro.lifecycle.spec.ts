@@ -1,42 +1,57 @@
+// tests/e2e/pomodoro.lifecycle.spec.ts
 import { test, expect } from '@playwright/test';
 
-test.describe('Horlogerie Bionique - Module Pomodoro', () => {
+test.describe('Horlogerie Bionique - Focus Souverain', () => {
   
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    // 1. Simuler l'ouverture d'un projet pour afficher les TaskCards
-    await page.locator('.bio-card').first().click();
+    // 🛡️ SUTURE : Traversée de la porte du Sanctuaire
+    await page.goto('/fr/tom-hat-toes');
+    
+    if (page.url().includes('/auth/login')) {
+      await page.fill('input[type="email"]', 'oiseau.libre@nexus.fr');
+      await page.fill('input[type="password"]', 'motdepassepropre');
+      await page.click('button[type="submit"]');
+    }
+
+    // 🛡️ NAVIGATION : Accès à la fréquence des Chantiers pour voir les Atomes
+    await page.getByRole('button', { name: /Chantiers/i }).click();
+    
+    // Sélection du premier Chantier pour matérialiser les tâches
+    const firstChantier = page.locator('.bio-card').first();
+    await firstChantier.click();
   });
 
-  test('👁️ Le HUD Pomodoro doit être invisible par défaut', async ({ page }) => {
+  test('👁️ Le HUD de Focus doit rester en stase par défaut', async ({ page }) => {
+    // Le HUD (PomodoroHUD) ne doit pas encombrer la vision au repos
     const hud = page.locator('text=Phase de Focus');
     await expect(hud).toBeHidden();
   });
 
-  test('⏱️ Le clic sur "30mn" déploie le HUD', async ({ page }) => {
-    // 1. On clique sur le bouton "Play" de la première carte
-    const startBtn = page.getByRole('button', { name: /30mn/i }).first();
-    await startBtn.click();
+  test('⏱️ L’Oiseau amorce un cycle de Focus sur un Atome', async ({ page }) => {
+    // 1. On cible le bouton de déclenchement dans un TaskCard (Atome)
+    // On cherche le bouton "30mn" ou l'icône de temps
+    const startFocusBtn = page.getByRole('button', { name: /30mn/i }).first();
+    await expect(startFocusBtn).toBeVisible();
+    await startFocusBtn.click();
 
-    // 2. On vérifie que le HUD apparaît avec le bon timer (25:00)
-    const timerText = page.getByText('25:00');
-    await expect(timerText).toBeVisible();
+    // 2. Vérification du déploiement du HUD bionique
+    const timerDisplay = page.getByText('25:00'); // Temps de focus standard
+    await expect(timerDisplay).toBeVisible();
     
-    // 3. On vérifie que le texte "Phase de Focus" est présent
-    await expect(page.getByText('Phase de Focus')).toBeVisible();
+    const statusText = page.getByText('Phase de Focus');
+    await expect(statusText).toBeVisible();
   });
 
-  test('❌ Le clic sur la croix annule le Focus et cache le HUD', async ({ page }) => {
-    // On lance le chrono
+  test('❌ Annulation du cycle et retour au Silence', async ({ page }) => {
+    // Lancement du cycle
     await page.getByRole('button', { name: /30mn/i }).first().click();
-    await expect(page.getByText('25:00')).toBeVisible();
+    
+    // 🛡️ SUTURE : Cible du bouton d'annulation dans le PomodoroHUD
+    // On utilise les labels cohérents avec ton Hub
+    const closeHudBtn = page.locator('button:has-text("Fermer")').or(page.locator('.fixed.bottom-8 button')).first();
+    await closeHudBtn.click();
 
-    // On trouve le bouton "X" du HUD (souvent le seul bouton dans le HUD flottant)
-    // On cible spécifiquement la modale en bas de l'écran
-    const hudCloseBtn = page.locator('.fixed.bottom-8 button').first();
-    await hudCloseBtn.click();
-
-    // Le vide créateur est de retour
+    // Le HUD retourne dans le Néant créateur
     await expect(page.getByText('Phase de Focus')).toBeHidden();
   });
 });

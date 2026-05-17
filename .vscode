@@ -1,0 +1,18 @@
+{
+"version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Éveil du Nexus (Docker Compose)",
+      "type": "shell",
+      "command": "docker compose up -d",
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "clear": true
+      }
+    }
+  ]
+}

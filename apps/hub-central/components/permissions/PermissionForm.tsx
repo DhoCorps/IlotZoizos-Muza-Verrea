@@ -1,3 +1,4 @@
+// apps/hub-central/components/PermissionForm.tsx
 'use client';
 
 import React from 'react';
@@ -5,10 +6,10 @@ import { POWER_LEVELS, PowerLevelGroup } from '@ilot/types';
 
 interface PermissionFormProps {
   selectedCaps: string[]; 
-  onToggleCapability: (capKey: string) => void; // On attend désormais explicitement la clé
+  onToggleCapability: (capKey: string) => void;
 }
 
-export const PermissionForm = ({ selectedCaps, onToggleCapability }: PermissionFormProps) => {
+export const PermissionForm = ({ selectedCaps = [], onToggleCapability }: PermissionFormProps) => {
   return (
     <div className="bg-[#05070A]/60 p-8 md:p-10 rounded-2xl border border-slate-800/80 backdrop-blur-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] mt-6 relative overflow-hidden group/permissions">
       <div className="absolute bottom-0 left-0 w-[300px] h-[300px] bg-red-900/5 blur-[80px] rounded-full pointer-events-none opacity-0 group-hover/permissions:opacity-100 transition-opacity duration-1000 -z-10" />
@@ -18,12 +19,11 @@ export const PermissionForm = ({ selectedCaps, onToggleCapability }: PermissionF
           <span className="text-red-500 font-mono text-sm">02.</span> Ajuster les Plumes
         </h3>
         <p className="text-xs font-mono text-slate-500 uppercase tracking-widest mt-2">
-          Matrice des permissions individuelles (Capabilities)
+          Matrice des permissions individuelles
         </p>
       </div>
 
       <div className="space-y-10 relative z-10">
-        {/* On utilise Object.entries pour récupérer la clé technique (capKey) et les données du groupe */}
         {Object.entries(POWER_LEVELS).map(([groupKey, group]: [string, any]) => (
           <div key={groupKey} className="relative">
             <div className="mb-5 flex items-center gap-3">
@@ -37,10 +37,9 @@ export const PermissionForm = ({ selectedCaps, onToggleCapability }: PermissionF
             </div>
                     
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {/* On itère sur les capabilities du groupe. 
-                  IMPORTANT : capString ici doit correspondre à la clé technique attendue par le backend */}
               {group.capabilities.map((capKey: string) => { 
-                const isChecked = selectedCaps.includes(capKey);
+                // Vérification de sécurité au cas où selectedCaps ne serait pas un tableau
+                const isChecked = Array.isArray(selectedCaps) && selectedCaps.includes(capKey);
                 
                 return (
                   <label 
@@ -59,7 +58,7 @@ export const PermissionForm = ({ selectedCaps, onToggleCapability }: PermissionF
                       <input
                         type="checkbox"
                         checked={isChecked}
-                        onChange={() => onToggleCapability(capKey)} // ⚡ FIX : Envoi de la clé technique brute
+                        onChange={() => onToggleCapability(capKey)}
                         className={`h-4 w-4 rounded cursor-pointer transition-colors border ${
                           isChecked 
                             ? 'text-red-500 border-red-500 focus:ring-red-500 focus:ring-offset-slate-950 bg-red-500' 

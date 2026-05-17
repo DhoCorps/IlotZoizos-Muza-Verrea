@@ -1,20 +1,34 @@
 // apps/hub-central/app/api/users/upload/route.ts
-
 import { NextRequest, NextResponse } from 'next/server';
-import { connectToDatabase, UserModel } from '../../../../../../packages/infrastructure'; 
+import { getServerSession } from "next-auth/next";
+import { connectToDatabase, OiseauModel } from '@ilot/infrastructure'; 
 import { storageService } from '../../../../modules/storage/storage.service';
+// import { authOptions } from "../../../lib/auth"; // Décommente si nécessaire
 
 export async function POST(req: NextRequest) {
   try {
+    // 🛡️ DOUANE ABSOLUE : Seul un Oiseau identifié peut changer d'apparence
+    const session = await getServerSession();
+    const userUid = (session?.user as any)?.uid;
+
+    if (!userUid) {
+      return NextResponse.json(
+        { success: false, message: "Le miroir est vide. Identifie-toi." },
+        { status: 401 }
+      );
+    }
+
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
-    const userId = formData.get('userId') as string | null;
     const imageType = formData.get('imageType') as string | null; 
+    
+    // 🩸 PURGE : On ignore totalement le formData.get('userId'). 
+    // L'Oiseau ne peut modifier que lui-même.
 
     // 1. Validation des présences
-    if (!file || !userId || !imageType) {
+    if (!file || !imageType) {
       return NextResponse.json(
-        { success: false, message: 'Maladresse : Il manque la brindille, le userId ou le imageType.' },
+        { success: false, message: 'Maladresse : Il manque la brindille ou le imageType.' },
         { status: 400 }
       );
     }
@@ -49,27 +63,26 @@ export async function POST(req: NextRequest) {
         inceptId: 'tom-hat-toes',
         locale: 'fr',
         entityType: 'users',
-        entityId: userId,
+        entityId: userUid, // On utilise l'UID de la session, certifié inviolable !
         imageType: imageType,
         filename: file.name
     });
 
-    // On laisse le service faire tout le travail S3/R2
     const uploadResult = await storageService.uploadFile(file, customKey);
     const publicUrl = uploadResult.publicUrl;
 
     // --- 5. LA SUTURE BASE DE DONNÉES (MongoDB) ---
     await connectToDatabase();
 
-    const updatedUser = await UserModel.findOneAndUpdate(
-        { uid: userId }, 
+    const updatedUser = await OiseauModel.findOneAndUpdate(
+        { uid: userUid }, // On utilise l'UID de la session
         { [imageType]: publicUrl }, 
         { new: true } 
     );
 
     if (!updatedUser) {
         return NextResponse.json(
-            { success: false, message: "Le Zozio est introuvable dans la matrice." },
+            { success: false, message: "Le Zoizo est introuvable dans la matrice." },
             { status: 404 }
         );
     }
@@ -77,9 +90,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        message: `Ancrage réussi pour ${updatedUser.username} !`,
+        // SUTURE SÉMANTIQUE : On utilise pseudo et non username
+        message: `L'apparence de ${updatedUser.pseudo} a muté avec succès !`,
         publicUrl: publicUrl,
-        user: updatedUser.username
+        user: updatedUser.pseudo 
       },
       { status: 201 }
     );

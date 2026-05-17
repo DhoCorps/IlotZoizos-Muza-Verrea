@@ -1,71 +1,57 @@
 import { NextResponse } from 'next/server';
-import mongoose from 'mongoose';
-import { connectToDatabase, UserModel, RoleModel } from "@ilot/infrastructure"; 
-import { UserOrchestrator, MoralChecker } from "@ilot/shared-core";
-import bcrypt from 'bcryptjs';
+import { connectToDatabase } from '@ilot/infrastructure'; 
+import { OiseauOrchestrator } from '@ilot/shared-core';
 
+/**
+ * 🐣 POST : L'Éclosion (Inscription d'un nouvel Oiseau)
+ * Cette route est publique et délègue la forge de l'entité à l'Orchestrateur.
+ */
 export async function POST(req: Request) {
   try {
-    const { email, password, username } = await req.json();
-
-    // 🛡️ 1. Moral Check
-    const analysis = MoralChecker.analyze(username);
-    if (!analysis.isSafe) {
-      return NextResponse.json({ error: analysis.suggestion }, { status: 400 });
-    }
-
+    // 🛡️ 1. Éveil de la Silice
     await connectToDatabase();
+    
+    const { email, password, pseudo, frequenceHEX } = await req.json();
 
-    // 🛡️ 2. Doublons
-    const existingUser = await UserModel.findOne({ $or: [{ email }, { username }] });
-    if (existingUser) {
-      return NextResponse.json({ error: 'Email ou Username déjà pris' }, { status: 400 });
+    // 🛡️ 2. Validation de la Graine (Incompressible)
+    if (!email || !password || !pseudo) {
+      return NextResponse.json(
+        { message: "L'onde est incomplète (Email, Pseudo et Mot de passe requis)." }, 
+        { status: 400 }
+      );
     }
 
-    const hashedPassword = await bcrypt.hash(password, 12);
-    
-    // Récupération du grade de base
-    const gradeMembre = await RoleModel.findOne({ intitule: 'MEMBRE' });
+    // 🛰️ 3. L'ACTION : L'Orchestrateur gère la transaction (Hachage, Mongo, Neo4j)
+    const oiseauOrch = new OiseauOrchestrator();
 
-    if (!gradeMembre) {
-      return NextResponse.json({ error: "Le grade 'MEMBRE' n'a pas encore été forgé dans le système." }, { status: 500 });
-    }
-
-    const newUser = new UserModel({ 
-      email: email.toLowerCase(), 
-      username, 
-      password: hashedPassword,
-      // ✅ Dans MongoDB, on garde bien 'roles' au pluriel avec un tableau (ObjectId)
-      roles: [gradeMembre._id], 
-      signature: "<(:<" 
-    });
-    
-    // 🛡️ 3. SAUVEGARDE MONGODB
-    const savedUser = await newUser.save(); 
-    console.log("✅ [MongoDB] L'oiseau est niché :", savedUser.uid);
-
-    // 🛡️ 4. SYNCHRONISATION NEO4J
-    await UserOrchestrator.syncUserCreation({ 
-      uid: savedUser.uid, 
-      username: savedUser.username,
-      // ✅ CORRECTION VITALE : "role" au singulier, et on envoie l'UID sous forme de string pure !
-      role: gradeMembre.uid,
-      roles: [gradeMembre.uid]
+    // On utilise fosterOiseau. Pas besoin de Signature car l'Oiseau n'est pas encore né.
+    const syncResult = await oiseauOrch.fosterOiseau({
+      email,
+      password, // La Forge se charge du hachage de sécurité
+      pseudo,
+      frequenceHEX: frequenceHEX || '#2F4F4F', // Par défaut : Gris Bleuté (Stase)
     });
 
-    console.log("🔥 [Neo4j] POINT MARQUÉ : Graphe synchronisé.");
+    const nouvelOiseau = syncResult.mongo;
 
-    return NextResponse.json({ 
+    // ✨ 4. LA SUTURE : Message harmonisé avec auth.lifecycle.spec.ts
+    return NextResponse.json({
       message: "L'oiseau a rejoint l'Îlot !",
-      user: { id: savedUser.uid, username: savedUser.username } 
+      oiseau: { 
+        uid: nouvelOiseau.uid,
+        pseudo: nouvelOiseau.pseudo, 
+        frequence: nouvelOiseau.frequenceHEX 
+      }
     }, { status: 201 });
 
   } catch (error: any) {
-    console.error('🔥 [CRASH] Panne moteur lors de l\'inception :', error);
+    // 🚨 5. Gestion du Caprice (Erreurs métiers comme un email déjà pris)
+    const status = error.statusCode || 500;
+    console.error("🔥 Caprice au seuil (Inscription) :", error.message);
     
-    return NextResponse.json({ 
-      error: 'Erreur technique lors de l\'inception.',
-      details: error.message 
-    }, { status: 500 });
+    return NextResponse.json(
+        { message: error.message || "L'Îlot repousse cette tentative." }, 
+        { status }
+    );
   }
 }

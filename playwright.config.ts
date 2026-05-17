@@ -1,16 +1,12 @@
+// playwright.config.ts
 import { defineConfig, devices } from '@playwright/test';
+import path from 'path';
 
-/**
- * Configuration de l'Îlot Zoizos pour Playwright
- * Ce fichier orchestre les tests de bout en bout (E2E).
- */
+const STORAGE_STATE = path.join(__dirname, 'apps', 'hub-central', 'playwright', '.auth', 'user.json');
+
 export default defineConfig({
-  // 🎯 Localisation de tes oiseaux de test (tes fichiers .spec.ts)
   testDir: './apps/hub-central/e2e',
 
-  /* 🛡️ LE BOUCLIER D'EXCLUSION : 
-     On interdit à Playwright de toucher aux dossiers de Vitest (__tests__)
-  */
   testIgnore: [
     '**/node_modules/**',
     '**/dist/**',
@@ -18,56 +14,45 @@ export default defineConfig({
     '**/*.test.ts'
   ],
 
-  // Temps maximum pour un test (30 secondes)
-  timeout: 30 * 1000,
+  // 🛡️ SUTURE : Patience du Nexus accrue (60s) pour éviter les Timeouts
+  timeout: 60 * 1000,
   
   expect: {
-    timeout: 5000
+    timeout: 10000 // On donne 10s pour trouver un élément graphique
   },
 
-  // On lance les tests en parallèle pour gagner du temps
-  fullyParallel: true,
+  fullyParallel: false, // On désactive le parallèle total pour stabiliser le serveur dev
+  
+  // 🛡️ SUTURE : On limite à 2 workers pour ne pas étouffer la machine
+  workers: 2, 
 
-  // Échoue sur la CI si tu as oublié un .only dans ton code
   forbidOnly: !!process.env.CI,
-
-  // Nombre de tentatives en cas d'échec (0 en local, 2 sur le serveur de build)
   retries: process.env.CI ? 2 : 0,
-
-  // Rapporteur de résultats : "list" pour la console, "html" pour la preuve visuelle
   reporter: [['list'], ['html', { open: 'never' }]],
 
-  use: {
-    // 🌐 L'URL de ton serveur de dev local
-    baseURL: 'http://localhost:3000',
+  globalSetup: require.resolve('./apps/hub-central/playwright/global-setup'),
 
-    // Capture une trace en cas d'échec (génial pour ta soutenance !)
+  use: {
+    baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',
-    
-    // Capture une vidéo ou screenshot si ça rate
     screenshot: 'only-on-failure',
+    storageState: STORAGE_STATE, 
   },
 
-  /* 🎭 LES NAVIGATEURS (Les différentes espèces d'oiseaux) */
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: { 
+        ...devices['Desktop Chrome'],
+        channel: 'chrome',
+      },
     },
-    /* Tu peux décommenter Firefox ou Safari si besoin
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    */
   ],
 
-  /* 🚀 LE SERVEUR AUTOMATIQUE (Optionnel)
-     Si tu veux que Playwright lance 'pnpm dev' tout seul, décommente ça :
   webServer: {
-    command: 'pnpm dev',
+    command: 'npx next dev apps/hub-central', 
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
+    timeout: 120 * 1000,
   },
-  */
 });

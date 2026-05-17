@@ -1,7 +1,8 @@
 export interface IStatus {
-  uid: string;         // Identifiant unique du Nexus
-  label: string;       // Ce que l'oiseau voit (ex: "En vol", "Au nid")
-  value: string;       // La valeur brute pour la Silice (ex: "in_progress", "done")
-  color: string;       // Code Hexa ou classe CSS pour l'interface
-  order: number;       // Pour que tes colonnes Kanban restent bien alignées
+  uid: string;         
+  label: string;       
+  // On verrouille les valeurs acceptées par la Silice
+  value: 'CONCEPT' | 'TODO' | 'IN_PROGRESS' | 'BLOCKED' | 'DONE' | 'ARCHIVED' | 'REDUCED_SPEED' | 'CANCELLED';       
+  color: string;       
+  order: number;       
 }
