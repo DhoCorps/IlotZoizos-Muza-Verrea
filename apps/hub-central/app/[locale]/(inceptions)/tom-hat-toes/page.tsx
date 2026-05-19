@@ -13,6 +13,7 @@ import { ProjectForm } from '../../../../components/projects/ProjectForm';
 import { TaskCard } from '../../../../components/tasks/TaskCard';
 import { TaskForm } from '../../../../components/tasks/TaskForm';
 import { TeamForm } from '../../../../components/teams/TeamForm'; 
+import { TeamCard } from '../../../../components/teams/TeamCard'; // 🪡 SUTURE : Importation du maillon manquant de l'IHM
 import KanbanDrawer from '../../../../components/kanban/KanbanDrawer'; 
 import CalendarView from '../../../../components/calendars/CalendarView';
 
@@ -39,6 +40,7 @@ export default function TomHatToesHub() {
   
   const [selectedProjectUid, setSelectedProjectUid] = useState<string | null>(null);
   const [selectedTeamUid, setSelectedTeamUid] = useState<string | null>(null); 
+  const [selectedTaskUid, setSelectedTaskUid] = useState<string | null>(null); // 🪡 SUTURE : Pivot pour l'édition d'Atome
   
   const [loading, setLoading] = useState(true);
   const [activeInceptionId, setActiveInceptionId] = useState<string | null>(null);
@@ -57,9 +59,9 @@ export default function TomHatToesHub() {
     return inceptions.find(t => t.uid === selectedTeamUid) || null;
   }, [inceptions, selectedTeamUid]);
 
-  // Détermination du mode Visiteur d'Honneur (Invitation reçue non encore acceptée)
+  // 🪡 SUTURE DE L'ALBUM SOUVERAIN : Alignement du mode Visiteur d'Honneur (Invitation reçue non encore acceptée)
   const isInviteeMode = useMemo(() => {
-    return activeTeam?.relationType === 'INVITED_TO';
+    return activeTeam?.isInvitation === true;
   }, [activeTeam]);
 
   // --- 🪡 SUTURE : Synchronisation Silice & Graphe ---
@@ -104,7 +106,7 @@ export default function TomHatToesHub() {
 
   const fetchTasks = async (pUid: string) => {
     try {
-      // 🪡 SUTURE : Ajout d'un Cache-Buster (timestamp) pour forcer la lecture de la Silice
+      // 🪡 SUTURE : Ajout d'un Cache-Buster (timestamp) pour force la lecture de la Silice
       const res = await fetch(`/api/tasks?projectUid=${pUid}&t=${Date.now()}`).then(r => r.json());
       const tasks = Array.isArray(res) ? res : (res.data || []);
       setProjectTasks(tasks);
@@ -135,18 +137,19 @@ export default function TomHatToesHub() {
       setSearchBird("");
       setFoundBirds([]);
     } catch (err) {
-      console.error("🔥 Erreur Recrutement unifié :", err);
+      console.error("🔥 Erreur Recruitment unifié :", err);
     } finally {
       setIsRecruiting(false); 
     }
   };
 
-  // 🌟 SUTURE : ACTIONNEUR DU PACTE D'ADHÉSION
-  const handleRespondToInvitation = async (action: 'ACCEPT' | 'REFUSE') => {
-    if (!selectedTeamUid) return;
+  // 🌟 SUTURE : ACTIONNEUR DU PACTE D'ADHÉSION (Modifié pour accepter l'UID direct et contrer l'asynchronisme de React)
+  const handleRespondToInvitation = async (action: 'ACCEPT' | 'REFUSE', teamUid?: string) => {
+    const targetUid = teamUid || selectedTeamUid;
+    if (!targetUid) return;
     setIsResponding(true);
     try {
-      const res = await fetch(`/api/teams/${selectedTeamUid}/respond`, {
+      const res = await fetch(`/api/teams/${targetUid}/respond`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action })
@@ -163,6 +166,86 @@ export default function TomHatToesHub() {
       console.error("🔥 Erreur de traitement du pacte :", err);
     } finally {
       setIsResponding(false);
+    }
+  };
+
+  // 🪡 SUTURE AUTOMATIQUE : ACTIONNEUR DE GOUVERNANCE (ANNULER / RELANCER UNE INVITATION)
+  const handleManageInvitation = async (teamUid: string, targetUid: string, action: 'CANCEL' | 'REINVITE') => {
+    setLoading(true);
+    try {
+      if (action === 'CANCEL') {
+        // Annuler consiste à purger le lien temporaire INVITED_TO (ou REFUSED_INVITATION) du Graphe
+        await fetch(`/api/teams/${teamUid}/invitations/${targetUid}`, { method: 'DELETE' });
+      } else if (action === 'REINVITE') {
+        // Relancer réexécute l'invitation propre avec réinitialisation du sédiment de refus
+        await apiTeams.inviteBird(teamUid, targetUid, selectedCaps);
+      }
+      await refreshData();
+    } catch (err) {
+      console.error("🔥 Erreur de régulation de volée :", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 🪡 SUTURE : ACTIONNEURS DE SUPPRESSION PHYSIQUE (DELETE ENTITIES)
+  const handleDeleteTeam = async (teamUid: string) => {
+    if (!window.confirm("Êtes-vous sûr de vouloir dissoudre ce Nid ?")) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/teams/${teamUid}`, { method: 'DELETE' });
+      if (res.ok) {
+        if (selectedTeamUid === teamUid) {
+          setSelectedTeamUid(null);
+          setSelectedProjectUid(null);
+          setProjectTasks([]);
+        }
+        await refreshData();
+      }
+    } catch (err) {
+      console.error("🔥 Erreur de dissolution du Nid :", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteProject = async (projectUid: string) => {
+    if (!window.confirm("Êtes-vous sûr de vouloir raser ce Chantier ?")) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/projects/${projectUid}`, { method: 'DELETE' });
+      if (res.ok) {
+        if (selectedProjectUid === projectUid) {
+          setSelectedProjectUid(null);
+          setProjectTasks([]);
+        }
+        await refreshData();
+      }
+    } catch (err) {
+      console.error("🔥 Erreur de suppression du Chantier :", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteTask = async (taskUid: string) => {
+    if (!window.confirm("Êtes-vous sûr de vouloir désintégrer cet Atome ?")) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/tasks/${taskUid}`, { method: 'DELETE' });
+      if (res.ok) {
+        if (selectedTaskUid === taskUid) {
+          setSelectedTaskUid(null);
+        }
+        if (selectedProjectUid) {
+          await fetchTasks(selectedProjectUid);
+        }
+        await refreshData();
+      }
+    } catch (err) {
+      console.error("🔥 Erreur de désintégration de l'Atome :", err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -201,6 +284,7 @@ export default function TomHatToesHub() {
   const handleCreateSuccess = (pUid?: string) => {
     refreshData();
     setActiveInceptionId(null);
+    setSelectedTaskUid(null);
     if (pUid || selectedProjectUid) {
       fetchTasks(pUid || selectedProjectUid || "");
     }
@@ -241,6 +325,37 @@ export default function TomHatToesHub() {
       }
     } catch (err) {
       console.error("🔥 Erreur création atome:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 🪡 SUTURE : ACTIONNEUR DE MUTATION D'ATOME (UPDATE TASK)
+  const handleUpdateTask = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!selectedTaskUid || isInviteeMode) return;
+
+    const formData = new FormData(e.currentTarget);
+    const taskPayload = {
+      title: formData.get('title'),
+      description: formData.get('description'),
+      priority: formData.get('priority'),
+      pomoEst: Number(formData.get('pomoEst')),
+      complexity: Number(formData.get('complexity')) || 1
+    };
+
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/tasks/${selectedTaskUid}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(taskPayload)
+      });
+      if (res.ok) {
+        handleCreateSuccess();
+      }
+    } catch (err) {
+      console.error("🔥 Erreur modification atome :", err);
     } finally {
       setLoading(false);
     }
@@ -411,7 +526,7 @@ export default function TomHatToesHub() {
               <Trash2 className="w-4 h-4" />
             </button>
             <button 
-              onClick={() => { if(!isInviteeMode) setActiveInceptionId('global'); }}
+              onClick={() => { if(!isInviteeMode) { setActiveInceptionId('global'); } }}
               disabled={isInviteeMode && activeTab === 'projects'}
               className="px-6 py-4 bg-[#E5484D]/10 border border-[#E5484D]/20 rounded-xl text-[10px] font-black uppercase tracking-widest text-[#E5484D] hover:bg-[#E5484D]/20 disabled:opacity-20 disabled:cursor-not-allowed transition-all"
             >
@@ -437,48 +552,45 @@ export default function TomHatToesHub() {
         <main className="relative z-10">
           {activeTab === 'teams' ? (
             <div className="grid grid-cols-1 gap-6">
-              {inceptions.map((team) => {
-                const isTeamInvitation = team.relationType === 'INVITED_TO';
-                return (
-                  <section 
-                    key={team.uid} 
-                    onClick={() => { 
-                      setSelectedTeamUid(team.uid); 
-                      setSelectedProjectUid(null); 
-                      setActiveTab('projects'); 
-                    }}
-                    className={`bio-card p-6 border-l-4 transition-all cursor-pointer relative group ${
-                      selectedTeamUid === team.uid 
-                        ? 'border-l-emerald-500 bg-emerald-500/5' 
-                        : isTeamInvitation 
-                          ? 'border-l-amber-500 bg-amber-500/[0.02] hover:bg-amber-500/[0.05]' 
-                          : 'border-l-[#E5484D]'
-                    }`}
-                  >
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-4">
-                         <Network className={selectedTeamUid === team.uid ? 'text-emerald-400' : isTeamInvitation ? 'text-amber-400' : 'text-[#E5484D]'} />
-                         <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                           <h2 className="text-xl font-bold uppercase">{team.name}</h2>
-                           {/* 🌟 SUTURE VISUELLE : BADGE D'INVITATION SUR LA CARDE */}
-                           {isTeamInvitation && (
-                             <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded text-[9px] font-mono uppercase tracking-wider self-start sm:self-center">
-                               Invitation en attente
-                             </span>
-                           )}
-                         </div>
-                      </div>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); if(!isTeamInvitation) setActiveInceptionId(team.uid); }} 
-                        disabled={isTeamInvitation}
-                        className="p-2 text-slate-500 hover:text-[#E5484D] disabled:opacity-0 transition-colors"
-                      >
-                        <UserPlus size={18} />
-                      </button>
-                    </div>
-                  </section>
-                );
-              })}
+              {/* 🪡 SUTURE MAJEURE : On injecte ici le composant TeamCard d'IHM pour piloter proprement les consentements et modales d'ajustement */}
+              {inceptions.map((team) => (
+                <TeamCard
+                  key={team.uid}
+                  team={team}
+                  isActive={selectedTeamUid === team.uid}
+                  isInvitation={team.isInvitation === true}
+                  onFocus={(uid) => {
+                    // 🪡 SUTURE : On segmente la focalisation pour protéger le consentement
+                    setSelectedTeamUid(uid);
+                    if (team.isInvitation !== true) {
+                      // Clic sur un nid standard -> Déclenche l'affichage immédiat de la modale en mode Update
+                      if (userCaps.includes('team:update') || userCaps.includes('*')) {
+                        setActiveInceptionId('team_edit');
+                      }
+                    }
+                  }}
+                  onRecruit={(uid) => {
+                    setActiveInceptionId(uid);
+                  }}
+                  onCreateProject={(uid) => {
+                    setSelectedTeamUid(uid);
+                    setActiveTab('projects');
+                    setActiveInceptionId('global');
+                  }}
+                  onRespond={(uid, action) => {
+                    // 🪡 SUTURE : UID transmis en direct pour contrer l'asynchronisme de React et libérer le flux de consentement
+                    handleRespondToInvitation(action, uid);
+                  }}
+                  onViewProjects={(uid) => {
+                    // Nouveau canal sécurisé : Clic sur l'œil -> Change d'onglet pour parcourir les chantiers confirmés
+                    setSelectedTeamUid(uid);
+                    setSelectedProjectUid(null);
+                    setActiveTab('projects');
+                  }}
+                  onManageInvitation={handleManageInvitation} // 🪡 SUTURE : Raccordement complet et fonctionnel du gestionnaire d'invitations
+                  onDelete={handleDeleteTeam} // 🪡 SUTURE : Option de dissolution du Nid raccordée
+                />
+              ))}
             </div>
           ) : activeTab === 'projects' ? (
             <div className="space-y-12">
@@ -498,6 +610,7 @@ export default function TomHatToesHub() {
                     setActiveInceptionId('task_new'); 
                   }
                 }} 
+                onDelete={handleDeleteProject} // 🪡 SUTURE : Option de suppression de Chantier rattachée
               />
 
               {selectedProjectUid && (
@@ -511,11 +624,33 @@ export default function TomHatToesHub() {
                     </button>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {projectTasks.map(task => <TaskCard key={task.uid} task={task} onStatusChange={refreshData} />)}
+                    {projectTasks.map(task => (
+                      // 🪡 SUTURE VISUELLE : Clic sur l'Atome (Tâche) ouvre directement la modale d'Update
+                      <div 
+                        key={task.uid} 
+                        className="relative group/atome cursor-pointer"
+                        onClick={() => {
+                          if (!isInviteeMode) {
+                            setSelectedTaskUid(task.uid);
+                            setActiveInceptionId('task_edit');
+                          }
+                        }}
+                      >
+                        <TaskCard task={task} onStatusChange={refreshData} onDelete={handleDeleteTask} />
+                        {!isInviteeMode && (userCaps.includes('task:update') || userCaps.includes('*')) && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setSelectedTaskUid(task.uid); setActiveInceptionId('task_edit'); }}
+                            className="absolute top-3 right-3 px-2.5 py-1.5 bg-black/80 border border-white/10 rounded-lg text-[9px] font-black uppercase text-slate-400 hover:text-amber-400 opacity-0 group-hover/atome:opacity-100 transition-all z-20"
+                          >
+                            Modifier
+                          </button>
+                        )}
+                      </div>
+                    ))}
                     
                     {/* 🌟 SUTURE VISUELLE : DÉSACTIVATION SÉCURISÉE DU BOUTON CRÉATION D'ATOME */}
                     <button 
-                      onClick={() => { if(!isInviteeMode) setActiveInceptionId('task_new'); }} 
+                      onClick={() => { if(!isInviteeMode) { setActiveInceptionId('task_new'); } }} 
                       disabled={isInviteeMode}
                       className={`border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center transition-all ${
                         isInviteeMode 
@@ -540,21 +675,28 @@ export default function TomHatToesHub() {
         {activeInceptionId && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-[#05070A]/95 backdrop-blur-xl">
              <div className="w-full max-w-2xl bio-card p-10 relative border border-white/5">
-                <button onClick={() => { setActiveInceptionId(null); setFoundBirds([]); }} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20} /></button>
+                <button onClick={() => { setActiveInceptionId(null); setFoundBirds([]); setSelectedTaskUid(null); }} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20} /></button>
                 
-                {activeInceptionId === 'task_new' ? (
+                {/* 🪡 SUTURE MUTATION : Routage vers TaskForm configuré en mode émission ou réémission */}
+                {activeInceptionId === 'task_new' || activeInceptionId === 'task_edit' ? (
                   <TaskForm 
                     projectUid={selectedProjectUid} 
                     birds={foundBirds} 
                     existingTasks={projectTasks} 
-                    onSubmit={handleCreateTask} 
-                    onCancel={() => setActiveInceptionId(null)} 
+                    onSubmit={activeInceptionId === 'task_edit' ? handleUpdateTask : handleCreateTask} 
+                    onCancel={() => { setActiveInceptionId(null); setSelectedTaskUid(null); }} 
                     projectCapabilities={userCaps} 
                     loading={loading} 
+                    initialData={activeInceptionId === 'task_edit' ? projectTasks.find(t => t.uid === selectedTaskUid) : null}
                   />
-                ) : (activeInceptionId === 'global' || activeInceptionId === 'project_edit') ? (
-                  activeTab === 'teams' && activeInceptionId !== 'project_edit' ? (
-                    <TeamForm onSuccess={handleCreateSuccess} onCancel={() => setActiveInceptionId(null)} userCapabilities={userCaps} />
+                ) : (activeInceptionId === 'global' || activeInceptionId === 'project_edit' || activeInceptionId === 'team_edit') ? (
+                  (activeTab === 'teams' && activeInceptionId !== 'project_edit') || activeInceptionId === 'team_edit' ? (
+                    <TeamForm 
+                      onSuccess={handleCreateSuccess} 
+                      onCancel={() => setActiveInceptionId(null)} 
+                      userCapabilities={userCaps} 
+                      initialData={activeInceptionId === 'team_edit' ? inceptions.find(t => t.uid === selectedTeamUid) : null}
+                    />
                   ) : (
                     <ProjectForm 
                       ownerUid={selectedTeamUid || ''} 

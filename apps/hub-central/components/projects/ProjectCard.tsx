@@ -1,15 +1,17 @@
 // apps/hub-central/components/projects/ProjectCard.tsx
 'use client';
 
-import { Paperclip, Zap, Layers, Plus } from 'lucide-react';
+import { Paperclip, Zap, Layers, Plus, Trash2 } from 'lucide-react'; // 🪡 SUTURE : Ajout de Trash2
 
 interface ProjectCardProps {
   project: any;
   onEdit: (id: string) => void;
   onCreateTask: (uid: string) => void; // 🪡 SUTURE : La Matrioshka continue vers l'Atome
+  onDelete?: (uid: string) => void; // 🪡 SUTURE : Canal de suppression du Chantier
+  
 }
 
-export function ProjectCard({ project, onEdit, onCreateTask }: ProjectCardProps) {
+export function ProjectCard({ project, onEdit, onCreateTask, onDelete }: ProjectCardProps) {
   return (
     <div className="bio-card p-6 border-l-4 transition-all hover:shadow-[0_0_20px_rgba(229,72,77,0.05)]" style={{ borderLeftColor: project.appearance?.color || '#E5484D' }}>
       <div className="flex justify-between items-start mb-6">
@@ -44,6 +46,15 @@ export function ProjectCard({ project, onEdit, onCreateTask }: ProjectCardProps)
             title="Modifier le Chantier"
           >
             <Zap size={16} />
+          </button>
+
+          {/* 🪡 SUTURE : Bouton d'effacement du Chantier */}
+          <button 
+            onClick={(e) => { e.stopPropagation(); onDelete?.(project.uid); }} 
+            className="p-2 hover:bg-red-500/10 rounded-lg text-slate-500 hover:text-red-500 transition-all"
+            title="Raser le Chantier (Supprimer)"
+          >
+            <Trash2 size={16} />
           </button>
         </div>
       </div>

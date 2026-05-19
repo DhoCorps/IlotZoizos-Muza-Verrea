@@ -1,13 +1,15 @@
 import neo4j, { Driver, Session, QueryResult, RecordShape } from 'neo4j-driver';
 
-// Singleton pour éviter de recréer le driver à chaque appel
-let cachedDriver: Driver | null = null;
+// 🪡 SUTURE ANTI-FANTÔME : Liaison au scope global pour préserver le cache face au Hot Reload de Next.js
+const globalForNeo4j = globalThis as unknown as {
+  cachedDriver: Driver | null;
+};
 
 /**
  * 🚆 Initialise ou récupère le Driver Neo4j
  */
 export const getNeo4jDriver = (): Driver => {
-  if (cachedDriver) return cachedDriver;
+  if (globalForNeo4j.cachedDriver) return globalForNeo4j.cachedDriver;
 
   // 🎯 FORÇAGE DES VALEURS (Priorité au .env, sinon fallback local)
   const uri = process.env.NEO4J_URI || 'bolt://127.0.0.1:7687';
@@ -16,9 +18,9 @@ export const getNeo4jDriver = (): Driver => {
 
   try {
     // Utilisation de bolt:// pour une connexion plus directe et stable
-    cachedDriver = neo4j.driver(uri, neo4j.auth.basic(user, password));
+    globalForNeo4j.cachedDriver = neo4j.driver(uri, neo4j.auth.basic(user, password));
     console.log(`🕸️  [Neo4j] Gare Centrale connectée sur ${uri} (User: ${user})`);
-    return cachedDriver;
+    return globalForNeo4j.cachedDriver;
   } catch (error) {
     console.error('❌ [Neo4j] Échec critique de la connexion au tunnel :', error);
     throw error;
@@ -90,9 +92,9 @@ export const readFromGraph = async (cypher: string, params: Record<string, any> 
  * 🧹 Fermeture propre du driver (à appeler lors de l'arrêt du serveur)
  */
 export const closeNeo4j = async () => {
-  if (cachedDriver) {
-    await cachedDriver.close();
-    cachedDriver = null;
+  if (globalForNeo4j.cachedDriver) {
+    await globalForNeo4j.cachedDriver.close();
+    globalForNeo4j.cachedDriver = null;
     console.log("🔌 [Neo4j] Connexions fermées proprement.");
   }
 };

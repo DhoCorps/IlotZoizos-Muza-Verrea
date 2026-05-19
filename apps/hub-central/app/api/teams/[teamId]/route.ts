@@ -67,10 +67,29 @@ export async function GET(req: Request, { params }: { params: { teamId: string }
     const team = await TeamModel.findOne({ uid: params.teamId }).lean();
     if (!team) return NextResponse.json({ error: "Nid introuvable dans la silice." }, { status: 404 });
 
+    // 🪡 SUTURE : Récupération des invitations en cours ou déclinées depuis le Graphe Muet
+    const neoSession = getNeo4jSession();
+    let invitations: any[] = [];
+    try {
+      const inviteCypher = `
+        MATCH (target:User)-[r:INVITED_TO|REFUSED_INVITATION]->(t:Team {uid: $teamId})
+        RETURN target.uid AS uid, target.pseudo AS pseudo, type(r) AS relType
+      `;
+      const inviteResult = await neoSession.run(inviteCypher, { teamId: params.teamId });
+      invitations = inviteResult.records.map(record => ({
+        uid: record.get('uid'),
+        pseudo: record.get('pseudo'),
+        status: record.get('relType') === 'INVITED_TO' ? 'PENDING' : 'REFUSED'
+      }));
+    } finally {
+      await neoSession.close();
+    }
+
     // Hydratation contextuelle des capacités de l'appelant sur ce Nid
     return NextResponse.json({
       ...team,
-      myCapabilities: caps
+      myCapabilities: caps,
+      invitations // 🪡 SUTURE : Injection de la liste des états d'invitation pour la gouvernance
     }, { status: 200 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

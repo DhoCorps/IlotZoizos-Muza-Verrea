@@ -1,6 +1,8 @@
 // packages/shared-core/src/sync-engine/user.orchestrator.ts
 import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
 import { TeamModel } from '../../../infrastructure/src/database/models/nosql/team.model';
+import { ProjectModel } from '../../../infrastructure/src/database/models/nosql/project.model'; // 🪡 SUTURE : Alignement de la Silice pour les Chantiers
+import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model';       // 🪡 SUTURE : Alignement de la Silice pour les Atomes
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { IOiseau, CAPABILITIES } from '@ilot/types';
@@ -107,7 +109,7 @@ export class OiseauOrchestrator {
     });
   }
 
-/**
+  /**
    * 🕊️ L'ENVOL (Mise à jour de l'essence)
    * Synchronise les modifications de l'Oiseau entre la Silice et le Graphe.
    */
@@ -216,9 +218,26 @@ export class OiseauOrchestrator {
         console.warn(`⚠️ [Neo4j] L'oiseau ${oiseauUid} n'était pas présent dans le Graphe.`);
       }
 
-      // 🐘 2. NETTOYAGE DE LA SILICE (MongoDB)
+      // 🐘 2. NETTOYAGE DE LA SILICE (MongoDB) - Cascade de purification synchronisée
+      const userTeams = await TeamModel.find({ ownerUid: oiseauUid }).session(mongoSession).lean();
+      const teamUids = userTeams.map(t => t.uid);
+
+      const projects = await ProjectModel.find({ ownerUid: { $in: teamUids } }).session(mongoSession).lean();
+      const projectUids = projects.map(p => p.uid);
+
+      // Suppression de tous les Atomes (Tâches) rattachés à ses chantiers ou créés directement par lui
+      await TaskModel.deleteMany(
+        { $or: [{ projectUid: { $in: projectUids } }, { creatorUid: oiseauUid }] },
+        { session: mongoSession }
+      );
+
+      // Suppression de tous les Chantiers (Projets) rattachés aux nids qu'il possédait
+      await ProjectModel.deleteMany({ ownerUid: { $in: teamUids } }, { session: mongoSession });
+
+      // Suppression des Nids (Équipes) possédés
       await TeamModel.deleteMany({ ownerUid: oiseauUid }, { session: mongoSession });
 
+      // Extraction finale de l'empreinte de l'Oiseau de la Silice
       const deletedMongo = await OiseauModel.findOneAndDelete(
         { uid: oiseauUid },
         { session: mongoSession }
@@ -255,7 +274,7 @@ export class OiseauOrchestrator {
       if (frequenceHEX) updateData.frequenceHEX = frequenceHEX;
 
       const updatedMongo = await OiseauModel.findOneAndUpdate(
-        { uid: oiseauUid },
+        { oiseauUid },
         { $set: updateData },
         { new: true, session: mongoSession }
       ).lean();

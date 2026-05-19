@@ -1,9 +1,9 @@
 'use client';
 
-import { CheckCircle2, Clock, AlertCircle, Paperclip, Users, Play, Loader2 } from 'lucide-react';
+import { CheckCircle2, Clock, AlertCircle, Paperclip, Users, Play, Loader2, Trash2 } from 'lucide-react'; // 🪡 SUTURE : Ajout de Trash2
 import { usePomodoro } from '../../context/PomodoroContext';
 
-export function TaskCard({ task, onStatusChange }: { task: any, onStatusChange: (id: string, s: string) => void }) {
+export function TaskCard({ task, onStatusChange, onDelete }: { task: any, onStatusChange: (id: string, s: string) => void, onDelete?: (uid: string) => void }) {
   const { startFocus, activeTaskUid, status } = usePomodoro();
   
   const pomoPercent = (task.pomodoros.completed / task.pomodoros.estimated) * 100;
@@ -29,11 +29,21 @@ export function TaskCard({ task, onStatusChange }: { task: any, onStatusChange: 
           <h4 className="text-sm font-bold text-slate-200 group-hover:text-[#E5484D] transition-colors">
             {task.content.title}
           </h4>
-          <span className={`text-[8px] font-black px-2 py-0.5 rounded uppercase ${
-            task.priority === 'CRITICAL' ? 'bg-red-500/20 text-red-500' : 'bg-white/5 text-slate-500'
-          }`}>
-            {task.priority}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className={`text-[8px] font-black px-2 py-0.5 rounded uppercase ${
+              task.priority === 'CRITICAL' ? 'bg-red-500/20 text-red-500' : 'bg-white/5 text-slate-500'
+            }`}>
+              {task.priority}
+            </span>
+            {/* 🪡 SUTURE : Option de Suppression de l'Atome au survol */}
+            <button 
+              onClick={(e) => { e.stopPropagation(); onDelete?.(task.uid); }} 
+              className="p-1 hover:bg-red-500/10 rounded text-slate-500 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
+              title="Désintégrer l'Atome (Supprimer)"
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
         </div>
 
         <div className="space-y-2 mb-4">

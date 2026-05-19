@@ -60,6 +60,7 @@ export async function GET(req: Request, { params }: { params: { projectId: strin
     // 🪡 SUTURE : On passe authOptions pour redonner la vue à la session
     const session = await getServerSession(authOptions);
     const userUid = (session?.user as any)?.uid;
+    const sessionCaps = (session?.user as any)?.capabilities || [];
 
     const project = await ProjectModel.findOne({ uid: params.projectId })
       .select('-moderation.internalNotes')
@@ -71,16 +72,19 @@ export async function GET(req: Request, { params }: { params: { projectId: strin
 
     // 🛡️ Logique de Démopraxie
     const { hasAccess, capabilities } = await getProjectCapabilities(userUid, params.projectId);
+    const mergedCaps = [...new Set([...capabilities, ...sessionCaps])];
 
     const isPublic = project.visibility === 'PUBLIC' || project.visibility === 'OPEN_SOURCE';
-    if (!isPublic && !hasAccess) {
+    const hasReadPermission = mergedCaps.includes('project:read') || mergedCaps.includes('*') || project.creatorUid === userUid;
+
+    if (!isPublic && !hasAccess && !hasReadPermission) {
       return NextResponse.json({ error: "Ce chantier est protégé. L'accès t'est refusé." }, { status: 403 });
     }
 
     // L'HYDRATATION : Pouvoirs de l'Oiseau attachés au projet
     const hydratedProject = {
       ...project,
-      myCapabilities: capabilities
+      myCapabilities: mergedCaps
     };
     
     return NextResponse.json(hydratedProject);
@@ -102,10 +106,17 @@ export async function PUT(req: Request, { params }: { params: { projectId: strin
     const userUid = (session?.user as any)?.uid;
     if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
 
+    const sessionCaps = (session?.user as any)?.capabilities || [];
     const { capabilities } = await getProjectCapabilities(userUid, params.projectId);
-    const canUpdate = capabilities.includes(CAPABILITIES.SYSTEM.ALL) || 
-                      capabilities.includes(CAPABILITIES.PROJECT.UPDATE) || 
-                      capabilities.includes('*');
+    const mergedCaps = [...new Set([...capabilities, ...sessionCaps])];
+
+    const projectCheck = await ProjectModel.findOne({ uid: params.projectId }).lean();
+    const isCreator = projectCheck?.creatorUid === userUid;
+
+    const canUpdate = mergedCaps.includes(CAPABILITIES.SYSTEM.ALL) || 
+                      mergedCaps.includes(CAPABILITIES.PROJECT.UPDATE) || 
+                      mergedCaps.includes('*') ||
+                      isCreator;
     
     if (!canUpdate) {
       return NextResponse.json({ error: "Tu n'as pas l'aura requise pour muter ce Chantier." }, { status: 403 });
@@ -113,7 +124,7 @@ export async function PUT(req: Request, { params }: { params: { projectId: strin
 
     const signature: ActionSignature = {
         actorUid: userUid,
-        capabilities: capabilities
+        capabilities: mergedCaps
     };
 
     const body = await req.json();
@@ -146,10 +157,17 @@ export async function DELETE(req: Request, { params }: { params: { projectId: st
     const userUid = (session?.user as any)?.uid;
     if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
 
+    const sessionCaps = (session?.user as any)?.capabilities || [];
     const { capabilities } = await getProjectCapabilities(userUid, params.projectId);
-    const canDelete = capabilities.includes(CAPABILITIES.SYSTEM.ALL) || 
-                      capabilities.includes(CAPABILITIES.PROJECT.DELETE) || 
-                      capabilities.includes('*');
+    const mergedCaps = [...new Set([...capabilities, ...sessionCaps])];
+
+    const projectCheck = await ProjectModel.findOne({ uid: params.projectId }).lean();
+    const isCreator = projectCheck?.creatorUid === userUid;
+
+    const canDelete = mergedCaps.includes(CAPABILITIES.SYSTEM.ALL) || 
+                      mergedCaps.includes(CAPABILITIES.PROJECT.DELETE) || 
+                      mergedCaps.includes('*') ||
+                      isCreator;
 
     if (!canDelete) {
       return NextResponse.json({ error: "Seul l'Architecte de ce Chantier possède l'aura de dissolution." }, { status: 403 });
@@ -157,7 +175,7 @@ export async function DELETE(req: Request, { params }: { params: { projectId: st
 
     const signature: ActionSignature = {
         actorUid: userUid,
-        capabilities: capabilities
+        capabilities: mergedCaps
     };
 
     const projectOrch = new ProjectOrchestrator();

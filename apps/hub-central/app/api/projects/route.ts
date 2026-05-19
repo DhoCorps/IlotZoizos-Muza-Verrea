@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "../../../lib/auth"; 
 import { ProjectOrchestrator } from '@ilot/shared-core'; 
 import { ProjectModel } from '@ilot/infrastructure/src/database/models/nosql/project.model';
-import { getNeo4jSession, connectToDatabase } from '@ilot/infrastructure'; 
+import { getNeo4jSession, connectToDatabase } from '@ilot/infrastructure'; // 🪡 SUTURE DE CONNEXION : Import unifié pour préserve le Singleton Neo4j
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 
 /**

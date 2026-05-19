@@ -7,14 +7,16 @@ interface ProjectDashboardProps {
   projects: any[];
   onEditProject: (uid: string) => void;
   onViewTasks: (uid: string) => void; 
-  onCreateTask: (uid: string) => void; 
+  onCreateTask: (uid: string) => void;
+  onDelete?: (uid: string) => void; 
 }
 
 export function ProjectDashboard({ 
   projects, 
   onEditProject, 
   onViewTasks, 
-  onCreateTask 
+  onCreateTask,
+  onDelete 
 }: ProjectDashboardProps) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -25,6 +27,7 @@ export function ProjectDashboard({
           onEdit={onEditProject}
           // 🪡 SUTURE : On s'assure que le signal descend bien jusqu'à la carte
           onCreateTask={onCreateTask}
+          onDelete={onDelete}
         />
       ))}
       

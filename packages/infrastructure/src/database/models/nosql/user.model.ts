@@ -20,6 +20,9 @@ const OiseauSchema = new Schema<OiseauDocument>(
     sanctuaire: { type: Schema.Types.Mixed, default: {} },
     sanctuaireVerrouille: { type: Boolean, default: false },
 
+    // 🪡 SUTURE DU MAILLON MANQUANT : Catalogue des Nids physiques rattachés à l'Oiseau
+    teams: [{ type: Schema.Types.ObjectId, ref: 'Team', default: [] }],
+
     // 🛡️ SUTURE : Le champ de pouvoir unifié
     capabilities: { type: [String], default: [] },
     // ⚠️ À SUPPRIMER après ton renommage global

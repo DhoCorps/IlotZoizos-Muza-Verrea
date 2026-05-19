@@ -10,11 +10,14 @@ const { mockNeo4jRunTeam } = vi.hoisted(() => ({
 
 vi.mock("next-auth/next", () => ({ getServerSession: vi.fn() }));
 
-vi.mock('@ilot/infrastructure/src/database/neo4j', () => ({
+// 🪡 SUTURE DE TEST : Alignement du mock sur le point d'entrée global unifié
+vi.mock('@ilot/infrastructure', () => ({
+  connectToDatabase: vi.fn().mockResolvedValue(undefined),
   getNeo4jSession: vi.fn().mockReturnValue({
     run: mockNeo4jRunTeam,
     close: vi.fn().mockResolvedValue(undefined)
-  })
+  }),
+  getNeo4jDriver: vi.fn()
 }));
 
 vi.mock("@ilot/shared-core/src/sync-engine/team.orchestrator");

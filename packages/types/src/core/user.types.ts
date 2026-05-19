@@ -40,6 +40,9 @@ export const OiseauLeafSchema = z.object({
   // Le statut de stase ou d'envol
   isGhostMode: z.boolean().default(false),
   isOpenToInvitations: z.boolean().default(true),
+
+  // 🪡 SUTURE DU MAILLON MANQUANT : Collection des Références de Nids rattachés à l'Oiseau
+  teams: z.array(z.any()).default([]),
 });
 
 // 🏗️ III. L'OISEAU COMPLET

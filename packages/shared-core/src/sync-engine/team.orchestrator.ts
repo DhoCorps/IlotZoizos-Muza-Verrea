@@ -93,7 +93,7 @@ export class TeamOrchestrator {
         // 1. Le lien d'Origine (Immuable)
         MERGE (u)-[:FOUNDED]->(t)
 
-        // 2. Le lien d'Appartenance (Fluide)
+        // 2. Le lien d'Appartenance (Fluide) - 🪡 SUTURE : Ajout de la variable r pour le SET suivant
         MERGE (u)-[r:MEMBER_OF]->(t)
         SET r.since = datetime(), 
             r.capabilities = $capabilities // L'Aura suffit à définir le pouvoir
@@ -158,6 +158,7 @@ export class TeamOrchestrator {
 
     return await TransactionManager.execute("Invitation d'Oiseau", async (mongoSession, neo4jTx) => {
       // 🛡️ SUTURE : MERGE assure que l'utilisateur existe dans le Graphe pour porter le lien
+      // 🪡 HARMONISATION : Supprime un éventuel ancien refus pour réinviter proprement
       const cypher = `
         MERGE (target:User { uid: $targetUserUid })
         ON CREATE SET target.pseudo = $pseudo, target.frequenceHEX = $hex
@@ -165,6 +166,10 @@ export class TeamOrchestrator {
         WITH target
         MATCH (t:Team { uid: $teamUid })
         
+        OPTIONAL MATCH (target)-[oldRefuse:REFUSED_INVITATION]->(t)
+        DELETE oldRefuse
+        
+        WITH target, t
         // Création du lien d'invitation avec ses plumes spécifiques
         MERGE (target)-[r:INVITED_TO]->(t)
         SET r.invitedAt = datetime(),
@@ -278,33 +283,58 @@ export class TeamOrchestrator {
     return await TransactionManager.execute("L'Envol Volontaire", async (mongoSession, neo4jTx) => {
       
       if (mode === 'CLEAN') {
-        // 🕸️ A.1 NEO4J : On cherche et détruit ses Atomes liés aux projets de ce Nid spécifiquement
+        // 🕸️ A.1 NEO4J SUTURE TOTALE : Éradication des Atomes, Chantiers et Traces de refus de l'oiseau au sein de ce Nid
         const cypherClean = `
-          MATCH (u:User {uid: $userUid})-[r:MEMBER_OF|INVITED_TO]->(t:Team {uid: $teamUid})
-          OPTIONAL MATCH (t)-[:HAS_PROJECT]->(p:Project)<-[:TASK_OF]-(tk:Task)
+          MATCH (u:User {uid: $userUid})-[r:MEMBER_OF|INVITED_TO|REFUSED_INVITATION]->(t:Team {uid: $teamUid})
+          
+          // 1. Tâches créées par l'utilisateur sur n'importe quel projet du Nid
+          OPTIONAL MATCH (t)-[:HAS_PROJECT]->(pAll:Project)<-[:TASK_OF]-(tk:Task)
           WHERE tk.creatorUid = $userUid
-          WITH r, collect(DISTINCT tk) AS userTasks
+          WITH r, t, collect(DISTINCT tk) AS userTasks
+          
+          // 2. Projets (Chantiers) fondés directement par l'utilisateur dans ce Nid
+          OPTIONAL MATCH (t)-[:HAS_PROJECT]->(pUser:Project)
+          WHERE pUser.creatorUid = $userUid
+          
+          // 3. Toutes les tâches liées aux projets fondés par l'utilisateur (pour éviter les tâches orphelines)
+          OPTIONAL MATCH (pUser)<-[:TASK_OF]-(tkOrphan:Task)
+          WITH r, userTasks, collect(DISTINCT pUser) AS userProjects, collect(DISTINCT tkOrphan) AS orphanTasks
+          
           FOREACH (task IN userTasks | DETACH DELETE task)
+          FOREACH (orphan IN orphanTasks | DETACH DELETE orphan)
+          FOREACH (proj IN userProjects | DETACH DELETE proj)
           DELETE r
           RETURN 1
         `;
         await neo4jTx.run(cypherClean, { userUid, teamUid });
 
-        // 🐘 A.2 MONGO PURIFIÉ : Utilisation de ProjectModel et TaskModel avec liaison de session saine
+        // 🐘 A.2 MONGO PURIFIÉ AUTOMATIQUE
         const projects = await ProjectModel.find({ ownerUid: teamUid }).session(mongoSession).lean();
         const projectUids = projects.map(p => p.uid);
 
         if (projectUids.length > 0) {
+          // Supprimer ses tâches dans les projets généraux du Nid
           await TaskModel.deleteMany({ 
             projectUid: { $in: projectUids }, 
             creatorUid: userUid 
           }).session(mongoSession);
         }
 
+        // Identifier les chantiers créés spécifiquement par l'utilisateur dans ce nid
+        const userProjects = await ProjectModel.find({ ownerUid: teamUid, creatorUid: userUid }).session(mongoSession).lean();
+        const userProjectUids = userProjects.map(p => p.uid);
+
+        if (userProjectUids.length > 0) {
+          // Supprimer l'intégralité des tâches rattachées à ses propres projets
+          await TaskModel.deleteMany({ projectUid: { $in: userProjectUids } }).session(mongoSession);
+          // Supprimer les chantiers eux-mêmes
+          await ProjectModel.deleteMany({ ownerUid: teamUid, creatorUid: userUid }).session(mongoSession);
+        }
+
       } else {
-        // 🕸️ B.1 NEO4J : Mode TRACE - On tranche uniquement le lien d'appartenance
+        // 🕸️ B.1 NEO4J : Mode TRACE - On tranche uniquement le lien d'appartenance, d'invitation ou de refus
         const cypherTrace = `
-          MATCH (u:User {uid: $userUid})-[r:MEMBER_OF|INVITED_TO]->(t:Team {uid: $teamUid})
+          MATCH (u:User {uid: $userUid})-[r:MEMBER_OF|INVITED_TO|REFUSED_INVITATION]->(t:Team {uid: $teamUid})
           DELETE r
           RETURN 1
         `;

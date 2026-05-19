@@ -51,7 +51,7 @@ describe('Moteur de Synchronisation (Integration)', () => {
     } finally {
       await session.close();
     }
-  });
+  }, 30000); // 🪡 SUTURE DE TIMEOUT : Marge de 30s pour absorber les latences réseau initiales
 
   /**
    * 🧹 NETTOYAGE DU NEXUS (Après le vol)
@@ -74,7 +74,7 @@ describe('Moteur de Synchronisation (Integration)', () => {
       await mongoose.disconnect();
     }
     console.log("🧹 Vallée des ombres nettoyée.");
-  });
+  }, 30000);
 
   it('✅ doive synchroniser une nouvelle Tâche entre Mongo et Neo4j', async () => {
     // 🏗️ Préparation de l'Atome (Task)
