@@ -1,7 +1,7 @@
 // apps/hub-central/components/teams/TeamCard.tsx
 'use client';
 
-import { Network, UserPlus, ShieldCheck, FolderPlus, Check, X, Clock, UserX, Eye, Trash2 } from 'lucide-react'; // 🪡 SUTURE : Ajout de Trash2
+import { Network, UserPlus, ShieldCheck, FolderPlus, Check, X, Clock, UserX, Eye, Trash2 } from 'lucide-react'; // 🪡 SUTURE : Ajout de Trash2 pour la gouvernance de Nid
 
 interface TeamCardProps {
   team: any;
@@ -13,7 +13,7 @@ interface TeamCardProps {
   onRespond?: (uid: string, action: 'ACCEPT' | 'REFUSE') => void; // 🪡 SUTURE EVOLUÉE : Déclencheur du choix de l'oiseau
   onViewProjects?: (uid: string) => void; // 🪡 SUTURE : Actionneur de navigation vers les Chantiers du Nid
   onManageInvitation?: (teamUid: string, targetUid: string, action: 'CANCEL' | 'REINVITE') => void; // 🪡 SUTURE : Actionneur de gouvernance sur la volée invitée
-  onDelete?: (uid: string) => void; // 🪡 SUTURE : Canal de dissolution de l'escouade
+  onDelete?: (uid: string) => void; // 🪡 SUTURE : Dissolution de l'escouade parent
 }
 
 export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, isInvitation, onRespond, onViewProjects, onManageInvitation, onDelete }: TeamCardProps) {
@@ -63,11 +63,11 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
               <UserPlus size={18} />
             </button>
 
-            {/* 🪡 SUTURE : Bouton d'effacement du Nid */}
+            {/* 🪡 SUTURE : Bouton d'effacement physique du Nid parent */}
             <button 
               onClick={(e) => { e.stopPropagation(); onDelete?.(team.uid); }} 
               className="p-2 hover:bg-red-500/10 rounded-lg text-slate-400 hover:text-red-500 transition-all"
-              title="Dissoudre le Nid (Supprimer)"
+              title="Dissoudre l'escouade parent (Supprimer)"
             >
               <Trash2 size={18} />
             </button>
@@ -113,7 +113,7 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
         ))}
       </div>
 
-      {/* 🪡 SUTURE ENRICHIED : Suivi de la Volée */}
+      {/* 🪡 SUTURE ENRICHIED : Tableau de bord de suivi des invitations */}
       {team.invitations && team.invitations.length > 0 && (
         <div className="mt-6 pt-6 border-t border-white/5 animate-in fade-in duration-350">
           <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 font-mono">

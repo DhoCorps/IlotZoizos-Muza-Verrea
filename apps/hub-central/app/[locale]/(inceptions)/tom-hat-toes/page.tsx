@@ -118,7 +118,7 @@ export default function TomHatToesHub() {
   };
   
   const handleSearchBirds = async (val: string) => {
-    setSearchBird(val);
+    setSearchBird(val); // 🪡 SUTURE : Correction du bug silencieux searchBird(val)
     if (val.length < 2) return setFoundBirds([]);
     try {
       const res = await fetch(`/api/users/recruitable?search=${val}`).then(r => r.json());
@@ -143,7 +143,7 @@ export default function TomHatToesHub() {
     }
   };
 
-  // 🌟 SUTURE : ACTIONNEUR DU PACTE D'ADHÉSION (Modifié pour accepter l'UID direct et contrer l'asynchronisme de React)
+  // 🌟 SUTURE : ACTIONNEUR DU PACTE D'ADHÉSION
   const handleRespondToInvitation = async (action: 'ACCEPT' | 'REFUSE', teamUid?: string) => {
     const targetUid = teamUid || selectedTeamUid;
     if (!targetUid) return;
@@ -180,13 +180,74 @@ export default function TomHatToesHub() {
       }
       await refreshData();
     } catch (err) {
-      console.error("🔥 Erreur de régulation de volée :", err);
+      console.error("🔥 Erreur deDoc de régulation de volée :", err);
     } finally {
       setLoading(false);
     }
   };
 
-  // 🌟 SUTURE : ENVOL VOLONTAIRE D'UNE ESCOUADE (RÉSILIATION DE L'ABONNEMENT DYNAMIQUE)
+  // 🪡 SUTURE MAJEURE : IMPLEMENTATION DES ACTIONNEURS DE SUPPRESSION PHYSIQUE
+  const handleDeleteTeam = async (teamUid: string) => {
+    if (!window.confirm("Êtes-vous sûr de vouloir dissoudre définitivement ce Nid ?")) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/teams/${teamUid}`, { method: 'DELETE' });
+      if (res.ok) {
+        if (selectedTeamUid === teamUid) {
+          setSelectedTeamUid(null);
+          setSelectedProjectUid(null);
+          setProjectTasks([]);
+        }
+        await refreshData();
+      }
+    } catch (err) {
+      console.error("🔥 Impossible de dissoudre le Nid parent :", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteProject = async (projectUid: string) => {
+    if (!window.confirm("Êtes-vous sûr de vouloir raser définitivement ce Chantier ?")) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/projects/${projectUid}`, { method: 'DELETE' });
+      if (res.ok) {
+        if (selectedProjectUid === projectUid) {
+          setSelectedProjectUid(null);
+          setProjectTasks([]);
+        }
+        await refreshData();
+      }
+    } catch (err) {
+      console.error("🔥 Impossible de détruire le Chantier :", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteTask = async (taskUid: string) => {
+    if (!window.confirm("Êtes-vous sûr de vouloir désintégrer cet Atome ?")) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/tasks/${taskUid}`, { method: 'DELETE' });
+      if (res.ok) {
+        if (selectedTaskUid === taskUid) {
+          setSelectedTaskUid(null);
+        }
+        if (selectedProjectUid) {
+          await fetchTasks(selectedProjectUid);
+        }
+        await refreshData();
+      }
+    } catch (err) {
+      console.error("🔥 Erreur de désintégration atomique :", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 🌟 SUTURE : ENVOL VOLONTAIRE D'UNE ESCOUADE
   const handleLeaveTeamVoluntarily = async (teamUid: string, mode: 'CLEAN' | 'TRACE') => {
     const confirmLeave = window.confirm(
       mode === 'CLEAN' 
@@ -420,7 +481,7 @@ export default function TomHatToesHub() {
           </div>
         )}
 
-        {/* 🌟 SUTURE VISUELLE : LA BANNIÈRE DE DÉSENGAGEMENT SOUVERAIN (ENVOL VOLONTAIRE) */}
+        {/* 🌟 SUTURE VISUELLE : LA BANNIÈRE DE DÉSENGAGEMENT SOUVERAIN */}
         {selectedTeamUid && !isInviteeMode && activeTeam?.ownerUid !== (session?.user as any)?.uid && (
           <div className="relative z-50 max-w-7xl mx-auto mb-6 p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in duration-300">
             <div className="flex items-center gap-3">
@@ -471,7 +532,6 @@ export default function TomHatToesHub() {
           </div>
         </header>
 
-        {/* 🪡 SUTURE : Unification de la navigation */}
         <nav className="relative z-10 flex gap-10 mb-12 border-b border-white/5">
           {['teams', 'projects', 'horizon'].map((tabId) => (
             <button 
@@ -519,6 +579,7 @@ export default function TomHatToesHub() {
                     NavActiveTab('projects');
                   }}
                   onManageInvitation={handleManageInvitation} 
+                  onDelete={handleDeleteTeam} // 🪡 SUTURE : Liaison de dissolution
                 />
               ))}
             </div>
@@ -540,6 +601,7 @@ export default function TomHatToesHub() {
                     setActiveInceptionId('task_new'); 
                   }
                 }} 
+                onDelete={handleDeleteProject} // 🪡 SUTURE : Liaison de suppression de chantier
               />
 
               {selectedProjectUid && (
@@ -564,7 +626,7 @@ export default function TomHatToesHub() {
                           }
                         }}
                       >
-                        <TaskCard task={task} onStatusChange={refreshData} />
+                        <TaskCard task={task} onStatusChange={refreshData} onDelete={handleDeleteTask} /> {/* 🪡 SUTURE : Liaison de destruction d'atome */}
                         {!isInviteeMode && (userCaps.includes('task:update') || userCaps.includes('*')) && (
                           <button
                             onClick={(e) => { e.stopPropagation(); setSelectedTaskUid(task.uid); setActiveInceptionId('task_edit'); }}

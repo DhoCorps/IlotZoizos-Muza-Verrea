@@ -7,7 +7,7 @@ import { usePomodoro } from '../../context/PomodoroContext';
 interface TaskCardProps {
   task: any;
   onStatusChange: (id: string, s: string) => void;
-  onDelete?: (uid: string) => void; // 🪡 SUTURE : Capacité d'effacement de l'Atome
+  onDelete?: (uid: string) => void; // 🪡 SUTURE MAJEURE : Capacité d'effacement de l'Atome
 }
 
 export function TaskCard({ task, onStatusChange, onDelete }: TaskCardProps) {
@@ -42,9 +42,9 @@ export function TaskCard({ task, onStatusChange, onDelete }: TaskCardProps) {
             }`}>
               {task.priority}
             </span>
-            {/* 🪡 SUTURE : Bouton d'effacement de l'Atome au survol */}
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete?.(task.uid); }}
+            {/* 🪡 SUTURE VISUELLE : Option d'effacement de l'Atome au survol */}
+            <button 
+              onClick={(e) => { e.stopPropagation(); onDelete?.(task.uid); }} 
               className="p-1 hover:bg-red-500/10 rounded text-slate-500 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
               title="Désintégrer l'Atome (Supprimer)"
             >
