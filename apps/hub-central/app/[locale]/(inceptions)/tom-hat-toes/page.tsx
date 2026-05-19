@@ -45,7 +45,7 @@ export default function TomHatToesHub() {
   const [loading, setLoading] = useState(true);
   const [activeInceptionId, setActiveInceptionId] = useState<string | null>(null);
   
-  const [activeTab, setActiveTab] = useState<'teams' | 'projects' | 'horizon'>('teams');
+  const [activeTab, NavActiveTab] = useState<'teams' | 'projects' | 'horizon'>('teams');
   const [isKanbanOpen, setIsKanbanOpen] = useState(false); 
 
   const [searchBird, setSearchBird] = useState("");
@@ -159,7 +159,7 @@ export default function TomHatToesHub() {
         if (action === 'REFUSE') {
           setSelectedTeamUid(null);
           setSelectedProjectUid(null);
-          setActiveTab('teams');
+          NavActiveTab('teams');
         }
       }
     } catch (err) {
@@ -174,76 +174,13 @@ export default function TomHatToesHub() {
     setLoading(true);
     try {
       if (action === 'CANCEL') {
-        // Annuler consiste à purger le lien temporaire INVITED_TO (ou REFUSED_INVITATION) du Graphe
         await fetch(`/api/teams/${teamUid}/invitations/${targetUid}`, { method: 'DELETE' });
       } else if (action === 'REINVITE') {
-        // Relancer réexécute l'invitation propre avec réinitialisation du sédiment de refus
         await apiTeams.inviteBird(teamUid, targetUid, selectedCaps);
       }
       await refreshData();
     } catch (err) {
       console.error("🔥 Erreur de régulation de volée :", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 🪡 SUTURE : ACTIONNEURS DE SUPPRESSION PHYSIQUE (DELETE ENTITIES)
-  const handleDeleteTeam = async (teamUid: string) => {
-    if (!window.confirm("Êtes-vous sûr de vouloir dissoudre ce Nid ?")) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/teams/${teamUid}`, { method: 'DELETE' });
-      if (res.ok) {
-        if (selectedTeamUid === teamUid) {
-          setSelectedTeamUid(null);
-          setSelectedProjectUid(null);
-          setProjectTasks([]);
-        }
-        await refreshData();
-      }
-    } catch (err) {
-      console.error("🔥 Erreur de dissolution du Nid :", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteProject = async (projectUid: string) => {
-    if (!window.confirm("Êtes-vous sûr de vouloir raser ce Chantier ?")) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/projects/${projectUid}`, { method: 'DELETE' });
-      if (res.ok) {
-        if (selectedProjectUid === projectUid) {
-          setSelectedProjectUid(null);
-          setProjectTasks([]);
-        }
-        await refreshData();
-      }
-    } catch (err) {
-      console.error("🔥 Erreur de suppression du Chantier :", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteTask = async (taskUid: string) => {
-    if (!window.confirm("Êtes-vous sûr de vouloir désintégrer cet Atome ?")) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/tasks/${taskUid}`, { method: 'DELETE' });
-      if (res.ok) {
-        if (selectedTaskUid === taskUid) {
-          setSelectedTaskUid(null);
-        }
-        if (selectedProjectUid) {
-          await fetchTasks(selectedProjectUid);
-        }
-        await refreshData();
-      }
-    } catch (err) {
-      console.error("🔥 Erreur de désintégration de l'Atome :", err);
     } finally {
       setLoading(false);
     }
@@ -268,7 +205,7 @@ export default function TomHatToesHub() {
       if (res.ok) {
         setSelectedTeamUid(null);
         setSelectedProjectUid(null);
-        setActiveTab('teams');
+        NavActiveTab('teams');
         await refreshData();
       } else {
         const err = await res.json();
@@ -292,7 +229,7 @@ export default function TomHatToesHub() {
 
   const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!session?.user?.uid || isInviteeMode) return; // Sécurité graphique
+    if (!session?.user?.uid || isInviteeMode) return; 
 
     const formData = new FormData(e.currentTarget);
     const pUid = (formData.get('projectUid') as string) || selectedProjectUid;
@@ -330,7 +267,6 @@ export default function TomHatToesHub() {
     }
   };
 
-  // 🪡 SUTURE : ACTIONNEUR DE MUTATION D'ATOME (UPDATE TASK)
   const handleUpdateTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedTaskUid || isInviteeMode) return;
@@ -535,12 +471,12 @@ export default function TomHatToesHub() {
           </div>
         </header>
 
-        {/* 🪡 SUTURE : Unification de la navigation (La duplication de la barre d'onglets a été éteinte) */}
+        {/* 🪡 SUTURE : Unification de la navigation */}
         <nav className="relative z-10 flex gap-10 mb-12 border-b border-white/5">
           {['teams', 'projects', 'horizon'].map((tabId) => (
             <button 
               key={tabId}
-              onClick={() => setActiveTab(tabId as any)}
+              onClick={() => NavActiveTab(tabId as any)}
               className={`pb-4 text-[11px] uppercase font-black tracking-widest transition-all relative ${activeTab === tabId ? 'text-[#E5484D]' : 'text-slate-600 hover:text-slate-300'}`}
             >
               {tabId === 'teams' ? 'Escouades (Nids)' : tabId === 'projects' ? 'Chantiers (Projets)' : 'Horizon'}
@@ -552,7 +488,6 @@ export default function TomHatToesHub() {
         <main className="relative z-10">
           {activeTab === 'teams' ? (
             <div className="grid grid-cols-1 gap-6">
-              {/* 🪡 SUTURE MAJEURE : On injecte ici le composant TeamCard d'IHM pour piloter proprement les consentements et modales d'ajustement */}
               {inceptions.map((team) => (
                 <TeamCard
                   key={team.uid}
@@ -560,10 +495,8 @@ export default function TomHatToesHub() {
                   isActive={selectedTeamUid === team.uid}
                   isInvitation={team.isInvitation === true}
                   onFocus={(uid) => {
-                    // 🪡 SUTURE : On segmente la focalisation pour protéger le consentement
                     setSelectedTeamUid(uid);
                     if (team.isInvitation !== true) {
-                      // Clic sur un nid standard -> Déclenche l'affichage immédiat de la modale en mode Update
                       if (userCaps.includes('team:update') || userCaps.includes('*')) {
                         setActiveInceptionId('team_edit');
                       }
@@ -574,21 +507,18 @@ export default function TomHatToesHub() {
                   }}
                   onCreateProject={(uid) => {
                     setSelectedTeamUid(uid);
-                    setActiveTab('projects');
+                    NavActiveTab('projects');
                     setActiveInceptionId('global');
                   }}
                   onRespond={(uid, action) => {
-                    // 🪡 SUTURE : UID transmis en direct pour contrer l'asynchronisme de React et libérer le flux de consentement
                     handleRespondToInvitation(action, uid);
                   }}
                   onViewProjects={(uid) => {
-                    // Nouveau canal sécurisé : Clic sur l'œil -> Change d'onglet pour parcourir les chantiers confirmés
                     setSelectedTeamUid(uid);
                     setSelectedProjectUid(null);
-                    setActiveTab('projects');
+                    NavActiveTab('projects');
                   }}
-                  onManageInvitation={handleManageInvitation} // 🪡 SUTURE : Raccordement complet et fonctionnel du gestionnaire d'invitations
-                  onDelete={handleDeleteTeam} // 🪡 SUTURE : Option de dissolution du Nid raccordée
+                  onManageInvitation={handleManageInvitation} 
                 />
               ))}
             </div>
@@ -610,7 +540,6 @@ export default function TomHatToesHub() {
                     setActiveInceptionId('task_new'); 
                   }
                 }} 
-                onDelete={handleDeleteProject} // 🪡 SUTURE : Option de suppression de Chantier rattachée
               />
 
               {selectedProjectUid && (
@@ -625,7 +554,6 @@ export default function TomHatToesHub() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {projectTasks.map(task => (
-                      // 🪡 SUTURE VISUELLE : Clic sur l'Atome (Tâche) ouvre directement la modale d'Update
                       <div 
                         key={task.uid} 
                         className="relative group/atome cursor-pointer"
@@ -636,7 +564,7 @@ export default function TomHatToesHub() {
                           }
                         }}
                       >
-                        <TaskCard task={task} onStatusChange={refreshData} onDelete={handleDeleteTask} />
+                        <TaskCard task={task} onStatusChange={refreshData} />
                         {!isInviteeMode && (userCaps.includes('task:update') || userCaps.includes('*')) && (
                           <button
                             onClick={(e) => { e.stopPropagation(); setSelectedTaskUid(task.uid); setActiveInceptionId('task_edit'); }}
@@ -648,7 +576,6 @@ export default function TomHatToesHub() {
                       </div>
                     ))}
                     
-                    {/* 🌟 SUTURE VISUELLE : DÉSACTIVATION SÉCURISÉE DU BOUTON CRÉATION D'ATOME */}
                     <button 
                       onClick={() => { if(!isInviteeMode) { setActiveInceptionId('task_new'); } }} 
                       disabled={isInviteeMode}
@@ -677,7 +604,6 @@ export default function TomHatToesHub() {
              <div className="w-full max-w-2xl bio-card p-10 relative border border-white/5">
                 <button onClick={() => { setActiveInceptionId(null); setFoundBirds([]); setSelectedTaskUid(null); }} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20} /></button>
                 
-                {/* 🪡 SUTURE MUTATION : Routage vers TaskForm configuré en mode émission ou réémission */}
                 {activeInceptionId === 'task_new' || activeInceptionId === 'task_edit' ? (
                   <TaskForm 
                     projectUid={selectedProjectUid} 

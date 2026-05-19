@@ -1,17 +1,15 @@
 // apps/hub-central/components/projects/ProjectCard.tsx
 'use client';
 
-import { Paperclip, Zap, Layers, Plus, Trash2 } from 'lucide-react'; // 🪡 SUTURE : Ajout de Trash2
+import { Paperclip, Zap, Layers, Plus } from 'lucide-react';
 
 interface ProjectCardProps {
   project: any;
   onEdit: (id: string) => void;
-  onCreateTask: (uid: string) => void; // 🪡 SUTURE : La Matrioshka continue vers l'Atome
-  onDelete?: (uid: string) => void; // 🪡 SUTURE : Canal de suppression du Chantier
-  
+  onCreateTask: (uid: string) => void; 
 }
 
-export function ProjectCard({ project, onEdit, onCreateTask, onDelete }: ProjectCardProps) {
+export function ProjectCard({ project, onEdit, onCreateTask }: ProjectCardProps) {
   return (
     <div className="bio-card p-6 border-l-4 transition-all hover:shadow-[0_0_20px_rgba(229,72,77,0.05)]" style={{ borderLeftColor: project.appearance?.color || '#E5484D' }}>
       <div className="flex justify-between items-start mb-6">
@@ -28,11 +26,10 @@ export function ProjectCard({ project, onEdit, onCreateTask, onDelete }: Project
         </div>
         
         <div className="flex gap-2">
-          {/* 🪡 SUTURE : Création d'Atome (Tâche) directement dans la poupée Chantier */}
           <button
             onClick={(e) => {
-            e.stopPropagation(); // On évite de déclencher d'autres événements de la carte
-            onCreateTask(project.uid); // Ce signal doit remonter au Hub
+              e.stopPropagation(); 
+              onCreateTask(project.uid); 
             }} 
             className="p-2 hover:bg-[#E5484D]/10 rounded-lg text-slate-500 hover:text-[#E5484D] transition-all"
             title="Sceller un Atome (Tâche)"
@@ -47,19 +44,9 @@ export function ProjectCard({ project, onEdit, onCreateTask, onDelete }: Project
           >
             <Zap size={16} />
           </button>
-
-          {/* 🪡 SUTURE : Bouton d'effacement du Chantier */}
-          <button 
-            onClick={(e) => { e.stopPropagation(); onDelete?.(project.uid); }} 
-            className="p-2 hover:bg-red-500/10 rounded-lg text-slate-500 hover:text-red-500 transition-all"
-            title="Raser le Chantier (Supprimer)"
-          >
-            <Trash2 size={16} />
-          </button>
         </div>
       </div>
 
-      {/* Barre de Progression Roadmap */}
       <div className="mb-6">
         <div className="flex justify-between text-[9px] uppercase font-mono text-slate-500 mb-2">
           <span>Avancement</span>

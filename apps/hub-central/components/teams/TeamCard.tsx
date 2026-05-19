@@ -39,7 +39,6 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
         {/* On affiche les contrôles d'administration uniquement si ce n'est pas une invitation en attente */}
         {!isInvitation && (
           <div className="flex gap-2">
-            {/* 🪡 SUTURE : Bouton de vision directe pour basculer sur les Chantiers du Nid */}
             <button 
               onClick={(e) => { e.stopPropagation(); onViewProjects?.(team.uid); }} 
               className="p-2 hover:bg-emerald-500/10 rounded-lg text-slate-400 hover:text-emerald-400 transition-all"
@@ -48,7 +47,6 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
               <Eye size={18} />
             </button>
 
-            {/* 🪡 SUTURE : Bouton de création de Chantier intégré au Nid */}
             <button 
               onClick={(e) => { e.stopPropagation(); onCreateProject(team.uid); }} 
               className="p-2 hover:bg-[#E5484D]/10 rounded-lg text-slate-400 hover:text-[#E5484D] transition-all"
@@ -65,7 +63,7 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
               <UserPlus size={18} />
             </button>
 
-            {/* 🪡 SUTURE : Bouton de dissolution de l'escouade */}
+            {/* 🪡 SUTURE : Bouton d'effacement du Nid */}
             <button 
               onClick={(e) => { e.stopPropagation(); onDelete?.(team.uid); }} 
               className="p-2 hover:bg-red-500/10 rounded-lg text-slate-400 hover:text-red-500 transition-all"
@@ -77,12 +75,12 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
         )}
       </div>
 
-      {/* 🤝 BLOC PACTE D'ADHÉSION : S'affiche si l'oiseau est invité à rejoindre le Nid */}
+      {/* 🤝 BLOC PACTE D'ADHÉSION */}
       {isInvitation && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white/5 p-4 rounded-xl mb-6 border border-dashed border-slate-700 hover:border-emerald-500/30 transition-all">
           <div className="flex flex-col">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-300">Pacte d'Adhésion National</span>
-            <span className="text-[10px] text-slate-500 mt-0.5">Acceptez-vous de lier votre frequency à ce Nid ?</span>
+            <span className="text-[10px] text-slate-500 mt-0.5">Acceptez-vous de lier votre fréquence à ce Nid ?</span>
           </div>
           <div className="flex gap-2 w-full sm:w-auto">
             <button
@@ -115,7 +113,7 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
         ))}
       </div>
 
-      {/* 🪡 SUTURE ENRICHIED : Tableau de bord de suivi des invitations de la volée pour l'administration du Nid */}
+      {/* 🪡 SUTURE ENRICHIED : Suivi de la Volée */}
       {team.invitations && team.invitations.length > 0 && (
         <div className="mt-6 pt-6 border-t border-white/5 animate-in fade-in duration-350">
           <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 font-mono">
@@ -140,7 +138,6 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
                   </span>
                 </div>
 
-                {/* 🪡 SUTURE MAJEURE : Intégration des boutons physiques d'action de gouvernance pour l'administrateur */}
                 <div className="flex items-center gap-3">
                   {invite.status === 'PENDING' ? (
                     <button

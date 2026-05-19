@@ -1,9 +1,16 @@
+// apps/hub-central/components/tasks/TaskCard.tsx
 'use client';
 
-import { CheckCircle2, Clock, AlertCircle, Paperclip, Users, Play, Loader2, Trash2 } from 'lucide-react'; // 🪡 SUTURE : Ajout de Trash2
+import { Clock, AlertCircle, Paperclip, Users, Play, Loader2, Trash2 } from 'lucide-react'; // 🪡 SUTURE : Ajout de Trash2
 import { usePomodoro } from '../../context/PomodoroContext';
 
-export function TaskCard({ task, onStatusChange, onDelete }: { task: any, onStatusChange: (id: string, s: string) => void, onDelete?: (uid: string) => void }) {
+interface TaskCardProps {
+  task: any;
+  onStatusChange: (id: string, s: string) => void;
+  onDelete?: (uid: string) => void; // 🪡 SUTURE : Capacité d'effacement de l'Atome
+}
+
+export function TaskCard({ task, onStatusChange, onDelete }: TaskCardProps) {
   const { startFocus, activeTaskUid, status } = usePomodoro();
   
   const pomoPercent = (task.pomodoros.completed / task.pomodoros.estimated) * 100;
@@ -35,9 +42,9 @@ export function TaskCard({ task, onStatusChange, onDelete }: { task: any, onStat
             }`}>
               {task.priority}
             </span>
-            {/* 🪡 SUTURE : Option de Suppression de l'Atome au survol */}
-            <button 
-              onClick={(e) => { e.stopPropagation(); onDelete?.(task.uid); }} 
+            {/* 🪡 SUTURE : Bouton d'effacement de l'Atome au survol */}
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete?.(task.uid); }}
               className="p-1 hover:bg-red-500/10 rounded text-slate-500 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
               title="Désintégrer l'Atome (Supprimer)"
             >
@@ -89,7 +96,6 @@ export function TaskCard({ task, onStatusChange, onDelete }: { task: any, onStat
           <div className="flex gap-3 text-slate-500">
             {task.fileUploads?.length > 0 && <Paperclip size={12} />}
             <div className="flex items-center gap-1">
-              {/* 🩸 SUTURE : mentalLoad devient complexity (sur 10) */}
               <AlertCircle size={12} className={task.metrics?.complexity >= 8 ? 'text-red-500' : ''} />
               <span className="text-[10px] font-mono">{task.metrics?.complexity || 1}/10</span>
             </div>

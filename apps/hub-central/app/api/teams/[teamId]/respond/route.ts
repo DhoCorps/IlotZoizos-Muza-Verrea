@@ -3,13 +3,10 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { TeamModel } from '@ilot/infrastructure/src/database/models/nosql/team.model';
 import { OiseauModel } from '@ilot/infrastructure/src/database/models/nosql/user.model';
-import { connectToDatabase, getNeo4jSession } from '@ilot/infrastructure'; // 🪡 SUTURE DE CONNEXION : Pool unifié
-import { authOptions } from "../../../../../lib/auth"; // 🪡 SUTURE : Pointage direct vers ta source unique
+import { connectToDatabase, getNeo4jSession } from '@ilot/infrastructure'; 
+import { authOptions } from "../../../../../lib/auth"; 
 import { TransactionManager } from '@ilot/shared-core/src/sync-engine/transactionManager';
 
-/**
- * 🚀 POST : Signer ou rejeter le Pacte d'Adhésion (ACCEPT / REFUSE)
- */
 export async function POST(req: Request, { params }: { params: { teamId: string } }) {
   try {
     await connectToDatabase();
@@ -27,7 +24,6 @@ export async function POST(req: Request, { params }: { params: { teamId: string 
       return NextResponse.json({ error: "Mouvement invalide sur le Pacte." }, { status: 400 });
     }
 
-    // 🕸️ VÉRIFICATION ORGANIQUE DANS LE GRAPHE (Singleton préservé)
     const neoSession = getNeo4jSession();
     let invitationCapabilities: string[] = [];
     try {
@@ -39,7 +35,7 @@ export async function POST(req: Request, { params }: { params: { teamId: string 
       
       if (checkResult.records.length === 0) {
         return NextResponse.json({ 
-          error: "Souveraineté violée : Aucune invitation en attente pour votre Empreinte dans ce Nid." 
+          error: "Souveraineté violée : Aucune invitation en attente." 
         }, { status: 451 }); 
       }
       
@@ -53,7 +49,7 @@ export async function POST(req: Request, { params }: { params: { teamId: string 
       return NextResponse.json({ error: "Ce Nid s'est volatilisé de la Silice." }, { status: 404 });
     }
 
-    const syncResult = await TransactionManager.execute("Réponse au Pacte d'Adhésion", async (mongoSession, neo4jTx) => {
+    await TransactionManager.execute("Réponse au Pacte d'Adhésion", async (mongoSession, neo4jTx) => {
       if (action === 'ACCEPT') {
         const acceptCypher = `
           MATCH (u:User {uid: $userUid})-[r:INVITED_TO]->(t:Team {uid: $teamId})
@@ -71,7 +67,6 @@ export async function POST(req: Request, { params }: { params: { teamId: string 
           { session: mongoSession }
         );
       } else {
-        // 🪡 SUTURE : Mutation du lien pour conserver la trace du refus sans briser la souveraineté de l'oiseau
         const refuseCypher = `
           MATCH (u:User {uid: $userUid})-[r:INVITED_TO]->(t:Team {uid: $teamId})
           DELETE r
@@ -87,7 +82,7 @@ export async function POST(req: Request, { params }: { params: { teamId: string 
     return NextResponse.json({ 
       success: true, 
       message: action === 'ACCEPT' 
-        ? `Pacte signed with success. Bienvenue dans l'escouade "${team.name}".` 
+        ? `Pacte signé avec succès. Bienvenue dans l'escouade "${team.name}".` 
         : `Invitation pour le Nid "${team.name}" déclinée avec souveraineté.`
     });
 
