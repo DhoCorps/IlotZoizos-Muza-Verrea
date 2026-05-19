@@ -4,8 +4,8 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from "../../../../../lib/auth"; // 🛡️ IMPORT INDISPENSABLE
 import { storageService } from '../../../../../modules/storage/storage.service';
-import { connectToDatabase, getNeo4jSession } from '@ilot/infrastructure'; 
-import { TeamModel } from '@ilot/infrastructure/src/database/models/nosql/team.model'; // 🪡 SUTURE : Ajout du modèle
+import { connectToDatabase, getNeo4jSession } from '@ilot/infrastructure'; // 🪡 SUTURE : Import redressé depuis la racine de l'infrastructure
+import { TeamModel } from '@ilot/infrastructure/src/database/models/nosql/team.model'; // 🪡 SUTURE : Import du modèle MongoDB
 import { CAPABILITIES } from '@ilot/types'; 
 
 // Interface locale pour le typage souverain
@@ -28,6 +28,9 @@ const s3Client = new S3Client({
 async function hasCapability(userUid: string, teamUid: string, requiredCapability: string) {
   const session = getNeo4jSession();
   try {
+    // 🔍 Recherche hybride : Le droit est accordé si :
+    // 1. Il est présent sur la relation (Aura territoriale - MEMBER_OF|FOUNDED)
+    // 2. OU il est présent sur le nœud User (Aura globale/souveraine)
     const result = await session.run(
       `
       MATCH (u:User {uid: $userUid})
@@ -37,24 +40,20 @@ async function hasCapability(userUid: string, teamUid: string, requiredCapabilit
       { userUid, teamUid }
     );
 
-    if (result.records.length === 0) {
-      console.log(`🚫 [Auth] Aucune relation ou utilisateur trouvé pour ${userUid}`);
-      return false;
-    }
+    if (result.records.length === 0) return false;
 
     const record = result.records[0];
     const userCaps = record.get('userCaps') || [];
     const relCaps = record.get('relCaps') || [];
     const allCaps = [...userCaps, ...relCaps];
 
-    const hasCap = allCaps.includes(CAPABILITIES.SYSTEM.ALL) || allCaps.includes(requiredCapability);
-    
-    if (!hasCap) {
-        console.log(`🚫 [Auth] Capacité ${requiredCapability} absente (User: ${userCaps}, Rel: ${relCaps})`);
-    }
-
-    return hasCap;
+    // Vérification de la capacité
+    return allCaps.includes(requiredCapability) || allCaps.includes(CAPABILITIES.SYSTEM.ALL);
+  } catch (error) {
+    console.error("🔥 Fracture radar lors de l'auscultation de l'Aura :", error);
+    return false;
   } finally {
+    // 🪡 SUTURE : Fermeture propre de la session
     await session.close();
   }
 }
@@ -79,6 +78,7 @@ export async function POST(
     }
 
     // --- 2. VÉRIFICATION DE L'AURA TERRITORIALE (CAPABILITIES) ---
+    // Un oiseau doit avoir le droit d'injecter des fichiers ('file:upload') ou posséder l'Aura absolue ('*')
     const isAuthorized = await hasCapability(user.uid, teamId, CAPABILITIES.FILE.UPLOAD);
 
     if (!isAuthorized) {
@@ -90,8 +90,8 @@ export async function POST(
 
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
-    const label = formData.get('label') as string || 'Sans titre';
     const mediaType = formData.get('mediaType') as string || 'attachments';
+    const label = formData.get('label') as string || file?.name || 'Sans titre';
 
     if (!file) {
       return NextResponse.json(
@@ -117,7 +117,7 @@ export async function POST(
     const buffer = Buffer.from(await file.arrayBuffer());
 
     const customKey = storageService.generateStructuredKey({
-        inceptId: 'ilot-zoizos',
+        inceptId: 'ilot-zoizos', // Harmonisé avec le nom du projet
         locale: 'fr',
         entityType: 'teams',
         entityId: teamId,
@@ -135,25 +135,33 @@ export async function POST(
     await s3Client.send(command);
     
     // --- 5. ENREGISTREMENT DANS LA SILICE (MONGODB) ---
-    await TeamModel.findOneAndUpdate(
+    const updatedTeam = await TeamModel.findOneAndUpdate(
       { uid: teamId },
       { 
         $push: { 
           documents: {
-            uid: customKey, // On utilise la clé comme identifiant unique
+            uid: customKey,
             name: file.name,
             label: label,
             url: `${process.env.R2_PUBLIC_URL}/${customKey}`,
             mimeType: file.type
           } 
         } 
-      }
+      },
+      { new: true } // Renvoie le document après modification pour vérification
     );
+    
+    // Log diagnostique
+    console.log("⚡ [Silice] État du Nid mis à jour avec le document :", updatedTeam ? "Succès" : "Échec");
+
+    if (!updatedTeam) {
+      console.warn(`⚠️ [Silice] Aucun Nid trouvé avec l'uid : ${teamId}`);
+    }
     
     return NextResponse.json(
       {
         success: true,
-        message: `La brindille est scellée dans R2 et la Silice.`,
+        message: `La brindille est scellée dans R2 et rattachée à la Silice.`,
         publicUrl: `${process.env.R2_PUBLIC_URL}/${customKey}`,
         key: customKey
       },

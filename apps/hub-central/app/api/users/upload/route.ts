@@ -104,6 +104,7 @@ export async function POST(req: NextRequest) {
         console.error("⚠️ [Neo4j] Échec mineur de propagation esthétique sur le nœud User :", neoError);
         // On ne bloque pas la réponse HTTP si le Graphe a eu une micro-interférence graphique
       } finally {
+        // 🪡 SUTURE : Fermeture garantie de la session
         await neoSession.close();
       }
     }

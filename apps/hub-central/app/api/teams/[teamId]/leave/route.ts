@@ -21,8 +21,15 @@ export async function POST(req: Request, { params }: { params: { teamId: string 
       return NextResponse.json({ error: "Oiseau non identifié dans la canopée." }, { status: 401 });
     }
 
-    // 3. Décodage du protocole mémoriel choisi
-    const body = await req.json();
+    // 3. Décodage sécurisé du protocole mémoriel
+    // 🪡 SUTURE : Bouclier contre les requêtes au corps vide (évite un crash 500 brutal)
+    let body;
+    try {
+        body = await req.json();
+    } catch (e) {
+        return NextResponse.json({ error: "L'onde est muette : Corps de requête invalide ou manquant." }, { status: 400 });
+    }
+
     const { mode } = body; // 'CLEAN' (Effacement des traces) ou 'TRACE' (Héritage)
 
     if (!mode || !['CLEAN', 'TRACE'].includes(mode)) {
@@ -41,11 +48,13 @@ export async function POST(req: Request, { params }: { params: { teamId: string 
     const orchestrator = new TeamOrchestrator();
     const result = await orchestrator.leaveTeam(params.teamId, userUid, mode, signature);
     
-    return NextResponse.json(result);
+    // 🪡 SUTURE : Statut de réussite explicite
+    return NextResponse.json(result, { status: 200 });
+
   } catch (error: any) {
     console.error("🔥 Fracture lors de l'envol volontaire API (POST Leave Team):", error);
     return NextResponse.json(
-      { error: error.message }, 
+      { error: error.message || "Erreur interne lors de la séparation." }, 
       { status: error.statusCode || 500 }
     );
   }

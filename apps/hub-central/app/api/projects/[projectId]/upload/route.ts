@@ -35,9 +35,9 @@ async function canUpdateProject(userUid: string, projectUid: string): Promise<bo
       MATCH (p:Project { uid: $projectUid })
       MATCH (u:User { uid: $userUid })
       OPTIONAL MATCH (u)-[r:CONTRIBUTES_TO|OWNER_OF|CREATED]->(p)
-      OPTIONAL MATCH (u)-[:MEMBER_OF]->(t:Team)-[:HAS_PROJECT]->(p)
+      OPTIONAL MATCH (u)-[:MEMBER_OF]->(team:Team)-[:HAS_PROJECT]->(p)
       RETURN p.creatorUid AS projectCreatorUid,
-             collect(r.capabilities) + collect(t.defaultProjectCapabilities) AS allCaps
+             collect(r.capabilities) + collect(team.defaultProjectCapabilities) AS allCaps
     `;
     
     const result = await session.run(cypher, { userUid, projectUid });
@@ -56,6 +56,7 @@ async function canUpdateProject(userUid: string, projectUid: string): Promise<bo
     console.error("🔥 Fracture lors de la vérification d'Aura sur le Chantier :", error);
     return false;
   } finally {
+    // 🪡 SUTURE : Le maillage se referme proprement
     await session.close();
   }
 }
@@ -70,6 +71,7 @@ export async function POST(
 
     // --- 1. SÉCURISATION DE LA DOUANE ---
     const session = await getServerSession(authOptions);
+    
     const user = session?.user as OiseauUser | undefined;
 
     if (!user || !user.uid) {
@@ -146,23 +148,21 @@ export async function POST(
     await s3Client.send(command);
     const publicUrl = `${process.env.R2_PUBLIC_URL}/${customKey}`;
 
-    // --- 5. SÉDIMENTATION DANS LA SILICE (MongoDB) ---
+    // --- 5. SÉDIMENTATION DANS LA SILICE (MONGODB) ---
+    // 🪡 SUTURE : Alignement avec la structure 'documents' utilisée pour Teams/Tasks
     const documentPayload = {
-      uid: `doc_${crypto.randomUUID()}`,
+      uid: customKey,
       name: file.name,
       label: label,
       url: publicUrl,
       mimeType: file.type,
-      size: file.size,
-      uploadedBy: user.uid,
-      uploadedAt: new Date()
+      createdAt: new Date()
     };
 
-    // Injection dans le tableau des documents ou pièces jointes de la collection Project
     const updatedProject = await ProjectModel.findOneAndUpdate(
       { uid: projectUid },
       {
-        $push: { "documents": documentPayload }, // S'adapte au champ array défini dans ton ProjectModel
+        $push: { documents: documentPayload },
         $set: { "dates.updatedAt": new Date() }
       },
       { new: true }

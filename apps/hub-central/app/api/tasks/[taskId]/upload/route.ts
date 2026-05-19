@@ -31,7 +31,6 @@ const s3Client = new S3Client({
 async function canUpdateTask(userUid: string, taskUid: string) {
   const session = getNeo4jSession();
   try {
-    // On remonte de la Task au Project pour scruter les droits ou la souveraineté de l'acteur
     const cypher = `
       MATCH (t:Task { uid: $taskUid })-[:TASK_OF]->(p:Project)
       MATCH (u:User { uid: $userUid })
@@ -47,7 +46,6 @@ async function canUpdateTask(userUid: string, taskUid: string) {
     const projectCreatorUid = record.get('projectCreatorUid');
     const caps = record.get('allCaps').flat() || [];
 
-    // Double verrou : Souverain (Créateur du chantier parent) ou capacités explicites
     const isCreator = projectCreatorUid === userUid;
     const isAuthorized = caps.includes(CAPABILITIES.TASK.UPDATE) || caps.includes('*');
 
@@ -56,6 +54,7 @@ async function canUpdateTask(userUid: string, taskUid: string) {
     console.error("🔥 Fracture lors de la vérification d'Aura sur l'Atome :", error);
     return false;
   } finally {
+    // 🪡 SUTURE : Le maillage se referme proprement
     await session.close();
   }
 }
@@ -68,7 +67,7 @@ export async function POST(
     await connectToDatabase();
     const taskUid = params.taskId;
 
-    // --- 1. DOUBLE VERROU DE SÉCURITÉ (Session & Droits) ---
+    // --- 1. DOUBLE VERROU DE SÉCURITÉ ---
     const session = await getServerSession(authOptions);
     const user = session?.user as OiseauUser | undefined;
 
@@ -84,7 +83,7 @@ export async function POST(
 
     if (!isAuthorized && !isArchitect) {
       return NextResponse.json(
-        { success: false, message: "Ton Aura ne résonne pas assez fort sur ce territoire pour y greffer un document." },
+        { success: false, message: "Ton Aura ne résonne pas assez fort pour y greffer un document." },
         { status: 403 }
       );
     }
@@ -100,7 +99,7 @@ export async function POST(
       );
     }
 
-    // --- 2. LE BOUCLIER DES FORMATS DE LA SILICE ---
+    // --- 2. LE BOUCLIER DES FORMATS ---
     const allowedTypes = [
       'image/jpeg', 'image/png', 'image/webp', 'image/gif',
       'audio/mpeg', 'audio/mp3', 'audio/ogg', 'audio/webm',
@@ -110,13 +109,6 @@ export async function POST(
     if (!allowedTypes.includes(file.type)) {
       return NextResponse.json(
         { success: false, message: `La Silice de l'Atome rejette le format ${file.type}.` },
-        { status: 400 }
-      );
-    }
-
-    if (file.size > 10 * 1024 * 1024) { // Limite de 10 Mo par fragment/pièce jointe
-      return NextResponse.json(
-        { success: false, message: "La brindille est trop lourde pour cet Atome (Max 10 Mo)." },
         { status: 400 }
       );
     }
@@ -143,23 +135,21 @@ export async function POST(
     await s3Client.send(command);
     const publicUrl = `${process.env.R2_PUBLIC_URL}/${customKey}`;
 
-    // --- 4. SÉDIMENTATION DANS LA SILICE (MongoDB) ---
-    // Injection du payload de la pièce jointe directement dans le tableau content.attachments
+    // --- 4. SÉDIMENTATION DANS LA SILICE (MONGODB) ---
+    // 🪡 SUTURE : Alignement avec la structure 'documents' utilisée pour Teams/Projects
     const attachmentPayload = {
-      uid: `file_${crypto.randomUUID()}`,
+      uid: customKey,
       name: file.name,
       label: label,
       url: publicUrl,
       mimeType: file.type,
-      size: file.size,
-      uploadedBy: user.uid,
-      uploadedAt: new Date()
+      createdAt: new Date()
     };
 
     const updatedTask = await TaskModel.findOneAndUpdate(
       { uid: taskUid },
       { 
-        $push: { "content.attachments": attachmentPayload },
+        $push: { documents: attachmentPayload },
         $set: { "dates.updatedAt": new Date() }
       },
       { new: true }
@@ -167,7 +157,7 @@ export async function POST(
 
     if (!updatedTask) {
       return NextResponse.json(
-        { success: false, message: "Atome introuvable dans la Silice lors du scellage." },
+        { success: false, message: "Atome introuvable dans la Silice." },
         { status: 404 }
       );
     }
@@ -176,8 +166,7 @@ export async function POST(
       {
         success: true,
         message: "Matière scellée et liée avec succès à l'Atome.",
-        attachment: attachmentPayload,
-        task: updatedTask
+        attachment: attachmentPayload
       },
       { status: 201 }
     );

@@ -1,7 +1,7 @@
 // apps/hub-central/app/api/teams/[teamId]/invitations/[targetUid]/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { connectToDatabase, getNeo4jSession } from '@ilot/infrastructure';
+import { connectToDatabase } from '@ilot/infrastructure';
 import { TeamModel } from '@ilot/infrastructure/src/database/models/nosql/team.model';
 import { authOptions } from "../../../../../../lib/auth";
 import { TransactionManager } from '@ilot/shared-core/src/sync-engine/transactionManager';
@@ -38,7 +38,6 @@ export async function DELETE(
 
     // 3. Exécution du tranchage au sein du gestionnaire de transaction unifié
     await TransactionManager.execute("Révocation d'Invitation", async (mongoSession, neo4jTx) => {
-      // Dans notre architecture, l'invitation temporaire réside exclusivement dans le Graphe Muet (:INVITED_TO)
       const cypherRevoke = `
         MATCH (u:User {uid: $targetUid})-[r:INVITED_TO]->(t:Team {uid: $teamId})
         DELETE r
@@ -53,6 +52,10 @@ export async function DELETE(
       if (result.records.length === 0) {
         throw new Error("Aucune invitation active ou en attente trouvée pour cet oiseau.");
       }
+      
+      // 📝 LOG DE GOUVERNANCE (Optionnel mais recommandé pour ton mode "Souverain")
+      console.log(`⚡ [Gouvernance] Invitation révoquée : Oiseau ${params.targetUid} retiré du Nid ${params.teamId} par ${userUid}`);
+      
       return true;
     });
 

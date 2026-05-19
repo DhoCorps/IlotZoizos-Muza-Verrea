@@ -1,3 +1,4 @@
+// apps/hub-central/app/api/graph/context/route.ts
 import { NextResponse } from 'next/server';
 import { getNeo4jSession } from '@ilot/infrastructure';
 
@@ -41,7 +42,16 @@ export async function GET(req: Request) {
     });
 
     return NextResponse.json({ nodes, links });
+
+  } catch (error: any) {
+    // 🪡 SUTURE : Le bouclier d'erreur pour éviter le crash brutal du Hub
+    console.error("🔥 Fracture lors de la lecture contextuelle du Graphe :", error);
+    return NextResponse.json(
+      { nodes: [], links: [], message: "Le maillage est temporairement illisible." },
+      { status: 500 }
+    );
   } finally {
+    // 🪡 SUTURE : Fermeture garantie de la session, quoi qu'il arrive
     await session.close();
   }
 }

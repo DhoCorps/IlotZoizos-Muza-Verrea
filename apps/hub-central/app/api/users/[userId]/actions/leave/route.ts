@@ -27,6 +27,7 @@ export async function POST(req: Request, { params }: { params: { userId: string 
     }
 
     const { mode, teamId } = body;
+    // On s'assure que le mode est bien fourni ('CLEAN' ou 'TRACE')
     if (!teamId || !mode) return NextResponse.json({ error: "Données incomplètes" }, { status: 400 });
 
     const signature: ActionSignature = {
@@ -34,13 +35,13 @@ export async function POST(req: Request, { params }: { params: { userId: string 
       capabilities: (session?.user as any)?.capabilities || []
     };
 
-    const orchestrator = new OiseauOrchestrator();
+    const orchestrator = new TeamOrchestrator();
     
-    // 🛡️ EXÉCUTION SÉCURISÉE
-    const result = await orchestrator.exileOiseau(userUid, signature); 
+    // 🪡 SUTURE HARMONISÉE : On appelle "leaveTeam" en lui passant le "mode"
+    const result = await orchestrator.leaveTeam(teamId, userUid, mode, signature); 
 
     // Retour explicite
-    return NextResponse.json(result || { success: true }, { status: 200 });
+    return NextResponse.json(result, { status: 200 });
 
   } catch (error: any) {
     console.error("🔥 DÉTAIL FRACTURE:", error);
