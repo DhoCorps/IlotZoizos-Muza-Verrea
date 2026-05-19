@@ -46,8 +46,16 @@ export interface ITask {
   metrics: {
     complexity: number; // 🩸 CORRECTION : Remplacement de mentalLoad par complexity
   };
-
-  fileUploads: string[];
+  
+  // 🪡 SUTURE : Alignement avec la structure globale des artefacts
+  documents: {
+    uid: string;
+    name: string;
+    label: string;
+    url: string;
+    mimeType: string;
+    createdAt?: Date;
+  }[];
 
   // 📅 TEMPOREL
   dates: {

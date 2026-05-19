@@ -3,6 +3,8 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { TeamModel } from '@ilot/infrastructure/src/database/models/nosql/team.model';
 import { OiseauModel } from '@ilot/infrastructure/src/database/models/nosql/user.model';
+import { ProjectModel } from '@ilot/infrastructure/src/database/models/nosql/project.model'; // 🪡 SUTURE : Import des modèles pour la cascade souveraine
+import { TaskModel } from '@ilot/infrastructure/src/database/models/nosql/task.model';       // 🪡 SUTURE : Import des modèles pour la cascade souveraine
 import { connectToDatabase, getNeo4jSession } from '@ilot/infrastructure'; 
 import { authOptions } from "../../../../../lib/auth"; 
 import { TransactionManager } from '@ilot/shared-core/src/sync-engine/transactionManager';
@@ -20,7 +22,7 @@ export async function POST(req: Request, { params }: { params: { teamId: string 
     const body = await req.json();
     const { action } = body; 
 
-    if (!action || !['ACCEPT', 'REFUSE'].includes(action)) {
+    if (!action || !['ACCEPT', 'REFUSE', 'PURGE_REFUSE'].includes(action)) { // 🪡 SUTURE : Ouverture du spectre d'action
       return NextResponse.json({ error: "Mouvement invalide sur le Pacte." }, { status: 400 });
     }
 
@@ -66,6 +68,33 @@ export async function POST(req: Request, { params }: { params: { teamId: string 
           { $addToSet: { teams: team._id } }, 
           { session: mongoSession }
         );
+      } else if (action === 'PURGE_REFUSE') {
+        // 🪡 SUTURE MAJEURE : Purge souveraine avant refus
+        // 1. Recensement de tous les projets de cette escouade pour cibler les tâches liées
+        const projects = await ProjectModel.find({ ownerUid: params.teamId }).session(mongoSession).lean();
+        const projectUids = projects.map(p => p.uid);
+
+        if (projectUids.length > 0) {
+          // A. Désintégration de toutes les tâches créées par cet oiseau invité sur ce Nid
+          await TaskModel.deleteMany({ projectUid: { $in: projectUids }, creatorUid: userUid }, { session: mongoSession });
+          // B. Retrait chirurgical de l'oiseau de toutes les autres assignations de tâches du Nid
+          await TaskModel.updateMany(
+            { projectUid: { $in: projectUids }, assigneeUids: userUid },
+            { $pull: { assigneeUids: userUid } },
+            { session: mongoSession }
+          );
+        }
+
+        // 2. Tissage de nettoyage dans le Graphe : Tranchage récursif des nœuds de tâches et rupture de l'invitation
+        const cypherPurgeGraph = `
+          MATCH (u:User {uid: $userUid})-[r:INVITED_TO]->(t:Team {uid: $teamId})
+          OPTIONAL MATCH (tk:Task)-[:TASK_OF]->(p:Project)<-[:HAS_PROJECT]-(t)
+          WHERE tk.creatorUid = $userUid OR (u)-[:ASSIGNED_TO]->(tk)
+          FOREACH (target IN CASE WHEN tk.creatorUid = $userUid THEN [tk] ELSE [] END | DETACH DELETE target)
+          DELETE r
+        `;
+        await neo4jTx.run(cypherPurgeGraph, { userUid, teamId: params.teamId });
+
       } else {
         const refuseCypher = `
           MATCH (u:User {uid: $userUid})-[r:INVITED_TO]->(t:Team {uid: $teamId})
@@ -83,6 +112,8 @@ export async function POST(req: Request, { params }: { params: { teamId: string 
       success: true, 
       message: action === 'ACCEPT' 
         ? `Pacte signé avec succès. Bienvenue dans l'escouade "${team.name}".` 
+        : action === 'PURGE_REFUSE'
+        ? `Invitation pour le Nid "${team.name}" déclinée et traces intégralement nettoyées.`
         : `Invitation pour le Nid "${team.name}" déclinée avec souveraineté.`
     });
 

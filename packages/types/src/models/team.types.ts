@@ -46,7 +46,16 @@ export const TeamSchema = BaseNodeSchema.extend({
   moderation: z.object({
     isFlagged: z.boolean().default(false),
     reportCount: z.number().default(0)
-  }).default({ isFlagged: false, reportCount: 0 })
+  }).default({ isFlagged: false, reportCount: 0 }),
+
+  documents: z.array(z.object({
+      uid: z.string(),
+      name: z.string(),
+      label: z.string(),
+      url: z.string(),
+      mimeType: z.string()
+  })).default([])
+
 });
 
 export type ITeam = z.infer<typeof TeamSchema>;

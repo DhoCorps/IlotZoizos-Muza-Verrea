@@ -43,6 +43,16 @@ export const OiseauLeafSchema = z.object({
 
   // 🪡 SUTURE DU MAILLON MANQUANT : Collection des Références de Nids rattachés à l'Oiseau
   teams: z.array(z.any()).default([]),
+
+  // 🪡 SUTURE : Alignement avec la structure globale des artefacts (Fichiers de l'Oiseau)
+  documents: z.array(z.object({
+      uid: z.string(),
+      name: z.string(),
+      label: z.string(),
+      url: z.string(),
+      mimeType: z.string(),
+      createdAt: z.date().default(() => new Date())
+  })).default([])
 });
 
 // 🏗️ III. L'OISEAU COMPLET

@@ -18,8 +18,8 @@ export interface TeamSyncResult {
 
 /**
  * 🛰️ TEAM ORCHESTRATOR 
- * L'Architecte des liens. Assure la cohérence entre la Silice (Mongo) et le Graphe (Neo4j).
- * Modèle : "Zero-Identity"
+ * L'Architecte des liens. Assure la coherence entre la Silice (Mongo) et le Graphe (Neo4j).
+ * Modele : "Zero-Identity"
  */
 export class TeamOrchestrator {
   async fosterTeam(
@@ -31,12 +31,12 @@ export class TeamOrchestrator {
       frequency?: string; 
       isPrivate: boolean; 
       ownerUid: string;
-      leaderUid: string | null; // ✅ On harmonise aussi avec le schéma Zod
+      leaderUid: string | null; // ✅ On harmonise aussi avec le schema Zod
     },
     signature: ActionSignature
   ): Promise<TeamSyncResult> {
         
-    // 1. Barrière de la Signature
+    // 1. Barriere de la Signature
     if (!signature.capabilities.includes(CAPABILITIES.TEAM.CREATE) && !signature.capabilities.includes('*')) {
       throw new IlotError("Aura insuffisante pour fonder une escouade", "FORBIDDEN", 403);
     }
@@ -46,7 +46,7 @@ export class TeamOrchestrator {
     const check = moralCheck.analyze(teamData.name);
     if (!check.isSafe) throw new IlotError(`Nom invalide : ${check.suggestion}`, "BAD_REQUEST", 400);
 
-    // 3. Vérification de l'Empreinte
+    // 3. Verification de l'Empreinte
     const creator = await OiseauModel.findOne({ uid: signature.actorUid });
     if (!creator) throw new IlotError("Empreinte créatrice introuvable dans la canopée.", "NOT_FOUND", 404);
 
@@ -98,7 +98,7 @@ export class TeamOrchestrator {
         SET r.since = datetime(), 
             r.capabilities = $capabilities // L'Aura suffit à définir le pouvoir
         
-        WITH t
+        with t
         OPTIONAL MATCH (p:Team { uid: $parentId })
         FOREACH (_ IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
           MERGE (t)-[:CHILD_OF]->(p)
@@ -234,6 +234,10 @@ export class TeamOrchestrator {
     });
   }
 
+  /**
+   * 💀 DISSOLUTION DU NID EN CASCADE MATRIOSHKA
+   * Purge synchrone globale : Nid (Team) -> Chantiers (Projects) -> Atomes (Tasks)
+   */
   async dissolveTeam(
     teamUid: string, 
     signature: ActionSignature
@@ -243,16 +247,47 @@ export class TeamOrchestrator {
     }
 
     return await TransactionManager.execute("Dissolution de Nid", async (mongoSession, neo4jTx) => {
-      await neo4jTx.run(`MATCH (t:Team {uid: $teamUid}) DETACH DELETE t`, { teamUid });
+      // 🐘 1. Silice Mongo : Recensement de tous les Chantiers ancrés à ce Nid parent
+      const linkedProjects = await ProjectModel.find({ ownerUid: teamUid }).session(mongoSession).lean();
+      const projectUids = linkedProjects.map(p => p.uid);
+
+      if (projectUids.length > 0) {
+        // A. Purge en cascade de tous les Atomes (Tâches) rattachés à ces Chantiers
+        await TaskModel.deleteMany({ projectUid: { $in: projectUids } }, { session: mongoSession });
+        // B. Purge en cascade de tous les Chantiers eux-mêmes
+        await ProjectModel.deleteMany({ ownerUid: teamUid }, { session: mongoSession });
+      }
+
+      // C. Suppression définitive de la racine : Le Nid dans MongoDB
       const deletedTeam = await TeamModel.findOneAndDelete({ uid: teamUid }, { session: mongoSession });
       
       if (deletedTeam) {
+        // D. Extraction chirurgicale des oiseaux liés : On retire l'ID du Nid du catalogue de sa Volée
         await OiseauModel.updateMany(
           { teams: deletedTeam._id }, 
           { $pull: { teams: deletedTeam._id } }, 
           { session: mongoSession }
         );
       }
+
+      // 🕸️ 2. Graphe Neo4j : Désintégration structurelle de l'arbre territorial
+      if (projectUids.length > 0) {
+        // Tranchage et suppression de tous les Atomes rattachés
+        await neo4jTx.run(`
+          MATCH (tk:Task) WHERE tk.projectUid IN $projectUids
+          DETACH DELETE tk
+        `, { projectUids });
+
+        // Tranchage et suppression de tous les Chantiers rattachés
+        await neo4jTx.run(`
+          MATCH (p:Project) WHERE p.uid IN $projectUids
+          DETACH DELETE p
+        `, { projectUids });
+      }
+
+      // Tranchage final et suppression du nœud racine de l'escouade parent (Team)
+      await neo4jTx.run(`MATCH (t:Team {uid: $teamUid}) DETACH DELETE t`, { teamUid });
+
       return true;
     });
   }

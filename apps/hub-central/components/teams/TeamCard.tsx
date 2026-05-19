@@ -1,22 +1,88 @@
-// apps/hub-central/components/teams/TeamCard.tsx
 'use client';
 
-import { Network, UserPlus, ShieldCheck, FolderPlus, Check, X, Clock, UserX, Eye, Trash2 } from 'lucide-react'; // 🪡 SUTURE : Ajout de Trash2 pour la gouvernance de Nid
+import { useState, useEffect } from 'react';
+import { Network, UserPlus, ShieldCheck, FolderPlus, Check, X, Clock, UserX, Eye, Trash2, Upload, Loader2, FileText, ExternalLink, ChevronDown, ChevronUp, Paperclip, Download } from 'lucide-react'; // 🪡 SUTURE : Ajout Download
 
 interface TeamCardProps {
   team: any;
+  onUploadSuccess?: () => void;
   onRecruit: (uid: string) => void;
   onFocus: (uid: string) => void;
   onCreateProject: (uid: string) => void; // 🪡 SUTURE : Lien direct pour la Matrioshka
   isActive?: boolean;
   isInvitation?: boolean; // 🪡 SUTURE EVOLUÉE : Flag pour basculer la carte en mode "Pacte d'Adhésion"
-  onRespond?: (uid: string, action: 'ACCEPT' | 'REFUSE') => void; // 🪡 SUTURE EVOLUÉE : Déclencheur du choix de l'oiseau
+  onRespond?: (uid: string, action: 'ACCEPT' | 'REFUSE' | 'PURGE_REFUSE') => void; // 🪡 SUTURE EVOLUÉE : Déclencheur du choix de l'oiseau avec option purge
   onViewProjects?: (uid: string) => void; // 🪡 SUTURE : Actionneur de navigation vers les Chantiers du Nid
   onManageInvitation?: (teamUid: string, targetUid: string, action: 'CANCEL' | 'REINVITE') => void; // 🪡 SUTURE : Actionneur de gouvernance sur la volée invitée
   onDelete?: (uid: string) => void; // 🪡 SUTURE : Dissolution de l'escouade parent
 }
 
 export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, isInvitation, onRespond, onViewProjects, onManageInvitation, onDelete }: TeamCardProps) {
+  // --- ÉTATS DU TIROIR D'UPLOAD DU NID ---
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [label, setLabel] = useState('');
+  const [mediaType, setMediaType] = useState('attachments');
+  const [localDocuments, setLocalDocuments] = useState<any[]>(team.documents || []);
+
+  // 🪡 SUTURE DE RÉACTIVITÉ : On s'assure que si team.documents change (après refreshData), l'état se met à jour
+  useEffect(() => {
+    setLocalDocuments(team.documents || []);
+  }, [team.documents]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('mediaType', mediaType);
+    formData.append('label', label || file.name);
+
+    try {
+      const res = await fetch(`/api/teams/${team.uid}/upload`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.message || "Échec du scellage de la brindille dans le Nid.");
+      }
+
+      const data = await res.json();
+      // On insère dynamiquement la nouvelle pièce jointe pour un rendu sans latence
+      const newDoc = {
+        uid: data.key || `file_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        name: file.name,
+        label: label || file.name,
+        url: data.publicUrl,
+        mimeType: file.type
+      };
+      setLocalDocuments((prev) => [...prev, newDoc]);
+      setLabel('');
+    } catch (err: any) {
+      alert(`🚨 Fracture d'alchimie du Nid : ${err.message}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // 🪡 SUTURE : Suppression d'un document
+  const handleDeleteDoc = async (docUid: string) => {
+    if (!window.confirm("Effacer définitivement cet artefact du Nid ?")) return;
+    try {
+      // Ton endpoint de suppression doit correspondre à ta logique backend
+      const res = await fetch(`/api/teams/${team.uid}/upload?key=${encodeURIComponent(docUid)}`, { method: 'DELETE' });
+      if (res.ok) {
+        setLocalDocuments((prev) => prev.filter(doc => doc.uid !== docUid));
+      }
+    } catch (err: any) {
+      alert("Erreur lors de la désintégration de l'artefact.");
+    }
+  };
+
   return (
     <section 
       className={`bio-card p-6 border-l-4 transition-all duration-500 group ${
@@ -36,7 +102,6 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
           </div>
         </div>
         
-        {/* On affiche les contrôles d'administration uniquement si ce n'est pas une invitation en attente */}
         {!isInvitation && (
           <div className="flex gap-2">
             <button 
@@ -57,13 +122,20 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
 
             <button 
               onClick={(e) => { e.stopPropagation(); onRecruit(team.uid); }} 
-              className="p-2 hover:bg-emerald-500/10 rounded-lg text-slate-400 hover:text-emerald-400 transition-all"
+              className="p-2 rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
               title="Recruter un oiseau"
             >
               <UserPlus size={18} />
             </button>
 
-            {/* 🪡 SUTURE : Bouton d'effacement physique du Nid parent */}
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsDrawerOpen(!isDrawerOpen); }}
+              className={`p-2 rounded-lg transition-all ${isDrawerOpen ? 'bg-[#E5484D]/20 text-[#E5484D]' : 'text-slate-400 hover:text-amber-400 hover:bg-white/5'}`}
+              title="Ouvrir les Archives Documentaires du Nid"
+            >
+              <Paperclip size={18} />
+            </button>
+
             <button 
               onClick={(e) => { e.stopPropagation(); onDelete?.(team.uid); }} 
               className="p-2 hover:bg-red-500/10 rounded-lg text-slate-400 hover:text-red-500 transition-all"
@@ -75,7 +147,6 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
         )}
       </div>
 
-      {/* 🤝 BLOC PACTE D'ADHÉSION */}
       {isInvitation && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white/5 p-4 rounded-xl mb-6 border border-dashed border-slate-700 hover:border-emerald-500/30 transition-all">
           <div className="flex flex-col">
@@ -91,21 +162,108 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onRespond?.(team.uid, 'REFUSE'); }}
-              className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial px-4 py-2 bg-[#E5484D]/10 hover:bg-[#E5484D] text-[#E5484D] hover:text-white border border-[#E5484D]/20 text-xs font-bold uppercase tracking-wider rounded-lg transition-all"
+              className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial px-4 py-2 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 border border-white/10 text-xs font-bold uppercase tracking-wider rounded-lg transition-all"
             >
               <X size={14} /> Décliner
+            </button>
+            <button
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                if (window.confirm("Effacer définitivement TOUTES vos activités et assignations dans ce Nid avant de refuser ?")) {
+                  onRespond?.(team.uid, 'PURGE_REFUSE'); 
+                }
+              }}
+              className="flex items-center justify-center gap-1.5 flex-1 sm:flex-initial px-4 py-2 bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white border border-red-500/20 text-xs font-bold uppercase tracking-wider rounded-lg transition-all"
+              title="Refuser l'invitation et désintégrer mes données ici"
+            >
+              Purger &amp; Refuser
             </button>
           </div>
         </div>
       )}
 
+      {isDrawerOpen && !isInvitation && (
+        <div className="mb-6 p-4 bg-black/30 border border-white/5 rounded-2xl animate-in fade-in slide-in-from-top-2 duration-300 space-y-4">
+          <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
+            <div className="text-[10px] font-black uppercase tracking-widest text-[#E5484D] font-mono">
+              🗄️ Coffre de stockage R2 de l'escouade
+            </div>
+            <select
+              value={mediaType}
+              onChange={(e) => setMediaType(e.target.value)}
+              className="bg-black/60 border border-white/10 px-2.5 py-1 rounded text-[10px] font-mono text-slate-400 outline-none"
+            >
+              <option value="attachments">Pièces Jointes</option>
+              <option value="blueprints">Plans / Blueprints</option>
+              <option value="records">Registres / Audio</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-2 flex flex-col justify-center">
+              <input 
+                type="text"
+                placeholder="Description / Libellé de la brindille..."
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                className="w-full bg-black/40 border border-white/10 px-3 py-2 rounded-xl text-xs font-mono text-slate-300 outline-none focus:border-[#E5484D]/40 transition-all"
+              />
+              <label className="w-full flex items-center justify-center gap-2 border border-dashed border-white/10 hover:border-emerald-500/30 p-3 bg-black/20 hover:bg-emerald-500/5 rounded-xl cursor-pointer text-slate-500 hover:text-emerald-400 text-[10px] font-bold uppercase tracking-widest transition-all">
+                {uploading ? (
+                  <><Loader2 size={12} className="animate-spin" /> Écriture R2...</>
+                ) : (
+                  <><Upload size={12} /> Injecter dans R2</>
+                )}
+                <input 
+                  type="file" 
+                  className="hidden" 
+                  disabled={uploading} 
+                  onChange={handleFileUpload} 
+                />
+              </label>
+            </div>
+
+            <div className="space-y-1.5 max-h-32 overflow-y-auto custom-scrollbar pr-1">
+              {localDocuments.map((doc: any) => (
+                <div 
+                  key={doc.uid}
+                  className="flex items-center justify-between p-2 rounded-xl bg-white/[0.01] border border-white/5 hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200 group/doc text-xs font-mono"
+                >
+                  <a href={doc.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 truncate flex-1">
+                    <FileText size={12} className="text-slate-600 group-hover/doc:text-[#E5484D] transition-colors" />
+                    <span className="truncate text-[11px]">{doc.label || doc.name}</span>
+                  </a>
+                  
+                  <div className="flex items-center gap-2 opacity-0 group-hover/doc:opacity-100 transition-opacity">
+                    <a href={doc.url} download title="Télécharger">
+                      <Download size={14} className="hover:text-emerald-400" />
+                    </a>
+                    <button onClick={() => handleDeleteDoc(doc.uid)} title="Désintégrer">
+                      <Trash2 size={14} className="text-red-500 hover:text-red-400" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {localDocuments.length === 0 && (
+                <p className="text-center text-[9px] font-mono uppercase text-slate-600 py-6">
+                  Aucun artefact partagé dans les archives de ce Nid.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {team.members?.map((member: any) => (
+        {team.members?.filter((member: any) => member && (member.pseudo || member.uid)).map((member: any) => (
           <div key={member.uid} className="bg-white/5 p-3 rounded-xl flex items-center justify-between border border-white/5 hover:border-emerald-500/20 transition-all">
             <div className="flex flex-col">
-              <span className="text-sm font-bold text-slate-200">{member.pseudo}</span>
+              <span className="text-sm font-bold text-slate-200">
+                {member.pseudo || `Oiseau [${member.uid.substring(0, 5)}]`}
+              </span>
               <span className="text-[10px] text-[#E5484D] uppercase tracking-widest">
-                {member.signature || "Oiseau Libre"}
+                {member.signature || (team.ownerUid === member.uid ? "Architecte" : "Oiseau Libre")}
               </span>
             </div>
             <ShieldCheck size={14} className="text-slate-600" />
@@ -113,7 +271,6 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
         ))}
       </div>
 
-      {/* 🪡 SUTURE ENRICHIED : Tableau de bord de suivi des invitations */}
       {team.invitations && team.invitations.length > 0 && (
         <div className="mt-6 pt-6 border-t border-white/5 animate-in fade-in duration-350">
           <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-3 font-mono">

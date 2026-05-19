@@ -30,6 +30,14 @@ const OiseauSchema = new Schema<OiseauDocument>(
     entropieActive: { type: Number, default: 100, min: 0, max: 100 },
     isGhostMode: { type: Boolean, default: false },
     isOpenToInvitations: { type: Boolean, default: true },
+    documents: [{
+      uid: { type: String, required: true },
+      name: { type: String, required: true },
+      label: { type: String },
+      url: { type: String, required: true },
+      mimeType: { type: String },
+      createdAt: { type: Date, default: Date.now }
+    }]
   },
   { timestamps: true }
 );

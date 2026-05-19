@@ -73,7 +73,18 @@ const TeamSchema = new Schema<ITeamDocument>(
       isFlagged: { type: Boolean, default: false },
       reportCount: { type: Number, default: 0 }
     },
-  }, 
+
+    documents: [{
+      uid: String,
+      name: String,
+      label: String,
+      url: String,
+      mimeType: String,
+      createdAt: { type: Date, default: Date.now }
+    }]
+
+  },
+   
   { 
     timestamps: true,
     toJSON: { 

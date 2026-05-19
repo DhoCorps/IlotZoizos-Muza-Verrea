@@ -56,11 +56,12 @@ export async function GET(req: Request) {
 
       const teamUids = Array.from(relMap.keys());
 
-      // 🪡 SUTURE : Pour chaque Nid, on extrait ses membres actifs (FOUNDED ou MEMBER_OF) depuis le Graphe
+      // Pour chaque Nid, on extrait ses membres de manière STRICTEMENT UNIQUE
       for (const tUid of teamUids) {
+        // 🪡 SUTURE CHIRURGICALE : L'ajout de DISTINCT élimine le doublon provoqué par la double relation FOUNDED + MEMBER_OF
         const memberCypher = `
           MATCH (m:User)-[:FOUNDED|MEMBER_OF]->(t:Team {uid: $tUid})
-          RETURN m.uid AS uid, m.pseudo AS pseudo, m.signature AS signature
+          RETURN DISTINCT m.uid AS uid, m.pseudo AS pseudo, m.signature AS signature
         `;
         const memberResult = await neo4jSession.run(memberCypher, { tUid });
         const members = memberResult.records.map(rec => ({
@@ -70,10 +71,10 @@ export async function GET(req: Request) {
         }));
         memberMap.set(tUid, members);
 
-        // 🪡 SUTURE : Extraction des états d'invitations (En attente : INVITED_TO / Refusé : REFUSED_INVITATION)
+        // Extraction des états d'invitations
         const inviteCypher = `
           MATCH (target:User)-[r:INVITED_TO|REFUSED_INVITATION]->(t:Team {uid: $tUid})
-          RETURN target.uid AS uid, target.pseudo AS pseudo, type(r) AS relType
+          RETURN DISTINCT target.uid AS uid, target.pseudo AS pseudo, type(r) AS relType
         `;
         const inviteResult = await neo4jSession.run(inviteCypher, { tUid });
         const invitations = inviteResult.records.map(record => ({
@@ -84,7 +85,7 @@ export async function GET(req: Request) {
         invitationMap.set(tUid, invitations);
       }
     } finally {
-      // ⚡ NETTOYAGE CRUCIAL : Sécurise la libération des ports Bolt pour éviter les instances fantômes
+      // ⚡ NETTOYAGE CRUCIAL : Sécurise la libération des ports Bolt
       await neo4jSession.close();
     }
 
@@ -93,15 +94,38 @@ export async function GET(req: Request) {
     // 2. Extraire les documents correspondants depuis la Silice (MongoDB)
     const teams = await TeamModel.find({ uid: { $in: teamUids } }).lean();
 
-    // 🪡 SUTURE DYNAMIQUE : On décore chaque Nid avec son flag d'invitation, son tableau de membres et ses invitations de suivi
+    // Decorate chaque Nid avec son flag d'invitation, son tableau de membres et ses invitations de suivi
     const populatedTeams = teams.map(team => ({
       ...team,
       isInvitation: relMap.get(team.uid!) === 'INVITED_TO',
       members: memberMap.get(team.uid!) || [],
-      invitations: invitationMap.get(team.uid!) || [] // 🪡 SUTURE : Liste de suivi de la volée invitée
+      invitations: invitationMap.get(team.uid!) || []
     }));
 
-    return NextResponse.json(populatedTeams, { status: 200 });
+    // 🪡 SUTURE DE DÉDUPLICATION ABSOLUE
+    const sanitizedTeams = populatedTeams.map(team => {
+      const existingMemberUids = new Set(team.members.map(m => m.uid));
+      
+      // Si le créateur (ownerUid) n'est pas encore détecté par le Graphe ou possède un profil vide, on l'ajoute proprement
+      if (!existingMemberUids.has(team.ownerUid)) {
+        team.members.unshift({
+          uid: team.ownerUid,
+          pseudo: "L'Architecte (Fondateur)",
+          signature: "Créateur"
+        });
+      } else {
+        // Si le créateur existe déjà dans la liste mais que son pseudo est absent/fantôme, on harmonise son identité
+        team.members = team.members.map(m => {
+          if (m.uid === team.ownerUid && !m.pseudo) {
+            return { ...m, pseudo: "L'Architecte (Fondateur)", signature: "Créateur" };
+          }
+          return m;
+        });
+      }
+      return team;
+    });
+
+    return NextResponse.json(sanitizedTeams, { status: 200 });
   } catch (error: any) {
     console.error("🔥 Erreur lors de la récupération des Nids unifiés :", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -118,8 +142,6 @@ export async function POST(request: Request) {
     const session = await getServerSession(authOptions);
     const userUid = (session?.user as any)?.uid;
     
-    // 🪡 SUTURE : On récupère les plumes (droits) directement de la Session (MongoDB)
-    // C'est ici que se soignait ton bug : on fait confiance à la Silice.
     const sessionCaps = (session?.user as any)?.capabilities || [];
     
     if (!userUid) {
@@ -133,7 +155,7 @@ export async function POST(request: Request) {
         console.warn(`🚫 [Auth] Tentative de fondation sans droits par : ${userUid}`);
         return NextResponse.json({ 
           error: "Aura insuffisante pour fonder un Nid.",
-          debug_plumes: sessionCaps // Permet de voir tes droits dans la console Network si ça bloque
+          debug_plumes: sessionCaps 
         }, { status: 403 });
     }
 
@@ -144,7 +166,7 @@ export async function POST(request: Request) {
 
     const body = await request.json();
 
-    // 🛡️ SUTURE : Validation du schéma (en omettant les IDs auto-générés)
+    // Validation du schéma
     const creationSchema = TeamSchema.omit({ 
       uid: true, 
       ownerUid: true, 

@@ -99,7 +99,7 @@ class StorageService {
   generateStructuredKey(params: { 
     inceptId: string, 
     locale: string, 
-    entityType: 'teams' | 'users' | 'projects', 
+    entityType: 'teams' | 'users' | 'projects' | 'tasks', 
     entityId: string, 
     imageType: string, 
     filename: string 

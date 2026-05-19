@@ -21,12 +21,11 @@ vi.mock('../../../../infrastructure/src/database/models/nosql/project.model', ()
 vi.mock('../../../../infrastructure/src/database/models/nosql/task.model', () => ({
   TaskModel: {
     create: vi.fn().mockImplementation((data) => {
-      // Mongo.create renvoie un tableau de documents
       const doc = Array.isArray(data) ? data[0] : data;
-      return Promise.resolve([{ ...doc, _id: 'mongo_id_789' }]);
+      return Promise.resolve([{ ...doc, _id: 'mongo_id_789', documents: [] }]); // 🪡 SUTURE : Ajout du champ documents
     }),
     findOneAndUpdate: vi.fn().mockImplementation(() => ({
-      lean: vi.fn().mockResolvedValue({ uid: 'task_789', content: { title: 'Mutation OK' } })
+      lean: vi.fn().mockResolvedValue({ uid: 'task_789', content: { title: 'Mutation OK' }, documents: [] })
     })),
     findOneAndDelete: vi.fn().mockImplementation(() => ({
       lean: vi.fn().mockResolvedValue({ uid: 'task_789' })

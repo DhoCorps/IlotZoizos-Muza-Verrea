@@ -68,6 +68,15 @@ const ProjectSchema = new Schema<IProjectDocument>(
       enum: ['PUBLIC', 'INTERNAL', 'PRIVATE', 'SECRET'],
       default: 'PRIVATE' 
     },
+
+    documents: [{
+      uid: { type: String, required: true },
+      name: { type: String, required: true },
+      label: { type: String },
+      url: { type: String, required: true },
+      mimeType: { type: String },
+      createdAt: { type: Date, default: Date.now }
+    }],
     
     dates: {
       start: Date,
@@ -75,9 +84,6 @@ const ProjectSchema = new Schema<IProjectDocument>(
       completedAt: Date,
       lastActivity: { type: Date, default: Date.now }
     },
-
-    // --- 📂 SÉDIMENTATION (Fichiers) ---
-    fileUploads: [{ type: String }], 
 
     // --- 🎯 ROADMAP & VIBRATIONS ---
     roadmap: {

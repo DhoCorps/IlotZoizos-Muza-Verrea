@@ -2,6 +2,7 @@
 import { TeamModel } from '../../../infrastructure/src/database/models/nosql/team.model';
 import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
 import { ProjectModel } from '../../../infrastructure/src/database/models/nosql/project.model';
+import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model'; // 🪡 SUTURE : Import du modèle des Atomes pour la cascade
 import { getNeo4jSession } from '../../../infrastructure/src/database/neo4j';
 import { IProject } from '../../../types/src/models/project.types';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
@@ -58,8 +59,9 @@ export class ProjectOrchestrator {
       const finalProjectData = {
         ...projectData,
         uid,
-        ownerUid: teamUid,     // Lien vers la Team
-        creatorUid: actorUid,   // Lien vers l'Oiseau
+        ownerUid: teamUid,
+        creatorUid: actorUid,
+        documents: projectData.documents || [], // 🪡 SUTURE : On accepte les documents dès la naissance
         slug: projectData.slug || (projectData.name ? generateSlug(projectData.name) : uid)
       };
 
@@ -156,7 +158,19 @@ export class ProjectOrchestrator {
         throw new IlotError("Seul le Gardien de ce chantier peut le dissoudre.", "FORBIDDEN", 403);
       }
 
+      // 🕸️ B.1 NEO4J : Suppression en cascade de tous les Atomes (Tâches) rattachés à ce Chantier
+      await neo4jTx.run(`
+        OPTIONAL MATCH (t:Task) WHERE t.projectUid = $projectUid
+        DETACH DELETE t
+      `, { projectUid });
+
+      // Suppression du nœud Projet lui-même
       await neo4jTx.run(`MATCH (p:Project {uid: $projectUid}) DETACH DELETE p`, { projectUid });
+
+      // 🐘 A.1 MONGO : Suppression en cascade de tous les Atomes du Chantier dans la Silice
+      await TaskModel.deleteMany({ projectUid }, { session: mongoSession });
+
+      // Suppression définitive du document Projet
       await ProjectModel.findOneAndDelete({ uid: projectUid }, { session: mongoSession });
       
       return true;

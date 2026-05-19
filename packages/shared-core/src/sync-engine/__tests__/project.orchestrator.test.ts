@@ -52,12 +52,12 @@ describe('ProjectOrchestrator - Fondation de Chantier', () => {
     orchestrator = new ProjectOrchestrator();
   });
 
-  it("✅ doit fonder un chantier (fosterProject) quand l'Aura est alignée", async () => {
-    // 🪡 SUTURE : Politique Matrioshka - ownerUid (le Nid) est désormais OBLIGATOIRE
+  it("✅ doit fonder un chantier avec des documents vides par défaut", async () => {
     const payload = { 
       name: 'Renewall', 
       status: 'CONCEPT',
-      ownerUid: mockTeamUid 
+      ownerUid: mockTeamUid,
+      documents: [] // 🪡 SUTURE : Harmonisation avec le schéma
     };
     
     const validSignature: ActionSignature = {

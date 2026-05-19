@@ -118,7 +118,7 @@ export default function TomHatToesHub() {
   };
   
   const handleSearchBirds = async (val: string) => {
-    setSearchBird(val); // 🪡 SUTURE : Correction du bug silencieux searchBird(val)
+    setSearchBird(val);
     if (val.length < 2) return setFoundBirds([]);
     try {
       const res = await fetch(`/api/users/recruitable?search=${val}`).then(r => r.json());
@@ -143,8 +143,8 @@ export default function TomHatToesHub() {
     }
   };
 
-  // 🌟 SUTURE : ACTIONNEUR DU PACTE D'ADHÉSION
-  const handleRespondToInvitation = async (action: 'ACCEPT' | 'REFUSE', teamUid?: string) => {
+  // 🌟 SUTURE : ACTIONNEUR DU PACTE D'ADHÉSION EN CASCADE PURIFIÉE
+  const handleRespondToInvitation = async (action: 'ACCEPT' | 'REFUSE' | 'PURGE_REFUSE', teamUid?: string) => {
     const targetUid = teamUid || selectedTeamUid;
     if (!targetUid) return;
     setIsResponding(true);
@@ -156,7 +156,7 @@ export default function TomHatToesHub() {
       });
       if (res.ok) {
         await refreshData();
-        if (action === 'REFUSE') {
+        if (action === 'REFUSE' || action === 'PURGE_REFUSE') {
           setSelectedTeamUid(null);
           setSelectedProjectUid(null);
           NavActiveTab('teams');
@@ -180,7 +180,7 @@ export default function TomHatToesHub() {
       }
       await refreshData();
     } catch (err) {
-      console.error("🔥 Erreur deDoc de régulation de volée :", err);
+      console.error("🔥 Erreur de régulation de volée :", err);
     } finally {
       setLoading(false);
     }
@@ -242,6 +242,36 @@ export default function TomHatToesHub() {
       }
     } catch (err) {
       console.error("🔥 Erreur de désintégration atomique :", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateTask = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!selectedTaskUid || isInviteeMode) return;
+
+    const formData = new FormData(e.currentTarget);
+    const taskPayload = {
+      title: formData.get('title'),
+      description: formData.get('description'),
+      priority: formData.get('priority'),
+      pomoEst: Number(formData.get('pomoEst')),
+      complexity: Number(formData.get('complexity')) || 1
+    };
+
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/tasks/${selectedTaskUid}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(taskPayload)
+      });
+      if (res.ok) {
+        handleCreateSuccess();
+      }
+    } catch (err) {
+      console.error("🔥 Erreur modification atome :", err);
     } finally {
       setLoading(false);
     }
@@ -328,36 +358,6 @@ export default function TomHatToesHub() {
     }
   };
 
-  const handleUpdateTask = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!selectedTaskUid || isInviteeMode) return;
-
-    const formData = new FormData(e.currentTarget);
-    const taskPayload = {
-      title: formData.get('title'),
-      description: formData.get('description'),
-      priority: formData.get('priority'),
-      pomoEst: Number(formData.get('pomoEst')),
-      complexity: Number(formData.get('complexity')) || 1
-    };
-
-    try {
-      setLoading(true);
-      const res = await fetch(`/api/tasks/${selectedTaskUid}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(taskPayload)
-      });
-      if (res.ok) {
-        handleCreateSuccess();
-      }
-    } catch (err) {
-      console.error("🔥 Erreur modification atome :", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleLeaveSanctuary = async () => {
     if (!session?.user?.uid) return;
     const confirmExile = window.confirm("Dissoudre ton lien avec l'Îlot ?");
@@ -365,8 +365,26 @@ export default function TomHatToesHub() {
 
     setIsExiling(true);
     try {
-      const res = await fetch(`/api/users/${(session as any).user.uid}/actions/leave`, { method: 'POST' });
-      if (res.ok) await signOut({ callbackUrl: '/' });
+      // 🪡 SUTURE : Ajout du mode et du teamId (nécessaire pour satisfaire la validation de ton API)
+      // Si tu n'as pas de teamId spécifique ici, on envoie le contexte global ou une valeur par défaut.
+      const res = await fetch(`/api/users/${(session as any).user.uid}/actions/leave`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          mode: 'CLEAN', // Protocole par défaut pour une purge totale
+          teamId: 'GLOBAL_SYSTEM' // Indique au serveur qu'il s'agit d'une action système
+        })
+      });
+      
+      if (res.ok) {
+        await signOut({ callbackUrl: '/' });
+      } else {
+        const errorData = await res.json();
+        console.error("❌ Échec de la dissolution :", errorData.error);
+        alert("L'envol a rencontré une résistance : " + (errorData.error || "Erreur inconnue"));
+      }
+    } catch (err) {
+      console.error("🔥 Erreur critique lors de l'exil :", err);
     } finally {
       setIsExiling(false);
     }
@@ -470,6 +488,18 @@ export default function TomHatToesHub() {
               >
                 Refuser
               </button>
+              {/* 🪡 SUTURE : Ajout du bouton d'effacement mémoriel complet directement sur le bandeau */}
+              <button 
+                onClick={() => {
+                  if (window.confirm("Effacer définitivement TOUTES vos activités et assignations dans ce Nid ?")) {
+                    handleRespondToInvitation('PURGE_REFUSE');
+                  }
+                }}
+                disabled={isResponding}
+                className="px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-xl text-[10px] font-black uppercase tracking-wider text-red-400 hover:bg-red-500/20 transition-all"
+              >
+                Purger & Refuser
+              </button>
               <button 
                 onClick={() => handleRespondToInvitation('ACCEPT')} 
                 disabled={isResponding}
@@ -571,7 +601,7 @@ export default function TomHatToesHub() {
                     setActiveInceptionId('global');
                   }}
                   onRespond={(uid, action) => {
-                    handleRespondToInvitation(action, uid);
+                    handleRespondToInvitation(action as any, uid);
                   }}
                   onViewProjects={(uid) => {
                     setSelectedTeamUid(uid);
@@ -579,7 +609,7 @@ export default function TomHatToesHub() {
                     NavActiveTab('projects');
                   }}
                   onManageInvitation={handleManageInvitation} 
-                  onDelete={handleDeleteTeam} // 🪡 SUTURE : Liaison de dissolution
+                  onDelete={handleDeleteTeam}
                 />
               ))}
             </div>
@@ -601,7 +631,7 @@ export default function TomHatToesHub() {
                     setActiveInceptionId('task_new'); 
                   }
                 }} 
-                onDelete={handleDeleteProject} // 🪡 SUTURE : Liaison de suppression de chantier
+                onDelete={handleDeleteProject}
               />
 
               {selectedProjectUid && (
@@ -626,7 +656,7 @@ export default function TomHatToesHub() {
                           }
                         }}
                       >
-                        <TaskCard task={task} onStatusChange={refreshData} onDelete={handleDeleteTask} /> {/* 🪡 SUTURE : Liaison de destruction d'atome */}
+                        <TaskCard task={task} onStatusChange={refreshData} onDelete={handleDeleteTask} />
                         {!isInviteeMode && (userCaps.includes('task:update') || userCaps.includes('*')) && (
                           <button
                             onClick={(e) => { e.stopPropagation(); setSelectedTaskUid(task.uid); setActiveInceptionId('task_edit'); }}

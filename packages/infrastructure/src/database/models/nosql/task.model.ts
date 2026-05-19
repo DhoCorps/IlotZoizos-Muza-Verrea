@@ -37,7 +37,14 @@ const TaskSchema = new Schema<TaskDocument>({
     complexity: { type: Number, default: 1, min: 1, max: 10 } // Renommé pour plus de clarté
   },
 
-  fileUploads: [{ type: String }], // URLs temporaires ou légères
+  documents: [{
+    uid: { type: String, required: true },
+    name: { type: String, required: true },
+    label: { type: String },
+    url: { type: String, required: true },
+    mimeType: { type: String },
+    createdAt: { type: Date, default: Date.now }
+  }],
 
   dates: {
     createdAt: { type: Date, default: Date.now },

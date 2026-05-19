@@ -1,4 +1,4 @@
-// apps/hub-central/app/api/users/[userId]/actions/leave/route.ts (ou chemin équivalent)
+// apps/hub-central/app/api/users/[userId]/actions/leave/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { connectToDatabase } from '@ilot/infrastructure';
@@ -6,6 +6,51 @@ import { authOptions } from "../../../../../../lib/auth";
 import { TeamOrchestrator } from '@ilot/shared-core/src/sync-engine/team.orchestrator'; // Vérifie que le nom du fichier est bien OiseauOrchestrator
 import { OiseauModel } from '@ilot/infrastructure/src/database/models/nosql/user.model';
 import { IOiseau, ActionSignature } from '@ilot/types';
+import { OiseauOrchestrator } from '@ilot/shared-core/src/sync-engine/user.orchestrator'; // 🪡 SUTURE : Correction du nom de classe
+
+export async function POST(req: Request, { params }: { params: { userId: string } }) {
+  try {
+    await connectToDatabase();
+    
+    const session = await getServerSession(authOptions);
+    const userUid = (session?.user as any)?.uid;
+    
+    if (!userUid) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    if (userUid !== params.userId) return NextResponse.json({ error: "Souveraineté violée" }, { status: 403 });
+
+    // 🛡️ SÉCURITÉ : Lecture sécurisée du body
+    let body;
+    try {
+        body = await req.json();
+    } catch (e) {
+        return NextResponse.json({ error: "Corps de requête invalide" }, { status: 400 });
+    }
+
+    const { mode, teamId } = body;
+    if (!teamId || !mode) return NextResponse.json({ error: "Données incomplètes" }, { status: 400 });
+
+    const signature: ActionSignature = {
+      actorUid: userUid,
+      capabilities: (session?.user as any)?.capabilities || []
+    };
+
+    const orchestrator = new OiseauOrchestrator();
+    
+    // 🛡️ EXÉCUTION SÉCURISÉE
+    const result = await orchestrator.exileOiseau(userUid, signature); 
+
+    // Retour explicite
+    return NextResponse.json(result || { success: true }, { status: 200 });
+
+  } catch (error: any) {
+    console.error("🔥 DÉTAIL FRACTURE:", error);
+    // 🛡️ RÉPONSE JSON GARANTIE : Même en cas d'erreur, on renvoie du JSON pour le client
+    return NextResponse.json(
+      { error: error.message || "Erreur interne" }, 
+      { status: 500 }
+    );
+  }
+}
 
 /**
  * 🛡️ INTERFACE DE TRANSITION (Souveraineté des Types)
@@ -23,6 +68,8 @@ interface OiseauUser {
 // --- 🔍 LECTURE DU SIGNAL (GET) ---
 export async function GET(req: Request, { params }: { params: { userId: string } }) {
   try {
+    await connectToDatabase();
+    
     // 1. Récupération de la session avec authOptions (indispensable)
     const session = await getServerSession(authOptions);
     const user = session?.user as OiseauUser | undefined;
@@ -95,33 +142,3 @@ export async function GET(req: Request, { params }: { params: { userId: string }
   }
 }
 
-// --- 💀 L'ORCHESTRATEUR DE L'EXIL (POST) ---
-export async function POST(req: Request, { params }: { params: { teamId: string } }) {
-  try {
-    await connectToDatabase();
-    
-    const session = await getServerSession(authOptions);
-    const userUid = (session?.user as any)?.uid;
-    if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
-
-    const body = await req.json();
-    const { mode } = body; // 'CLEAN' ou 'TRACE'
-
-    if (!mode || !['CLEAN', 'TRACE'].includes(mode)) {
-      return NextResponse.json({ error: "Veuillez choisir un protocole mémoriel valide ('CLEAN' ou 'TRACE')." }, { status: 400 });
-    }
-
-    const signature: ActionSignature = {
-      actorUid: userUid,
-      capabilities: (session?.user as any)?.capabilities || []
-    };
-
-    const orchestrator = new TeamOrchestrator();
-    const result = await orchestrator.leaveTeam(params.teamId, userUid, mode, signature);
-
-    return NextResponse.json(result, { status: 200 });
-  } catch (error: any) {
-    console.error("🔥 Fracture lors de l'envol volontaire API :", error);
-    return NextResponse.json({ error: error.message || "L'envol a échoué." }, { status: error.statusCode || 500 });
-  }
-}

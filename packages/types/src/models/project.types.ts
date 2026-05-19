@@ -7,8 +7,8 @@ import {
 } from './common.types'; 
 
 /**
- * 🎭 CATÉGORIES D'INTENTION
- */
+  * 🎭 CATÉGORIES D'INTENTION
+  */
 export const ProjectCategorySchema = z.enum([
   'TECHNICAL', 'ARTISTIC', 'SOCIAL', 'COMMERCIAL', 'RESEARCH', 'OPEN_SOURCE', 'PERSONAL'
 ]);
@@ -16,8 +16,8 @@ export const ProjectCategorySchema = z.enum([
 export const ProjectVisibilitySchema = z.enum(['PUBLIC', 'INTERNAL', 'PRIVATE', 'SECRET', 'OPEN_SOURCE']);
 
 /**
- * 🏗️ LE SCHÉMA DU CHANTIER (Purifié)
- */
+  * 🏗️ LE SCHÉMA DU CHANTIER (Purifié)
+  */
 export const ProjectSchema = BaseNodeSchema.extend({
   // --- 🏷️ IDENTITÉ & RÉSONANCE ---
   name: z.string().min(3).max(100),
@@ -54,7 +54,15 @@ export const ProjectSchema = BaseNodeSchema.extend({
   }).default({}),
 
   // --- 📂 SÉDIMENTATION (Fichiers) ---
-  fileUploads: z.array(z.string().url()).default([]), 
+  // 🪡 SUTURE : Alignement avec la structure globale des artefacts
+  documents: z.array(z.object({
+      uid: z.string(),
+      name: z.string(),
+      label: z.string(),
+      url: z.string(),
+      mimeType: z.string(),
+      createdAt: z.date().default(() => new Date())
+  })).default([]),
   
   // --- 🎯 FEUILLE DE ROUTE (Repères factuels) ---
   roadmap: z.object({
@@ -116,8 +124,8 @@ export const ProjectSchema = BaseNodeSchema.extend({
 export type IProject = z.infer<typeof ProjectSchema>;
 
 /**
- * 🔗 RÉSONANCE DE CONTRIBUTION
- */
+  * 🔗 RÉSONANCE DE CONTRIBUTION
+  */
 export interface IProjectContribution {
   userUid: string; // Lien avec l'Oiseau
   projectUid: string; // Lien avec le Chantier

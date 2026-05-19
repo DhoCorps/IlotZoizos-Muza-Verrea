@@ -28,12 +28,17 @@ vi.mock('../transactionManager', () => ({
   TransactionManager: {
     execute: vi.fn().mockImplementation(async (name, callback) => {
       const mockNeo4jTx = { 
-        run: vi.fn().mockResolvedValue({ 
-          records: [{ get: () => ({ properties: { pseudo: 'L_Oiseau_Libre', capabilities: ['Poésie'] } }) }] 
+        run: vi.fn().mockImplementation((query) => {
+          // Si c'est la requête d'exil
+          if (query.includes('DETACH DELETE u')) {
+            return Promise.resolve({ 
+              records: [{ get: () => 1 }] // On simule 1 nœud supprimé
+            });
+          }
+          return Promise.resolve({ records: [] });
         }) 
       };
       
-      // On simule le succès immédiat sans toucher à la vraie base [cite: 2026-03-09]
       const result = await callback(null as any, mockNeo4jTx as any);
       return result;
     })
