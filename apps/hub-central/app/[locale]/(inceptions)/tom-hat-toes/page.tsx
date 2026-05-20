@@ -252,26 +252,52 @@ export default function TomHatToesHub() {
     if (!selectedTaskUid || isInviteeMode) return;
 
     const formData = new FormData(e.currentTarget);
+    
+    // 🪡 SUTURE DE STRUCTURE : Alignement strict sur le maillage attendu par la Silice
     const taskPayload = {
-      title: formData.get('title'),
-      description: formData.get('description'),
+      content: {
+        title: formData.get('title'),
+        description: formData.get('description'),
+      },
       priority: formData.get('priority'),
-      pomoEst: Number(formData.get('pomoEst')),
-      complexity: Number(formData.get('complexity')) || 1
+      status: formData.get('status'), 
+      parentUid: formData.get('parentUid') || null, 
+      assigneeUids: Array.from(formData.getAll('assignees')), 
+      pomodoros: {
+        estimated: Number(formData.get('pomoEst')),
+      },
+      metrics: {
+        complexity: Number(formData.get('complexity')) || 1
+      }
     };
 
     try {
       setLoading(true);
       const res = await fetch(`/api/tasks/${selectedTaskUid}`, {
-        method: 'PUT',
+        method: 'PATCH', 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(taskPayload)
       });
+      
       if (res.ok) {
-        handleCreateSuccess();
+        // 🪡 SUTURE DE RAFRAÎCHISSEMENT : 
+        // On évite handleCreateSuccess() pour stopper la collision temporelle.
+        
+        // 1. On ferme le tiroir d'édition instantanément pour la fluidité
+        setActiveInceptionId(null);
+        setSelectedTaskUid(null);
+
+        // 2. On cible le rechargement EXCLUSIVEMENT sur les Atomes de ce Chantier
+        if (selectedProjectUid) {
+          await fetchTasks(selectedProjectUid);
+        }
+      } else {
+        const err = await res.json();
+        console.error("❌ Échec de la mutation de l'Atome :", err.error);
+        alert(`Impossible d'enregistrer les modifications : ${err.error}`);
       }
     } catch (err) {
-      console.error("🔥 Erreur modification atome :", err);
+      console.error("🔥 Erreur radar lors de la modification de l'Atome :", err);
     } finally {
       setLoading(false);
     }
@@ -652,19 +678,24 @@ export default function TomHatToesHub() {
                         onClick={() => {
                           if (!isInviteeMode) {
                             setSelectedTaskUid(task.uid);
-                            setActiveInceptionId('task_edit');
+                        
                           }
                         }}
                       >
-                        <TaskCard task={task} onStatusChange={refreshData} onDelete={handleDeleteTask} />
-                        {!isInviteeMode && (userCaps.includes('task:update') || userCaps.includes('*')) && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setSelectedTaskUid(task.uid); setActiveInceptionId('task_edit'); }}
-                            className="absolute top-3 right-3 px-2.5 py-1.5 bg-black/80 border border-white/10 rounded-lg text-[9px] font-black uppercase text-slate-400 hover:text-amber-400 opacity-0 group-hover/atome:opacity-100 transition-all z-20"
-                          >
-                            Modifier
-                          </button>
-                        )}
+                        {/* 🪡 SUTURE : Transmission de la prop onEdit pour intercepter le clic du crayon */}
+                        <TaskCard 
+                          task={task} 
+                          onStatusChange={refreshData} 
+                          onDelete={handleDeleteTask} 
+                          onEdit={(t) => {
+                            if (!isInviteeMode) {
+                              setSelectedTaskUid(t.uid);
+                              setActiveInceptionId('task_edit');
+                            }
+                          }}
+                        />
+                        
+                        {!isInviteeMode && (userCaps.includes('task:update') || userCaps.includes('*'))}
                       </div>
                     ))}
                     
@@ -687,7 +718,15 @@ export default function TomHatToesHub() {
               )}
             </div>
           ) : (
-            <CalendarView tasks={projectTasks} />
+            <CalendarView 
+              tasks={projectTasks} 
+              onEmptySlotClick={(date) => {
+                // 🪡 SUTURE : On ouvre TaskForm avec une date pré-remplie
+                setActiveInceptionId('task_new');
+                // Note : Tu devras peut-être ajouter un état global 'scheduledDate' 
+                // pour que TaskForm récupère cette date au montage.
+              }} 
+            />
           )}
         </main>
 

@@ -1,26 +1,32 @@
 // apps/hub-central/components/tasks/TaskCard.tsx
 'use client';
 
-import { useState } from 'react';
-import { Clock, AlertCircle, Paperclip, Users, Play, Loader2, Trash2, Upload, FileText, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react'; // 🪡 SUTURE : Icones pour l'alchimie d'upload
+import { useState, useEffect } from 'react';
+import { Clock, AlertCircle, Paperclip, Users, Play, Loader2, Trash2, Upload, FileText, ExternalLink, ChevronDown, ChevronUp, Pencil } from 'lucide-react'; 
 import { usePomodoro } from '../../context/PomodoroContext';
 
 interface TaskCardProps {
   task: any;
   onStatusChange: (id: string, s: string) => void;
-  onDelete?: (uid: string) => void; // 🪡 SUTURE MAJEURE : Capacité d'effacement de l'Atome
+  onDelete?: (uid: string) => void;
+  onEdit?: (task: any) => void; // 🪡 SUTURE : Ajout du support pour la modification
 }
 
-export function TaskCard({ task, onStatusChange, onDelete }: TaskCardProps) {
-  const { startFocus, activeTaskUid, status } = usePomodoro();
+export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardProps) {
+  const { startFocus, stopFocus, activeTaskUid, status } = usePomodoro();
   
-  // --- ÉTATS DU TIROIR D'UPLOAD D'ATOME ---
+  useEffect(() => {
+    // Synchronisation du contexte au montage
+  }, [task.uid, activeTaskUid]);
+
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [label, setLabel] = useState('');
   const [localAttachments, setLocalAttachments] = useState<any[]>(task.content?.attachments || task.fileUploads || []);
+  const [label, setLabel] = useState('');
 
-  const pomoPercent = (task.pomodoros.completed / task.pomodoros.estimated) * 100;
+  const completedPomos = task.pomodoros?.completed || 0;
+  const estimatedPomos = task.pomodoros?.estimated || 1; 
+  const pomoPercent = (completedPomos / estimatedPomos) * 100;
   
   const isActive = activeTaskUid === task.uid;
   const isWorking = isActive && status === 'WORK';
@@ -51,7 +57,6 @@ export function TaskCard({ task, onStatusChange, onDelete }: TaskCardProps) {
       }
 
       const data = await res.json();
-      // Synchronisation immédiate de l'affichage local du tiroir
       setLocalAttachments((prev) => [...prev, data.attachment]);
       setLabel('');
     } catch (err: any) {
@@ -62,7 +67,7 @@ export function TaskCard({ task, onStatusChange, onDelete }: TaskCardProps) {
   };
 
   return (
-   <div 
+    <div 
       draggable
       onDragStart={handleDragStart}
       className="group cursor-grab active:cursor-grabbing" 
@@ -71,20 +76,38 @@ export function TaskCard({ task, onStatusChange, onDelete }: TaskCardProps) {
         isActive ? 'border-[#E5484D] shadow-[0_0_20px_rgba(229,72,77,0.15)]' : 'border-white/10 hover:border-[#E5484D]/30'
       }`}>
         <div className="flex justify-between items-start mb-3">
-          <h4 className="text-sm font-bold text-slate-200 group-hover:text-[#E5484D] transition-colors truncate max-w-[180px]">
-            {task.content.title}
+          <h4 className="text-sm font-bold text-slate-200 group-hover:text-[#E5484D] transition-colors truncate max-w-[160px]">
+            {task.content?.title || "Sans titre"}
           </h4>
-          <div className="flex items-center gap-2">
+          
+          {/* 🪡 SUTURE ACTION GROUP : Groupe aligné pour éviter les collisions */}
+          <div className="flex items-center gap-1.5 shrink-0">
             <span className={`text-[8px] font-black px-2 py-0.5 rounded uppercase ${
               task.priority === 'CRITICAL' ? 'bg-red-500/20 text-red-500' : 'bg-white/5 text-slate-500'
             }`}>
-              {task.priority}
+              {task.priority || 'NORMAL'}
             </span>
-            {/* 🪡 SUTURE VISUELLE : Option d'effacement de l'Atome au survol */}
+            
+            {/* Bouton Modifier */}
             <button 
-              onClick={(e) => { e.stopPropagation(); onDelete?.(task.uid); }} 
-              className="p-1 hover:bg-red-500/10 rounded text-slate-500 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100"
-              title="Désintégrer l'Atome (Supprimer)"
+               onClick={(e) => { 
+                 e.stopPropagation(); 
+                 onEdit?.(task); 
+               }}
+               className="p-1 hover:bg-amber-500/10 rounded text-slate-500 hover:text-amber-400 active:scale-95 transition-all duration-200"
+               title="Modifier la tâche"
+            >
+              <Pencil size={12} />
+            </button>
+
+            {/* Bouton Supprimer */}
+            <button 
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                if (confirm("Désintégrer cet Atome ?")) onDelete?.(task.uid); 
+              }} 
+              className="p-1 hover:bg-red-500/10 rounded text-slate-500 hover:text-red-500 transition-all"
+              title="Désintégrer l'Atome"
             >
               <Trash2 size={12} />
             </button>
@@ -95,13 +118,17 @@ export function TaskCard({ task, onStatusChange, onDelete }: TaskCardProps) {
           <div className="flex justify-between items-center text-[9px] font-mono text-slate-500 uppercase">
             <div className="flex items-center gap-2">
               <span className="flex items-center gap-1"><Clock size={10} /> Cycles</span>
-              <span className="text-slate-400">{task.pomodoros.completed} / {task.pomodoros.estimated}</span>
+              <span className="text-slate-400">{completedPomos} / {estimatedPomos}</span>
             </div>
             
             {isWorking ? (
-              <span className="text-[#E5484D] flex items-center gap-1 animate-pulse">
+              <button 
+                onClick={(e) => { e.stopPropagation(); stopFocus(); }}
+                className="text-[#E5484D] flex items-center gap-1 animate-pulse bg-white/5 hover:bg-[#E5484D]/20 px-2 py-1 rounded transition-all z-10"
+                title="Briser le sceau temporel"
+              >
                 <Loader2 size={10} className="animate-spin" /> Focus
-              </span>
+              </button>
             ) : (
               <button 
                 onClick={(e) => { e.stopPropagation(); startFocus(task.uid); }}
@@ -138,7 +165,6 @@ export function TaskCard({ task, onStatusChange, onDelete }: TaskCardProps) {
               <span className="text-[10px] font-mono">{task.metrics?.complexity || 1}/10</span>
             </div>
 
-            {/* 🪡 SUTURE GRAPHIQUE : Bouton d'ouverture du tiroir de la Tâche */}
             <button
               onClick={(e) => { e.stopPropagation(); setIsDrawerOpen(!isDrawerOpen); }}
               className="p-1 bg-white/5 hover:bg-white/10 rounded text-slate-400 hover:text-slate-200 transition-all flex items-center"
@@ -148,7 +174,6 @@ export function TaskCard({ task, onStatusChange, onDelete }: TaskCardProps) {
           </div>
         </div>
 
-        {/* 🌟 LE TIROIR DES DOCUMENTS ATOMIQUES (Cloudflare R2) */}
         {isDrawerOpen && (
           <div className="mt-4 pt-4 border-t border-dashed border-white/5 space-y-3 animate-in fade-in slide-in-from-top-2 duration-300" onClick={(e) => e.stopPropagation()}>
             <div className="space-y-1.5">
@@ -174,7 +199,6 @@ export function TaskCard({ task, onStatusChange, onDelete }: TaskCardProps) {
               </label>
             </div>
 
-            {/* Liste des fichiers reliés */}
             <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar">
               {localAttachments.map((doc: any) => (
                 <a 
@@ -201,6 +225,6 @@ export function TaskCard({ task, onStatusChange, onDelete }: TaskCardProps) {
           </div>
         )}
       </div>
-   </div> 
+    </div>
   );
 }

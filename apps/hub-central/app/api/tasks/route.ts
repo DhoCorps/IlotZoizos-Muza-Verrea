@@ -57,6 +57,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const projectUid = searchParams.get('projectUid');
 
+    // 🛡️ DOUANE : Vérification des droits si un Chantier précis est demandé
     if (projectUid) {
       const project = await ProjectModel.findOne({ uid: projectUid }).lean();
       
@@ -76,15 +77,33 @@ export async function GET(req: Request) {
     let tasksFromGraph: Record<string, string[]> = {};
 
     try {
-      let cypher = `MATCH (t:Task)`;
+      let cypher = "";
       let params: any = {};
+
       if (projectUid) {
-        cypher += `-[:TASK_OF]->(p:Project {uid: $projectUid}) `;
+        // 🔒 SCÉNARIO 1 : Vue "Chantier" (Droits déjà validés ci-dessus)
+        // On récupère uniquement les tâches liées à CE projet précis.
+        cypher = `
+          MATCH (t:Task)-[:TASK_OF]->(p:Project {uid: $projectUid})
+          OPTIONAL MATCH (bird:User)-[:ASSIGNED_TO]->(t)
+          RETURN t.uid AS taskUid, collect(bird.uid) AS assignees
+        `;
         params.projectUid = projectUid;
+      } else {
+        // 🪡 SUTURE DE SÉCURITÉ ABSOLUE (SCÉNARIO 2) : Mode "Mes Atomes"
+        // Aucun projectUid fourni = on ne renvoie QUE les tâches assignées à cet utilisateur.
+        cypher = `
+          MATCH (me:User {uid: $userUid})-[:ASSIGNED_TO]->(t:Task)
+          OPTIONAL MATCH (bird:User)-[:ASSIGNED_TO]->(t)
+          RETURN t.uid AS taskUid, collect(bird.uid) AS assignees
+        `;
+        params.userUid = userUid;
       }
-      cypher += ` OPTIONAL MATCH (bird:User)-[:ASSIGNED_TO]->(t) RETURN t.uid AS taskUid, collect(bird.uid) AS assignees`;
+
       const result = await neo4jSession.run(cypher, params);
-      result.records.forEach(record => { tasksFromGraph[record.get('taskUid')] = record.get('assignees'); });
+      result.records.forEach(record => { 
+        tasksFromGraph[record.get('taskUid')] = record.get('assignees'); 
+      });
     } finally {
       await neo4jSession.close();
     }
@@ -92,8 +111,15 @@ export async function GET(req: Request) {
     const taskUids = Object.keys(tasksFromGraph);
     if (taskUids.length === 0) return NextResponse.json([]);
 
-    const tasks = await TaskModel.find({ uid: { $in: taskUids } }).sort({ 'dates.updatedAt': -1 }).lean();
-    const hydrated = tasks.map(t => ({ ...t, assigneeUids: tasksFromGraph[t.uid] || [] }));
+    // 🔄 HYDRATATION via MongoDB (La Silice)
+    const tasks = await TaskModel.find({ uid: { $in: taskUids } })
+      .sort({ 'dates.updatedAt': -1 })
+      .lean();
+      
+    const hydrated = tasks.map(t => ({ 
+      ...t, 
+      assigneeUids: tasksFromGraph[t.uid] || [] 
+    }));
 
     return NextResponse.json(hydrated);
   } catch (error: any) {
@@ -136,6 +162,8 @@ export async function POST(req: Request) {
     };
 
     const taskOrch = new TaskOrchestrator(); 
+    // Le 'body' contient ici potentiellement { ..., scheduledAt: "..." }
+    // qui sera traité par fosterTask dans task.orchestrator.ts
     const newTask = await taskOrch.fosterTask(body, signature);
 
     return NextResponse.json(newTask, { status: 201 });

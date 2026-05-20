@@ -167,33 +167,43 @@ export async function deleteTaskAction(taskUid: string) {
 /**
  * 🍅 P : POMODORO (Valider un cycle d'effort)
  */
-export async function completePomodoroAction(taskUid: string) {
+/**
+ * ⚡ ACTION SERVEUR : Valide la fin d'un cycle de Sédimentation (Pomodoro)
+ */
+export async function completePomodoroAction(taskUid: string): Promise<{ 
+  success: boolean; 
+  newCount?: number; // 🪡 SUTURE : On déclare que newCount est optionnel
+  error?: string; 
+  }> {
   try {
-    const session = await getServerSession(authOptions); // 🪡 SUTURE : Ajout authOptions
+    // 1. Identification de l'Oiseau via la session serveur
+    const session = await getServerSession(authOptions);
     const userUid = (session?.user as any)?.uid;
-    if (!userUid) throw new Error("Non autorisé.");
+    const sessionCaps = (session?.user as any)?.capabilities || [];
 
-    const caps = await getKanbanActionCapabilities(userUid, taskUid);
-    if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !caps.includes('*')) {
-      throw new Error("Seul l'artisan lié à cette tâche peut y consacrer un Pomodoro.");
+    if (!userUid) {
+      throw new Error("Oiseau non identifié. Le flux temporel est rompu.");
     }
 
-    const updatedTask = await TaskModel.findOneAndUpdate(
-      { uid: taskUid },
-      { 
-        $inc: { "pomodoros.completed": 1 },
-        $set: { "dates.updatedAt": new Date() }
-      },
-      { new: true }
-    );
+    // 2. Création de la Signature d'Action
+    const signature: ActionSignature = {
+      actorUid: userUid,
+      capabilities: sessionCaps
+    };
 
-    if (!updatedTask) throw new Error("Atome introuvable dans la matrice.");
+    // 3. Appel de l'Orchestrateur
+    const taskOrch = new TaskOrchestrator();
+    const result = await taskOrch.completePomodoro(taskUid, signature);
 
-    revalidatePath('/tom-hat-toes'); // 🪡 SUTURE : Cohérence du chemin
+    // Retourne le nouveau compteur ici
+    return { success: true, newCount: result.pomodoros.completed };
 
-    return { success: true, newCount: updatedTask.pomodoros.completed };
+    return { success: true };
+
   } catch (error: any) {
-    console.error("❌ [ACTION] Échec de la validation Pomodoro :", error.message);
-    return { success: false, error: error.message };
+    console.error("🔥 Fracture lors de la sédimentation du temps :", error);
+    throw new Error("Impossible de sceller l'effort dans la Silice.");
   }
 }
+
+

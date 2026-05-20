@@ -2,14 +2,15 @@
 import { TeamModel } from '../../../infrastructure/src/database/models/nosql/team.model';
 import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
 import { ProjectModel } from '../../../infrastructure/src/database/models/nosql/project.model';
-import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model'; // 🪡 SUTURE : Import du modèle des Atomes pour la cascade
+import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model';
+import { TaskOrchestrator } from './task.orchestrator';
 import { getNeo4jSession } from '../../../infrastructure/src/database/neo4j';
 import { IProject } from '../../../types/src/models/project.types';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 import { MoralChecker } from '../integrity/moral.checker';
 import { TransactionManager } from './transactionManager';
 import { randomUUID } from 'crypto';
-import { IlotError} from '../errors/ilot.errors';
+import { IlotError } from '../errors/ilot.errors';
 import { v4 as uuidv4 } from 'uuid';
 
 const generateSlug = (text: string) => {
@@ -18,11 +19,10 @@ const generateSlug = (text: string) => {
 
 export interface ProjectSyncResult {
   success: boolean;
-  status: string; // 'success' ou 'error'
-  mongo: any;    // Le document MongoDB (POJO via .lean())
-  neo4j: any;    // Le résultat de la transaction Neo4j
+  status: string;
+  mongo: any;
+  neo4j: any;
 }
-
 
 /**
  * 🛰️ PROJECT ORCHESTRATOR 
@@ -30,20 +30,19 @@ export interface ProjectSyncResult {
  */
 export class ProjectOrchestrator {
 
+  private taskOrch = new TaskOrchestrator();
+
   // --- 🌟 FONDATION : CRÉATION DU CHANTIER (ANCRAGE DOUBLE) ---
 
   async fosterProject(
     projectData: any, 
-    signature: ActionSignature // Zéro-Identité
+    signature: ActionSignature
   ): Promise<ProjectSyncResult> {
     
-    // 🛡️ 1. Vérification de l'Aura via la signature
     if (!signature.capabilities.includes(CAPABILITIES.PROJECT.CREATE) && !signature.capabilities.includes('*')) {
       throw new IlotError("Aura insuffisante pour sceller un chantier", "FORBIDDEN", 403);
     }
 
-    // 🛡️ 2. PRÉPARATION DE LA MATIÈRE
-    // ownerUid = Le Nid (Team) | creatorUid = L'Oiseau (User)
     const teamUid = projectData.ownerUid; 
     const actorUid = signature.actorUid;
     
@@ -55,19 +54,17 @@ export class ProjectOrchestrator {
 
     return await TransactionManager.execute("Fondation Chantier", async (mongoSession, neo4jTx) => {
       
-      // 🐘 A. MONGO : La Silice (Double identité stockée)
       const finalProjectData = {
         ...projectData,
         uid,
         ownerUid: teamUid,
         creatorUid: actorUid,
-        documents: projectData.documents || [], // 🪡 SUTURE : On accepte les documents dès la naissance
+        documents: projectData.documents || [],
         slug: projectData.slug || (projectData.name ? generateSlug(projectData.name) : uid)
       };
 
       const [newProject] = await ProjectModel.create([finalProjectData], { session: mongoSession });
 
-      // 🕸️ B. NEO4J : Le Système Nerveux (L'Ancrage Double)
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         MATCH (t:Team { uid: $teamUid })
@@ -78,7 +75,6 @@ export class ProjectOrchestrator {
           createdAt: datetime(),
           status: $status 
         })
-        // Double ancrage bionique :
         CREATE (u)-[:CREATED { at: datetime() }]->(p)
         CREATE (t)-[:HAS_PROJECT]->(p)
         RETURN p
@@ -109,12 +105,10 @@ export class ProjectOrchestrator {
 
     return await TransactionManager.execute("Mutation Chantier", async (mongoSession, neo4jTx) => {
       
-      // 🛡️ LE DOUBLE VERROU (Propriétaire du Nid ou Créateur ou Admin)
       const isCreator = project.creatorUid === signature.actorUid;
       const isArchitect = signature.capabilities.includes('*');
 
       if (!isCreator && !isArchitect) {
-        // Vérification territoriale dans le Graphe
         const check = await neo4jTx.run(`
           MATCH (u:User {uid: $actorUid})-[r:MEMBER_OF|OWNER_OF]->(t:Team)-[:HAS_PROJECT]->(p:Project {uid: $pUid})
           RETURN r.capabilities AS caps
@@ -122,7 +116,6 @@ export class ProjectOrchestrator {
 
         const record = check.records[0];
         const capsFromGraph = record ? record.get('caps') : [];
-        // 🪡 SUTURE : On force la conversion en tableau au cas où Neo4j renvoie un objet
         const userCapsOnTeam = Array.isArray(capsFromGraph) ? capsFromGraph : []; 
 
         const hasTeamRight = userCapsOnTeam.includes(CAPABILITIES.PROJECT.UPDATE) || userCapsOnTeam.includes('*');
@@ -144,46 +137,68 @@ export class ProjectOrchestrator {
     });
   }
 
-  // --- 💀 DISSOLUTION (Delete) ---
-  async dissolveProject(projectUid: string, signature: ActionSignature) {
-    const project = await ProjectModel.findOne({ uid: projectUid });
-    if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
-
-    return await TransactionManager.execute("Dissolution de Projet", async (mongoSession, neo4jTx) => {
+private async getFullDeletionOrder(projectUid: string) {
+  const session = getNeo4jSession();
+  try {
+    // On récupère le chemin complet pour calculer la profondeur réelle
+    const result = await session.run(`
+      MATCH (root:Project {uid: $projectUid})
       
-      const isCreator = project.creatorUid === signature.actorUid;
-      const isArchitect = signature.capabilities.includes('*');
-
-      if (!isCreator && !isArchitect) {
-        throw new IlotError("Seul le Gardien de ce chantier peut le dissoudre.", "FORBIDDEN", 403);
-      }
-
-      // 🕸️ B.1 NEO4J : Suppression en cascade de tous les Atomes (Tâches) rattachés à ce Chantier
-      await neo4jTx.run(`
-        OPTIONAL MATCH (t:Task) WHERE t.projectUid = $projectUid
-        DETACH DELETE t
-      `, { projectUid });
-
-      // Suppression du nœud Projet lui-même
-      await neo4jTx.run(`MATCH (p:Project {uid: $projectUid}) DETACH DELETE p`, { projectUid });
-
-      // 🐘 A.1 MONGO : Suppression en cascade de tous les Atomes du Chantier dans la Silice
-      await TaskModel.deleteMany({ projectUid }, { session: mongoSession });
-
-      // Suppression définitive du document Projet
-      await ProjectModel.findOneAndDelete({ uid: projectUid }, { session: mongoSession });
+      // 1. Tâches et leur profondeur
+      MATCH path = (root)-[:CONTAINS*0..]->(p:Project)-[:TASK_OF]-(t:Task)
+      RETURN t.uid as uid, 'TASK' as type, length(path) + 10 as sortDepth
       
-      return true;
-    });
+      UNION
+      
+      // 2. Projets et leur profondeur
+      MATCH path = (root)-[:CONTAINS*0..]->(p:Project)
+      RETURN p.uid as uid, 'PROJECT' as type, length(path) as sortDepth
+      
+      ORDER BY sortDepth DESC
+    `, { projectUid });
+    
+    return result.records.map(r => ({ uid: r.get('uid'), type: r.get('type') }));
+  } finally {
+    await session.close();
+  }
+}
+
+ // 2. MÉTHODE DE SUPPRESSION D'UN PROJET (Unité)
+  async disintegrateProject(projectUid: string, session: any, neo4jTx: any) {
+    await ProjectModel.deleteOne({ uid: projectUid }, { session });
+    await neo4jTx.run(`MATCH (p:Project {uid: $uid}) DETACH DELETE p`, { uid: projectUid });
   }
 
+  // 3. CASCADE TOTALE
+  async dissolveProject(projectUid: string, signature: ActionSignature) {
+  const nodesToDestroy = await this.getFullDeletionOrder(projectUid);
+
+  // On exécute la purge dans UNE SEULE grosse transaction globale
+  // Si ça échoue, tout revient en arrière (Rollback). Aucun état corrompu.
+  return await TransactionManager.execute("Désintégration Totale", async (mongoSession, neo4jTx) => {
+    
+    for (const node of nodesToDestroy) {
+      if (node.type === 'TASK') {
+        // Utilise la méthode désintégration que tu as déjà dans taskOrch
+        await this.taskOrch.disintegrateTask(node.uid, signature);
+      } else if (node.type === 'PROJECT') {
+        // Suppression Mongo
+        await ProjectModel.deleteOne({ uid: node.uid }, { session: mongoSession });
+        // Suppression Neo4j
+        await neo4jTx.run(`MATCH (p:Project {uid: $uid}) DETACH DELETE p`, { uid: node.uid });
+      }
+    }
+    
+    return { success: true, purgedCount: nodesToDestroy.length };
+  });
+}
 
   // --- 📎 ATTACHEMENT : AJOUT DE FICHIERS ---
 
   async appendFiles(
     projectUid: string, 
     fileUrls: string[], 
-    signature: ActionSignature // Zéro-Identité
+    signature: ActionSignature
   ) {
     if (!signature.capabilities.includes(CAPABILITIES.PROJECT.UPDATE) && !signature.capabilities.includes('*')) {
       throw new IlotError("Aura insuffisante pour injecter des données dans ce chantier.", "FORBIDDEN", 403);

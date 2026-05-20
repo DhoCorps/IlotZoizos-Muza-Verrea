@@ -43,6 +43,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1024.0",
     "bcrypt": "^6.0.0",
+    "date-fns": "^4.1.0",
     "mongoose": "^8.3.4",
     "next": "^14.2.3",
     "next-auth": "^4.24.13",

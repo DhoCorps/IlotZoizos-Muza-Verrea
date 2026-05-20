@@ -46,7 +46,7 @@ function LoginForm() {
   return (
     <div className="w-full max-w-md bio-card p-8"> {/* Utilisation de ta classe .bio-card */}
       <div className="mb-8 text-center">
-        <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Identification</h1>
+        <h1 data-testid="auth-title" className="text-3xl font-bold tracking-tight text-white mb-2">Identification</h1>
         <p className="text-slate-400">Entre dans la matrice de l'Îlot Zoizos</p>
       </div>
 
@@ -78,9 +78,18 @@ function LoginForm() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-2" htmlFor="password">
-            Chant de sécurité (Mot de passe)
-          </label>
+          {/* 🪡 SUTURE UX : Le lien de récupération intégré organiquement à côté du label */}
+          <div className="flex justify-between items-center mb-2">
+            <label className="block text-sm font-medium text-slate-300" htmlFor="password">
+              Chant de sécurité
+            </label>
+            <Link 
+              href="/auth/forgot-password" 
+              className="text-xs text-[#E5484D] font-medium hover:underline transition-colors focus:outline-none"
+            >
+              Chant oublié ?
+            </Link>
+          </div>
           <input
             id="password"
             name="password"
@@ -92,6 +101,7 @@ function LoginForm() {
         </div>
 
         <button
+          data-testid="auth-submit"
           type="submit"
           disabled={loading}
           className={`w-full py-3 px-4 mt-2 rounded-xl text-white font-bold transition-all shadow-lg ${

@@ -1,9 +1,12 @@
 // playwright.config.ts
 import { defineConfig, devices } from '@playwright/test';
 import path from 'path';
+import { config } from 'dotenv';
+config({ path: '.env.test' });
 
 const STORAGE_STATE = path.join(__dirname, 'apps', 'hub-central', 'playwright', '.auth', 'user.json');
-
+process.env.NEXTAUTH_SECRET = 'une_cle_tres_longue_et_stable_pour_mon_ilot_2026'; 
+process.env.NEXTAUTH_URL = 'http://127.0.0.1:3000';
 export default defineConfig({
   testDir: './apps/hub-central/e2e',
 
@@ -35,8 +38,8 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
-    storageState: STORAGE_STATE, 
+    screenshot: 'only-on-failure', 
+    storageState: STORAGE_STATE,
   },
 
   projects: [
@@ -49,10 +52,14 @@ export default defineConfig({
     },
   ],
 
-  webServer: {
+ webServer: {
     command: 'npx next dev apps/hub-central', 
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
+    env: {
+      NEXTAUTH_SECRET: 'une_cle_tres_longue_et_stable_pour_mon_ilot_2026', // Doit correspondre EXACTEMENT à celle de ton .env.test
+      NEXTAUTH_URL: 'http://localhost:3000',
+      NODE_ENV: 'development',
+    },
   },
 });

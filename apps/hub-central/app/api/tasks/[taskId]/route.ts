@@ -45,10 +45,11 @@ async function getTaskCapabilities(userUid: string, taskUid: string): Promise<st
 
     let compiledCaps = [...new Set([...projectCaps, ...teamDefaultCaps])];
 
-    // SUTURE : Octroi des droits organiques
+    // SUTURE : Octroi des droits organiques (Lecture, Update, ET Delete pour les propriétaires)
     if (isDirectlyInvolved) {
         if (!compiledCaps.includes(CAPABILITIES.TASK.READ)) compiledCaps.push(CAPABILITIES.TASK.READ);
         if (!compiledCaps.includes(CAPABILITIES.TASK.UPDATE)) compiledCaps.push(CAPABILITIES.TASK.UPDATE);
+        if (!compiledCaps.includes(CAPABILITIES.TASK.DELETE)) compiledCaps.push(CAPABILITIES.TASK.DELETE); // ✅ CORRIGÉ : Ajout du droit de DELETE
     }
 
     // 🌟 VISITEUR D'HONNEUR : Droit d'observation accordé si invité au Nid parent

@@ -2,8 +2,8 @@
 'use client';
 
 import { RequireCapability } from '../auth/RequireCapability';
-import { CAPABILITIES } from '@ilot/types';
-import { Clock, AlertCircle, Layers, UserPlus, Type, Loader2 } from 'lucide-react';
+import { CAPABILITIES, TaskStatus } from '@ilot/types'; 
+import { Clock, AlertCircle, Layers, UserPlus, Type, Loader2, CalendarHeart, Target } from 'lucide-react';
 
 interface TaskFormProps {
   birds: any[];
@@ -11,7 +11,8 @@ interface TaskFormProps {
   projectCapabilities: string[];
   projectUid: string | null;
   initialData?: any; 
-  loading?: boolean; // 🪡 SUTURE : Pour éviter l'effet "bouton muet"
+  initialScheduledDate?: Date | null;
+  loading?: boolean;
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
 }
@@ -24,14 +25,24 @@ export function TaskForm({
   projectCapabilities = [],
   projectUid, 
   initialData,
+  initialScheduledDate,
   loading = false
 }: TaskFormProps) {
   const isEdit = !!initialData;
 
   return (
-    <form onSubmit={onSubmit} className="space-y-6 max-h-[75vh] overflow-y-auto pr-4 custom-scrollbar">
-      {/* 🔒 Suture Technique : Ancrage de l'atome au projet */}
+    // 🪡 SUTURE : La clé force React à détruire et recréer le formulaire 
+    // à chaque changement de tâche pour garantir que les defaultValue sont fraîches.
+    <form 
+      key={initialData?.uid || 'new'} 
+      onSubmit={onSubmit} 
+      className="space-y-6 max-h-[75vh] overflow-y-auto pr-4 custom-scrollbar"
+    >
       <input type="hidden" name="projectUid" value={projectUid || ""} />
+      
+      {initialScheduledDate && (
+        <input type="hidden" name="scheduledAt" value={initialScheduledDate.toISOString()} />
+      )}
       
       <div className="space-y-4">
         <div className="flex justify-between items-end">
@@ -45,6 +56,12 @@ export function TaskForm({
             </span>
           )}
         </div>
+
+        {initialScheduledDate && !isEdit && (
+          <div className="bg-[#E5484D]/10 border border-[#E5484D]/30 text-[#E5484D] p-3 rounded-xl text-xs font-bold flex items-center gap-2">
+            <CalendarHeart size={14} /> Programmée le {initialScheduledDate.toLocaleString('fr-FR')}
+          </div>
+        )}
 
         <input 
           name="title" 
@@ -96,10 +113,10 @@ export function TaskForm({
       </div>
 
       <div className="p-5 bg-white/[0.02] rounded-2xl border border-white/5 space-y-6">
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="space-y-3">
             <label className="text-[10px] uppercase text-slate-500 flex items-center gap-2">
-              <Clock size={10} /> Cycles Estimés (Pomos)
+              <Clock size={10} /> Pomos Estimés
             </label>
             <input 
               type="number" 
@@ -125,6 +142,19 @@ export function TaskForm({
               <option value="CRITICAL">Critique</option>
             </select>
           </div>
+
+          <div className="space-y-3">
+            <label className="text-[10px] uppercase text-slate-500 flex items-center gap-2">
+              <Target size={10} /> Statut
+            </label>
+            <select 
+              name="status" 
+              defaultValue={initialData?.status || TaskStatus.TODO}
+              className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]"
+            >
+              {Object.values(TaskStatus).map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
         </div>
 
         <div className="space-y-3">
@@ -145,7 +175,6 @@ export function TaskForm({
       <div className="pt-6 flex flex-col gap-3">
         <RequireCapability 
           capabilities={projectCapabilities} 
-          // 🛡️ SUTURE : On s'assure que '*' (Admin) ou le droit spécifique passe
           need={isEdit ? CAPABILITIES.TASK.UPDATE : CAPABILITIES.TASK.CREATE}
         >
           <button 

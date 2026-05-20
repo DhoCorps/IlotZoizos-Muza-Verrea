@@ -9,8 +9,8 @@ import { ITask, TaskStatus, CAPABILITIES } from '@ilot/types';
 import { authOptions } from "../../lib/auth"; // 🪡 SUTURE : Activé pour getServerSession
 
 /**
- * 🛡️ UTILITAIRE DE DOUANE (Spécifique aux Server Actions)
- * Récupère les droits de l'Oiseau via le Graphe Muet.
+ * 🛡️ UTILITAIRE DE DOUANE (Corrigé)
+ * Récupère les droits de l'Oiseau et suture la capacité DELETE si nécessaire.
  */
 async function getTaskActionCapabilities(userUid: string, taskUid?: string, projectUid?: string): Promise<string[]> {
   const session = getNeo4jSession();
@@ -18,11 +18,9 @@ async function getTaskActionCapabilities(userUid: string, taskUid?: string, proj
     let cypher = `MATCH (u:User {uid: $userUid})`;
     let params: any = { userUid };
 
-    // Si on a la tâche, on cherche les droits organiques + ceux du projet parent
     if (taskUid) {
       cypher += `
         MATCH (t:Task {uid: $taskUid})
-        // 🪡 SUTURE : Direction alignée (t)-[:TASK_OF]->(p)
         OPTIONAL MATCH (t)-[:TASK_OF]->(p:Project)
         OPTIONAL MATCH (u)-[rDirect:ASSIGNED_TO|CREATED]->(t)
         OPTIONAL MATCH (u)-[rProj:CONTRIBUTES_TO|OWNER_OF]->(p)
@@ -30,7 +28,6 @@ async function getTaskActionCapabilities(userUid: string, taskUid?: string, proj
       `;
       params.taskUid = taskUid;
     } 
-    // Si on a que le projet (pour la création), on cherche juste les droits du projet
     else if (projectUid) {
       cypher += `
         MATCH (p:Project {uid: $projectUid})
@@ -39,7 +36,7 @@ async function getTaskActionCapabilities(userUid: string, taskUid?: string, proj
       `;
       params.projectUid = projectUid;
     } else {
-      return []; // Ni tâche ni projet fournis, on bloque.
+      return [];
     }
 
     const result = await session.run(cypher, params);
@@ -50,10 +47,15 @@ async function getTaskActionCapabilities(userUid: string, taskUid?: string, proj
     const projectCaps = record.get('projectCaps') || [];
 
     let compiledCaps = [...projectCaps];
+    
+    // 🪡 SUTURE : Si l'oiseau est impliqué directement (Créateur/Assigné), on lui donne tous les droits
     if (isDirectlyInvolved) {
         if (!compiledCaps.includes(CAPABILITIES.TASK.READ)) compiledCaps.push(CAPABILITIES.TASK.READ);
         if (!compiledCaps.includes(CAPABILITIES.TASK.UPDATE)) compiledCaps.push(CAPABILITIES.TASK.UPDATE);
+        if (!compiledCaps.includes(CAPABILITIES.TASK.DELETE)) compiledCaps.push(CAPABILITIES.TASK.DELETE); // ✅ Ajouté ici
     }
+    
+    console.log(`🔍 [DOUANE] Aura compilée pour ${userUid} sur ${taskUid || projectUid} :`, compiledCaps);
     return compiledCaps;
   } finally {
     await session.close();
@@ -108,6 +110,44 @@ export async function fetchTasksAction(projectId: string) {
     const tasks = await TaskModel.find({ projectUid: projectId }).sort({ "dates.createdAt": -1 }).lean();
     return { success: true, data: JSON.parse(JSON.stringify(tasks)) };
   } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function updateTaskAction(taskUid: string, formData: FormData) {
+  try {
+    const session = await getServerSession(authOptions);
+    const userUid = (session?.user as any)?.uid;
+    if (!userUid) throw new Error("Non autorisé.");
+
+    // 🪡 SUTURE : Extraction manuelle et robuste des champs du formulaire
+    const updates = {
+      title: formData.get('title') as string,
+      description: formData.get('description') as string,
+      priority: formData.get('priority') as string,
+      pomoEst: Number(formData.get('pomoEst')),
+      complexity: Number(formData.get('complexity')),
+      status: formData.get('status') as string,
+      // ⚠️ get("assignees") ne suffit pas pour un select multiple, il faut getAll
+      assigneeUids: formData.getAll('assignees') as string[] 
+    };
+
+    // Vérification des droits via la Douane
+    const caps = await getTaskActionCapabilities(userUid, taskUid);
+    if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !caps.includes('*')) {
+      throw new Error("Aura insuffisante pour muter cet Atome.");
+    }
+
+    const signature: ActionSignature = { actorUid: userUid, capabilities: caps };
+    const taskOrch = new TaskOrchestrator();
+
+    // Appel à l'orchestrateur avec le payload propre
+    await taskOrch.updateTask(taskUid, updates, signature);
+
+    revalidatePath('/tom-hat-toes');
+    return { success: true };
+  } catch (error: any) {
+    console.error("❌ [TaskAction] Erreur de mise à jour :", error.message);
     return { success: false, error: error.message };
   }
 }
@@ -170,30 +210,21 @@ export async function completePomodoroAction(taskUid: string) {
   }
 }
 
-/**
- * 📅 PLANIFICATION : Inscription au Calendrier
- */
-export async function scheduleTaskAction(taskUid: string, scheduledAt: Date | null) {
+export async function scheduleTaskAction(taskUid: string, scheduledAt: Date) {
   try {
-    const session = await getServerSession(authOptions); // 🪡 SUTURE : authOptions ajouté
+    const session = await getServerSession(authOptions);
     const userUid = (session?.user as any)?.uid;
-    if (!userUid) throw new Error("Non autorisé.");
+    if (!userUid) throw new Error("Accès refusé.");
 
-    // Le droit d'UPDATE suffit pour planifier
-    const caps = await getTaskActionCapabilities(userUid, taskUid);
-    if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !caps.includes('*')) {
-      throw new Error("Tu n'as pas le droit de déplacer cet Atome dans le temps.");
-    }
-
-    await TaskModel.findOneAndUpdate(
-      { uid: taskUid },
-      { 
-        $set: { 
-          "dates.scheduledAt": scheduledAt,
-          "dates.updatedAt": new Date()
-        } 
-      }
-    );
+    // Orchestration atomique : 
+    // Pas de cache inutile, on demande au système de marquer le temps.
+    const taskOrch = new TaskOrchestrator();
+    
+    // Mutation directe via l'Orchestrateur pour garantir la cohérence Graphe/Silice
+    await taskOrch.updateTask(taskUid, { 
+      "dates.scheduledAt": scheduledAt,
+      "dates.updatedAt": new Date() 
+    }, { actorUid: userUid, capabilities: ['task:update'] });
 
     revalidatePath('/tom-hat-toes');
     return { success: true };

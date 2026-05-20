@@ -10,6 +10,7 @@ vi.mock('next-auth/next', () => ({
 vi.mock("@ilot/infrastructure/src/database/models/nosql/user.model", () => ({
   OiseauModel: {
     findOne: vi.fn(),
+    findOneAndUpdate: vi.fn(), // 🪡 LA SUTURE EST ICI
     findOneAndDelete: vi.fn().mockReturnValue({
       lean: vi.fn().mockResolvedValue({ uid: 'bird-123' })
     }),

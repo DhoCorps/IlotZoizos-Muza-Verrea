@@ -35,7 +35,10 @@ export function UserNav() {
 
   if (!session?.user) return null;
 
-  const initials = session.user.name?.substring(0, 2).toUpperCase() || "ZO";
+  // 🪡 SUTURE DE DONNÉES : On va chercher le 'pseudo' si le 'name' natif de NextAuth est vide
+  const userUid = (session.user as any).uid || (session.user as any).id;
+  const displayName = (session.user as any).pseudo || session.user.name || "Oiseau";
+  const initials = displayName.substring(0, 2).toUpperCase();
 
   return (
     <div className="relative" ref={menuRef}>
@@ -59,7 +62,7 @@ export function UserNav() {
           {/* En-tête avec les infos de l'oiseau */}
           <div className="px-4 py-2 border-b border-slate-800">
             <p className="text-sm font-medium text-emerald-400 truncate">
-              {session.user.name}
+              {displayName}
             </p>
             <p className="text-xs text-slate-500 truncate mt-0.5">
               {session.user.email}
@@ -68,8 +71,10 @@ export function UserNav() {
 
           {/* Liens de navigation */}
           <div className="py-1">
+            {/* 🪡 SUTURE DE ROUTAGE : Le lien est activé vers la route /profile */}
+            {/* Si ton architecture utilise des UIDs dans l'URL, remplace href="/profile" par href={`/profile/${userUid}`} */}
             <Link 
-              href="/dashboard/profile" 
+              href="/profile" 
               onClick={() => setIsOpen(false)}
               className="flex items-center px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-800 hover:text-emerald-400 transition-colors"
             >
@@ -77,7 +82,7 @@ export function UserNav() {
               Profil de l'oiseau
             </Link>
             <Link 
-              href="/dashboard/settings" 
+              href="/settings" 
               onClick={() => setIsOpen(false)}
               className="flex items-center px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-800 hover:text-emerald-400 transition-colors"
             >

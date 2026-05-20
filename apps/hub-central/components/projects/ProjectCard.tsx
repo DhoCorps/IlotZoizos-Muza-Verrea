@@ -1,4 +1,3 @@
-// apps/hub-central/components/projects/ProjectCard.tsx
 'use client';
 
 import { useState } from 'react';
@@ -9,9 +8,10 @@ interface ProjectCardProps {
   onEdit: (id: string) => void;
   onCreateTask: (uid: string) => void; // 🪡 SUTURE : La Matrioshka continue vers l'Atome
   onDelete?: (uid: string) => void; // 🪡 SUTURE MAJEURE : Capacité d'effacement du Chantier
+  onViewTasks: (uid: string) => void;
 }
 
-export function ProjectCard({ project, onEdit, onCreateTask, onDelete }: ProjectCardProps) {
+export function ProjectCard({ project, onEdit, onCreateTask, onDelete, onViewTasks }: ProjectCardProps) {
   // --- ÉTATS DU TIROIR D'UPLOAD DE DOCUMENTS ---
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -61,6 +61,11 @@ export function ProjectCard({ project, onEdit, onCreateTask, onDelete }: Project
   };
 
   return (
+    // 🎯 SUTURE : Conteneur unique avec clic déclencheur + Style de bordure dynamique
+    <div 
+      onClick={() => onViewTasks(project.uid)} 
+      className="cursor-pointer group relative bg-black/40 border border-white/10 rounded-2xl p-6 hover:border-[#E5484D] transition-all"
+    >
     <div className="bio-card p-6 border-l-4 transition-all hover:shadow-[0_0_20px_rgba(229,72,77,0.05)] flex flex-col justify-between" style={{ borderLeftColor: project.appearance?.color || '#E5484D' }}>
       <div>
         <div className="flex justify-between items-start mb-6">
@@ -76,12 +81,9 @@ export function ProjectCard({ project, onEdit, onCreateTask, onDelete }: Project
             <h3 className="text-xl font-bold uppercase tracking-tight">{project.name}</h3>
           </div>
           
-          <div className="flex gap-2">
+          <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
             <button
-              onClick={(e) => {
-                e.stopPropagation(); 
-                onCreateTask(project.uid); 
-              }} 
+              onClick={() => onCreateTask(project.uid)} 
               className="p-2 hover:bg-emerald-500/10 rounded-lg text-slate-500 hover:text-emerald-400 transition-all"
               title="Sceller un Atome (Tâche)"
             >
@@ -98,7 +100,7 @@ export function ProjectCard({ project, onEdit, onCreateTask, onDelete }: Project
 
             {/* 🪡 SUTURE : Option de Suppression physique du Chantier */}
             <button 
-              onClick={(e) => { e.stopPropagation(); onDelete?.(project.uid); }} 
+              onClick={() => onDelete?.(project.uid)} 
               className="p-2 hover:bg-red-500/10 rounded-lg text-slate-500 hover:text-red-500 transition-all"
               title="Raser le Chantier (Supprimer)"
             >
@@ -142,7 +144,7 @@ export function ProjectCard({ project, onEdit, onCreateTask, onDelete }: Project
 
           {/* 🪡 SUTURE VISUELLE : Déclencheur du Tiroir d'Artefacts */}
           <button
-            onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+            onClick={(e) => { e.stopPropagation(); setIsDrawerOpen(!isDrawerOpen); }}
             className="flex items-center gap-1 text-[10px] uppercase font-black tracking-wider px-2.5 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-slate-400 hover:text-slate-200 transition-all"
           >
             {isDrawerOpen ? (
@@ -155,7 +157,10 @@ export function ProjectCard({ project, onEdit, onCreateTask, onDelete }: Project
 
         {/* 🌟 LE TIROIR DES ARCHIVES DU CHANTIER (R2 / SILICE) */}
         {isDrawerOpen && (
-          <div className="mt-4 pt-4 border-t border-dashed border-white/5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div 
+            onClick={(e) => e.stopPropagation()}
+            className="mt-4 pt-4 border-t border-dashed border-white/5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300"
+          >
             
             {/* Formulaire d'injection rapide */}
             <div className="space-y-2">
@@ -208,6 +213,7 @@ export function ProjectCard({ project, onEdit, onCreateTask, onDelete }: Project
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }

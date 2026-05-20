@@ -57,9 +57,14 @@ export function PomodoroProvider({ children }: { children: React.ReactNode }) {
         setSecondsLeft(5 * 60);  // Micro-Stase
       }
 
-      // 🔔 3. Signal de Wall-E
-      if (typeof window !== 'undefined') {
-        new Audio('/sounds/bell.mp3').play().catch(() => {});
+     // 🔔 3. Signal de Wall-E - Suture ultime
+      if (typeof window !== 'undefined' && typeof window.Audio === 'function') {
+        try {
+          const audio = new Audio('/sounds/bell.mp3');
+          audio.play().catch(() => {});
+        } catch (e) {
+          // Silencieux en test
+        }
       }
     } else {
       // Fin de pause : on revient à l'état de simple présence

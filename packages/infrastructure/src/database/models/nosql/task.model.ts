@@ -6,6 +6,7 @@ export type TaskDocument = ITask & Document;
 
 const TaskSchema = new Schema<TaskDocument>({
   // 🌉 LE PONT (Graphe Muet)
+  
   uid: { type: String, required: true, unique: true },
   
   // 🩸 PURGE : Suppression de `projectId` et `parentId` (les ObjectId Mongoose).
@@ -62,6 +63,8 @@ const TaskSchema = new Schema<TaskDocument>({
     }
   }
 });
+
+
 
 // Index pour les recherches rapides côté Silice
 TaskSchema.index({ assigneeUids: 1 });
