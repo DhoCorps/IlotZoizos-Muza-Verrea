@@ -14,16 +14,19 @@ import { randomUUID } from 'crypto';
 import { IlotError } from '../errors/ilot.errors';
 import { v4 as uuidv4 } from 'uuid';
 
+
+export interface ProjectSyncResult {
+  success: boolean;
+  project?: any; 
+  purgedCount?: number;
+}
+
 const generateSlug = (text: string) => {
   return text.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
 };
 
-export interface ProjectSyncResult {
-  success: boolean;
-  status: string;
-  mongo: any;
-  neo4j: any;
-}
+
+
 
 /**
  * 🛰️ PROJECT ORCHESTRATOR 

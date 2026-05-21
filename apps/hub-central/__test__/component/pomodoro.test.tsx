@@ -11,6 +11,18 @@ Object.defineProperty(window.HTMLMediaElement.prototype, 'play', {
   }
 });
 
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    getNeo4jSession: vi.fn().mockReturnValue({ 
+      run: vi.fn().mockResolvedValue({ records: [] }),
+      close: vi.fn().mockResolvedValue(true)
+    })
+  };
+});
+
 // 🛡️ Mock de l'action serveur
 vi.mock('../../app/actions/kanban.actions', () => ({
   completePomodoroAction: vi.fn().mockResolvedValue({ success: true })

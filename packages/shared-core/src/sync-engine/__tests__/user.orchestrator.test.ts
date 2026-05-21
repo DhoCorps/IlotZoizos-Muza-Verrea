@@ -1,46 +1,52 @@
 // packages/shared-core/src/sync-engine/__tests__/user.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { OiseauOrchestrator } from '../user.orchestrator'; 
+import { OiseauOrchestrator } from '../user.orchestrator';
 import { TransactionManager } from '../transactionManager';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 
-// 🛡️ SUTURE 1 : Mock du modèle par son chemin RELATIF exact (4 crans en arrière depuis __tests__)
+// 🛡️ SUTURE 1 : Mock des modèles Silice (MongoDB)
+// On retourne des POJO (objets purs) pour éliminer définitivement l'erreur FlattenMaps
 vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
   OiseauModel: {
-    findOneAndUpdate: vi.fn().mockImplementation(() => ({
-      // .lean() est crucial pour les perfs et la synchronisation
+    create: vi.fn().mockImplementation((data) => Promise.resolve(Array.isArray(data) ? data : [data])),
+    findOne: vi.fn().mockImplementation(() => ({
       lean: vi.fn().mockResolvedValue({ 
         uid: 'bird-123', 
         pseudo: 'L_Oiseau_Libre', 
-        aura: ['Poésie'],
-        frequenceHEX: '#E5484D'
+        frequenceHEX: '#E5484D',
+        teams: [] 
+      })
+    })),
+    findOneAndUpdate: vi.fn().mockImplementation(() => ({
+      lean: vi.fn().mockResolvedValue({ 
+        uid: 'bird-123', 
+        pseudo: 'L_Oiseau_Libre',
+        capabilities: ['*'] 
       })
     })),
     findOneAndDelete: vi.fn().mockImplementation(() => ({
       lean: vi.fn().mockResolvedValue({ uid: 'bird-123' })
-    })),
-    create: vi.fn().mockImplementation((data) => Promise.resolve(Array.isArray(data) ? data : [data]))
+    }))
   }
 }));
 
-// 🛡️ SUTURE 2 : Mock global du TransactionManager (Le Graphe Muet)
+// Mock des dépendances pour l'exil (cascade)
+vi.mock('../../../../infrastructure/src/database/models/nosql/project.model', () => ({
+  ProjectModel: { find: vi.fn().mockReturnValue({ session: vi.fn().mockReturnThis(), lean: vi.fn().mockResolvedValue([]) }) }
+}));
+vi.mock('../../../../infrastructure/src/database/models/nosql/task.model', () => ({
+  TaskModel: { find: vi.fn().mockReturnValue({ session: vi.fn().mockReturnThis(), lean: vi.fn().mockResolvedValue([]) }) }
+}));
+
+// 🛡️ SUTURE 2 : Mock du TransactionManager (Le Graphe Muet)
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
     execute: vi.fn().mockImplementation(async (name, callback) => {
-      const mockNeo4jTx = { 
-        run: vi.fn().mockImplementation((query) => {
-          // Si c'est la requête d'exil
-          if (query.includes('DETACH DELETE u')) {
-            return Promise.resolve({ 
-              records: [{ get: () => 1 }] // On simule 1 nœud supprimé
-            });
-          }
-          return Promise.resolve({ records: [] });
-        }) 
+      const mockNeo4jTx = {
+        run: vi.fn().mockResolvedValue({ records: [] }) 
       };
-      
-      const result = await callback(null as any, mockNeo4jTx as any);
-      return result;
+      // On passe un mock de session vide
+      return callback({} as any, mockNeo4jTx as any);
     })
   }
 }));
@@ -48,41 +54,52 @@ vi.mock('../transactionManager', () => ({
 describe("OiseauOrchestrator - L'Intégrité de l'Oiseau", () => {
   let orchestrator: OiseauOrchestrator;
 
-  const mockOiseau = {
-    uid: 'bird-123',
-    pseudo: 'L_Oiseau_Libre',
-    aura: ['TypeScript', 'Poésie'],
-    frequenceHEX: '#E5484D'
-  };
-
-  const mockSignature: ActionSignature = {
-    actorUid: 'bird-123',
-    capabilities: [CAPABILITIES.MEMBER?.UPDATE || 'MEMBER.UPDATE'] 
-  };
-
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new OiseauOrchestrator();
   });
 
-  it("✅ doit synchroniser l'identité totale sans perte de données via une signature valide", async () => {
-    // L'envol de l'Oiseau
+  it("✅ doit fonder un oiseau et retourner l'objet Mongo", async () => {
+    const mockBird = {
+      email: 'test@ilot.zoizos',
+      pseudo: 'Oiseau_Beta',
+      password: 'password123'
+    };
+
+    const result = await orchestrator.fosterOiseau(mockBird);
+
+    expect(result.success).toBe(true);
+    expect(result.mongo.pseudo).toBe('Oiseau_Beta');
+    expect(TransactionManager.execute).toHaveBeenCalledWith("Éclosion d'Oiseau", expect.any(Function));
+  });
+
+  it("✅ doit synchroniser l'identité totale via une signature valide", async () => {
+    const mockOiseau = {
+      uid: 'bird-123',
+      pseudo: 'L_Oiseau_Libre',
+      frequenceHEX: '#E5484D'
+    };
+
+    const mockSignature: ActionSignature = {
+      actorUid: 'bird-123',
+      capabilities: [CAPABILITIES.MEMBER.UPDATE] 
+    };
+
     const result = await orchestrator.syncOiseau(mockOiseau as any, mockSignature);
 
     expect(result.success).toBe(true);
     expect(result.mongo.pseudo).toBe('L_Oiseau_Libre');
-    
-    // On vérifie que le TransactionManager a bien été sollicité
     expect(TransactionManager.execute).toHaveBeenCalledWith("L'Envol de l'Oiseau", expect.any(Function));
   });
 
   it("❌ doit rejeter l'action si la signature ne possède pas l'Aura requise", async () => {
+    const mockOiseau = { uid: 'bird-123', pseudo: 'Pirate' };
     const badSignature: ActionSignature = {
       actorUid: 'bird-malicious',
       capabilities: [] 
     };
 
-    // La barrière karmique doit s'activer [cite: 2026-02-11]
+    // La barrière karmique doit s'activer
     await expect(
       orchestrator.syncOiseau(mockOiseau as any, badSignature)
     ).rejects.toThrow("Aura insuffisante");

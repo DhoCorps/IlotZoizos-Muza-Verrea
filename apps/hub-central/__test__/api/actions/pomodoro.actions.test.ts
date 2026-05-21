@@ -3,23 +3,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { completePomodoroAction } from '../../../app/actions/kanban.actions';
 import { getServerSession } from "next-auth/next";
 
-// 🛡️ 1. Mock GLOBAL de l'infrastructure (le plus haut possible)
-vi.mock('../../../../packages/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue({}),
-  TaskModel: {
-    findOneAndUpdate: vi.fn().mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 'task_pomo_123', pomodoros: { completed: 1 } })
-    })
-  },
-  getNeo4jSession: vi.fn().mockReturnValue({
-    run: vi.fn().mockResolvedValue({
-      records: [{ get: () => ['*'] }]
-    }),
-    close: vi.fn()
-  })
-}));
+// 🛡️ SUTURE MAJEURE : On mock l'Orchestrateur directement. 
+// L'Action n'a pas besoin de tester la base de données, elle délègue cette tâche.
+vi.mock('@ilot/shared-core', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    TaskOrchestrator: vi.fn().mockImplementation(() => ({
+      completePomodoro: vi.fn().mockResolvedValue({ pomodoros: { completed: 1 } })
+    }))
+  };
+});
 
-// 🛡️ 2. Mock Session
 vi.mock("next-auth/next", () => ({
   getServerSession: vi.fn(),
 }));
@@ -33,7 +28,7 @@ describe('Action Pomodoro - completePomodoroAction', () => {
 
   it('✅ doit valider le pomodoro si l\'Artisan est reconnu par la Douane', async () => {
     vi.mocked(getServerSession).mockResolvedValue({ 
-      user: { uid: 'bird-999' } 
+      user: { uid: 'bird-999', capabilities: [] } 
     } as any);
 
     const result = await completePomodoroAction('task_pomo_123');
@@ -47,7 +42,7 @@ describe('Action Pomodoro - completePomodoroAction', () => {
 
     const result = await completePomodoroAction('task_pomo_123');
 
-    // On accepte soit le succès false soit l'erreur attendue
     expect(result.success).toBe(false);
+    expect(result.error).toBe("Oiseau non identifié. Le flux temporel est rompu.");
   });
 });

@@ -172,38 +172,30 @@ export async function deleteTaskAction(taskUid: string) {
  */
 export async function completePomodoroAction(taskUid: string): Promise<{ 
   success: boolean; 
-  newCount?: number; // 🪡 SUTURE : On déclare que newCount est optionnel
+  newCount?: number; 
   error?: string; 
-  }> {
+}> {
   try {
-    // 1. Identification de l'Oiseau via la session serveur
     const session = await getServerSession(authOptions);
     const userUid = (session?.user as any)?.uid;
     const sessionCaps = (session?.user as any)?.capabilities || [];
 
     if (!userUid) {
-      throw new Error("Oiseau non identifié. Le flux temporel est rompu.");
+      // 🪡 On retourne false au lieu de faire crasher la requête
+      return { success: false, error: "Oiseau non identifié. Le flux temporel est rompu." }; 
     }
 
-    // 2. Création de la Signature d'Action
-    const signature: ActionSignature = {
-      actorUid: userUid,
-      capabilities: sessionCaps
-    };
-
-    // 3. Appel de l'Orchestrateur
+    const signature: ActionSignature = { actorUid: userUid, capabilities: sessionCaps };
     const taskOrch = new TaskOrchestrator();
+    
     const result = await taskOrch.completePomodoro(taskUid, signature);
 
-    // Retourne le nouveau compteur ici
     return { success: true, newCount: result.pomodoros.completed };
-
-    return { success: true };
 
   } catch (error: any) {
     console.error("🔥 Fracture lors de la sédimentation du temps :", error);
-    throw new Error("Impossible de sceller l'effort dans la Silice.");
+    // 🪡 On retourne false ici aussi
+    return { success: false, error: "Impossible de sceller l'effort dans la Silice." };
   }
 }
-
 

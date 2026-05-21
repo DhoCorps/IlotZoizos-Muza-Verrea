@@ -15,6 +15,18 @@ export const ProjectCategorySchema = z.enum([
 
 export const ProjectVisibilitySchema = z.enum(['PUBLIC', 'INTERNAL', 'PRIVATE', 'SECRET', 'OPEN_SOURCE']);
 
+export const ProjectDocumentSchema = z.object({
+  uid: z.string(),
+  name: z.string(),
+  label: z.string(),
+  url: z.string(),
+  mimeType: z.string(),
+  createdAt: z.union([z.date(), z.string().datetime()]).default(() => new Date())
+});
+
+// 2. Inférence du Type (pour TypeScript)
+export type IProjectDocument = z.infer<typeof ProjectDocumentSchema>;
+
 /**
  * 🏗️ LE SCHÉMA DU CHANTIER (Purifié)
  */
@@ -55,14 +67,7 @@ export const ProjectSchema = BaseNodeSchema.extend({
   }).default({}),
 
   // --- 📂 SÉDIMENTATION (Fichiers) ---
-  documents: z.array(z.object({
-      uid: z.string(),
-      name: z.string(),
-      label: z.string(),
-      url: z.string(),
-      mimeType: z.string(),
-      createdAt: z.union([z.date(), z.string().datetime()]).default(() => new Date())
-  })).default([]),
+  documents: z.array(ProjectDocumentSchema).default([]),
   
   // --- 🎯 FEUILLE DE ROUTE (Repères factuels) ---
   roadmap: z.object({

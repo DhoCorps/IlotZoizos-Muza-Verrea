@@ -22,6 +22,7 @@ export default function BirdProfileForm({
     email: initialData?.email || '',
     signature: initialData?.signature || '<(:<',
     frequenceHEX: initialData?.frequenceHEX || '#8b9dc3',
+    // 🪡 SUTURE : Conversion robuste du tableau de caps en string pour l'input
     capabilities: Array.isArray(initialData?.capabilities) ? initialData.capabilities.join(', ') : (initialData?.capabilities || ''),
     sanctuaire: {
       biographie: initialData?.sanctuaire?.biographie || '',
@@ -35,7 +36,7 @@ export default function BirdProfileForm({
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
-    // Gestion du Sanctuaire Polymorphe (Nested State)
+    // Gestion du Sanctuaire Polymorphe
     if (name.startsWith('sanctuaire.')) {
       const field = name.split('.')[1];
       setFormData(prev => ({
@@ -52,29 +53,33 @@ export default function BirdProfileForm({
     setLoading(true);
     setMessage(null);
 
-    // 🕊️ TRANSFORMATION DE L'capabilities : De la string vers le tableau de capacités
+    // 🕊️ TRANSFORMATION DE L'INPUT : De la string vers le tableau de capacités pour la Silice
     const payload = {
       ...formData,
       uid: initialData?.uid, 
-      capabilities: formData.capabilities ? formData.capabilities.split(',').map((item: string) => item.trim()).filter(Boolean) : []
+      capabilities: formData.capabilities 
+        ? formData.capabilities.split(',').map((item: string) => item.trim()).filter(Boolean) 
+        : []
     };
 
     try {
-      // 🛡️ SUTURE API : Appel à votre route de mise à jour purifiée
+      // 🛡️ SUTURE API : Appel à la route de mise à jour purifiée
       const response = await fetch('/api/auth/user/update', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      if (response.ok) {
-        setMessage({ type: 'success', text: "Le Sanctuaire a été calibré avec succès." });
-      } else {
-        throw new Error("Désynchronisation lors de l'étalonnage.");
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Désynchronisation lors de l'étalonnage.");
       }
-    } catch (err) {
+
+      setMessage({ type: 'success', text: "Le Sanctuaire a été calibré avec succès." });
+    } catch (err: any) {
       console.error("🔥 Erreur d'étalonnage :", err);
-      setMessage({ type: 'error', text: "L'onde n'a pas pu être scellée." });
+      setMessage({ type: 'error', text: err.message || "L'onde n'a pas pu être scellée." });
     } finally {
       setLoading(false);
     }
@@ -98,6 +103,13 @@ export default function BirdProfileForm({
         </div>
         <div className="w-12 h-12 rounded-full border-4 border-white/5 shadow-inner" style={{ backgroundColor: formData.frequenceHEX }} />
       </div>
+
+      {/* Message système */}
+      {message && (
+        <div className={`p-4 rounded-xl border ${message.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' : 'bg-red-500/10 border-red-500/50 text-red-400'} text-xs font-mono uppercase tracking-widest`}>
+          {message.text}
+        </div>
+      )}
 
       {/* 👤 IDENTITÉ DE BASE */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -124,7 +136,7 @@ export default function BirdProfileForm({
         </div>
       </div>
 
-      {/* 🧠 SANCTUAIRE (Bio & Localisation) */}
+      {/* 🧠 SANCTUAIRE */}
       <div className="space-y-4">
         <div className="space-y-2">
           <label className="text-[10px] uppercase font-black text-slate-500 tracking-[0.2em] ml-1">Biographie du Sanctuaire</label>
@@ -160,7 +172,7 @@ export default function BirdProfileForm({
         <div className="space-y-3">
           <div className="flex items-center gap-2 mb-1">
             <Shield className="w-4 h-4 text-slate-500" />
-            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">capabilities (Capabilities)</label>
+            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Capabilities (Plumes)</label>
           </div>
           <input 
             type="text" 

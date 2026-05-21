@@ -4,11 +4,11 @@ import { TeamModel } from '../../../infrastructure/src/database/models/nosql/tea
 import { ProjectModel } from '../../../infrastructure/src/database/models/nosql/project.model';
 import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model';
 import { TransactionManager } from './transactionManager';
-import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
 import { IlotError } from '../errors/ilot.errors';
 import { IOiseau, CAPABILITIES } from '@ilot/types';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
+import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
 
 export interface OiseauSyncResult {
   success: boolean;
@@ -18,13 +18,13 @@ export interface OiseauSyncResult {
 }
 
 export interface ActionSignature {
-  actorUid: string;       
+  actorUid: string;         
   capabilities: string[]; 
 }
 
 export class OiseauOrchestrator {
 
-/**
+  /**
    * 🐣 L'ÉCLOSION (Création d'un nouvel Oiseau avec Souveraineté Totale)
    */
   async fosterOiseau(birdData: any): Promise<OiseauSyncResult> {
@@ -50,7 +50,7 @@ export class OiseauOrchestrator {
         entropieActive: 100 
       };
 
-      // 🛡️ CORRECTION : Gravure des capacités dans le Graphe (Neo4j)
+      // 🛡️ Gravure des capacités dans le Graphe (Neo4j)
       const cypher = `
         MERGE (u:User {uid: $uid})
         ON CREATE SET 
@@ -70,7 +70,7 @@ export class OiseauOrchestrator {
         uid: newOiseauData.uid,
         pseudo: newOiseauData.pseudo,
         frequenceHEX: newOiseauData.frequenceHEX,
-        capabilities: newOiseauData.capabilities // 🪡 SUTURE : Injection des droits globaux
+        capabilities: newOiseauData.capabilities
       });
 
       const [nouvelOiseau] = await OiseauModel.create([newOiseauData], { session: mongoSession });
@@ -100,15 +100,15 @@ export class OiseauOrchestrator {
     }
 
     return await TransactionManager.execute("L'Envol de l'Oiseau", async (mongoSession, neo4jTx) => {
+      const updatePayload: any = {};
+      if (oiseauData.pseudo) updatePayload.pseudo = oiseauData.pseudo;
+      if (oiseauData.frequenceHEX) updatePayload.frequenceHEX = oiseauData.frequenceHEX;
+      // 🛡️ Correction : on accepte le tableau vide comme mise à jour valide
+      if (oiseauData.capabilities !== undefined) updatePayload.capabilities = oiseauData.capabilities;
+
       const updatedMongo = await OiseauModel.findOneAndUpdate(
         { uid: oiseauData.uid },
-        { 
-          $set: { 
-            ...(oiseauData.pseudo && { pseudo: oiseauData.pseudo }),
-            ...(oiseauData.frequenceHEX && { frequenceHEX: oiseauData.frequenceHEX }),
-            ...(oiseauData.capabilities && { capabilities: oiseauData.capabilities }) 
-          } 
-        },
+        { $set: updatePayload },
         { new: true, session: mongoSession }
       ).lean();
 
@@ -116,11 +116,12 @@ export class OiseauOrchestrator {
         throw new IlotError("Oiseau introuvable dans la Silice", "NOT_FOUND", 404);
       }
 
+      // 🕸️ Propagation Neo4j corrigée
       const cypher = `
         MATCH (u:User {uid: $uid})
         SET u.pseudo = coalesce($pseudo, u.pseudo), 
             u.frequenceHEX = coalesce($frequenceHEX, u.frequenceHEX),
-            u.capabilities = coalesce($capabilities, u.capabilities),
+            u.capabilities = $capabilities, 
             u.updatedAt = datetime()
         RETURN u
       `;
@@ -129,7 +130,7 @@ export class OiseauOrchestrator {
         uid: oiseauData.uid,
         pseudo: oiseauData.pseudo || null,
         frequenceHEX: oiseauData.frequenceHEX || null,
-        capabilities: oiseauData.capabilities || null, 
+        capabilities: updatePayload.capabilities !== undefined ? updatePayload.capabilities : null,
       });
 
       return { 
@@ -141,9 +142,8 @@ export class OiseauOrchestrator {
     });
   }
 
-/**
+  /**
    * 💀 L'EXIL (Désintégration Totale et Libération)
-   * Version renforcée : Purge physique des fichiers R2 + Nettoyage cascade
    */
   async exileOiseau(
     oiseauUid: string, 
@@ -159,13 +159,9 @@ export class OiseauOrchestrator {
 
     return await TransactionManager.execute("L'Exil de l'Oiseau", async (mongoSession, neo4jTx) => {
       
-      // 1. 🌊 PURGE PHYSIQUE (SUTURE R2)
-      // On identifie tout ce qui appartient à l'oiseau (directement ou via ses projets/équipes)
-      // Note: Par sécurité, on récupère un large spectre pour ne rien oublier.
       const allTasks = await TaskModel.find({ creatorUid: oiseauUid }).session(mongoSession).lean();
       const allProjects = await ProjectModel.find({ creatorUid: oiseauUid }).session(mongoSession).lean();
 
-      // Purge des fichiers des tâches
       for (const task of allTasks) {
         if (task.documents) {
           for (const doc of task.documents) {
@@ -173,7 +169,6 @@ export class OiseauOrchestrator {
           }
         }
       }
-      // Purge des fichiers des projets
       for (const proj of allProjects) {
         if (proj.documents) {
           for (const doc of proj.documents) {
@@ -182,7 +177,6 @@ export class OiseauOrchestrator {
         }
       }
 
-      // 2. 🕸️ DÉSINTÉGRATION EN CASCADE FORCÉE (Neo4j)
       const cypher = `
         MATCH (u:User {uid: $uid})
         OPTIONAL MATCH (u)-[:FOUNDED]->(t:Team)
@@ -206,10 +200,8 @@ export class OiseauOrchestrator {
         RETURN count(u) AS deletedCount
       `;
       
-      const result = await neo4jTx.run(cypher, { uid: oiseauUid });
-      // ... [Le reste de ton code original de suppression directe] ...
+      await neo4jTx.run(cypher, { uid: oiseauUid });
 
-      // 3. 🐘 NETTOYAGE DE LA SILICE (MongoDB)
       const userTeams = await TeamModel.find({ ownerUid: oiseauUid }).session(mongoSession).lean();
       const teamUids = userTeams.map(t => t.uid);
       const projects = await ProjectModel.find({ ownerUid: { $in: teamUids } }).session(mongoSession).lean();
@@ -224,9 +216,6 @@ export class OiseauOrchestrator {
     });
   }
 
-  /**
-   * 🧹 PURGE DES ACTIVITÉS SUR UN PROJET SPÉCIFIQUE
-   */
   async purgeProjectActivities(
     targetUserUid: string,
     projectUid: string,
@@ -234,7 +223,7 @@ export class OiseauOrchestrator {
   ): Promise<{ success: boolean; message: string }> {
     
     const isAuthorized = signature.actorUid === targetUserUid || signature.capabilities.includes('*');
-    if (!isAuthorized) throw new IlotError("Souveraineté violée : Vous ne pouvez effacer que vos propres plumes.", "FORBIDDEN", 403);
+    if (!isAuthorized) throw new IlotError("Souveraineté violée.", "FORBIDDEN", 403);
 
     const project = await ProjectModel.findOne({ uid: projectUid });
     if (!project) throw new IlotError("Chantier introuvable.", "NOT_FOUND", 404);
@@ -257,9 +246,6 @@ export class OiseauOrchestrator {
     });
   }
 
-  /**
-   * 🌪️ FLUCTUATION (Entropie)
-   */
   async appliquerFluctuation(
     oiseauUid: string,
     entropie: number,

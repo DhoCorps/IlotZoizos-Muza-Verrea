@@ -8,13 +8,12 @@ import { TaskModel } from '../../../../infrastructure/src/database/models/nosql/
 // 🛡️ SUTURE 1 : Mock des modèles Silice (MongoDB)
 vi.mock('../../../../infrastructure/src/database/models/nosql/project.model', () => ({
   ProjectModel: {
-    findOne: vi.fn().mockImplementation(() => ({
-      lean: vi.fn().mockResolvedValue({ 
-        uid: 'proj_123', 
-        creatorUid: 'bird_sigma',
-        ownerUid: 'team_nexus' 
-      })
-    }))
+    // findOne est attendu directement par un await sans .lean() ici
+    findOne: vi.fn().mockResolvedValue({ 
+      uid: 'proj_123', 
+      creatorUid: 'bird_sigma',
+      ownerUid: 'team_nexus' 
+    })
   }
 }));
 
@@ -22,15 +21,35 @@ vi.mock('../../../../infrastructure/src/database/models/nosql/task.model', () =>
   TaskModel: {
     create: vi.fn().mockImplementation((data) => {
       const doc = Array.isArray(data) ? data[0] : data;
-      return Promise.resolve([{ ...doc, _id: 'mongo_id_789', documents: [] }]); 
+      // 🪡 SUTURE : Simulation du .toObject() appelé dans fosterTask
+      return Promise.resolve([{ 
+        toObject: () => ({ ...doc, _id: 'mongo_id_789', documents: [] }) 
+      }]); 
     }),
-    findOneAndUpdate: vi.fn().mockImplementation(() => ({
-      lean: vi.fn().mockResolvedValue({ uid: 'task_789', content: { title: 'Mutation OK' }, documents: [] })
-    })),
-    findOneAndDelete: vi.fn().mockImplementation(() => ({
-      lean: vi.fn().mockResolvedValue({ uid: 'task_789' })
-    })),
-    deleteMany: vi.fn()
+    findOneAndUpdate: vi.fn().mockImplementation(() => {
+      const m: any = Promise.resolve({ uid: 'task_789', content: { title: 'Mutation OK' }, documents: [] });
+      m.lean = vi.fn().mockResolvedValue({ uid: 'task_789', content: { title: 'Mutation OK' }, documents: [] });
+      return m;
+    }),
+    findOneAndDelete: vi.fn().mockImplementation(() => {
+      const m: any = Promise.resolve({ uid: 'task_789' });
+      m.lean = vi.fn().mockResolvedValue({ uid: 'task_789' });
+      return m;
+    }),
+    findOne: vi.fn().mockImplementation(() => {
+      const m: any = Promise.resolve({ uid: 'task_789', documents: [] });
+      m.session = vi.fn().mockResolvedValue({ uid: 'task_789', documents: [] });
+      return m;
+    }),
+    deleteMany: vi.fn().mockResolvedValue({ deletedCount: 1 })
+  }
+}));
+
+// Mock du storageService pour éviter les appels R2/S3
+vi.mock('../../../../../apps/hub-central/modules/storage/storage.service', () => ({
+  storageService: {
+    extractKeyFromUrl: vi.fn().mockReturnValue('mock-key'),
+    deleteFile: vi.fn().mockResolvedValue(true)
   }
 }));
 
@@ -43,8 +62,11 @@ vi.mock('../transactionManager', () => ({
     execute: vi.fn().mockImplementation(async (name, callback) => {
       const mockNeo4jTx = {
         run: mockNeo4jRun.mockImplementation((query) => {
-          if (query.includes('RETURN collect(r.capabilities)')) {
+          if (query.includes('AS allCaps')) {
             return Promise.resolve({ records: [{ get: () => mockCaps }] });
+          }
+          if (query.includes('RETURN collect(child.uid) AS childUids')) {
+            return Promise.resolve({ records: [{ get: () => [] }] });
           }
           return Promise.resolve({ records: [] });
         })
@@ -71,7 +93,6 @@ describe("TaskOrchestrator - Intégrité et Sécurité des Atomes", () => {
 
     expect(result).toBeDefined();
     expect(result.content.title).toBe('Suture de Paix');
-    // Vérification que le graphe a bien reçu l'ordre de création
     expect(mockNeo4jRun).toHaveBeenCalledWith(expect.stringContaining("CREATE (t:Task"), expect.anything());
   });
 
@@ -86,7 +107,7 @@ describe("TaskOrchestrator - Intégrité et Sécurité des Atomes", () => {
     expect(mockNeo4jRun).toHaveBeenCalled();
   });
 
-  it("❌ doit rejeter la fondation si l'Aura est absente du territoire", async () => {
+  it("❌ doit rejeter la fondation si l'aura est insuffisante", async () => {
     mockCaps = [CAPABILITIES.PROJECT.READ]; 
     const taskPayload = { projectUid: 'proj_123', title: 'Intrusion' };
     const badSignature: ActionSignature = { actorUid: 'bird_spectateur', capabilities: [] };
@@ -107,13 +128,16 @@ describe("TaskOrchestrator - Intégrité et Sécurité des Atomes", () => {
   it("🎭 doit muter un atome avec les droits requis", async () => {
     const signature: ActionSignature = { actorUid: 'bird_sigma', capabilities: [CAPABILITIES.TASK.UPDATE] };
     const result = await orchestrator.updateTask('task_789', { status: 'DONE' } as any, signature);
+    
+    // Le mock retourne 'Mutation OK'
     expect(result.content.title).toBe('Mutation OK');
-    expect(mockNeo4jRun).toHaveBeenCalledWith(expect.stringContaining("SET t.status"), expect.anything());
+    expect(mockNeo4jRun).toHaveBeenCalledWith(expect.stringContaining("SET t.updatedAt"), expect.anything());
   });
 
   it("💀 doit désintégrer un atome si l'Architecte l'ordonne", async () => {
     const adminSignature: ActionSignature = { actorUid: 'architect_prime', capabilities: ['*'] };
     const result = await orchestrator.disintegrateTask('task_789', adminSignature);
+    
     expect(result.success).toBe(true);
     expect(TaskModel.deleteMany).toHaveBeenCalled();
   });

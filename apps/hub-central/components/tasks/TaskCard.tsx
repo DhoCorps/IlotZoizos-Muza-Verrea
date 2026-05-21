@@ -32,6 +32,8 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
   const isActive = activeTaskUid === task.uid;
   const isWorking = isActive && status === 'WORK';
 
+  
+
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("taskUid", task.uid);
     e.dataTransfer.effectAllowed = "move";
@@ -227,7 +229,7 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
                     <span className="truncate">{doc.label || doc.name}</span>
                   </a>
                   <button 
-                    onClick={() => handleDeleteAttachment(doc)}
+                    onClick={() => handleDeleteAttachment({ ...doc, uid: doc.uid.toString() })}
                     disabled={isDeleting === doc.uid}
                     className="ml-2 opacity-0 group-hover/file:opacity-100 transition-opacity text-slate-500 hover:text-red-500"
                   >
