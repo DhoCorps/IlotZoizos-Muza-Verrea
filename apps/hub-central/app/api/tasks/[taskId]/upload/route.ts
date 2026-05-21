@@ -179,3 +179,31 @@ export async function POST(
     );
   }
 }
+
+export async function DELETE(
+  req: Request, 
+  { params }: { params: { taskUid: string } }
+) {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+
+  try {
+    const { key } = await req.json(); // L'URL envoyée par la TaskCard
+    if (!key) throw new Error("Clé d'artefact manquante.");
+
+    // 1. Désintégration Physique (SUTURE R2)
+    const storageKey = storageService.extractKeyFromUrl(key);
+    await storageService.deleteFile(storageKey);
+
+    // 2. Mise à jour de la Silice (Mongo) : on enlève la référence
+    await TaskModel.updateOne(
+      { uid: params.taskUid },
+      { $pull: { documents: { url: key } } } // Retire l'objet correspondant à l'URL
+    );
+
+    return NextResponse.json({ success: true, message: "Artefact désintégré." });
+  } catch (err: any) {
+    console.error("❌ Erreur lors de la purge API :", err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}

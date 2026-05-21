@@ -193,3 +193,42 @@ export async function POST(
     );
   }
 }
+// --- 🧨 MÉTHODE DELETE : PURGE PHYSIQUE ET SILICE ---
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { projectId: string } }
+) {
+  try {
+    await connectToDatabase();
+    const projectUid = params.projectId;
+
+    const session = await getServerSession(authOptions);
+    const user = session?.user as OiseauUser | undefined;
+
+    if (!user || !user.uid) return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
+
+    // Vérification droits
+    const isAuthorized = await canUpdateProject(user.uid, projectUid);
+    if (!isAuthorized && !user.capabilities.includes('*')) {
+      return NextResponse.json({ message: "Souveraineté insuffisante." }, { status: 403 });
+    }
+
+    const { key } = await req.json(); // L'URL publique passée par le frontend
+    if (!key) return NextResponse.json({ message: "Clé manquante" }, { status: 400 });
+
+    // 1. Désintégration Physique
+    const storageKey = storageService.extractKeyFromUrl(key);
+    await storageService.deleteFile(storageKey);
+
+    // 2. Mise à jour de la Silice (Mongo)
+    await ProjectModel.updateOne(
+      { uid: projectUid },
+      { $pull: { documents: { url: key } } }
+    );
+
+    return NextResponse.json({ success: true, message: "Artefact désintégré." });
+  } catch (err: any) {
+    console.error("🔥 Fracture de purge :", err);
+    return NextResponse.json({ message: err.message }, { status: 500 });
+  }
+}

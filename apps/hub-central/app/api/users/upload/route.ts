@@ -128,3 +128,45 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+// --- 🧨 DELETE : DÉSINTÉGRATION PHYSIQUE ET SILICE ---
+export async function DELETE(req: NextRequest) {
+  try {
+    await connectToDatabase();
+    
+    const session = await getServerSession(authOptions);
+    const userUid = (session?.user as any)?.uid;
+
+    if (!userUid) return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
+
+    const { imageType, url } = await req.json();
+    
+    if (!imageType || !url) return NextResponse.json({ message: "Paramètres manquants" }, { status: 400 });
+    
+    const allowedTypes = ['avatarUrl', 'coverPicture'];
+    if (!allowedTypes.includes(imageType)) return NextResponse.json({ message: "Type invalide" }, { status: 400 });
+
+    // 1. Désintégration Physique (SUTURE R2)
+    const storageKey = storageService.extractKeyFromUrl(url);
+    await storageService.deleteFile(storageKey);
+
+    // 2. Nettoyage de la Silice (Mongo)
+    await OiseauModel.updateOne(
+        { uid: userUid }, 
+        { $set: { [imageType]: null } }
+    );
+
+    // 3. Propagation au Graphe (Neo4j) si nécessaire
+    if (imageType === 'avatarUrl') {
+        const neoSession = getNeo4jSession();
+        try {
+            await neoSession.run(`MATCH (u:User {uid: $userUid}) SET u.avatarUrl = null, u.updatedAt = datetime()`, { userUid });
+        } finally { await neoSession.close(); }
+    }
+
+    return NextResponse.json({ success: true, message: "Artefact désintégré de l'apparence." });
+  } catch (err: any) {
+    console.error("🔥 Fracture de purge :", err);
+    return NextResponse.json({ message: err.message }, { status: 500 });
+  }
+}

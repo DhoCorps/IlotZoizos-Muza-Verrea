@@ -5,7 +5,8 @@ import { TransactionManager } from './transactionManager';
 import { ITask, TaskStatus, CAPABILITIES, ActionSignature } from '@ilot/types'; 
 import { IlotError } from '../errors/ilot.errors'; 
 import { randomUUID } from 'crypto';
-import { i } from 'vitest/dist/reporters-w_64AS5f.js';
+import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
+import { connectToDatabase } from '@ilot/infrastructure';
 
 export interface TaskSyncResult {
   success: boolean;
@@ -233,6 +234,8 @@ export class TaskOrchestrator {
 
     if (!hasPower) throw new IlotError("Aura insuffisante.", "FORBIDDEN", 403);
 
+    
+
     return await TransactionManager.execute("Désintégration d'Atome", async (mongoSession, neo4jTx) => {
       // 🕸️ 1. Graphe Neo4j : Découverte récursive de la lignée d'Atomes enfants
       const hierarchyCheck = await neo4jTx.run(`
@@ -252,6 +255,20 @@ export class TaskOrchestrator {
         MATCH (t:Task) WHERE t.uid IN $uidsToPurge
         DETACH DELETE t
       `, { uidsToPurge });
+
+      const task = await TaskModel.findOne({ uid: taskUid }).session(mongoSession);
+    if (task && task.documents && task.documents.length > 0) {
+      // 🪡 SUTURE : On purge chaque document physique
+      for (const doc of task.documents) {
+        try {
+          await storageService.deleteFile(doc.url); // Appel à ton service de stockage
+        } catch (err) {
+          console.error(`🚨 Échec de purge physique pour ${doc.uid} :`, err);
+          // Décision : On continue quand même ou on bloque ? 
+          // Par sécurité, on continue pour ne pas bloquer la désintégration.
+        }
+      }
+    }
 
       return { success: true, purgedCount: uidsToPurge.length };
     });

@@ -9,20 +9,21 @@ interface TaskCardProps {
   task: any;
   onStatusChange: (id: string, s: string) => void;
   onDelete?: (uid: string) => void;
-  onEdit?: (task: any) => void; // 🪡 SUTURE : Ajout du support pour la modification
+  onEdit?: (task: any) => void;
 }
 
 export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardProps) {
   const { startFocus, stopFocus, activeTaskUid, status } = usePomodoro();
   
   useEffect(() => {
-    // Synchronisation du contexte au montage
+    // Synchronisation du contexte
   }, [task.uid, activeTaskUid]);
 
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [localAttachments, setLocalAttachments] = useState<any[]>(task.content?.attachments || task.fileUploads || []);
   const [label, setLabel] = useState('');
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
   const completedPomos = task.pomodoros?.completed || 0;
   const estimatedPomos = task.pomodoros?.estimated || 1; 
@@ -51,10 +52,7 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
         body: formData
       });
 
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.message || "Échec du scellage de la brindille.");
-      }
+      if (!res.ok) throw new Error("Échec du scellage de la brindille.");
 
       const data = await res.json();
       setLocalAttachments((prev) => [...prev, data.attachment]);
@@ -63,6 +61,28 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
       alert(`🚨 Fracture d'upload : ${err.message}`);
     } finally {
       setUploading(false);
+    }
+  };
+
+  // 🧨 SUTURE : Logique de désintégration d'un fichier
+  const handleDeleteAttachment = async (doc: any) => {
+    if (!confirm("Anéantir cette pièce jointe ?")) return;
+
+    setIsDeleting(doc.uid);
+    try {
+      const res = await fetch(`/api/tasks/${task.uid}/upload`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: doc.url })
+      });
+
+      if (!res.ok) throw new Error("Échec de la purge de la brindille.");
+
+      setLocalAttachments((prev) => prev.filter(d => d.uid !== doc.uid));
+    } catch (err: any) {
+      alert(`🚨 Ineptie technique : ${err.message}`);
+    } finally {
+      setIsDeleting(null);
     }
   };
 
@@ -80,7 +100,6 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
             {task.content?.title || "Sans titre"}
           </h4>
           
-          {/* 🪡 SUTURE ACTION GROUP : Groupe aligné pour éviter les collisions */}
           <div className="flex items-center gap-1.5 shrink-0">
             <span className={`text-[8px] font-black px-2 py-0.5 rounded uppercase ${
               task.priority === 'CRITICAL' ? 'bg-red-500/20 text-red-500' : 'bg-white/5 text-slate-500'
@@ -88,19 +107,14 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
               {task.priority || 'NORMAL'}
             </span>
             
-            {/* Bouton Modifier */}
             <button 
-               onClick={(e) => { 
-                 e.stopPropagation(); 
-                 onEdit?.(task); 
-               }}
+               onClick={(e) => { e.stopPropagation(); onEdit?.(task); }}
                className="p-1 hover:bg-amber-500/10 rounded text-slate-500 hover:text-amber-400 active:scale-95 transition-all duration-200"
                title="Modifier la tâche"
             >
               <Pencil size={12} />
             </button>
 
-            {/* Bouton Supprimer */}
             <button 
               onClick={(e) => { 
                 e.stopPropagation(); 
@@ -125,7 +139,6 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
               <button 
                 onClick={(e) => { e.stopPropagation(); stopFocus(); }}
                 className="text-[#E5484D] flex items-center gap-1 animate-pulse bg-white/5 hover:bg-[#E5484D]/20 px-2 py-1 rounded transition-all z-10"
-                title="Briser le sceau temporel"
               >
                 <Loader2 size={10} className="animate-spin" /> Focus
               </button>
@@ -133,7 +146,6 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
               <button 
                 onClick={(e) => { e.stopPropagation(); startFocus(task.uid); }}
                 className="flex items-center gap-1 text-slate-400 hover:text-[#E5484D] transition-colors bg-white/5 hover:bg-[#E5484D]/10 px-2 py-1 rounded z-10"
-                title="Démarrer un bloc de 30mn"
               >
                 <Play size={10} fill="currentColor" /> 30mn
               </button>
@@ -201,19 +213,27 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
 
             <div className="space-y-1 max-h-24 overflow-y-auto custom-scrollbar">
               {localAttachments.map((doc: any) => (
-                <a 
+                <div 
                   key={doc.uid}
-                  href={doc.url}
-                  target="_blank"
-                  rel="noreferrer"
                   className="flex items-center justify-between p-1.5 rounded-md bg-white/[0.01] border border-white/5 hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200 group/file text-[10px] font-mono"
                 >
-                  <div className="flex items-center gap-2 truncate">
+                  <a 
+                    href={doc.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2 truncate flex-1"
+                  >
                     <FileText size={10} className="text-slate-600 group-hover/file:text-[#E5484D] transition-colors" />
                     <span className="truncate">{doc.label || doc.name}</span>
-                  </div>
-                  <ExternalLink size={8} className="opacity-0 group-hover/file:opacity-100 transition-opacity text-slate-500" />
-                </a>
+                  </a>
+                  <button 
+                    onClick={() => handleDeleteAttachment(doc)}
+                    disabled={isDeleting === doc.uid}
+                    className="ml-2 opacity-0 group-hover/file:opacity-100 transition-opacity text-slate-500 hover:text-red-500"
+                  >
+                    {isDeleting === doc.uid ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                  </button>
+                </div>
               ))}
 
               {localAttachments.length === 0 && (

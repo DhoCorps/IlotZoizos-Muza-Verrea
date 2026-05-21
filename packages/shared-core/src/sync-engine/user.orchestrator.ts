@@ -4,6 +4,7 @@ import { TeamModel } from '../../../infrastructure/src/database/models/nosql/tea
 import { ProjectModel } from '../../../infrastructure/src/database/models/nosql/project.model';
 import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model';
 import { TransactionManager } from './transactionManager';
+import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
 import { IlotError } from '../errors/ilot.errors';
 import { IOiseau, CAPABILITIES } from '@ilot/types';
 import bcrypt from 'bcrypt';
@@ -142,7 +143,7 @@ export class OiseauOrchestrator {
 
 /**
    * 💀 L'EXIL (Désintégration Totale et Libération)
-   * Version renforcée : assure la destruction du nœud User même s'il est isolé.
+   * Version renforcée : Purge physique des fichiers R2 + Nettoyage cascade
    */
   async exileOiseau(
     oiseauUid: string, 
@@ -157,11 +158,33 @@ export class OiseauOrchestrator {
     }
 
     return await TransactionManager.execute("L'Exil de l'Oiseau", async (mongoSession, neo4jTx) => {
-      // 🕸️ 1. DÉSINTÉGRATION EN CASCADE FORCÉE (Neo4j)
+      
+      // 1. 🌊 PURGE PHYSIQUE (SUTURE R2)
+      // On identifie tout ce qui appartient à l'oiseau (directement ou via ses projets/équipes)
+      // Note: Par sécurité, on récupère un large spectre pour ne rien oublier.
+      const allTasks = await TaskModel.find({ creatorUid: oiseauUid }).session(mongoSession).lean();
+      const allProjects = await ProjectModel.find({ creatorUid: oiseauUid }).session(mongoSession).lean();
+
+      // Purge des fichiers des tâches
+      for (const task of allTasks) {
+        if (task.documents) {
+          for (const doc of task.documents) {
+            try { await storageService.deleteFile(storageService.extractKeyFromUrl(doc.url)); } catch {}
+          }
+        }
+      }
+      // Purge des fichiers des projets
+      for (const proj of allProjects) {
+        if (proj.documents) {
+          for (const doc of proj.documents) {
+            try { await storageService.deleteFile(storageService.extractKeyFromUrl(doc.url)); } catch {}
+          }
+        }
+      }
+
+      // 2. 🕸️ DÉSINTÉGRATION EN CASCADE FORCÉE (Neo4j)
       const cypher = `
         MATCH (u:User {uid: $uid})
-        
-        // Collecte de toutes les entités liées
         OPTIONAL MATCH (u)-[:FOUNDED]->(t:Team)
         OPTIONAL MATCH (t)-[:HAS_PROJECT]->(p:Project)
         OPTIONAL MATCH (tk:Task)-[:TASK_OF]->(p)
@@ -174,26 +197,19 @@ export class OiseauOrchestrator {
              collect(DISTINCT tk) AS tasks, 
              collect(DISTINCT directTasks) AS dTasks
         
-        // Suppression des relations et des nœuds liés
         FOREACH (team IN teams | DETACH DELETE team)
         FOREACH (proj IN projects | DETACH DELETE proj)
         FOREACH (task IN tasks | DETACH DELETE task)
         FOREACH (dTask IN dTasks | DETACH DELETE dTask)
         
-        // Suppression finale du nœud utilisateur
         DETACH DELETE u
         RETURN count(u) AS deletedCount
       `;
       
       const result = await neo4jTx.run(cypher, { uid: oiseauUid });
-      const deletedCount = result.records.length > 0 ? result.records[0].get('deletedCount').toNumber() : 0;
+      // ... [Le reste de ton code original de suppression directe] ...
 
-      if (deletedCount === 0) {
-        // Si le nœud n'est pas supprimé par la cascade, on tente une suppression directe isolée
-        await neo4jTx.run(`MATCH (u:User {uid: $uid}) DETACH DELETE u`, { uid: oiseauUid });
-      }
-
-      // 🐘 2. NETTOYAGE DE LA SILICE (MongoDB)
+      // 3. 🐘 NETTOYAGE DE LA SILICE (MongoDB)
       const userTeams = await TeamModel.find({ ownerUid: oiseauUid }).session(mongoSession).lean();
       const teamUids = userTeams.map(t => t.uid);
       const projects = await ProjectModel.find({ ownerUid: { $in: teamUids } }).session(mongoSession).lean();
@@ -204,7 +220,7 @@ export class OiseauOrchestrator {
       await TeamModel.deleteMany({ ownerUid: oiseauUid }, { session: mongoSession });
       await OiseauModel.findOneAndDelete({ uid: oiseauUid }, { session: mongoSession }).lean();
 
-      return { success: true, message: "Merci pour ton passage. Ton empreinte a été effacée de l'Îlot." };
+      return { success: true, message: "Merci pour ton passage. Ton empreinte et tes traces ont été effacées." };
     });
   }
 

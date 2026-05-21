@@ -9,6 +9,7 @@ import { IProject } from '../../../types/src/models/project.types';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 import { MoralChecker } from '../integrity/moral.checker';
 import { TransactionManager } from './transactionManager';
+import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
 import { randomUUID } from 'crypto';
 import { IlotError } from '../errors/ilot.errors';
 import { v4 as uuidv4 } from 'uuid';
@@ -169,29 +170,43 @@ private async getFullDeletionOrder(projectUid: string) {
     await neo4jTx.run(`MATCH (p:Project {uid: $uid}) DETACH DELETE p`, { uid: projectUid });
   }
 
-  // 3. CASCADE TOTALE
+/**
+   * 🧨 DISSOUS LE CHANTIER ET TOUTES SES TRACES (Fichiers + Atomes)
+   */
   async dissolveProject(projectUid: string, signature: ActionSignature) {
-  const nodesToDestroy = await this.getFullDeletionOrder(projectUid);
+    const nodesToDestroy = await this.getFullDeletionOrder(projectUid);
 
-  // On exécute la purge dans UNE SEULE grosse transaction globale
-  // Si ça échoue, tout revient en arrière (Rollback). Aucun état corrompu.
-  return await TransactionManager.execute("Désintégration Totale", async (mongoSession, neo4jTx) => {
-    
-    for (const node of nodesToDestroy) {
-      if (node.type === 'TASK') {
-        // Utilise la méthode désintégration que tu as déjà dans taskOrch
-        await this.taskOrch.disintegrateTask(node.uid, signature);
-      } else if (node.type === 'PROJECT') {
-        // Suppression Mongo
-        await ProjectModel.deleteOne({ uid: node.uid }, { session: mongoSession });
-        // Suppression Neo4j
-        await neo4jTx.run(`MATCH (p:Project {uid: $uid}) DETACH DELETE p`, { uid: node.uid });
+    return await TransactionManager.execute("Désintégration Totale", async (mongoSession, neo4jTx) => {
+      
+      for (const node of nodesToDestroy) {
+        if (node.type === 'TASK') {
+          // 1. Délégation à l'orchestrateur de tâche (qui doit aussi purger ses fichiers)
+          await this.taskOrch.disintegrateTask(node.uid, signature);
+        } else if (node.type === 'PROJECT') {
+          // 2. PURGE PHYSIQUE : On récupère les documents avant de détruire le document Mongo
+          const project = await ProjectModel.findOne({ uid: node.uid }).session(mongoSession);
+          if (project && project.documents) {
+            for (const doc of project.documents) {
+              try {
+                // Utilisation du helper pour extraire la clef technique et purger
+                const key = storageService.extractKeyFromUrl(doc.url);
+                await storageService.deleteFile(key);
+              } catch (err) {
+                console.error(`⚠️ [Orchestrator] Échec purge fichier ${doc.url} :`, err);
+                // On continue la purge même si un fichier échoue
+              }
+            }
+          }
+
+          // 3. Suppression DB
+          await ProjectModel.deleteOne({ uid: node.uid }, { session: mongoSession });
+          await neo4jTx.run(`MATCH (p:Project {uid: $uid}) DETACH DELETE p`, { uid: node.uid });
+        }
       }
-    }
-    
-    return { success: true, purgedCount: nodesToDestroy.length };
-  });
-}
+      
+      return { success: true, purgedCount: nodesToDestroy.length };
+    });
+  }
 
   // --- 📎 ATTACHEMENT : AJOUT DE FICHIERS ---
 

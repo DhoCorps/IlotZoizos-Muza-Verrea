@@ -176,3 +176,43 @@ export async function POST(
     );
   }
 }
+
+// --- 🧨 DELETE : DÉSINTÉGRATION PHYSIQUE ET SILICE ---
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { teamId: string } }
+) {
+  try {
+    await connectToDatabase();
+    const teamId = params.teamId;
+
+    const session = await getServerSession(authOptions);
+    const user = session?.user as OiseauUser | undefined;
+
+    if (!user || !user.uid) return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
+
+    // Vérification de l'aura de destruction (FILE.BURN)
+    const isAuthorized = await hasCapability(user.uid, teamId, CAPABILITIES.FILE.BURN);
+    if (!isAuthorized && !user.capabilities.includes('*')) {
+      return NextResponse.json({ message: "Souveraineté insuffisante pour brûler cet artefact." }, { status: 403 });
+    }
+
+    const { key } = await req.json();
+    if (!key) return NextResponse.json({ message: "Clé manquante" }, { status: 400 });
+
+    // 1. Désintégration Physique (R2)
+    const storageKey = storageService.extractKeyFromUrl(key);
+    await storageService.deleteFile(storageKey);
+
+    // 2. Mise à jour de la Silice (Mongo)
+    await TeamModel.updateOne(
+      { uid: teamId },
+      { $pull: { documents: { url: key } } }
+    );
+
+    return NextResponse.json({ success: true, message: "Artefact désintégré du Nid." });
+  } catch (err: any) {
+    console.error("🔥 Fracture de purge :", err);
+    return NextResponse.json({ message: err.message }, { status: 500 });
+  }
+}

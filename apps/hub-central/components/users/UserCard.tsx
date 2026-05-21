@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Shield, Palette, Upload, Loader2, Edit3, MapPin } from 'lucide-react';
+import { Shield, Palette, Upload, Loader2, Edit3, MapPin, Trash2 } from 'lucide-react';
 
 interface UserCardProps {
   user: any; // L'objet oiseau (IOiseau)
@@ -10,6 +10,8 @@ interface UserCardProps {
   onEditProfile?: (uid: string) => void;
   onUploadSuccess?: () => void;
 }
+
+const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
 export function UserCard({ user, currentUserCapabilities = [], onEditProfile, onUploadSuccess }: UserCardProps) {
   const [uploadingTarget, setUploadingTarget] = useState<'avatarUrl' | 'coverPicture' | null>(null);
@@ -41,6 +43,41 @@ export function UserCard({ user, currentUserCapabilities = [], onEditProfile, on
       setUploadingTarget(null);
     }
   };
+
+  const handleDeleteImage = async (imageType: 'avatarUrl' | 'coverPicture') => {
+  const urlToDelete = user[imageType];
+  if (!urlToDelete) return; // Rien à supprimer
+  
+  if (!confirm("Anéantir définitivement cette image ?")) return;
+
+  setIsDeleting(imageType); // Feedback visuel
+
+  try {
+    // 🌐 APPEL DE LA ROUTE DELETE (C'est ici qu'on appelle la porte)
+    const res = await fetch('/api/users/upload', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        imageType: imageType, 
+        url: urlToDelete 
+      }),
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.message || "La désintégration a échoué.");
+    }
+
+    // Succès : Rafraîchir l'interface (si tu as un callback)
+    if (onUploadSuccess) onUploadSuccess();
+    
+  } catch (err: any) {
+    console.error("❌ Fracture lors de la purge :", err);
+    alert(`Ineptie technique : ${err.message}`);
+  } finally {
+    setIsDeleting(null);
+  }
+};
 
   return (
     <div className="w-full max-w-2xl mx-auto bg-[#05070A]/90 border border-white/5 rounded-3xl overflow-hidden shadow-2xl relative group/user">
@@ -89,6 +126,12 @@ export function UserCard({ user, currentUserCapabilities = [], onEditProfile, on
                 disabled={!!uploadingTarget} 
                 onChange={(e) => handleImageUpload(e, 'avatarUrl')} 
               />
+              <button 
+                onClick={() => handleDeleteImage('avatarUrl')}
+                className="absolute top-0 right-0 p-1 bg-red-500/80 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Trash2 size={12} />
+              </button>
             </label>
           </div>
         </div>

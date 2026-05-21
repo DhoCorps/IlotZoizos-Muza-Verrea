@@ -24,6 +24,7 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
   const [label, setLabel] = useState('');
   const [mediaType, setMediaType] = useState('attachments');
   const [localDocuments, setLocalDocuments] = useState<any[]>(team.documents || []);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
   // 🪡 SUTURE DE RÉACTIVITÉ : On s'assure que si team.documents change (après refreshData), l'état se met à jour
   useEffect(() => {
@@ -70,18 +71,36 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
   };
 
   // 🪡 SUTURE : Suppression d'un document
-  const handleDeleteDoc = async (docUid: string) => {
-    if (!window.confirm("Effacer définitivement cet artefact du Nid ?")) return;
-    try {
-      // Ton endpoint de suppression doit correspondre à ta logique backend
-      const res = await fetch(`/api/teams/${team.uid}/upload?key=${encodeURIComponent(docUid)}`, { method: 'DELETE' });
-      if (res.ok) {
-        setLocalDocuments((prev) => prev.filter(doc => doc.uid !== docUid));
-      }
-    } catch (err: any) {
-      alert("Erreur lors de la désintégration de l'artefact.");
+const handleDeleteDoc = async (doc: { uid: string, url: string }) => {
+  if (!window.confirm("Effacer définitivement cet artefact du Nid ?")) return;
+
+  setIsDeleting(doc.uid); // ⚡ Feedback visuel immédiat
+
+  try {
+    const res = await fetch(`/api/teams/${team.uid}/upload`, { 
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: doc.url }) // On passe l'URL pour que le backend puisse extraire la clef
+    });
+
+    // Lecture des données retournées par le serveur
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.message || "Échec de la désintégration.");
     }
-  };
+
+    // Succès : Mise à jour de l'UI
+    setLocalDocuments((prev) => prev.filter(d => d.uid !== doc.uid));
+    console.log(`✅ [UI] Artefact ${doc.uid} évaporé.`);
+
+  } catch (err: any) {
+    console.error("❌ Erreur lors de la désintégration :", err);
+    alert(`Ineptie technique : ${err.message || "Impossible de purger l'artefact"}`);
+  } finally {
+    setIsDeleting(null); // On libère le bouton
+  }
+};
 
   return (
     <section 
