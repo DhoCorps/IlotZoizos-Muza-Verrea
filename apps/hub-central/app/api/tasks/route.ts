@@ -8,6 +8,7 @@ import { TaskModel } from '@ilot/infrastructure/src/database/models/nosql/task.m
 import { ProjectModel } from '@ilot/infrastructure/src/database/models/nosql/project.model';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 
+
 /**
  * 🛡️ COMPILATEUR D'AURA ASCENDANTE
  * Résout de manière découplée si l'oiseau a le droit de lire le Chantier

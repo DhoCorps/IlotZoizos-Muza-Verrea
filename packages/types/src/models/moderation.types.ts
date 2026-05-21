@@ -1,26 +1,35 @@
+// packages/types/src/models/moderation.types.ts
+import { z } from 'zod';
+
 /**
  * 🛡️ MODÉRATION & BIEN-ÊTRE MENTAL
  * Définitions strictes pour la gestion des conflits et la protection du Nexus.
  */
 
-export type ModerationSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-export type ModerationAction = 'WARN' | 'EXILE' | 'BURN' | 'SUPPORT_TICKET';
+// 🛡️ SUTURE ZODIQUE : Schémas pour garantir l'intégrité de la modération
+export const ModerationSeveritySchema = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
+export const ModerationActionSchema = z.enum(['WARN', 'EXILE', 'BURN', 'SUPPORT_TICKET']);
 
-export interface ModerationRequest {
-  targetId: string;
-  targetType: 'USER' | 'FRAGMENT' | 'PROJECT';
-  reason: string;
-  severity: ModerationSeverity;
-  reportedBy?: string; // L'ID de l'oiseau qui donne l'alerte
-  context?: Record<string, any>; // Données collectives additionnelles (ex: historique)
-}
+export const ModerationRequestSchema = z.object({
+  targetId: z.string(),
+  targetType: z.enum(['USER', 'FRAGMENT', 'PROJECT']),
+  reason: z.string().min(5, "La raison de la modération est trop succincte."),
+  severity: ModerationSeveritySchema,
+  reportedBy: z.string().optional(),
+  context: z.record(z.any()).optional(),
+});
 
-export interface ModerationResponse {
-  success: boolean;
-  actionTaken?: ModerationAction | 'PENDING';
-  ticketId?: string;
-  message: string;
-  timestamp?: string; // Format ISO pour éviter les conflits de sérialisation
-  flagged?: boolean;
-  
-}
+export const ModerationResponseSchema = z.object({
+  success: z.boolean(),
+  actionTaken: z.union([ModerationActionSchema, z.literal('PENDING')]).optional(),
+  ticketId: z.string().optional(),
+  message: z.string(),
+  timestamp: z.string().datetime().optional(), // ISO string validé
+  flagged: z.boolean().optional(),
+});
+
+// 🔄 INFERENCE : Génération automatique des types TypeScript
+export type ModerationSeverity = z.infer<typeof ModerationSeveritySchema>;
+export type ModerationAction = z.infer<typeof ModerationActionSchema>;
+export type ModerationRequest = z.infer<typeof ModerationRequestSchema>;
+export type ModerationResponse = z.infer<typeof ModerationResponseSchema>;

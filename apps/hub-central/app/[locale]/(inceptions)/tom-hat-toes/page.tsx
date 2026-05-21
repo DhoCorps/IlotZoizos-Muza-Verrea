@@ -1,11 +1,9 @@
 // apps/hub-central/app/[locale]/(inceptions)/tom-hat-toes/page.tsx
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { useSession, signOut } from 'next-auth/react'; 
+import React from 'react';
 import { 
-  Loader2, Plus, Network, UserPlus, ShieldCheck, 
-  Trash2, X, BarChart3, Search, Check, AlertCircle, LogOut
+  Loader2, Plus, Trash2, X, BarChart3, Search, Check, AlertCircle, LogOut, ShieldCheck
 } from 'lucide-react';
 
 import { ProjectDashboard } from '../../../../components/projects/ProjectDashboard';
@@ -13,14 +11,13 @@ import { ProjectForm } from '../../../../components/projects/ProjectForm';
 import { TaskCard } from '../../../../components/tasks/TaskCard';
 import { TaskForm } from '../../../../components/tasks/TaskForm';
 import { TeamForm } from '../../../../components/teams/TeamForm'; 
-import { TeamCard } from '../../../../components/teams/TeamCard'; // 🪡 SUTURE : Importation du maillon manquant de l'IHM
+import { TeamCard } from '../../../../components/teams/TeamCard'; 
 import KanbanDrawer from '../../../../components/kanban/KanbanDrawer'; 
 import CalendarView from '../../../../components/calendars/CalendarView';
 
 import { PomodoroProvider } from '../../../../context/PomodoroContext'; 
 import PomodoroHUD from '../../../../components/hub/PomodoroHUD'; 
-
-import { teams as apiTeams, projects as apiProjects } from '../../../../lib/apiClient';
+import { useHubNexus } from './useHubNexus';
 
 import dynamic from 'next/dynamic';
 
@@ -30,394 +27,9 @@ const ContextualGraph = dynamic(
 );
 
 export default function TomHatToesHub() {
-  const { data: session, status } = useSession(); 
-  const userCaps = (session as any)?.user?.capabilities || [];
-  
-  // --- ÉTATS DU NEXUS ---
-  const [inceptions, setInceptions] = useState<any[]>([]);
-  const [projects, setProjects] = useState<any[]>([]);
-  const [projectTasks, setProjectTasks] = useState<any[]>([]); 
-  
-  const [selectedProjectUid, setSelectedProjectUid] = useState<string | null>(null);
-  const [selectedTeamUid, setSelectedTeamUid] = useState<string | null>(null); 
-  const [selectedTaskUid, setSelectedTaskUid] = useState<string | null>(null); // 🪡 SUTURE : Pivot pour l'édition d'Atome
-  
-  const [loading, setLoading] = useState(true);
-  const [activeInceptionId, setActiveInceptionId] = useState<string | null>(null);
-  
-  const [activeTab, NavActiveTab] = useState<'teams' | 'projects' | 'horizon'>('teams');
-  const [isKanbanOpen, setIsKanbanOpen] = useState(false); 
+  const nexus = useHubNexus();
 
-  const [searchBird, setSearchBird] = useState("");
-  const [foundBirds, setFoundBirds] = useState<any[]>([]);
-  const [isRecruiting, setIsRecruiting] = useState(false);
-  const [isExiling, setIsExiling] = useState(false);
-  const [isResponding, setIsResponding] = useState(false);
-  const [selectedSlotDate, setSelectedSlotDate] = useState<Date | null>(null);
-  
-  // Déduction dynamique du Nid actuellement ausculté
-  const activeTeam = useMemo(() => {
-    return inceptions.find(t => t.uid === selectedTeamUid) || null;
-  }, [inceptions, selectedTeamUid]);
-
-  // 🪡 SUTURE DE L'ALBUM SOUVERAIN : Alignement du mode Visiteur d'Honneur (Invitation reçue non encore acceptée)
-  const isInviteeMode = useMemo(() => {
-    return activeTeam?.isInvitation === true;
-  }, [activeTeam]);
-
-  // --- 🪡 SUTURE : Synchronisation Silice & Graphe ---
-  const refreshData = async () => {
-    setLoading(true);
-    try {
-      // 🪡 SUTURE : Utilisation des os unifiés de l'apiClient
-      const [teamsRes, projectsRes] = await Promise.all([
-        apiTeams.getAll(),
-        apiProjects.getAll()
-      ]);
-
-      setInceptions(teamsRes);
-      setProjects(projectsRes);
-
-      if (selectedProjectUid) {
-        await fetchTasks(selectedProjectUid);
-      }
-    } catch (err) {
-      console.error("🚨 Échec de synchronisation Hub via Client API:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { 
-    if (status === 'authenticated') refreshData(); 
-  }, [status]); 
-
-  // --- 🪡 SUTURE : Logique Matrioshka (Filtrage) ---
-  const visibleProjects = useMemo(() => {
-    if (!selectedTeamUid) return []; 
-    return projects.filter(p => p.ownerUid === selectedTeamUid);
-  }, [projects, selectedTeamUid]);
-
-  // 🪡 SUTURE : L'Amorceur Automatique
-  useEffect(() => {
-    if (activeTab === 'projects' && visibleProjects.length > 0 && !selectedProjectUid) {
-      fetchTasks(visibleProjects[0].uid);
-    }
-  }, [visibleProjects, activeTab]);
-
-  const fetchTasks = async (pUid: string) => {
-    try {
-      // 🪡 SUTURE : Ajout d'un Cache-Buster (timestamp) pour force la lecture de la Silice
-      const res = await fetch(`/api/tasks?projectUid=${pUid}&t=${Date.now()}`).then(r => r.json());
-      const tasks = Array.isArray(res) ? res : (res.data || []);
-      setProjectTasks(tasks);
-      setSelectedProjectUid(pUid);
-    } catch (err) {
-      console.error("🔥 Erreur radar tâches :", err);
-      setProjectTasks([]); 
-    }
-  };
-  
-  const handleSearchBirds = async (val: string) => {
-    setSearchBird(val);
-    if (val.length < 2) return setFoundBirds([]);
-    try {
-      const res = await fetch(`/api/users/recruitable?search=${val}`).then(r => r.json());
-      setFoundBirds(Array.isArray(res) ? res : (res.data || []));
-    } catch (err) { console.error("Erreur radar", err); }
-  };
-
-  const [selectedCaps, setSelectedCaps] = useState<string[]>(['project:read', 'task:create']);
-
-  const inviteBirdToTeam = async (teamUid: string, userUid: string) => {
-    setIsRecruiting(true);
-    try {
-      await apiTeams.inviteBird(teamUid, userUid, selectedCaps);
-      refreshData();
-      setActiveInceptionId(null);
-      setSearchBird("");
-      setFoundBirds([]);
-    } catch (err) {
-      console.error("🔥 Erreur Recruitment unifié :", err);
-    } finally {
-      setIsRecruiting(false); 
-    }
-  };
-
-  // 🌟 SUTURE : ACTIONNEUR DU PACTE D'ADHÉSION EN CASCADE PURIFIÉE
-  const handleRespondToInvitation = async (action: 'ACCEPT' | 'REFUSE' | 'PURGE_REFUSE', teamUid?: string) => {
-    const targetUid = teamUid || selectedTeamUid;
-    if (!targetUid) return;
-    setIsResponding(true);
-    try {
-      const res = await fetch(`/api/teams/${targetUid}/respond`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action })
-      });
-      if (res.ok) {
-        await refreshData();
-        if (action === 'REFUSE' || action === 'PURGE_REFUSE') {
-          setSelectedTeamUid(null);
-          setSelectedProjectUid(null);
-          NavActiveTab('teams');
-        }
-      }
-    } catch (err) {
-      console.error("🔥 Erreur de traitement du pacte :", err);
-    } finally {
-      setIsResponding(false);
-    }
-  };
-
-  // 🪡 SUTURE AUTOMATIQUE : ACTIONNEUR DE GOUVERNANCE (ANNULER / RELANCER UNE INVITATION)
-  const handleManageInvitation = async (teamUid: string, targetUid: string, action: 'CANCEL' | 'REINVITE') => {
-    setLoading(true);
-    try {
-      if (action === 'CANCEL') {
-        await fetch(`/api/teams/${teamUid}/invitations/${targetUid}`, { method: 'DELETE' });
-      } else if (action === 'REINVITE') {
-        await apiTeams.inviteBird(teamUid, targetUid, selectedCaps);
-      }
-      await refreshData();
-    } catch (err) {
-      console.error("🔥 Erreur de régulation de volée :", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 🪡 SUTURE MAJEURE : IMPLEMENTATION DES ACTIONNEURS DE SUPPRESSION PHYSIQUE
-  const handleDeleteTeam = async (teamUid: string) => {
-    if (!window.confirm("Êtes-vous sûr de vouloir dissoudre définitivement ce Nid ?")) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/teams/${teamUid}`, { method: 'DELETE' });
-      if (res.ok) {
-        if (selectedTeamUid === teamUid) {
-          setSelectedTeamUid(null);
-          setSelectedProjectUid(null);
-          setProjectTasks([]);
-        }
-        await refreshData();
-      }
-    } catch (err) {
-      console.error("🔥 Impossible de dissoudre le Nid parent :", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteProject = async (projectUid: string) => {
-    if (!window.confirm("Êtes-vous sûr de vouloir raser définitivement ce Chantier ?")) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/projects/${projectUid}`, { method: 'DELETE' });
-      if (res.ok) {
-        if (selectedProjectUid === projectUid) {
-          setSelectedProjectUid(null);
-          setProjectTasks([]);
-        }
-        await refreshData();
-      }
-    } catch (err) {
-      console.error("🔥 Impossible de détruire le Chantier :", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteTask = async (taskUid: string) => {
-    if (!window.confirm("Êtes-vous sûr de vouloir désintégrer cet Atome ?")) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/tasks/${taskUid}`, { method: 'DELETE' });
-      if (res.ok) {
-        if (selectedTaskUid === taskUid) {
-          setSelectedTaskUid(null);
-        }
-        if (selectedProjectUid) {
-          await fetchTasks(selectedProjectUid);
-        }
-        await refreshData();
-      }
-    } catch (err) {
-      console.error("🔥 Erreur de désintégration atomique :", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleUpdateTask = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!selectedTaskUid || isInviteeMode) return;
-
-    const formData = new FormData(e.currentTarget);
-    const rawDate = formData.get('scheduledAt') as string; // Capture la date
-    
-    const taskPayload = {
-      content: {
-        title: formData.get('title'),
-        description: formData.get('description'),
-      },
-      priority: formData.get('priority'),
-      status: formData.get('status'), 
-      parentUid: formData.get('parentUid') || null, 
-      assigneeUids: Array.from(formData.getAll('assignees')), 
-      pomodoros: {
-        estimated: Number(formData.get('pomoEst')),
-      },
-      metrics: {
-        complexity: Number(formData.get('complexity')) || 1
-      },
-      // 🪡 SUTURE TEMPORELLE : On formate la date ici, ou on envoie 'null' pour l'effacer
-      dates: {
-        scheduledAt: rawDate ? new Date(rawDate).toISOString() : null
-      }
-    };
-
-    try {
-      setLoading(true);
-      const res = await fetch(`/api/tasks/${selectedTaskUid}`, {
-        method: 'PATCH', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(taskPayload)
-      });
-      
-      if (res.ok) {
-        setActiveInceptionId(null);
-        setSelectedTaskUid(null);
-        if (selectedProjectUid) await fetchTasks(selectedProjectUid);
-      } else {
-        const err = await res.json();
-        console.error("❌ Échec de la mutation de l'Atome :", err.error);
-        alert(`Impossible d'enregistrer les modifications : ${err.error}`);
-      }
-    } catch (err) {
-      console.error("🔥 Erreur radar lors de la modification de l'Atome :", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!session?.user?.uid || isInviteeMode) return; 
-
-    const formData = new FormData(e.currentTarget);
-    const pUid = (formData.get('projectUid') as string) || selectedProjectUid;
-    const rawDate = formData.get('scheduledAt') as string; // Capture la date
-
-    const taskPayload = {
-      projectUid: pUid,
-      creatorUid: (session as any).user.uid, 
-      parentUid: formData.get('parentUid') || null,
-      assigneeUids: Array.from(formData.getAll('assignees')),
-      title: formData.get('title'), 
-      description: formData.get('description'),
-      priority: formData.get('priority'),
-      pomoEst: Number(formData.get('pomoEst')),
-      complexity: Number(formData.get('complexity')) || 1,
-      // 🪡 SUTURE TEMPORELLE : Conversion absolue depuis le client
-      scheduledAt: rawDate ? new Date(rawDate).toISOString() : undefined 
-    };
-
-    try {
-      setLoading(true);
-      const res = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(taskPayload)
-      });
-      
-      if (res.ok) {
-        handleCreateSuccess(pUid || undefined);
-      } else {
-        const err = await res.json();
-        console.error("❌ Échec de scellage :", err.error);
-      }
-    } catch (err) {
-      console.error("🔥 Erreur création atome:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 🌟 SUTURE : ENVOL VOLONTAIRE D'UNE ESCOUADE
-  const handleLeaveTeamVoluntarily = async (teamUid: string, mode: 'CLEAN' | 'TRACE') => {
-    const confirmLeave = window.confirm(
-      mode === 'CLEAN' 
-        ? "Quitter définitivement en emportant toutes vos plumes (effacera TOUTES vos tâches créées ici) ?" 
-        : "Quitter ce Nid en laissant vos traces (vos tâches resteront gravées dans l'histoire de l'équipe) ?"
-    );
-    if (!confirmLeave) return;
-
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/teams/${teamUid}/leave`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode })
-      });
-      if (res.ok) {
-        setSelectedTeamUid(null);
-        setSelectedProjectUid(null);
-        NavActiveTab('teams');
-        await refreshData();
-      } else {
-        const err = await res.json();
-        console.error("❌ Échec du détachement de l'escouade :", err.error);
-      }
-    } catch (err) {
-      console.error("🔥 Impossible de rompre le lien volontaire :", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  const handleCreateSuccess = (pUid?: string) => {
-    refreshData();
-    setActiveInceptionId(null);
-    setSelectedTaskUid(null);
-    setSelectedSlotDate(null); // On purge la mémoire du calendrier
-    if (pUid || selectedProjectUid) {
-      fetchTasks(pUid || selectedProjectUid || "");
-    }
-  };
-
-  const handleLeaveSanctuary = async () => {
-    if (!session?.user?.uid) return;
-    const confirmExile = window.confirm("Dissoudre ton lien avec l'Îlot ?");
-    if (!confirmExile) return;
-
-    setIsExiling(true);
-    try {
-      // 🪡 SUTURE : Ajout du mode et du teamId (nécessaire pour satisfaire la validation de ton API)
-      // Si tu n'as pas de teamId spécifique ici, on envoie le contexte global ou une valeur par défaut.
-      const res = await fetch(`/api/users/${(session as any).user.uid}/actions/leave`, { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          mode: 'CLEAN', // Protocole par défaut pour une purge totale
-          teamId: 'GLOBAL_SYSTEM' // Indique au serveur qu'il s'agit d'une action système
-        })
-      });
-      
-      if (res.ok) {
-        await signOut({ callbackUrl: '/' });
-      } else {
-        const errorData = await res.json();
-        console.error("❌ Échec de la dissolution :", errorData.error);
-        alert("L'envol a rencontré une résistance : " + (errorData.error || "Erreur inconnue"));
-      }
-    } catch (err) {
-      console.error("🔥 Erreur critique lors de l'exil :", err);
-    } finally {
-      setIsExiling(false);
-    }
-  };
-
-  if (status === 'loading' || (loading && inceptions.length === 0)) return (
+  if (nexus.status === 'loading' || (nexus.loading && nexus.inceptions.length === 0)) return (
     <div className="min-h-screen flex items-center justify-center bg-[#05070A]">
       <Loader2 className="w-10 h-10 animate-spin text-[#E5484D]" />
     </div>
@@ -488,75 +100,72 @@ export default function TomHatToesHub() {
     <PomodoroProvider>
       <div className="min-h-screen bg-[#05070A] text-slate-100 p-6 md:p-12 relative overflow-x-hidden">
         
-        {(selectedProjectUid || activeInceptionId) && (
+        {(nexus.selectedProjectUid || nexus.activeInceptionId) && (
           <div className="fixed inset-0 pointer-events-none z-0 opacity-40">
              <ContextualGraph 
-                rootUid={selectedProjectUid || activeInceptionId || ''} 
-                onNodeDoubleClick={(uid) => setActiveInceptionId(uid)}
+                rootUid={nexus.selectedProjectUid || nexus.activeInceptionId || ''} 
+                onNodeDoubleClick={(uid) => nexus.setActiveInceptionId(uid)}
               />
           </div>
         )}
 
-        {/* 🌟 SUTURE VISUELLE : LA BANNIÈRE STICKY DU PACTE D'ADHÉSION */}
-        {selectedTeamUid && isInviteeMode && (
+        {nexus.selectedTeamUid && nexus.isInviteeMode && (
           <div className="relative z-50 max-w-7xl mx-auto mb-6 p-4 bg-gradient-to-r from-[#E5484D]/20 to-amber-500/10 border border-[#E5484D]/30 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
             <div className="flex items-center gap-3">
               <AlertCircle className="text-[#E5484D] animate-pulse shrink-0" size={20} />
               <div>
                 <p className="text-xs font-black uppercase tracking-wide text-slate-200">Mode Éclaireur : Territoire en Consultation</p>
-                <p className="text-[11px] font-mono text-slate-400">Vous êtes invité à rejoindre l'escouade "{activeTeam?.name}". Explorez ses projets avant de valider.</p>
+                <p className="text-[11px] font-mono text-slate-400">Vous êtes invité à rejoindre l'escouade "{nexus.activeTeam?.name}". Explorez ses projets avant de valider.</p>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <button 
-                onClick={() => handleRespondToInvitation('REFUSE')} 
-                disabled={isResponding}
+                onClick={() => nexus.handleRespondToInvitation('REFUSE')} 
+                disabled={nexus.isResponding}
                 className="px-4 py-2 bg-black/40 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-white hover:border-red-500/40 transition-all"
               >
                 Refuser
               </button>
-              {/* 🪡 SUTURE : Ajout du bouton d'effacement mémoriel complet directement sur le bandeau */}
               <button 
                 onClick={() => {
                   if (window.confirm("Effacer définitivement TOUTES vos activités et assignations dans ce Nid ?")) {
-                    handleRespondToInvitation('PURGE_REFUSE');
+                    nexus.handleRespondToInvitation('PURGE_REFUSE');
                   }
                 }}
-                disabled={isResponding}
+                disabled={nexus.isResponding}
                 className="px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-xl text-[10px] font-black uppercase tracking-wider text-red-400 hover:bg-red-500/20 transition-all"
               >
                 Purger & Refuser
               </button>
               <button 
-                onClick={() => handleRespondToInvitation('ACCEPT')} 
-                disabled={isResponding}
+                onClick={() => nexus.handleRespondToInvitation('ACCEPT')} 
+                disabled={nexus.isResponding}
                 className="px-5 py-2 bg-[#E5484D] hover:bg-[#c43d41] rounded-xl text-[10px] font-black uppercase tracking-wider text-white shadow-[0_0_20px_rgba(229,72,77,0.2)] flex items-center gap-2 transition-all"
               >
-                {isResponding ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Signer le Pacte
+                {nexus.isResponding ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Signer le Pacte
               </button>
             </div>
           </div>
         )}
 
-        {/* 🌟 SUTURE VISUELLE : LA BANNIÈRE DE DÉSENGAGEMENT SOUVERAIN */}
-        {selectedTeamUid && !isInviteeMode && activeTeam?.ownerUid !== (session?.user as any)?.uid && (
+        {nexus.selectedTeamUid && !nexus.isInviteeMode && nexus.activeTeam?.ownerUid !== (nexus.session?.user as any)?.uid && (
           <div className="relative z-50 max-w-7xl mx-auto mb-6 p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in duration-300">
             <div className="flex items-center gap-3">
               <LogOut className="text-[#E5484D] shrink-0" size={18} />
               <div>
                 <p className="text-xs font-black uppercase tracking-wide text-slate-200">Désengagement Volontaire</p>
-                <p className="text-[11px] font-mono text-slate-400">Vous êtes membre de l'escouade "{activeTeam?.name}". Vous êtes libre de vous en détacher.</p>
+                <p className="text-[11px] font-mono text-slate-400">Vous êtes membre de l'escouade "{nexus.activeTeam?.name}". Vous êtes libre de vous en détacher.</p>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <button 
-                onClick={() => handleLeaveTeamVoluntarily(selectedTeamUid, 'CLEAN')} 
+                onClick={() => nexus.handleLeaveTeamVoluntarily(nexus.selectedTeamUid!, 'CLEAN')} 
                 className="px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-xl text-[10px] font-black uppercase tracking-wider text-red-400 hover:bg-red-500/20 transition-all"
               >
                 Partir avec mes plumes (Clean)
               </button>
               <button 
-                onClick={() => handleLeaveTeamVoluntarily(selectedTeamUid, 'TRACE')} 
+                onClick={() => nexus.handleLeaveTeamVoluntarily(nexus.selectedTeamUid!, 'TRACE')} 
                 className="px-3 py-2 bg-slate-850 border border-white/5 rounded-xl text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-white hover:bg-white/5 transition-all"
               >
                 Laisser mes traces (Trace)
@@ -576,15 +185,15 @@ export default function TomHatToesHub() {
           </div>
 
           <div className="flex items-center gap-4">
-            <button onClick={handleLeaveSanctuary} disabled={isExiling} className="p-4 border border-red-900/30 rounded-xl hover:bg-red-500/10 text-red-600 disabled:opacity-50 transition-all">
+            <button onClick={nexus.handleLeaveSanctuary} disabled={nexus.isExiling} className="p-4 border border-red-900/30 rounded-xl hover:bg-red-500/10 text-red-600 disabled:opacity-50 transition-all">
               <Trash2 className="w-4 h-4" />
             </button>
             <button 
-              onClick={() => { if(!isInviteeMode) { setActiveInceptionId('global'); } }}
-              disabled={isInviteeMode && activeTab === 'projects'}
+              onClick={() => { if(!nexus.isInviteeMode) { nexus.setActiveInceptionId('global'); } }}
+              disabled={nexus.isInviteeMode && nexus.activeTab === 'projects'}
               className="px-6 py-4 bg-[#E5484D]/10 border border-[#E5484D]/20 rounded-xl text-[10px] font-black uppercase tracking-widest text-[#E5484D] hover:bg-[#E5484D]/20 disabled:opacity-20 disabled:cursor-not-allowed transition-all"
             >
-              <Plus className="w-4 h-4 mr-2 inline" /> {activeTab === 'teams' ? 'Fonder un Nid' : 'Sceller un Chantier'}
+              <Plus className="w-4 h-4 mr-2 inline" /> {nexus.activeTab === 'teams' ? 'Fonder un Nid' : 'Sceller un Chantier'}
             </button>
           </div>
         </header>
@@ -593,125 +202,109 @@ export default function TomHatToesHub() {
           {['teams', 'projects', 'horizon'].map((tabId) => (
             <button 
               key={tabId}
-              onClick={() => NavActiveTab(tabId as any)}
-              className={`pb-4 text-[11px] uppercase font-black tracking-widest transition-all relative ${activeTab === tabId ? 'text-[#E5484D]' : 'text-slate-600 hover:text-slate-300'}`}
+              onClick={() => nexus.NavActiveTab(tabId as any)}
+              className={`pb-4 text-[11px] uppercase font-black tracking-widest transition-all relative ${nexus.activeTab === tabId ? 'text-[#E5484D]' : 'text-slate-600 hover:text-slate-300'}`}
             >
               {tabId === 'teams' ? 'Escouades (Nids)' : tabId === 'projects' ? 'Chantiers (Projets)' : 'Horizon'}
-              {activeTab === tabId && <div className="absolute bottom-0 left-0 w-full h-[2px] bg-[#E5484D] shadow-[0_0_10px_#E5484D]" />}
+              {nexus.activeTab === tabId && <div className="absolute bottom-0 left-0 w-full h-[2px] bg-[#E5484D] shadow-[0_0_10px_#E5484D]" />}
             </button>
           ))}
         </nav>
 
         <main className="relative z-10">
-          {activeTab === 'teams' ? (
+          {nexus.activeTab === 'teams' ? (
             <div className="grid grid-cols-1 gap-6">
-              {inceptions.map((team) => (
+              {nexus.inceptions.map((team) => (
                 <TeamCard
                   key={team.uid}
                   team={team}
-                  isActive={selectedTeamUid === team.uid}
+                  isActive={nexus.selectedTeamUid === team.uid}
                   isInvitation={team.isInvitation === true}
                   onFocus={(uid) => {
-                    setSelectedTeamUid(uid);
+                    nexus.setSelectedTeamUid(uid);
                     if (team.isInvitation !== true) {
-                      if (userCaps.includes('team:update') || userCaps.includes('*')) {
-                        setActiveInceptionId('team_edit');
+                      if (nexus.userCaps.includes('team:update') || nexus.userCaps.includes('*')) {
+                        nexus.setActiveInceptionId('team_edit');
                       }
                     }
                   }}
-                  onRecruit={(uid) => {
-                    setActiveInceptionId(uid);
-                  }}
+                  onRecruit={(uid) => nexus.setActiveInceptionId(uid)}
                   onCreateProject={(uid) => {
-                    setSelectedTeamUid(uid);
-                    NavActiveTab('projects');
-                    setActiveInceptionId('global');
+                    nexus.setSelectedTeamUid(uid);
+                    nexus.NavActiveTab('projects');
+                    nexus.setActiveInceptionId('global');
                   }}
-                  onRespond={(uid, action) => {
-                    handleRespondToInvitation(action as any, uid);
-                  }}
+                  onRespond={(uid, action) => nexus.handleRespondToInvitation(action as any, uid)}
                   onViewProjects={(uid) => {
-                    setSelectedTeamUid(uid);
-                    setSelectedProjectUid(null);
-                    NavActiveTab('projects');
+                    nexus.setSelectedTeamUid(uid);
+                    nexus.setSelectedProjectUid(null);
+                    nexus.NavActiveTab('projects');
                   }}
-                  onManageInvitation={handleManageInvitation} 
-                  onDelete={handleDeleteTeam}
+                  onManageInvitation={nexus.handleManageInvitation} 
+                  onDelete={nexus.handleDeleteTeam}
                 />
               ))}
             </div>
-          ) : activeTab === 'projects' ? (
+          ) : nexus.activeTab === 'projects' ? (
             <div className="space-y-12">
               <ProjectDashboard 
-                projects={visibleProjects} 
-                onViewTasks={fetchTasks} 
+                projects={nexus.visibleProjects} 
+                onViewTasks={nexus.fetchTasks} 
                 onEditProject={(uid) => { 
-                  if (!isInviteeMode) {
-                    setSelectedProjectUid(uid); 
-                    setActiveInceptionId('project_edit'); 
+                  if (!nexus.isInviteeMode) {
+                    nexus.setSelectedProjectUid(uid); 
+                    nexus.setActiveInceptionId('project_edit'); 
                   }
                 }} 
                 onCreateTask={(uid) => { 
-                  if (!isInviteeMode) {
-                    setSelectedProjectUid(uid); 
-                    fetchTasks(uid); 
-                    setActiveInceptionId('task_new'); 
+                  if (!nexus.isInviteeMode) {
+                    nexus.setSelectedProjectUid(uid); 
+                    nexus.fetchTasks(uid); 
+                    nexus.setActiveInceptionId('task_new'); 
                   }
                 }} 
-                onDelete={handleDeleteProject}
+                onDelete={nexus.handleDeleteProject}
               />
 
-              {selectedProjectUid && (
+              {nexus.selectedProjectUid && (
                 <div className="mt-12 p-8 bg-white/[0.02] border border-white/5 rounded-3xl animate-in fade-in slide-in-from-bottom-4 duration-500">
                   <div className="flex justify-between items-center mb-8">
                     <h3 className="text-2xl font-black uppercase flex items-center gap-3">
                       <BarChart3 className="text-[#E5484D]" /> Atomes du Chantier
                     </h3>
-                    <button onClick={() => setIsKanbanOpen(true)} className="px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-[10px] uppercase font-black">
+                    <button onClick={() => nexus.setIsKanbanOpen(true)} className="px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-[10px] uppercase font-black">
                       Ouvrir le Kanban
                     </button>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {projectTasks.map(task => (
-                      <div 
-                        key={task.uid} 
-                        className="relative group/atome cursor-pointer"
-                        onClick={() => {
-                          if (!isInviteeMode) {
-                            setSelectedTaskUid(task.uid);
-                        
-                          }
-                        }}
-                      >
-                        {/* 🪡 SUTURE : Transmission de la prop onEdit pour intercepter le clic du crayon */}
+                    {nexus.projectTasks.map(task => (
+                      <div key={task.uid} className="relative group/atome cursor-pointer">
                         <TaskCard 
                           task={task} 
-                          onStatusChange={refreshData} 
-                          onDelete={handleDeleteTask} 
+                          onStatusChange={nexus.refreshData} 
+                          onDelete={nexus.handleDeleteTask} 
                           onEdit={(t) => {
-                            if (!isInviteeMode) {
-                              setSelectedTaskUid(t.uid);
-                              setActiveInceptionId('task_edit');
+                            if (!nexus.isInviteeMode) {
+                              nexus.setSelectedTaskUid(t.uid);
+                              nexus.setActiveInceptionId('task_edit');
                             }
                           }}
                         />
-                        
-                        {!isInviteeMode && (userCaps.includes('task:update') || userCaps.includes('*'))}
                       </div>
                     ))}
                     
                     <button 
-                      onClick={() => { if(!isInviteeMode) { setActiveInceptionId('task_new'); } }} 
-                      disabled={isInviteeMode}
+                      onClick={() => { if(!nexus.isInviteeMode) { nexus.setActiveInceptionId('task_new'); } }} 
+                      disabled={nexus.isInviteeMode}
                       className={`border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center transition-all ${
-                        isInviteeMode 
+                        nexus.isInviteeMode 
                           ? 'border-white/5 text-slate-700 cursor-not-allowed bg-black/10' 
                           : 'border-white/5 text-slate-600 hover:text-[#E5484D]'
                       }`}
                     >
                       <Plus /> 
                       <span className="text-[10px] font-black uppercase mt-2">
-                        {isInviteeMode ? "Aura verrouillée (Lecture)" : "Nouvel Atome"}
+                        {nexus.isInviteeMode ? "Aura verrouillée (Lecture)" : "Nouvel Atome"}
                       </span>
                     </button>
                   </div>
@@ -720,68 +313,67 @@ export default function TomHatToesHub() {
             </div>
           ) : (
             <CalendarView 
-              tasks={projectTasks} 
+              tasks={nexus.projectTasks} 
               onEmptySlotClick={(date) => {
-                setSelectedSlotDate(date);
-                if (!isInviteeMode) {
-                  setActiveInceptionId('task_new');
+                nexus.setSelectedSlotDate(date);
+                if (!nexus.isInviteeMode) {
+                  nexus.setActiveInceptionId('task_new');
                 }
               }} 
-              onDelete={handleDeleteTask} 
+              onDelete={nexus.handleDeleteTask} 
               onEdit={(t) => {
-                if (!isInviteeMode) {
-                  setSelectedTaskUid(t.uid);
-                  setActiveInceptionId('task_edit');
+                if (!nexus.isInviteeMode) {
+                  nexus.setSelectedTaskUid(t.uid);
+                  nexus.setActiveInceptionId('task_edit');
                 }
               }}
-              // 🪡 SUTURE : On ordonne le rechargement dès que l'Atome a atterri
               onTaskDrop={() => {
-                if (selectedProjectUid) fetchTasks(selectedProjectUid);
+                if (nexus.selectedProjectUid) nexus.fetchTasks(nexus.selectedProjectUid);
               }}
             />
           )}
         </main>
 
-        {activeInceptionId && (
+        {nexus.activeInceptionId && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-[#05070A]/95 backdrop-blur-xl">
              <div className="w-full max-w-2xl bio-card p-10 relative border border-white/5">
-                <button onClick={() => { setActiveInceptionId(null); setFoundBirds([]); setSelectedTaskUid(null); setSelectedSlotDate(null); }} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20} /></button>
+                <button onClick={() => { nexus.setActiveInceptionId(null); nexus.setSelectedTaskUid(null); nexus.setSelectedSlotDate(null); }} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20} /></button>
                 
-                {activeInceptionId === 'task_new' || activeInceptionId === 'task_edit' ? (
+                {nexus.activeInceptionId === 'task_new' || nexus.activeInceptionId === 'task_edit' ? (
                   <TaskForm 
-                    projectUid={selectedProjectUid} 
-                    birds={foundBirds} 
-                    existingTasks={projectTasks}
-                    initialScheduledDate={selectedSlotDate}
-                    onCancel={() => {setSelectedSlotDate(null); setActiveInceptionId(null); }} 
-                    onSubmit={activeInceptionId === 'task_edit' ? handleUpdateTask : handleCreateTask}  
-                    projectCapabilities={userCaps} 
-                    loading={loading} 
-                    initialData={activeInceptionId === 'task_edit' ? projectTasks.find(t => t.uid === selectedTaskUid) : null}
+                    projectUid={nexus.selectedProjectUid} 
+                    birds={nexus.foundBirds} 
+                    existingTasks={nexus.projectTasks}
+                    initialScheduledDate={nexus.selectedSlotDate}
+                    onCancel={() => { nexus.setSelectedSlotDate(null); nexus.setActiveInceptionId(null); }} 
+                    onSubmit={nexus.activeInceptionId === 'task_edit' ? nexus.handleUpdateTask : nexus.handleCreateTask}  
+                    projectCapabilities={nexus.userCaps} 
+                    loading={nexus.loading} 
+                    initialData={nexus.activeInceptionId === 'task_edit' ? nexus.projectTasks.find(t => t.uid === nexus.selectedTaskUid) : null}
                   />
-                ) : (activeInceptionId === 'global' || activeInceptionId === 'project_edit' || activeInceptionId === 'team_edit') ? (
-                  (activeTab === 'teams' && activeInceptionId !== 'project_edit') || activeInceptionId === 'team_edit' ? (
+                ) : (nexus.activeInceptionId === 'global' || nexus.activeInceptionId === 'project_edit' || nexus.activeInceptionId === 'team_edit') ? (
+                  (nexus.activeTab === 'teams' && nexus.activeInceptionId !== 'project_edit') || nexus.activeInceptionId === 'team_edit' ? (
                     <TeamForm 
-                      onSuccess={handleCreateSuccess} 
-                      onCancel={() => setActiveInceptionId(null)} 
-                      userCapabilities={userCaps} 
-                      initialData={activeInceptionId === 'team_edit' ? inceptions.find(t => t.uid === selectedTeamUid) : null}
+                      onSuccess={nexus.handleCreateSuccess} 
+                      onCancel={() => nexus.setActiveInceptionId(null)} 
+                      userCapabilities={nexus.userCaps} 
+                      initialData={nexus.activeInceptionId === 'team_edit' ? nexus.inceptions.find(t => t.uid === nexus.selectedTeamUid) : null}
                     />
                   ) : (
                     <ProjectForm 
-                      ownerUid={selectedTeamUid || ''} 
-                      existingProjects={projects} 
-                      userCapabilities={userCaps} 
-                      onSuccess={handleCreateSuccess} 
-                      onCancel={() => setActiveInceptionId(null)} 
-                      initialData={activeInceptionId === 'project_edit' ? projects.find(p => p.uid === selectedProjectUid) : null}
+                      ownerUid={nexus.selectedTeamUid || ''} 
+                      existingProjects={nexus.projects} 
+                      userCapabilities={nexus.userCaps} 
+                      onSuccess={nexus.handleCreateSuccess} 
+                      onCancel={() => nexus.setActiveInceptionId(null)} 
+                      initialData={nexus.activeInceptionId === 'project_edit' ? nexus.projects.find(p => p.uid === nexus.selectedProjectUid) : null}
                     />
                   )
                 ) : (
                   <div className="space-y-6">
                     <div className="relative">
                       <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                      <input type="text" placeholder="Chercher un oiseau..." value={searchBird} onChange={(e) => handleSearchBirds(e.target.value)} className="w-full bg-black/40 border border-white/10 p-4 pl-12 rounded-xl outline-none focus:border-[#E5484D] transition-all" />
+                      <input type="text" placeholder="Chercher un oiseau..." value={nexus.searchBird} onChange={(e) => nexus.handleSearchBirds(e.target.value)} className="w-full bg-black/40 border border-white/10 p-4 pl-12 rounded-xl outline-none focus:border-[#E5484D] transition-all" />
                     </div>
 
                     <div className="p-5 bg-white/[0.01] border border-white/5 rounded-2xl space-y-4 max-h-80 overflow-y-auto custom-scrollbar">
@@ -794,7 +386,7 @@ export default function TomHatToesHub() {
                           <h4 className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">{group.title}</h4>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
                             {group.caps.map(cap => {
-                              const isChecked = selectedCaps.includes(cap.id);
+                              const isChecked = nexus.selectedCaps.includes(cap.id);
                               return (
                                 <label key={cap.id} className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all border ${isChecked ? 'bg-[#E5484D]/10 border-[#E5484D]/30 text-slate-100' : 'bg-black/20 border-white/5 text-slate-500 hover:border-white/10'}`}>
                                   <input 
@@ -802,9 +394,9 @@ export default function TomHatToesHub() {
                                     checked={isChecked} 
                                     onChange={() => {
                                       if (isChecked) {
-                                        setSelectedCaps(selectedCaps.filter(c => c !== cap.id));
+                                        nexus.setSelectedCaps(nexus.selectedCaps.filter(c => c !== cap.id));
                                       } else {
-                                        setSelectedCaps([...selectedCaps, cap.id]);
+                                        nexus.setSelectedCaps([...nexus.selectedCaps, cap.id]);
                                       }
                                     }}
                                     className="accent-[#E5484D] h-3.5 w-3.5 rounded border-white/10 bg-black/40"
@@ -819,8 +411,8 @@ export default function TomHatToesHub() {
                     </div>
 
                     <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
-                      {foundBirds.map(bird => (
-                        <button key={bird.uid} onClick={() => inviteBirdToTeam(activeInceptionId, bird.uid)} disabled={isRecruiting} className="p-4 bg-white/5 hover:bg-emerald-500/20 rounded-xl flex justify-between items-center transition-all">
+                      {nexus.foundBirds.map(bird => (
+                        <button key={bird.uid} onClick={() => nexus.inviteBirdToTeam(nexus.activeInceptionId!, bird.uid)} disabled={nexus.isRecruiting} className="p-4 bg-white/5 hover:bg-emerald-500/20 rounded-xl flex justify-between items-center transition-all">
                           <span className="font-bold text-slate-200">{bird.pseudo}</span>
                           <Plus size={16} className="text-emerald-400" />
                         </button>
@@ -832,7 +424,7 @@ export default function TomHatToesHub() {
           </div>
         )}
 
-        <KanbanDrawer tasks={projectTasks} isOpen={isKanbanOpen} onClose={() => setIsKanbanOpen(false)} />
+        <KanbanDrawer tasks={nexus.projectTasks} isOpen={nexus.isKanbanOpen} onClose={() => nexus.setIsKanbanOpen(false)} />
         <PomodoroHUD />
       </div>
     </PomodoroProvider>

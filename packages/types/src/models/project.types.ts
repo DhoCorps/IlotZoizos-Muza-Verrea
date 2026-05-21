@@ -7,8 +7,8 @@ import {
 } from './common.types'; 
 
 /**
-  * 🎭 CATÉGORIES D'INTENTION
-  */
+ * 🎭 CATÉGORIES D'INTENTION
+ */
 export const ProjectCategorySchema = z.enum([
   'TECHNICAL', 'ARTISTIC', 'SOCIAL', 'COMMERCIAL', 'RESEARCH', 'OPEN_SOURCE', 'PERSONAL'
 ]);
@@ -16,8 +16,8 @@ export const ProjectCategorySchema = z.enum([
 export const ProjectVisibilitySchema = z.enum(['PUBLIC', 'INTERNAL', 'PRIVATE', 'SECRET', 'OPEN_SOURCE']);
 
 /**
-  * 🏗️ LE SCHÉMA DU CHANTIER (Purifié)
-  */
+ * 🏗️ LE SCHÉMA DU CHANTIER (Purifié)
+ */
 export const ProjectSchema = BaseNodeSchema.extend({
   // --- 🏷️ IDENTITÉ & RÉSONANCE ---
   name: z.string().min(3).max(100),
@@ -28,14 +28,14 @@ export const ProjectSchema = BaseNodeSchema.extend({
   // 🔗 ARCHITECTURE (Récursivité)
   parentId: z.string().nullable().optional(), 
   ownerUid: z.string(),
-  creatorUid: z.string(), // Le propriétaire (Oiseau ou Nid)
-  guardianUid: z.string().optional(), // Le Gardien (anciennement managerId) [cite: 2026-02-11]
-  teamIds: z.array(z.string()).default([]), // Les nids en résonance sur ce chantier
+  creatorUid: z.string(),
+  guardianUid: z.string().optional(),
+  teamIds: z.array(z.string()).default([]),
 
-  // --- 🎨 APPARENCE & VIBRATION [cite: 2026-03-27] ---
+  // --- 🎨 APPARENCE & VIBRATION ---
   appearance: z.object({
     icon: z.string().default('folder'),
-    color: z.string().default('#8b9dc3'), // Gris bleuté privilégié [cite: 2026-03-27]
+    color: z.string().default('#8b9dc3'),
     bannerUrl: z.string().url().optional(),
     avatarUrl: z.string().url().optional(),
   }).default({}),
@@ -46,22 +46,22 @@ export const ProjectSchema = BaseNodeSchema.extend({
   category: ProjectCategorySchema.default('TECHNICAL'),
   visibility: ProjectVisibilitySchema.default('PRIVATE'),
   
+  // 🪡 SUTURE API : Acceptation des dates ISO (String) ou Objets Date
   dates: z.object({
-    start: z.date().optional(),
-    deadline: z.date().optional(),
-    completedAt: z.date().optional(),
-    lastActivity: z.date().default(() => new Date()),
+    start: z.union([z.date(), z.string().datetime()]).optional(),
+    deadline: z.union([z.date(), z.string().datetime()]).optional(),
+    completedAt: z.union([z.date(), z.string().datetime()]).optional(),
+    lastActivity: z.union([z.date(), z.string().datetime()]).default(() => new Date()),
   }).default({}),
 
   // --- 📂 SÉDIMENTATION (Fichiers) ---
-  // 🪡 SUTURE : Alignement avec la structure globale des artefacts
   documents: z.array(z.object({
       uid: z.string(),
       name: z.string(),
       label: z.string(),
       url: z.string(),
       mimeType: z.string(),
-      createdAt: z.date().default(() => new Date())
+      createdAt: z.union([z.date(), z.string().datetime()]).default(() => new Date())
   })).default([]),
   
   // --- 🎯 FEUILLE DE ROUTE (Repères factuels) ---
@@ -71,10 +71,10 @@ export const ProjectSchema = BaseNodeSchema.extend({
       id: z.string(),
       label: z.string(),
       isCompleted: z.boolean().default(false),
-      dueDate: z.date().optional(),
+      dueDate: z.union([z.date(), z.string().datetime()]).optional(),
       weight: z.number().default(1),
     })).default([]),
-    vibrations: z.array(z.object({ // Remplacement des KPIs industriels
+    vibrations: z.array(z.object({
       label: z.string(),
       target: z.number(),
       current: z.number().default(0),
@@ -94,12 +94,12 @@ export const ProjectSchema = BaseNodeSchema.extend({
   }).optional(),
 
   infrastructure: z.object({
-    tools: z.array(z.string()).default([]), // ex: ["Next.js", "Neo4j", "Tailwind"]
+    tools: z.array(z.string()).default([]),
     physicalLocation: z.string().optional(),
     hardwareRequirements: z.array(z.string()).default([]),
   }).default({}),
 
-  // --- 🧠 COMPLEXITÉ & RISQUES [cite: 2026-02-11] ---
+  // --- 🧠 COMPLEXITÉ & RISQUES ---
   health: z.object({
     complexityLevel: z.number().min(1).max(10).default(5),
     riskLevel: z.enum(['SAFE', 'STABLE', 'WARNING', 'CRITICAL']).default('SAFE'),
@@ -114,7 +114,7 @@ export const ProjectSchema = BaseNodeSchema.extend({
     restrictedAccess: z.boolean().default(false),
   }).default({}),
 
-  // --- 🛡️ SÉCURITÉ DU SANCTUAIRE [cite: 2026-02-11] ---
+  // --- 🛡️ SÉCURITÉ DU SANCTUAIRE ---
   moderation: z.object({
     isFlagged: z.boolean().default(false),
     internalNotes: z.string().optional(),
@@ -124,11 +124,13 @@ export const ProjectSchema = BaseNodeSchema.extend({
 export type IProject = z.infer<typeof ProjectSchema>;
 
 /**
-  * 🔗 RÉSONANCE DE CONTRIBUTION
-  */
-export interface IProjectContribution {
-  userUid: string; // Lien avec l'Oiseau
-  projectUid: string; // Lien avec le Chantier
-  since: Date;
-  effortHours: number; // Temps dédié (factuel)
-}
+ * 🔗 RÉSONANCE DE CONTRIBUTION (Schéma Zod)
+ */
+export const ProjectContributionSchema = z.object({
+  userUid: z.string(),
+  projectUid: z.string(),
+  since: z.union([z.date(), z.string().datetime()]),
+  effortHours: z.number().min(0),
+});
+
+export type IProjectContribution = z.infer<typeof ProjectContributionSchema>;
