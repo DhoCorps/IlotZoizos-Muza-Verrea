@@ -62,5 +62,6 @@ export interface ITask {
     createdAt: Date;
     updatedAt: Date;
     deadline?: Date;
+    scheduledAt?: Date | string;
   };
 }

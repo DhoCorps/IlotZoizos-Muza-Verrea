@@ -53,7 +53,8 @@ export default function TomHatToesHub() {
   const [isRecruiting, setIsRecruiting] = useState(false);
   const [isExiling, setIsExiling] = useState(false);
   const [isResponding, setIsResponding] = useState(false);
-
+  const [selectedSlotDate, setSelectedSlotDate] = useState<Date | null>(null);
+  
   // Déduction dynamique du Nid actuellement ausculté
   const activeTeam = useMemo(() => {
     return inceptions.find(t => t.uid === selectedTeamUid) || null;
@@ -252,8 +253,8 @@ export default function TomHatToesHub() {
     if (!selectedTaskUid || isInviteeMode) return;
 
     const formData = new FormData(e.currentTarget);
+    const rawDate = formData.get('scheduledAt') as string; // Capture la date
     
-    // 🪡 SUTURE DE STRUCTURE : Alignement strict sur le maillage attendu par la Silice
     const taskPayload = {
       content: {
         title: formData.get('title'),
@@ -268,6 +269,10 @@ export default function TomHatToesHub() {
       },
       metrics: {
         complexity: Number(formData.get('complexity')) || 1
+      },
+      // 🪡 SUTURE TEMPORELLE : On formate la date ici, ou on envoie 'null' pour l'effacer
+      dates: {
+        scheduledAt: rawDate ? new Date(rawDate).toISOString() : null
       }
     };
 
@@ -280,17 +285,9 @@ export default function TomHatToesHub() {
       });
       
       if (res.ok) {
-        // 🪡 SUTURE DE RAFRAÎCHISSEMENT : 
-        // On évite handleCreateSuccess() pour stopper la collision temporelle.
-        
-        // 1. On ferme le tiroir d'édition instantanément pour la fluidité
         setActiveInceptionId(null);
         setSelectedTaskUid(null);
-
-        // 2. On cible le rechargement EXCLUSIVEMENT sur les Atomes de ce Chantier
-        if (selectedProjectUid) {
-          await fetchTasks(selectedProjectUid);
-        }
+        if (selectedProjectUid) await fetchTasks(selectedProjectUid);
       } else {
         const err = await res.json();
         console.error("❌ Échec de la mutation de l'Atome :", err.error);
@@ -298,6 +295,49 @@ export default function TomHatToesHub() {
       }
     } catch (err) {
       console.error("🔥 Erreur radar lors de la modification de l'Atome :", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!session?.user?.uid || isInviteeMode) return; 
+
+    const formData = new FormData(e.currentTarget);
+    const pUid = (formData.get('projectUid') as string) || selectedProjectUid;
+    const rawDate = formData.get('scheduledAt') as string; // Capture la date
+
+    const taskPayload = {
+      projectUid: pUid,
+      creatorUid: (session as any).user.uid, 
+      parentUid: formData.get('parentUid') || null,
+      assigneeUids: Array.from(formData.getAll('assignees')),
+      title: formData.get('title'), 
+      description: formData.get('description'),
+      priority: formData.get('priority'),
+      pomoEst: Number(formData.get('pomoEst')),
+      complexity: Number(formData.get('complexity')) || 1,
+      // 🪡 SUTURE TEMPORELLE : Conversion absolue depuis le client
+      scheduledAt: rawDate ? new Date(rawDate).toISOString() : undefined 
+    };
+
+    try {
+      setLoading(true);
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(taskPayload)
+      });
+      
+      if (res.ok) {
+        handleCreateSuccess(pUid || undefined);
+      } else {
+        const err = await res.json();
+        console.error("❌ Échec de scellage :", err.error);
+      }
+    } catch (err) {
+      console.error("🔥 Erreur création atome:", err);
     } finally {
       setLoading(false);
     }
@@ -339,48 +379,9 @@ export default function TomHatToesHub() {
     refreshData();
     setActiveInceptionId(null);
     setSelectedTaskUid(null);
+    setSelectedSlotDate(null); // On purge la mémoire du calendrier
     if (pUid || selectedProjectUid) {
       fetchTasks(pUid || selectedProjectUid || "");
-    }
-  };
-
-  const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!session?.user?.uid || isInviteeMode) return; 
-
-    const formData = new FormData(e.currentTarget);
-    const pUid = (formData.get('projectUid') as string) || selectedProjectUid;
-
-    const taskPayload = {
-      projectUid: pUid,
-      creatorUid: (session as any).user.uid, 
-      parentUid: formData.get('parentUid') || null,
-      assigneeUids: Array.from(formData.getAll('assignees')),
-      title: formData.get('title'), 
-      description: formData.get('description'),
-      priority: formData.get('priority'),
-      pomoEst: Number(formData.get('pomoEst')),
-      complexity: Number(formData.get('complexity')) || 1
-    };
-
-    try {
-      setLoading(true);
-      const res = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(taskPayload)
-      });
-      
-      if (res.ok) {
-        handleCreateSuccess(pUid || undefined);
-      } else {
-        const err = await res.json();
-        console.error("❌ Échec de scellage :", err.error);
-      }
-    } catch (err) {
-      console.error("🔥 Erreur création atome:", err);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -721,11 +722,22 @@ export default function TomHatToesHub() {
             <CalendarView 
               tasks={projectTasks} 
               onEmptySlotClick={(date) => {
-                // 🪡 SUTURE : On ouvre TaskForm avec une date pré-remplie
-                setActiveInceptionId('task_new');
-                // Note : Tu devras peut-être ajouter un état global 'scheduledDate' 
-                // pour que TaskForm récupère cette date au montage.
+                setSelectedSlotDate(date);
+                if (!isInviteeMode) {
+                  setActiveInceptionId('task_new');
+                }
               }} 
+              onDelete={handleDeleteTask} 
+              onEdit={(t) => {
+                if (!isInviteeMode) {
+                  setSelectedTaskUid(t.uid);
+                  setActiveInceptionId('task_edit');
+                }
+              }}
+              // 🪡 SUTURE : On ordonne le rechargement dès que l'Atome a atterri
+              onTaskDrop={() => {
+                if (selectedProjectUid) fetchTasks(selectedProjectUid);
+              }}
             />
           )}
         </main>
@@ -733,15 +745,16 @@ export default function TomHatToesHub() {
         {activeInceptionId && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-[#05070A]/95 backdrop-blur-xl">
              <div className="w-full max-w-2xl bio-card p-10 relative border border-white/5">
-                <button onClick={() => { setActiveInceptionId(null); setFoundBirds([]); setSelectedTaskUid(null); }} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20} /></button>
+                <button onClick={() => { setActiveInceptionId(null); setFoundBirds([]); setSelectedTaskUid(null); setSelectedSlotDate(null); }} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20} /></button>
                 
                 {activeInceptionId === 'task_new' || activeInceptionId === 'task_edit' ? (
                   <TaskForm 
                     projectUid={selectedProjectUid} 
                     birds={foundBirds} 
-                    existingTasks={projectTasks} 
-                    onSubmit={activeInceptionId === 'task_edit' ? handleUpdateTask : handleCreateTask} 
-                    onCancel={() => { setActiveInceptionId(null); setSelectedTaskUid(null); }} 
+                    existingTasks={projectTasks}
+                    initialScheduledDate={selectedSlotDate}
+                    onCancel={() => {setSelectedSlotDate(null); setActiveInceptionId(null); }} 
+                    onSubmit={activeInceptionId === 'task_edit' ? handleUpdateTask : handleCreateTask}  
                     projectCapabilities={userCaps} 
                     loading={loading} 
                     initialData={activeInceptionId === 'task_edit' ? projectTasks.find(t => t.uid === selectedTaskUid) : null}

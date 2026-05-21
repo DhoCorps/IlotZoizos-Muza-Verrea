@@ -50,7 +50,8 @@ const TaskSchema = new Schema<TaskDocument>({
   dates: {
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
-    deadline: { type: Date }
+    deadline: { type: Date },
+    scheduledAt: { type: Date }
   }
 }, { 
   timestamps: true,

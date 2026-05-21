@@ -30,6 +30,14 @@ export function TaskForm({
 }: TaskFormProps) {
   const isEdit = !!initialData;
 
+  const formatLocalTime = (d: Date | string | null | undefined) => {
+  if (!d) return '';
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return '';
+  // Ajustement du fuseau horaire pour l'affichage local
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+};
+
   return (
     // 🪡 SUTURE : La clé force React à détruire et recréer le formulaire 
     // à chaque changement de tâche pour garantir que les defaultValue sont fraîches.
@@ -111,7 +119,17 @@ export function TaskForm({
           </select>
         </div>
       </div>
-
+      <div className="flex flex-col gap-2">
+        <label className="text-xs font-bold uppercase text-slate-500 flex items-center gap-2">
+          <CalendarHeart size={14} /> Programmation temporel
+        </label>
+        <input 
+          type="datetime-local" 
+          name="scheduledAt" 
+          defaultValue={formatLocalTime(initialData?.dates?.scheduledAt || initialScheduledDate)}
+          className="w-full bg-black/40 border border-white/5 rounded-xl p-4 text-sm text-white focus:outline-none focus:border-[#E5484D]/50 transition-colors"
+        />
+      </div>
       <div className="p-5 bg-white/[0.02] rounded-2xl border border-white/5 space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="space-y-3">
