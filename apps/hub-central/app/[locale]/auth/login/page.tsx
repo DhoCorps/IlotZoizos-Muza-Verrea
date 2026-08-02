@@ -78,17 +78,18 @@ function LoginForm() {
         </div>
 
         <div>
-          {/* 🪡 SUTURE UX : Le lien de récupération intégré organiquement à côté du label */}
+          {/* 🪡 SUTURE UX : Le bouton de récupération intégré organiquement à côté du label */}
           <div className="flex justify-between items-center mb-2">
             <label className="block text-sm font-medium text-slate-300" htmlFor="password">
               Chant de sécurité
             </label>
-            <Link 
-              href="/auth/forgot-password" 
+            <button 
+              type="button" /* ⚠️ CRUCIAL : Empêche de déclencher le onSubmit du formulaire */
+              onClick={() => router.push('/auth/forgot-password')} 
               className="text-xs text-[#E5484D] font-medium hover:underline transition-colors focus:outline-none"
             >
               Chant oublié ?
-            </Link>
+            </button>
           </div>
           <input
             id="password"

@@ -8,8 +8,11 @@ export * from './models/team.types';
 export * from './models/project.types';
 export * from './models/task.types';
 export * from './models/status.types';
+export * from './models/sujet.types';
+export * from './models/resonance.types';
 
 export interface ActionSignature {
   actorUid: string;       
-  capabilities: string[]; 
+  capabilities: string[];
+  issuedAt?: Date; 
 }

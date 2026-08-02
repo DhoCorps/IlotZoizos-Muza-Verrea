@@ -115,7 +115,7 @@ export const teams = {
  * ☁️ MODULE : LE CIERGE (Storage/Upload)
  */
 export const storage = {
-  upload: async (file: File, entityType: 'project' | 'task' | 'team', entityId: string) => {
+  upload: async (file: File, entityType: 'project' | 'task' | 'team' | 'sujet' | string, entityId: string) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('entityType', entityType);
@@ -133,4 +133,28 @@ export const storage = {
 export const users = {
   getAll: () => apiFetch<Partial<IOiseau>[]>('/users'),
   getByUid: (uid: string) => apiFetch<IOiseau>(`/users/${uid}`)
+};
+
+/**
+ * 📜 MODULE : ABYSS BLOG (Sujets & Monologues)
+ */
+export const sujets = {
+  getAll: () => apiFetch<any[]>('/sujets'),
+  create: (data: any) => apiFetch<any>('/sujets', { method: 'POST', body: JSON.stringify(data) }),
+  update: (uid: string, data: any) => apiFetch<any>(`/sujets/${uid}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (uid: string) => apiFetch<void>(`/sujets/${uid}`, { method: 'DELETE' }),
+};
+
+/**
+ * 🕸️ MODULE : LA RÉSONANCE & LE MAILLAGE (Transdisciplinaire & Échos)
+ */
+export const resonance = {
+  weaveLink: (data: { sourceUid: string; sourceLabel: string; targetUid: string; targetLabel: string; relationType: string }) => 
+    apiFetch<any>('/resonance/links', { method: 'POST', body: JSON.stringify(data) }),
+  
+  getEchoes: (targetUid: string) => 
+    apiFetch<any[]>(`/resonance/echoes?targetUid=${encodeURIComponent(targetUid)}`),
+  
+  sendEcho: (data: { targetUid: string; targetLabel: string; echoType: 'TEXT' | 'EMOJI'; content: string }) => 
+    apiFetch<any>('/resonance/echoes', { method: 'POST', body: JSON.stringify(data) }),
 };

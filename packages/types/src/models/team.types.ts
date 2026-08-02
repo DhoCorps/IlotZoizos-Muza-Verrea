@@ -10,6 +10,7 @@ export const TeamCategorySchema = z.enum(['SOCIAL', 'SYSTEM', 'DAWN']);
 
 export const TeamSchema = BaseNodeSchema.extend({
   // --- 🏷️ IDENTITÉ (Silice) ---
+  uid: z.string(),
   name: z.string().min(3).max(50),
   description: z.string().max(500).optional(),
   
@@ -47,6 +48,10 @@ export const TeamSchema = BaseNodeSchema.extend({
     isFlagged: z.boolean().default(false),
     reportCount: z.number().default(0)
   }).default({ isFlagged: false, reportCount: 0 }),
+
+  // TODO
+  invitations:z.array(z.object({})),
+  members:z.array(z.object({})),
 
   documents: z.array(z.object({
       uid: z.string(),

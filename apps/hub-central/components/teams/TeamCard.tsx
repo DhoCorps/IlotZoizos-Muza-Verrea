@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { Network, UserPlus, ShieldCheck, FolderPlus, Check, X, Clock, UserX, Eye, Trash2, Upload, Loader2, FileText, ExternalLink, ChevronDown, ChevronUp, Paperclip, Download } from 'lucide-react'; // 🪡 SUTURE : Ajout Download
-
+import { ITeam } from '@ilot/types';
 interface TeamCardProps {
-  team: any;
+  team: ITeam;
   onUploadSuccess?: () => void;
   onRecruit: (uid: string) => void;
   onFocus: (uid: string) => void;

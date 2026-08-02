@@ -1,3 +1,4 @@
+// apps/hub-central/components/graph/ContextualGraph.tsx
 'use client';
 
 import { useEffect, useState, useRef } from 'react';

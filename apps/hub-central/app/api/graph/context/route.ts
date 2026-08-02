@@ -10,7 +10,7 @@ export async function GET(req: Request) {
 
   const session = getNeo4jSession();
   try {
-    // Requête Cypher pour récupérer le contexte immédiat [cite: 2026-03-09]
+    // Requête Cypher pour récupérer le contexte immédiat et les ponts transdisciplinaires
     const result = await session.run(`
       MATCH (root {uid: $rootUid})
       OPTIONAL MATCH (root)-[r]-(neighbor)
@@ -22,22 +22,44 @@ export async function GET(req: Request) {
     const nodeIds = new Set();
 
     result.records.forEach(record => {
-      const root = record.get('root').properties;
-      const neighbor = record.get('neighbor')?.properties;
+      const rootRecord = record.get('root');
+      const neighborRecord = record.get('neighbor');
       const rel = record.get('r');
 
-      if (!nodeIds.has(root.uid)) {
-        nodes.push({ id: root.uid, name: root.name || root.title, type: record.get('root').labels[0] });
-        nodeIds.add(root.uid);
+      if (rootRecord) {
+        const root = rootRecord.properties;
+        if (!nodeIds.has(root.uid)) {
+          nodes.push({ 
+            id: root.uid, 
+            name: root.name || root.title || root.pseudo || 'Nœud Racine', 
+            type: rootRecord.labels[0] || 'Entity' 
+          });
+          nodeIds.add(root.uid);
+        }
       }
 
-      if (neighbor && !nodeIds.has(neighbor.uid)) {
-        nodes.push({ id: neighbor.uid, name: neighbor.name || neighbor.title, type: record.get('neighbor').labels[0] });
-        nodeIds.add(neighbor.uid);
+      if (neighborRecord) {
+        const neighbor = neighborRecord.properties;
+        if (neighbor && neighbor.uid && !nodeIds.has(neighbor.uid)) {
+          nodes.push({ 
+            id: neighbor.uid, 
+            name: neighbor.name || neighbor.title || neighbor.pseudo || neighbor.content?.substring(0, 20) || 'Voisin Connexe', 
+            type: neighborRecord.labels[0] || 'Entity' 
+          });
+          nodeIds.add(neighbor.uid);
+        }
       }
 
-      if (rel) {
-        links.push({ source: root.uid, target: neighbor.uid, type: rel.type });
+      if (rel && rootRecord && neighborRecord) {
+        const root = rootRecord.properties;
+        const neighbor = neighborRecord.properties;
+        if (root?.uid && neighbor?.uid) {
+          links.push({ 
+            source: root.uid, 
+            target: neighbor.uid, 
+            type: rel.type 
+          });
+        }
       }
     });
 

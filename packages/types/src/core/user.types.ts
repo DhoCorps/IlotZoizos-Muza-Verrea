@@ -1,4 +1,3 @@
-// Fichier : @ilot/types/index.ts
 import { z } from 'zod';
 
 /**
@@ -12,6 +11,7 @@ export const OiseauSeedSchema = z.object({
   pseudo: z.string().min(3).max(30), // L'identité chantée
   email: z.string().email(),
   password: z.string().min(8).optional(),
+  signature: z.string(),
   
   // Le Color Picker ! Un code Hexadécimal pour l'écologie visuelle (ex: Gris Bleuté / Rouge sombre)
   frequenceHEX: z.string().regex(/^#([0-9A-F]{3}){1,2}$/i).default('#2F4F4F'), 
@@ -43,6 +43,10 @@ export const OiseauLeafSchema = z.object({
 
   // 🪡 SUTURE DU MAILLON MANQUANT : Collection des Références de Nids rattachés à l'Oiseau
   teams: z.array(z.any()).default([]),
+
+  // 🔑 SUTURE POUR LE CHANT OUBLIÉ : Jetons de réinitialisation
+  resetPasswordToken: z.string().optional(),
+  resetPasswordExpires: z.number().optional(),
 
   // 🪡 SUTURE : Alignement avec la structure globale des artefacts (Fichiers de l'Oiseau)
   documents: z.array(z.object({

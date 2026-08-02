@@ -1,4 +1,4 @@
-// Fichier : models/Oiseau.ts
+// Fichier : packages/infrastructure/src/database/models/nosql/user.model.ts
 import mongoose, { Schema, Document } from "mongoose";
 import { v4 as uuidv4 } from 'uuid';
 import { IOiseau } from "@ilot/types";
@@ -7,6 +7,9 @@ export interface OiseauDocument extends IOiseau, Document {
   _id: mongoose.Types.ObjectId; 
   sanctuaireVerrouille: boolean;
   createdAt: Date;
+  // 🔑 Déclaration TS pour éviter les erreurs lors de la mutation du chant
+  resetPasswordToken?: string;
+  resetPasswordExpires?: number;
 }
 
 const OiseauSchema = new Schema<OiseauDocument>(
@@ -17,6 +20,10 @@ const OiseauSchema = new Schema<OiseauDocument>(
     password: { type: String, select: false },
     frequenceHEX: { type: String, default: '#2F4F4F' },
 
+    // 🔑 SUTURE : Les champs vitaux pour la réinitialisation du mot de passe
+    resetPasswordToken: { type: String },
+    resetPasswordExpires: { type: Number },
+
     sanctuaire: { type: Schema.Types.Mixed, default: {} },
     sanctuaireVerrouille: { type: Boolean, default: false },
 
@@ -25,7 +32,6 @@ const OiseauSchema = new Schema<OiseauDocument>(
 
     // 🛡️ SUTURE : Le champ de pouvoir unifié
     capabilities: { type: [String], default: [] },
-    // ⚠️ À SUPPRIMER après ton renommage global
     
     entropieActive: { type: Number, default: 100, min: 0, max: 100 },
     isGhostMode: { type: Boolean, default: false },

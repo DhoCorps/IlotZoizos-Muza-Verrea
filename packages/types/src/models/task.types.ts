@@ -30,11 +30,16 @@ export const TaskSchema = z.object({
   creatorUid: z.string(),
   assigneeUids: z.array(z.string()),
   
+  //TODO
+
   content: z.object({
     title: z.string().min(1, "L'atome doit avoir un nom"),
     description: z.string().optional(),
     tags: z.array(z.string()),
+    attachments:z.array(z.string())
   }),
+
+  fileUploads: z.array(z.string()),
 
   status: TaskStatusSchema,
   priority: TaskPrioritySchema,
@@ -63,6 +68,8 @@ export const TaskSchema = z.object({
     deadline: z.union([z.date(), z.string().datetime()]).optional(),
     scheduledAt: z.union([z.date(), z.string().datetime()]).optional().nullable(),
   }),
+
+
 });
 
 // 🔄 INFERENCE : Génération automatique du type TypeScript depuis le schéma Zod

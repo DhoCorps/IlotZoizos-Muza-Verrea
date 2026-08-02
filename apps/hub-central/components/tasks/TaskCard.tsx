@@ -4,9 +4,10 @@
 import { useState, useEffect } from 'react';
 import { Clock, AlertCircle, Paperclip, Users, Play, Loader2, Trash2, Upload, FileText, ExternalLink, ChevronDown, ChevronUp, Pencil } from 'lucide-react'; 
 import { usePomodoro } from '../../context/PomodoroContext';
+import { ITask } from '@ilot/types';
 
 interface TaskCardProps {
-  task: any;
+  task: ITask;
   onStatusChange: (id: string, s: string) => void;
   onDelete?: (uid: string) => void;
   onEdit?: (task: any) => void;

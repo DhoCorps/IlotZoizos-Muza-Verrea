@@ -32,6 +32,8 @@ export type IProjectDocument = z.infer<typeof ProjectDocumentSchema>;
  */
 export const ProjectSchema = BaseNodeSchema.extend({
   // --- 🏷️ IDENTITÉ & RÉSONANCE ---
+  // TODO
+  uid: z.string(),
   name: z.string().min(3).max(100),
   slug: z.string(), 
   tag: z.string().min(2).max(10).optional(), 
@@ -62,6 +64,7 @@ export const ProjectSchema = BaseNodeSchema.extend({
   dates: z.object({
     start: z.union([z.date(), z.string().datetime()]).optional(),
     deadline: z.union([z.date(), z.string().datetime()]).optional(),
+    
     completedAt: z.union([z.date(), z.string().datetime()]).optional(),
     lastActivity: z.union([z.date(), z.string().datetime()]).default(() => new Date()),
   }).default({}),

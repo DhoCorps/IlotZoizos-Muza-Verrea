@@ -6,11 +6,13 @@ import '../globals.css';
 
 export default async function LocaleLayout({
   children,
-  params: { locale }
+  params
 }: {
   children: ReactNode;
-  params: { locale: string };
+  params: Promise<{ locale: string }>; // ⚠️ params est désormais traité comme une promesse
 }) {
+  // On attend la résolution des paramètres pour extraire la locale
+  const { locale } = await params;
   const messages = await getMessages();
 
   return (

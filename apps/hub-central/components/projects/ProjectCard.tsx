@@ -3,9 +3,10 @@
 
 import { useState } from 'react';
 import { Paperclip, Zap, Layers, Plus, Trash2, Upload, Loader2, FileText, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react'; 
+import { IProject } from '@ilot/types';
 
 interface ProjectCardProps {
-  project: any;
+  project: IProject;
   onEdit: (id: string) => void;
   onCreateTask: (uid: string) => void;
   onDelete?: (uid: string) => void;

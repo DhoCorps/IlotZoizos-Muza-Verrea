@@ -14,10 +14,9 @@ import { randomUUID } from 'crypto';
 import { IlotError } from '../errors/ilot.errors';
 import { v4 as uuidv4 } from 'uuid';
 
-
 export interface ProjectSyncResult {
   success: boolean;
-  project?: any; 
+  project?: IProject; 
   purgedCount?: number;
 }
 
@@ -39,7 +38,7 @@ export class ProjectOrchestrator {
   // --- 🌟 FONDATION : CRÉATION DU CHANTIER (ANCRAGE DOUBLE) ---
 
   async fosterProject(
-    projectData: any, 
+    projectData: IProject, 
     signature: ActionSignature
   ): Promise<ProjectSyncResult> {
     

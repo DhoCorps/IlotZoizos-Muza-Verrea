@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { ProjectOrchestrator } from '@ilot/shared-core'; 
 import { POST } from '../../app/api/projects/route';
 import { CAPABILITIES } from '@ilot/types';
+import { IOiseau } from '@ilot/types';
 
 // 🛡️ SUTURE OMEGA : vi.hoisted permet d'initialiser l'espion AVANT le hoisting des mocks
 const { mockNeo4jRun } = vi.hoisted(() => ({

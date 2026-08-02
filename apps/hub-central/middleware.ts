@@ -15,46 +15,51 @@ export default withAuth(
     const { pathname } = req.nextUrl;
     const isAuth = !!req.nextauth.token;
 
-    // 1. 🛡️ DÉTECTION ROBUSTE : On utilise une Regex pour inclure les locales
-    // Cette regex matche /auth/login, /fr/auth/login, /en/auth/login, etc.
-    const publicPages = ['/auth/login', '/auth/register'];
+    // 1. 🛡️ DÉTECTION ROBUSTE : Pages d'auth strictes et Espace Public
+    const strictPublicPages = [
+      '/auth/login', 
+      '/auth/register',
+      '/auth/forgot-password', // 👈 On autorise l'accès au formulaire d'oubli
+      '/auth/reset-password'   // 👈 On autorise l'accès au lien reçu par email
+    ];
+    
+    // Regex matche les pages d'auth OU n'importe quelle sous-route de /abyss-blog
     const publicPathnameRegex = RegExp(
-      `^(/(${locales.join('|')}))?(${publicPages.join('|')})/?$`,
+      `^(/(${locales.join('|')}))?(${strictPublicPages.join('|')})/?$|^(/(${locales.join('|')}))?/abyss-blog(/.*)?$`,
       'i'
     );
     const isPublicPage = publicPathnameRegex.test(pathname);
+    const isAuthPage = strictPublicPages.some(page => pathname.includes(page));
 
-    // 2. EXTRACTION DE LA LOCALE (Pour les redirections propres)
+    // 2. EXTRACTION DE LA LOCALE
     const pathnameHasLocale = locales.some(l => pathname.startsWith(`/${l}/`) || pathname === `/${l}`);
     const currentLocale = pathnameHasLocale ? pathname.split('/')[1] : defaultLocale;
 
     // --- LOGIQUE DE CIRCULATION ---
 
-    // A. L'étranger tente d'entrer dans le Sanctuaire sans aura
+    // A. L'étranger tente d'entrer dans le Sanctuaire protégé sans aura
     if (!isAuth && !isPublicPage) {
       // Redirection vers le login de la locale actuelle
       return NextResponse.redirect(new URL(`/${currentLocale}/auth/login`, req.url));
     }
 
-    // B. L'Oiseau identifié tente de revenir sur une page d'auth (le simulacre)
-    if (isAuth && isPublicPage) {
+    // B. L'Oiseau identifié tente de revenir sur une page d'auth
+    if (isAuth && isAuthPage) {
       // On le ramène à la racine de sa fréquence
       return NextResponse.redirect(new URL(`/${currentLocale}/`, req.url));
     }
 
-    // C. Résonance Multilingue : intl prend le relais pour le reste
+    // C. Résonance Multilingue
     return intlMiddleware(req);
   },
   {
     callbacks: {
-      // On délègue la décision à la fonction middleware ci-dessus
       authorized: () => true 
     }
   }
 );
 
 export const config = {
-  // 🛡️ MATCHER TOTAL : On protège tout sauf le moteur interne et les fichiers statiques
-  // La regex exclut l'API, les fichiers statiques Next, et tout fichier avec une extension (images, etc.)
+  // 🛡️ MATCHER TOTAL
   matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)']
 };

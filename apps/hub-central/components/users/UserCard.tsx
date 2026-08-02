@@ -3,9 +3,10 @@
 
 import { useState } from 'react';
 import { Shield, Palette, Upload, Loader2, Edit3, MapPin, Trash2 } from 'lucide-react';
+import { IOiseau } from '@ilot/types';
 
 interface UserCardProps {
-  user: any; // L'objet oiseau (IOiseau)
+  user: IOiseau; // L'objet oiseau (IOiseau)
   currentUserCapabilities?: string[];
   onEditProfile?: (uid: string) => void;
   onUploadSuccess?: () => void;
