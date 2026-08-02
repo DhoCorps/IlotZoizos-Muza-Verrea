@@ -1,10 +1,6 @@
-// packages/shared-core/src/sync-engine/sujet.orchestrator.ts
-
 import { SujetModel } from '../../../infrastructure/src/database/models/nosql/sujet.model';
-import { ProjectModel } from '../../../infrastructure/src/database/models/nosql/project.model';
-import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
 import { TransactionManager } from './transactionManager';
-import { ISujet, CAPABILITIES, ActionSignature } from '@ilot/types';
+import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
 import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
@@ -30,8 +26,6 @@ export class SujetOrchestrator {
    * FONDATION : FORGER UN NŒUD DE PENSÉE (Sujet)
    */
   async fosterSujet(data: any, signature: ActionSignature): Promise<SujetSyncResult> {
-    // 1. Contrôle d'Aura basique
-    // Soit c'est mon propre monologue, soit j'ai le pouvoir de publier pour l'Îlot.
     const isSelf = signature.actorUid === data.authorUid;
     if (!isSelf && !signature.capabilities.includes('*')) {
         throw new IlotError("Aura insuffisante pour parler à la place d'un autre.", "FORBIDDEN", 403);
@@ -47,19 +41,22 @@ export class SujetOrchestrator {
         title: title,
         slug: data.slug || generateSlug(title),
         content: data.content || "",
+        lyrics: data.lyrics || null,
+        copyright: data.copyright || null,
         authorUid: signature.actorUid,
         category: data.category || 'MONOLOGUE',
         status: data.status || 'DRAFT',
         tags: data.tags || [],
         connections: data.connections || {},
+        merchLink: data.merchLink || null,
         media: data.media || {},
         settings: data.settings || {},
       };
 
-      // 2. SILICE (MongoDB) : L'Archive Concrète
+      // 1. SILICE (MongoDB)
       const [newSujet] = await SujetModel.create([newSujetData], { session: mongoSession });
 
-      // 3. GRAPHE (Neo4j) : Le Tissu Connecteur (tom§hat§toes)
+      // 2. GRAPHE (Neo4j)
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (s:Sujet { 
@@ -86,6 +83,16 @@ export class SujetOrchestrator {
           MERGE (s)-[:DETAILS]->(t)
         )
 
+        // 🛍️ SUTURE E-COMMERCE : Liaison graphe avec le produit si renseigné
+        WITH s
+        CALL {
+          WITH s
+          WITH s WHERE $productId IS NOT NULL
+          MERGE (prod:Product {uid: $productId})
+          MERGE (s)-[:OFFERS_PRODUCT]->(prod)
+          RETURN count(*) as relCount
+        }
+
         RETURN s
       `;
 
@@ -96,7 +103,8 @@ export class SujetOrchestrator {
         category: newSujet.category,
         status: newSujet.status,
         relatedProjects: newSujet.connections?.relatedProjects || [],
-        relatedTasks: newSujet.connections?.relatedTasks || []
+        relatedTasks: newSujet.connections?.relatedTasks || [],
+        productId: newSujet.merchLink?.productId || null
       });
 
       return {
@@ -121,33 +129,44 @@ export class SujetOrchestrator {
     }
 
     return await TransactionManager.execute("Mutation de Sujet", async (mongoSession, neo4jTx) => {
-      // 1. Silice
       const updatedSujet = await SujetModel.findOneAndUpdate(
         { uid: sujetUid },
         { $set: updates },
         { new: true, session: mongoSession }
       ).lean();
 
-      // 2. Graphe : Si le statut ou la catégorie changent
       let neoResult = null;
-      if (updates.status || updates.category || updates.title) {
+      if (updates.status || updates.category || updates.title || updates.merchLink) {
         neoResult = await neo4jTx.run(`
           MATCH (s:Sujet { uid: $sujetUid })
           SET s.title = coalesce($title, s.title),
               s.status = coalesce($status, s.status),
               s.category = coalesce($category, s.category),
               s.updatedAt = datetime()
+          
+          // Mise à jour éventuelle de l'arrête e-commerce
+          WITH s
+          OPTIONAL MATCH (s)-[r:OFFERS_PRODUCT]->(oldProd:Product)
+          FOREACH (_ IN CASE WHEN $productId IS NULL AND r IS NOT NULL THEN [1] ELSE [] END | DELETE r)
+          
+          WITH s
+          CALL {
+            WITH s
+            WITH s WHERE $productId IS NOT NULL
+            MERGE (newProd:Product {uid: $productId})
+            MERGE (s)-[:OFFERS_PRODUCT]->(newProd)
+            RETURN count(*) as rc
+          }
+
           RETURN s
         `, { 
           sujetUid, 
           title: updates.title || null,
           status: updates.status || null, 
-          category: updates.category || null 
+          category: updates.category || null,
+          productId: updates.merchLink?.productId || null
         });
       }
-
-      // TODO : Gérer l'ajout/retrait dynamique des liens tom§hat§toes dans neo4j 
-      // si updates.connections est modifié (comme pour assigneeUids dans Task).
 
       return {
         success: true,
@@ -171,7 +190,6 @@ export class SujetOrchestrator {
     }
 
     return await TransactionManager.execute("Désintégration de Sujet", async (mongoSession, neo4jTx) => {
-      // 1. Purge Physique (Si le texte a des cover images ou pistes audio rattachées)
       if (existing.media?.coverImageUrl) {
         try { await storageService.deleteFile(storageService.extractKeyFromUrl(existing.media.coverImageUrl)); } catch {}
       }
@@ -179,10 +197,7 @@ export class SujetOrchestrator {
         try { await storageService.deleteFile(storageService.extractKeyFromUrl(existing.media.audioTrackUrl)); } catch {}
       }
 
-      // 2. Suppression Graphe
       await neo4jTx.run(`MATCH (s:Sujet { uid: $sujetUid }) DETACH DELETE s`, { sujetUid });
-
-      // 3. Suppression Silice
       await SujetModel.deleteOne({ uid: sujetUid }, { session: mongoSession });
 
       return { success: true, purgedCount: 1 };

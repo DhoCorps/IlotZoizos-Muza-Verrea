@@ -1,23 +1,20 @@
-// apps/hub-central/components/sujets/SujetForm.tsx
 'use client';
 
 import { useState } from 'react';
-import { Type, FolderPlus, Loader2, Save, FileAudio, LayoutGrid, Upload, Check } from 'lucide-react';
-import { RequireCapability } from '../auth/RequireCapability';
-import { CAPABILITIES } from '@ilot/types';
+import { Type, FileAudio, LayoutGrid, Upload, Music, ShieldCheck, ShoppingBag, Loader2 } from 'lucide-react';
 import { storage } from '../../lib/apiClient';
 
 interface SujetFormProps {
   initialData?: any;
-  userCapabilities?: string[]; // Correction : rendu optionnel avec '?'
-  existingProjects?: any[]; // Pour tisser la toile avec les chantiers
+  userCapabilities?: string[];
+  existingProjects?: any[];
   onSuccess: () => void;
   onCancel: () => void;
 }
 
 export function SujetForm({ 
   initialData, 
-  userCapabilities = [], // Correction : valeur par défaut ajoutée
+  userCapabilities = [], 
   existingProjects = [],
   onSuccess, 
   onCancel 
@@ -35,14 +32,11 @@ export function SujetForm({
     setErrorMsg(null);
     
     const formData = new FormData(e.currentTarget);
-    
-    // Récupération des projets sélectionnés pour le maillage
     const selectedProjects = Array.from(formData.getAll('relatedProjects'));
 
     try {
       let audioTrackUrl = formData.get('audioTrackUrl')?.toString() || initialData?.media?.audioTrackUrl || null;
 
-      // ☁️ Si un fichier est sélectionné, on le sédimente d'abord sur Cloudflare R2
       if (selectedFile) {
         setUploadingFile(true);
         const uploadResult = await storage.upload(selectedFile, 'sujet', initialData?.uid || 'nouveau-sujet');
@@ -50,9 +44,13 @@ export function SujetForm({
         setUploadingFile(false);
       }
 
+      // Construction du payload incluant les nouveaux attributs artistiques
+      const productId = formData.get('productId')?.toString();
       const payload = {
         title: formData.get('title')?.toString(),
         content: formData.get('content')?.toString(),
+        lyrics: formData.get('lyrics')?.toString() || null,
+        copyright: formData.get('copyright')?.toString() || null,
         category: formData.get('category'),
         status: formData.get('status'),
         connections: {
@@ -60,7 +58,8 @@ export function SujetForm({
         },
         media: {
           audioTrackUrl: audioTrackUrl
-        }
+        },
+        merchLink: productId ? { productId, displayMode: 'card' } : null
       };
 
       const url = isEdit ? `/api/sujets/${initialData.uid}` : '/api/sujets';
@@ -91,7 +90,7 @@ export function SujetForm({
     <form onSubmit={handleSubmit} className="space-y-6 max-h-[75vh] overflow-y-auto pr-4 custom-scrollbar">
       
       {errorMsg && (
-        <div className="p-4 bg-red-500/10 border border-red-500/50 rounded-xl text-red-400 text-xs font-mono uppercase tracking-widest animate-in fade-in">
+        <div className="p-4 bg-red-500/10 border border-red-500/50 rounded-xl text-red-400 text-xs font-mono uppercase tracking-widest">
           {errorMsg}
         </div>
       )}
@@ -114,9 +113,50 @@ export function SujetForm({
           name="content" 
           defaultValue={initialData?.content} 
           placeholder="Laisse couler l'onde..." 
-          className="w-full bg-black/40 border border-white/10 p-4 rounded-xl text-sm text-slate-300 outline-none focus:border-[#E5484D] min-h-[200px] resize-y" 
+          className="w-full bg-black/40 border border-white/10 p-4 rounded-xl text-sm text-slate-300 outline-none focus:border-[#E5484D] min-h-[160px] resize-y" 
           required
         />
+      </div>
+
+      {/* 🪡 NOUVELLES ZONES : Paroles & Copyright */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="space-y-2">
+          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+            <Music size={12} /> Paroles (Lyrics - Optionnel)
+          </label>
+          <textarea 
+            name="lyrics" 
+            defaultValue={initialData?.lyrics} 
+            placeholder="Strophes, chants..." 
+            className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-slate-300 outline-none focus:border-[#E5484D] font-mono h-28 resize-y" 
+          />
+        </div>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+              <ShieldCheck size={12} /> Mention de Copyright
+            </label>
+            <input 
+              name="copyright" 
+              defaultValue={initialData?.copyright || "© 2026 DhÖ. Tous droits réservés."} 
+              placeholder="Ex: © 2026 DhÖ" 
+              className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]" 
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+              <ShoppingBag size={12} /> ID Produit Marchand (Optionnel)
+            </label>
+            <input 
+              name="productId" 
+              defaultValue={initialData?.merchLink?.productId} 
+              placeholder="Ex: prod_777" 
+              className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]" 
+            />
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -138,7 +178,7 @@ export function SujetForm({
           </div>
         </div>
 
-        {/* Média : URL ou Téléversement Cloudflare R2 (MP3, MP4, etc.) */}
+        {/* Média : URL ou Téléversement Cloudflare R2 */}
         <div className="space-y-3">
           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
             <FileAudio size={12} /> Fréquence Audio / Fichier (R2)
@@ -151,11 +191,10 @@ export function SujetForm({
               placeholder="https://... ou téléversez ci-dessous" 
               className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-emerald-500" 
             />
-            {/* Input de sélection de fichier pour Cloudflare R2 */}
             <div className="flex items-center gap-2">
               <label className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-[10px] font-mono text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer transition-all flex items-center gap-2 truncate">
                 <Upload size={12} className="text-emerald-400 shrink-0" />
-                <span className="truncate">{selectedFile ? selectedFile.name : "Joindre un fichier (MP3, MP4, PDF...)"}</span>
+                <span className="truncate">{selectedFile ? selectedFile.name : "Joindre un fichier audio/médias"}</span>
                 <input 
                   type="file" 
                   className="hidden" 
@@ -199,7 +238,6 @@ export function SujetForm({
 
       {/* Boutons d'Action */}
       <div className="pt-6 flex flex-col gap-3">
-        {/* Par défaut, un auteur peut toujours créer. On filtre pour UPDATE si on édite un texte global */}
         <button type="submit" disabled={loading} className="w-full bg-[#E5484D] py-4 rounded-xl font-black uppercase text-sm text-white hover:bg-[#c43d41] hover:scale-[1.01] transition-all disabled:opacity-50 flex justify-center items-center gap-2 shadow-[0_0_20px_rgba(229,72,77,0.2)]">
           {loading ? (
             <><Loader2 className="w-4 h-4 animate-spin" /> {uploadingFile ? "Sédimentation Cloudflare R2..." : "Sédimentation..."}</>

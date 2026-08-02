@@ -6,6 +6,14 @@ import { TransactionManager } from '../transactionManager';
 import { TeamModel } from '@ilot/infrastructure/src/database/models/nosql/team.model';
 import { OiseauModel } from '@ilot/infrastructure/src/database/models/nosql/user.model';
 
+
+vi.mock('mongoose', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('mongoose')>();
+  return {
+    ...actual,
+    Schema: actual.Schema || class MockSchema {}, // 🪡 S'assure que Schema existe
+  };
+});
 // 🛡️ SUTURE 1 : Mock des modèles Silice (MongoDB)
 // On utilise des objets JS purs (POJO) pour éviter l'hydratation Mongoose (et les erreurs FlattenMaps)
 vi.mock('@ilot/infrastructure/src/database/models/nosql/user.model', () => ({

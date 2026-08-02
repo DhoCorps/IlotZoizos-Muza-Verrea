@@ -1,11 +1,10 @@
-// apps/hub-central/app/api/sujets/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../../../lib/auth";
-import { connectToDatabase, getNeo4jSession } from '@ilot/infrastructure';
-import { SujetOrchestrator } from '@ilot/shared-core/src/sync-engine/sujet.orchestrator';
-import { SujetModel } from '@ilot/infrastructure/src/database/models/nosql/sujet.model';
-import { ActionSignature, CAPABILITIES } from '@ilot/types';
+import { connectToDatabase } from '@ilot/infrastructure';
+import { SujetOrchestrator } from '@ilot/shared-core';
+import { SujetModel } from '@ilot/infrastructure';
+import { ActionSignature } from '@ilot/types';
 
 // ==========================================
 // GET : La Bibliothèque (Lister les sujets)
@@ -15,7 +14,6 @@ export async function GET(req: Request) {
     await connectToDatabase();
     const session = await getServerSession(authOptions);
     const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
 
     const { searchParams } = new URL(req.url);
     const filterCategory = searchParams.get('category');
@@ -79,7 +77,7 @@ export async function POST(req: Request) {
     // L'Orchestrateur tisse les liens (Mongo + Neo4j)
     const sujetOrch = new SujetOrchestrator();
     
-    // Forçage de l'authorUid (la sécurité avant tout, on ne fait pas confiance au body)
+    // Forçage de l'authorUid (la sécurité avant tout)
     const dataToForge = {
         ...body,
         authorUid: userUid

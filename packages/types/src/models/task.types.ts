@@ -63,14 +63,12 @@ export const TaskSchema = z.object({
   })),
 
   dates: z.object({
-    createdAt: z.union([z.date(), z.string().datetime()]),
-    updatedAt: z.union([z.date(), z.string().datetime()]),
-    deadline: z.union([z.date(), z.string().datetime()]).optional(),
-    scheduledAt: z.union([z.date(), z.string().datetime()]).optional().nullable(),
-  }),
-
-
-});
+      createdAt: z.union([z.date(), z.string().datetime()]),
+      updatedAt: z.union([z.date(), z.string().datetime()]),
+      deadline: z.union([z.date(), z.string().datetime()]).optional(),
+      scheduledAt: z.union([z.date(), z.string().datetime()]).optional().nullable(),
+    }),
+  });
 
 // 🔄 INFERENCE : Génération automatique du type TypeScript depuis le schéma Zod
 export type ITask = z.infer<typeof TaskSchema>;

@@ -1,27 +1,25 @@
 'use client';
 
 import { useLocale } from 'next-intl';
-// 🟢 On importe notre boussole magique
 import { useRouter, usePathname } from '../../navigation'; 
 import { Languages, Loader2 } from 'lucide-react'; 
-import { useTransition } from 'react'; // 🌟 La soudure majeure : useTransition remplace useState+setTimeout
+import { useTransition } from 'react';
 
 export const LangSwitcher = () => {
   const locale = useLocale();
   const router = useRouter();
-  // 🪄 Ici, pathname vaut "/dashboard" (la locale est masquée !)
   const pathname = usePathname(); 
   
-  // 🚀 isPending devient vrai pendant que Next.js calcule et charge la nouvelle langue
   const [isPending, startTransition] = useTransition();
 
   const toggleLanguage = () => {
     const nextLocale = locale === 'fr' ? 'en' : 'fr';
     
-    // 🚀 L'HYPER-SAUT : startTransition enveloppe la navigation.
-    // next-intl va automatiquement et proprement écraser le cookie "NEXT_LOCALE" !
     startTransition(() => {
-      router.replace(pathname, { locale: nextLocale });
+      // 🪡 Type assertion professionnelle : on cible précisément le type de route attendu par le routeur
+      type AppPathname = Parameters<typeof router.replace>[0];
+      
+      router.replace(pathname as AppPathname, { locale: nextLocale });
     }); 
   };
 
@@ -37,7 +35,6 @@ export const LangSwitcher = () => {
       `}
       title={locale === 'fr' ? 'Switch to English' : 'Passer en Français'} >
         
-      {/* Icône qui tourne si on synchronise, sinon icône fixe */}
       {isPending ? (
         <Loader2 size={14} className="animate-spin text-emerald-500" />
       ) : (
@@ -51,7 +48,6 @@ export const LangSwitcher = () => {
         {locale}
       </span>
       
-      {/* Indicateur visuel (drapeau) qui s'estompe pendant la transition */}
       <div className={`flex flex-col gap-0.5 ml-1 transition-all duration-500 ${isPending ? 'blur-sm opacity-0' : 'opacity-100'}`}>
         {locale === 'fr' ? (
            <div className="flex gap-0.5">

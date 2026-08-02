@@ -3,10 +3,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SujetOrchestrator } from '../sujet.orchestrator';
 import { TransactionManager } from '../transactionManager';
-import { ActionSignature, CAPABILITIES } from '@ilot/types';
+import { ActionSignature } from '@ilot/types';
 import { SujetModel } from '../../../../infrastructure/src/database/models/nosql/sujet.model';
 
-// SUTURE 1 : Mock des modèles Silice (MongoDB)
+// SUTURE 1 : Mock direct et local du modèle Silice (MongoDB)
 vi.mock('../../../../infrastructure/src/database/models/nosql/sujet.model', () => ({
   SujetModel: {
     create: vi.fn().mockImplementation((data) => Promise.resolve(Array.isArray(data) ? data : [data])),
@@ -14,12 +14,16 @@ vi.mock('../../../../infrastructure/src/database/models/nosql/sujet.model', () =
       const m: any = Promise.resolve({
         uid: 'sujet_123',
         title: 'Ancien Monologue',
-        authorUid: 'bird_alpha'
+        authorUid: 'bird_alpha',
+        merchLink: null,
+        media: {}
       });
       m.lean = vi.fn().mockResolvedValue({
         uid: 'sujet_123',
         title: 'Ancien Monologue',
-        authorUid: 'bird_alpha'
+        authorUid: 'bird_alpha',
+        merchLink: null,
+        media: {}
       });
       return m;
     }),
@@ -28,13 +32,15 @@ vi.mock('../../../../infrastructure/src/database/models/nosql/sujet.model', () =
         uid: 'sujet_123',
         title: 'Monologue Muté',
         authorUid: 'bird_alpha',
-        status: 'PUBLISHED'
+        status: 'PUBLISHED',
+        merchLink: null
       });
       m.lean = vi.fn().mockResolvedValue({
         uid: 'sujet_123',
         title: 'Monologue Muté',
         authorUid: 'bird_alpha',
-        status: 'PUBLISHED'
+        status: 'PUBLISHED',
+        merchLink: null
       });
       return m;
     }),
@@ -69,7 +75,7 @@ describe("SujetOrchestrator - Tissage de la Pensée", () => {
   const mockAuthorUid = 'bird_alpha';
   const validSignature: ActionSignature = {
     actorUid: mockAuthorUid,
-    capabilities: [] // Pas besoin d'aura globale pour créer son propre sujet
+    capabilities: [] 
   };
 
   beforeEach(() => {
@@ -77,13 +83,17 @@ describe("SujetOrchestrator - Tissage de la Pensée", () => {
     orchestrator = new SujetOrchestrator();
   });
 
-  it("doit fonder un nœud de pensée par Souveraineté (Auteur)", async () => {
+  it("doit fonder un nœud de pensée par Souveraineté (Auteur) avec liens et e-commerce", async () => {
     const payload = {
       title: 'La naissance de tom§hat§toes',
       content: 'Ceci est un test de fondation.',
       authorUid: mockAuthorUid,
       connections: {
         relatedProjects: ['proj_999']
+      },
+      merchLink: {
+        productId: 'prod_777',
+        displayMode: 'card'
       }
     };
 
@@ -95,12 +105,16 @@ describe("SujetOrchestrator - Tissage de la Pensée", () => {
       expect.stringContaining("CREATE (s:Sujet"),
       expect.objectContaining({
         title: 'La naissance de tom§hat§toes',
-        actorUid: mockAuthorUid
+        actorUid: mockAuthorUid,
+        productId: 'prod_777'
       })
     );
-    // Vérifier que la suture tom§hat§toes est bien dans le cypher
     expect(mockNeo4jRun).toHaveBeenCalledWith(
       expect.stringContaining("MERGE (s)-[:ILLUMINATES]->(p)"),
+      expect.anything()
+    );
+    expect(mockNeo4jRun).toHaveBeenCalledWith(
+      expect.stringContaining("MERGE (s)-[:OFFERS_PRODUCT]->(prod)"),
       expect.anything()
     );
   });
@@ -108,7 +122,7 @@ describe("SujetOrchestrator - Tissage de la Pensée", () => {
   it("doit rejeter la fondation si un oiseau tente de parler à la place d'un autre", async () => {
     const payload = {
       title: 'Usurpation',
-      authorUid: 'bird_beta' // L'auteur déclaré n'est pas celui de la signature
+      authorUid: 'bird_beta' 
     };
     const signature: ActionSignature = { actorUid: 'bird_alpha', capabilities: [] };
 

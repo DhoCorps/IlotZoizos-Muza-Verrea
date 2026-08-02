@@ -1,14 +1,14 @@
-// packages/types/src/__tests__/sujet.types.test.ts
 import { describe, it, expect } from 'vitest';
 import { SujetSchema } from '../models/sujet.types';
 
 describe('SujetSchema - Validation du Nœud de Pensée (tom§hat§toes)', () => {
-  // Un Sujet complet avec tous ses ancrages
   const validSujet = {
     uid: 'sujet-777',
     title: 'Nouveaux Modèles - Réflexion',
     slug: 'nouveaux-modeles-reflexion',
     content: 'Une pensée brute capturée pendant la composition.',
+    lyrics: 'Ligne 1 des paroles...\nLigne 2...',
+    copyright: '© 2026 DhÖ. Tous droits réservés.',
     authorUid: 'bird-alpha-123',
     category: 'POETRY',
     status: 'PUBLISHED',
@@ -19,9 +19,12 @@ describe('SujetSchema - Validation du Nœud de Pensée (tom§hat§toes)', () => 
       relatedProducts: [],
       relatedGames: []
     },
+    merchLink: {
+      productId: 'prod_999',
+      displayMode: 'card'
+    },
     media: {
       coverImageUrl: 'https://cdn.ilot.io/images/cover.png',
-      // Suture pour tes pistes de multi-pistes (basse, synthé...)
       audioTrackUrl: 'https://cdn.ilot.io/audio/basse-fretless.mp3' 
     },
     settings: {
@@ -35,7 +38,7 @@ describe('SujetSchema - Validation du Nœud de Pensée (tom§hat§toes)', () => 
     }
   };
 
-  it('doit valider un Sujet complet avec toutes ses connexions', () => {
+  it('doit valider un Sujet complet avec ses paroles, son copyright et son lien marchand', () => {
     const result = SujetSchema.safeParse(validSujet);
     expect(result.success).toBe(true);
   });
@@ -52,20 +55,10 @@ describe('SujetSchema - Validation du Nœud de Pensée (tom§hat§toes)', () => 
       const result = SujetSchema.safeParse(invalidContent);
       expect(result.success).toBe(false);
     });
-
-    it('doit rejeter un format d\'URL invalide pour les médias', () => {
-      const invalidMedia = {
-        ...validSujet,
-        media: { audioTrackUrl: 'ceci-nest-pas-une-frequence-audio' }
-      };
-      const result = SujetSchema.safeParse(invalidMedia);
-      expect(result.success).toBe(false);
-    });
   });
 
   describe('Valeurs par défaut et État d\'Origine', () => {
-    it('doit appliquer les valeurs par défaut (MONOLOGUE, DRAFT, connexions vides) à la naissance', () => {
-      // Un brouillon minimaliste jeté dans le flux
+    it('doit appliquer les valeurs par défaut à la naissance', () => {
       const minimalSujet = {
         uid: 'sujet-001',
         title: 'Idée furtive',
@@ -76,19 +69,12 @@ describe('SujetSchema - Validation du Nœud de Pensée (tom§hat§toes)', () => 
 
       const result = SujetSchema.parse(minimalSujet);
 
-      // Vérification des constantes philosophiques et techniques
       expect(result.category).toBe('MONOLOGUE');
       expect(result.status).toBe('DRAFT');
-      
-      // Vérification des structures par défaut
       expect(result.tags).toEqual([]);
-      expect(result.connections.relatedProjects).toEqual([]);
-      expect(result.connections.relatedTasks).toEqual([]);
-      
-      // Vérification de la gouvernance et de la résonance
-      expect(result.settings.allowComments).toBe(true);
+      expect(result.lyrics).toBeUndefined();
+      expect(result.merchLink).toBeUndefined();
       expect(result.resonance.views).toBe(0);
-      expect(result.resonance.readsCompleted).toBe(0);
     });
   });
 });

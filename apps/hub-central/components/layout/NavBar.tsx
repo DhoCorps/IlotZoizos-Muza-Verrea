@@ -1,9 +1,5 @@
 'use client';
 
-// 🛑 On n'utilise plus les outils natifs de Next.js
-// import Link from 'next/link';
-// import { usePathname, useParams } from 'next/navigation'; 
-
 // 🟢 On importe les outils générés par next-intl
 import { Link, usePathname } from '../../navigation'; 
 import { 
@@ -20,20 +16,30 @@ import {
 } from 'lucide-react';
 
 import { signOut } from "next-auth/react";
+import { ComponentProps } from 'react';
+
+// 🪄 Type professionnel strict basé sur les routes valides de l'Îlot
+type AppHref = ComponentProps<typeof Link>['href'];
+
+interface NavItem {
+  name: string;
+  icon: any;
+  href: AppHref;
+}
 
 export default function NavBar() {
   const pathname = usePathname();
 
-  // 🪄 Injection dynamique et invisible
-const navItems = [
-  { name: 'Gare Centrale', icon: Home, href: '/dashboard' },
-  { name: 'Observatoire (Nids)', icon: Network, href: '/dashboard/teams' }, 
-  { name: 'La Volée', icon: Users, href: '/dashboard/flock' },
-  { name: 'Mes Fragments', icon: LayoutGrid, href: '/dashboard/projects' },
-  { name: 'Tom-Hat-Toes', icon: Target, href: '/dashboard/tasks' }, 
-  { name: 'Santé', icon: Activity, href: '/dashboard/wellbeing' },
-  { name: 'Modération', icon: ShieldAlert, href: '/dashboard/moderation' },
-];
+  // 🪄 Injection dynamique typée de manière irréprochable
+  const navItems: NavItem[] = [
+    { name: 'Gare Centrale', icon: Home, href: '/dashboard' },
+    { name: 'Observatoire (Nids)', icon: Network, href: '/dashboard/teams' }, 
+    { name: 'La Volée', icon: Users, href: '/dashboard/flock' },
+    { name: 'Mes Fragments', icon: LayoutGrid, href: '/dashboard/projects' },
+    { name: 'Tom-Hat-Toes', icon: Target, href: '/dashboard/tasks' }, 
+    { name: 'Santé', icon: Activity, href: '/dashboard/wellbeing' },
+    { name: 'Modération', icon: ShieldAlert, href: '/dashboard/moderation' },
+  ];
 
   return (
     <nav className="fixed left-0 top-0 h-screen w-24 hover:w-64 group bg-emerald-950/40 border-r border-white/[0.05] backdrop-blur-2xl transition-all duration-500 z-50 flex flex-col items-center py-8 shadow-[10px_0_30px_rgba(0,0,0,0.5)] overflow-hidden">

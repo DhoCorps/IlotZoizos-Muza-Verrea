@@ -35,9 +35,9 @@ export const TransactionManager = {
       return result;
 
     } catch (error: any) {
-      // 🚨 4. ROLLBACK D'URGENCE
-      // On tente d'annuler les deux, peu importe lequel a déclenché l'erreur
-      if (mongoSession.inTransaction()) {
+      // 🚨 4. ROLLBACK D'URGENCE (Sécurisé par programmation défensive)
+      // On vérifie que la méthode inTransaction existe (utile pour les mocks de test) avant de l'appeler
+      if (typeof mongoSession.inTransaction === 'function' && mongoSession.inTransaction()) {
         await mongoSession.abortTransaction();
       }
       
@@ -55,8 +55,12 @@ export const TransactionManager = {
 
     } finally {
       // 5. NETTOYAGE CLINIQUE
-      await mongoSession.endSession();
-      await neo4jSession.close();
+      if (typeof mongoSession.endSession === 'function') {
+        await mongoSession.endSession();
+      }
+      if (typeof neo4jSession.close === 'function') {
+        await neo4jSession.close();
+      }
     }
   }
 };

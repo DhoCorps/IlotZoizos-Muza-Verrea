@@ -190,7 +190,10 @@ export default function AbyssBlogDashboard() {
 
                 <div className="flex items-center justify-between gap-2">
                   <Link 
-                    href={`/abyss-blog/${sujet.slug}`}
+                    href={{
+                      pathname: '/abyss-blog/[slug]',
+                      params: { slug: sujet.slug }
+}}
                     className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-white font-mono text-[10px] uppercase font-bold rounded-xl border border-white/10 text-center transition-all flex items-center justify-center gap-1.5"
                   >
                     <BookOpen size={12} /> Lire

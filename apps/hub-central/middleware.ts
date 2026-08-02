@@ -19,15 +19,16 @@ export default withAuth(
     const strictPublicPages = [
       '/auth/login', 
       '/auth/register',
-      '/auth/forgot-password', // 👈 On autorise l'accès au formulaire d'oubli
-      '/auth/reset-password'   // 👈 On autorise l'accès au lien reçu par email
+      '/auth/forgot-password', 
+      '/auth/reset-password'   
     ];
     
-    // Regex matche les pages d'auth OU n'importe quelle sous-route de /abyss-blog
+    // Ajout de "le-bordel-de-dho" et "marchand" dans les espaces accessibles à la volée
     const publicPathnameRegex = RegExp(
-      `^(/(${locales.join('|')}))?(${strictPublicPages.join('|')})/?$|^(/(${locales.join('|')}))?/abyss-blog(/.*)?$`,
+      `^(/(${locales.join('|')}))?(${strictPublicPages.join('|')})/?$|^(/(${locales.join('|')}))?/(abyss-blog|partita|letr-in|le-bordel-de-dho|marchand)(/.*)?$`,
       'i'
     );
+    
     const isPublicPage = publicPathnameRegex.test(pathname);
     const isAuthPage = strictPublicPages.some(page => pathname.includes(page));
 
@@ -37,15 +38,13 @@ export default withAuth(
 
     // --- LOGIQUE DE CIRCULATION ---
 
-    // A. L'étranger tente d'entrer dans le Sanctuaire protégé sans aura
+    // A. L'étranger tente d'entrer dans un espace non public sans aura
     if (!isAuth && !isPublicPage) {
-      // Redirection vers le login de la locale actuelle
       return NextResponse.redirect(new URL(`/${currentLocale}/auth/login`, req.url));
     }
 
     // B. L'Oiseau identifié tente de revenir sur une page d'auth
     if (isAuth && isAuthPage) {
-      // On le ramène à la racine de sa fréquence
       return NextResponse.redirect(new URL(`/${currentLocale}/`, req.url));
     }
 
@@ -60,6 +59,5 @@ export default withAuth(
 );
 
 export const config = {
-  // 🛡️ MATCHER TOTAL
   matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)']
 };

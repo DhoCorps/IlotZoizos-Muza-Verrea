@@ -10,6 +10,10 @@ export * from './models/task.types';
 export * from './models/status.types';
 export * from './models/sujet.types';
 export * from './models/resonance.types';
+export * from './models/partita.types';
+export * from './models/letrinSprite.types';
+export * from './core/kontakt.types';
+export * from './core/ecommerce.types';
 
 export interface ActionSignature {
   actorUid: string;       

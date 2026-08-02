@@ -1,11 +1,10 @@
-// apps/hub-central/app/[locale]/(inceptions)/abyss-blog/[slug]/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { 
   Loader2, ArrowLeft, Play, Pause, Music, Layers, 
-  MessageCircle, Send, Calendar, User, Tag, Share2, Sparkles, Smile 
+  MessageCircle, Send, Calendar, User, Tag, ShieldCheck, ShoppingBag, Sparkles
 } from 'lucide-react';
 
 export default function AbyssBlogPostPage() {
@@ -28,14 +27,13 @@ export default function AbyssBlogPostPage() {
     const fetchSujetAndEchoes = async () => {
       try {
         setLoading(true);
-        // Récupération de tous les sujets pour trouver celui qui correspond au slug
         const res = await fetch('/api/sujets');
         const data = await res.json();
+        // Extraction basée sur le SLUG et non plus l'UID
         const found = data.find((s: any) => s.slug === slug);
         
         if (found) {
           setSujet(found);
-          // Récupération des échos associés via sa cible (uid)
           const echoesRes = await fetch(`/api/resonance/echoes?targetUid=${found.uid}`);
           const echoesData = await echoesRes.json();
           if (Array.isArray(echoesData)) setEchoes(echoesData);
@@ -120,7 +118,6 @@ export default function AbyssBlogPostPage() {
 
       if (res.ok) {
         const data = await res.json();
-        // On l'ajoute instantanément dans la liste des échos pour le retour visuel
         setEchoes(prev => [data.echo || {
           uid: Date.now().toString(),
           targetUid: sujet.uid,
@@ -205,7 +202,7 @@ export default function AbyssBlogPostPage() {
           {sujet.title}
         </h1>
 
-        {/* 🎵 LECTEUR AUDIO INTÉGRÉ (Si une piste est liée) */}
+        {/* 🎵 LECTEUR AUDIO INTÉGRÉ */}
         {sujet.media?.audioTrackUrl && (
           <div className="p-4 bg-emerald-950/20 border border-emerald-500/30 rounded-2xl flex items-center justify-between gap-4 backdrop-blur-md shadow-[0_0_30px_rgba(16,185,129,0.05)]">
             <div className="flex items-center gap-3">
@@ -229,16 +226,55 @@ export default function AbyssBlogPostPage() {
       </article>
 
       {/* 📝 CORPS DU TEXTE */}
-      <div className="prose prose-invert max-w-none">
+      <div className="prose prose-invert max-w-none space-y-8">
         <div className="text-slate-300 font-sans text-base md:text-lg leading-relaxed whitespace-pre-wrap bg-black/30 border border-white/5 p-8 md:p-12 rounded-3xl shadow-inner">
           {sujet.content}
         </div>
+
+        {/* 🎶 PAROLES (LYRICS) */}
+        {sujet.lyrics && (
+          <div className="p-8 md:p-10 bg-white/[0.02] border border-[#E5484D]/20 rounded-3xl space-y-4 backdrop-blur-md relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-6 opacity-10 text-[#E5484D]">
+              <Music size={64} />
+            </div>
+            <h4 className="text-[10px] font-black text-[#E5484D] uppercase tracking-widest">
+              Paroles / Chant
+            </h4>
+            <div className="text-slate-200 font-mono text-sm md:text-base leading-relaxed whitespace-pre-wrap">
+              {sujet.lyrics}
+            </div>
+          </div>
+        )}
+
+        {/* 🛍️ LIEN E-COMMERCE */}
+        {sujet.merchLink?.productId && (
+          <div className="p-6 bg-gradient-to-r from-white/[0.04] to-[#E5484D]/5 border border-white/10 rounded-2xl flex items-center justify-between gap-4 backdrop-blur-md">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#E5484D]/20 border border-[#E5484D]/40 flex items-center justify-center text-[#E5484D]">
+                <ShoppingBag size={20} />
+              </div>
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-white">Œuvre / Produit Associé</p>
+                <p className="text-[10px] font-mono text-slate-400">Référence : {sujet.merchLink.productId}</p>
+              </div>
+            </div>
+            <span className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white font-mono text-xs font-bold rounded-xl border border-white/10 transition-all cursor-pointer">
+              Découvrir l'artefact
+            </span>
+          </div>
+        )}
+
+        {/* 🛡️ COPYRIGHT */}
+        {sujet.copyright && (
+          <div className="flex items-center gap-2 text-[10px] font-mono text-slate-500 pt-2">
+            <ShieldCheck size={14} className="text-slate-400" />
+            <span>{sujet.copyright}</span>
+          </div>
+        )}
       </div>
 
-      {/* 🏷️ TAGS & MAILLAGE TRANS disciplinaire (Tom-Hat-Toes / Projets) */}
+      {/* 🏷️ TAGS & MAILLAGE */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-white/5">
-        
-        {/* Tags */}
         {sujet.tags && sujet.tags.length > 0 && (
           <div className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl space-y-3">
             <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
@@ -254,11 +290,10 @@ export default function AbyssBlogPostPage() {
           </div>
         )}
 
-        {/* Chantiers Illuminés (Maillage Graphe) */}
         {sujet.connections?.relatedProjects && sujet.connections.relatedProjects.length > 0 && (
           <div className="p-6 bg-white/[0.02] border border-white/5 rounded-2xl space-y-3">
             <h4 className="text-[10px] font-black text-[#E5484D] uppercase tracking-widest flex items-center gap-2">
-              <Layers size={12} /> Chantiers Illuminés (Tom-Hat-Toes)
+              <Layers size={12} /> Chantiers Illuminés
             </h4>
             <div className="flex flex-wrap gap-2">
               {sujet.connections.relatedProjects.map((pUid: string) => (
@@ -269,10 +304,9 @@ export default function AbyssBlogPostPage() {
             </div>
           </div>
         )}
-
       </div>
 
-      {/* 💬 SECTION DES ÉCHOS (Commentaires & Résonances) */}
+      {/* 💬 SECTION DES ÉCHOS */}
       <section className="space-y-8 pt-10 border-t border-white/5">
         <div className="flex items-center gap-3">
           <MessageCircle className="text-[#E5484D]" size={20} />
@@ -281,7 +315,6 @@ export default function AbyssBlogPostPage() {
           </h3>
         </div>
 
-        {/* Formulaire de dépôt d'écho */}
         <form onSubmit={handlePostComment} className="p-6 bg-black/40 border border-white/10 rounded-2xl space-y-4">
           <textarea 
             value={newComment}
@@ -302,7 +335,6 @@ export default function AbyssBlogPostPage() {
           </div>
         </form>
 
-        {/* Liste des échos */}
         <div className="space-y-4">
           {echoes.map((echo: any) => (
             <div key={echo.uid || echo._id} className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl space-y-2">

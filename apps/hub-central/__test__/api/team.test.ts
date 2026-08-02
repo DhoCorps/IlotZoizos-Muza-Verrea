@@ -1,52 +1,54 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getServerSession } from "next-auth/next";
-import { TeamOrchestrator } from "@ilot/shared-core/src/sync-engine/team.orchestrator"; 
-import { CAPABILITIES } from '@ilot/types';
-import { DELETE as deleteTeam } from '../../app/api/teams/[teamId]/route';
-
-const { mockNeo4jRunTeam } = vi.hoisted(() => ({
-  mockNeo4jRunTeam: vi.fn()
-}));
+import { GET, POST } from '../../app/api/teams/route';
+import { TeamOrchestrator } from '@ilot/shared-core';
 
 vi.mock("next-auth/next", () => ({ getServerSession: vi.fn() }));
 
-// 🪡 SUTURE DE TEST : Alignement du mock sur le point d'entrée global unifié
 vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(undefined),
+  connectToDatabase: vi.fn().mockResolvedValue(true),
+  TeamModel: {
+    find: vi.fn().mockReturnValue({
+      lean: vi.fn().mockResolvedValue([
+        { uid: 'team_1', name: 'Nid Alpha', category: 'SOCIAL', isPrivate: true, ownerUid: 'bird_alpha' }
+      ])
+    })
+  },
   getNeo4jSession: vi.fn().mockReturnValue({
-    run: mockNeo4jRunTeam,
+    run: vi.fn().mockResolvedValue({
+      records: [
+        { get: (key: string) => (key === 'teamUid' ? 'team_1' : key === 'relType' ? 'FOUNDED' : []) }
+      ]
+    }),
     close: vi.fn().mockResolvedValue(undefined)
-  }),
-  getNeo4jDriver: vi.fn()
+  })
 }));
 
-vi.mock("@ilot/shared-core/src/sync-engine/team.orchestrator");
-
-describe('API Teams - Dissolution du Nid', () => {
-  const mockBirdUid = 'bird-alpha-001';
-  const teamUid = 'nest-404';
+describe('API Teams / Nids (/api/teams)', () => {
+  const mockBirdUid = 'bird_alpha';
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('✅ doit transmettre la dissolution à l\'Orchestrateur avec la Signature si autorisé', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({ user: { uid: mockBirdUid } } as any);
+  it('🟢 doit recenser les nids de l\'oiseau authentifié (GET)', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ 
+      user: { uid: mockBirdUid, capabilities: ['*'] } 
+    } as any);
 
-    mockNeo4jRunTeam.mockResolvedValue({
-      records: [{ get: () => [CAPABILITIES.TEAM.DELETE] }]
-    });
+    const req = new Request('http://localhost/api/teams');
+    const res = await GET(req);
+    const data = await res.json();
 
-    const dissolveTeamSpy = vi.spyOn(TeamOrchestrator.prototype, 'dissolveTeam')
-      .mockResolvedValue({ success: true } as any);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(data)).toBe(true);
+    expect(data[0].uid).toBe('team_1');
+  });
 
-    const req = new Request(`http://localhost/api/teams/${teamUid}`, { method: 'DELETE' });
-    const response = await deleteTeam(req, { params: { teamId: teamUid } });
-    
-    expect(response.status).toBe(200);
-    expect(dissolveTeamSpy).toHaveBeenCalledWith(
-      teamUid, 
-      expect.objectContaining({ actorUid: mockBirdUid }) 
-    );
+  it('🔴 doit rejeter l\'accès aux étrangers non connectés (GET)', async () => {
+    vi.mocked(getServerSession).mockResolvedValue(null);
+    const req = new Request('http://localhost/api/teams');
+    const res = await GET(req);
+    expect(res.status).toBe(401);
   });
 });

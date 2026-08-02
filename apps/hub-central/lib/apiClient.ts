@@ -56,13 +56,9 @@ export const auth = {
  * 👤 MODULE : LE SANCTUAIRE (Users)
  */
 export const user = {
-  // Récupérer son propre profil complet (Aura, Sanctuaire, Fréquence)
   getMe: () => apiFetch<IOiseau>('/user/me'),
-  
-  // Mutate : Met à jour la fréquence et l'aura (capacités) directement
   mutateStructure: (data: { uid: string, frequenceHEX?: string, sanctuaire?: any, aura?: string[] }) => 
     apiFetch<any>('/auth/user/update', { method: 'PUT', body: JSON.stringify(data) }),
-  
   getLineage: () => apiFetch<any>('/user/lineage'),
 };
 
@@ -81,18 +77,11 @@ export const projects = {
 };
 
 /**
- * 🛡️ MODULE RÔLES : DISSOUT DANS LE NÉANT
- * Ce module a été supprimé pour libérer l'Oiseau des modèles figés de la Matrice.
- */
-
-/**
  * 🏘️ MODULE : LES NIDS (Teams)
  */
 export const teams = {
-  getAll: () => 
-    apiFetch<any[]>('/teams'), 
-  create: (data: any) =>
-    apiFetch<any>('/teams', { method: 'POST', body: JSON.stringify(data) }),
+  getAll: () => apiFetch<any[]>('/teams'), 
+  create: (data: any) => apiFetch<any>('/teams', { method: 'POST', body: JSON.stringify(data) }),
   getById: (teamUid: string) => apiFetch<ITeam>(`/teams/${teamUid}`),
   update: (teamUid: string, data: Partial<ITeam>) => 
     apiFetch<ITeam>(`/teams/${teamUid}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -102,8 +91,6 @@ export const teams = {
     apiFetch<any>(`/teams/${teamUid}/chirps`, { method: 'POST', body: JSON.stringify({ content }) }),
   removeMember: (teamUid: string, userUid: string) => 
     apiFetch<void>(`/teams/${teamUid}/members/${userUid}`, { method: 'DELETE' }),
-  
-  // 🛡️ SUTURE : L'invitation ne transmet plus de 'role' mais une 'aura' (capabilities)
   inviteBird: (teamUid: string, userUid: string, capabilities: string[]) => 
     apiFetch<any>(`/teams/${teamUid}/members`, { 
       method: 'POST', 
@@ -115,7 +102,7 @@ export const teams = {
  * ☁️ MODULE : LE CIERGE (Storage/Upload)
  */
 export const storage = {
-  upload: async (file: File, entityType: 'project' | 'task' | 'team' | 'sujet' | string, entityId: string) => {
+  upload: async (file: File, entityType: 'project' | 'task' | 'team' | 'sujet' | 'font' | string, entityId: string) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('entityType', entityType);
@@ -146,15 +133,74 @@ export const sujets = {
 };
 
 /**
- * 🕸️ MODULE : LA RÉSONANCE & LE MAILLAGE (Transdisciplinaire & Échos)
+ * 🎸 MODULE : PARTITA (Partitions & Tablatures)
+ */
+export const partitions = {
+  getAll: () => apiFetch<any[]>('/partitions'),
+  getById: (uid: string) => apiFetch<any>(`/partitions/${uid}`),
+  create: (data: any) => apiFetch<any>('/partitions', { method: 'POST', body: JSON.stringify(data) }),
+  update: (uid: string, data: any) => apiFetch<any>(`/partitions/${uid}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (uid: string) => apiFetch<void>(`/partitions/${uid}`, { method: 'DELETE' }),
+};
+
+/**
+ * 🔠 MODULE : LETR'IN & SPRITES (Typographies)
+ */
+export const lettrinSprites = {
+  getAll: () => apiFetch<any[]>('/letrin/sprites'),
+  getById: (fontId: string) => apiFetch<any>(`/letrin/sprites/${fontId}`),
+  create: (data: any) => apiFetch<any>('/letrin/sprites', { method: 'POST', body: JSON.stringify(data) }),
+  update: (fontId: string, data: any) => apiFetch<any>(`/letrin/sprites/${fontId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (fontId: string) => apiFetch<void>(`/letrin/sprites/${fontId}`, { method: 'DELETE' }),
+};
+
+/**
+ * 💘 MODULE : KONTAKT-RH (Tinder Pro & Quêtes)
+ */
+export const kontakt = {
+  getProfiles: (params?: { alignment?: string; status?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return apiFetch<any[]>(`/kontakt/profiles${query ? `?${query}` : ''}`);
+  },
+  getProfileByUserUid: (userUid: string) => apiFetch<any>(`/kontakt/profiles/${userUid}`),
+  saveProfile: (data: any) => apiFetch<any>('/kontakt/profiles', { method: 'POST', body: JSON.stringify(data) }),
+  swipe: (targetUid: string, action: 'LIKE' | 'PASS') => apiFetch<any>('/kontakt/swipes', { method: 'POST', body: JSON.stringify({ targetUid, action }) }),
+  getQuests: () => apiFetch<any[]>('/kontakt/quests'),
+  createQuest: (data: any) => apiFetch<any>('/kontakt/quests', { method: 'POST', body: JSON.stringify(data) }),
+};
+
+/**
+ * 🛒 MODULE : LE MARCHAND DE L'ÎLOT (E-commerce & Troc)
+ */
+export const ecommerce = {
+  getStores: () => apiFetch<any[]>('/ecommerce/stores'),
+  createStore: (data: { storeName: string; description: string; stripeAccountId?: string }) => 
+    apiFetch<any>('/ecommerce/stores', { method: 'POST', body: JSON.stringify(data) }),
+  
+  getProducts: (params?: { storeUid?: string; category?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return apiFetch<any[]>(`/ecommerce/products${query ? `?${query}` : ''}`);
+  },
+  createProduct: (data: any) => apiFetch<any>('/ecommerce/products', { method: 'POST', body: JSON.stringify(data) }),
+  
+  getWishlist: () => apiFetch<any>('/ecommerce/wishlist'),
+  toggleWishlist: (productUid: string) => apiFetch<any>('/ecommerce/wishlist', { method: 'POST', body: JSON.stringify({ productUid }) }),
+  
+  getBarterOffers: () => apiFetch<any[]>('/ecommerce/barter'),
+  proposeBarter: (data: { receiverUid?: string; offeredProductUids: string[]; requestedProductUids: string[] }) => 
+    apiFetch<any>('/ecommerce/barter', { method: 'POST', body: JSON.stringify(data) }),
+  resolveBarter: (barterUid: string, status: 'ACCEPTED' | 'REJECTED') => 
+    apiFetch<any>('/ecommerce/barter', { method: 'PATCH', body: JSON.stringify({ barterUid, status }) })
+};
+
+/**
+ * 🕸️ MODULE : LA RÉSONANCE (Transdisciplinaire)
  */
 export const resonance = {
   weaveLink: (data: { sourceUid: string; sourceLabel: string; targetUid: string; targetLabel: string; relationType: string }) => 
     apiFetch<any>('/resonance/links', { method: 'POST', body: JSON.stringify(data) }),
-  
   getEchoes: (targetUid: string) => 
     apiFetch<any[]>(`/resonance/echoes?targetUid=${encodeURIComponent(targetUid)}`),
-  
   sendEcho: (data: { targetUid: string; targetLabel: string; echoType: 'TEXT' | 'EMOJI'; content: string }) => 
     apiFetch<any>('/resonance/echoes', { method: 'POST', body: JSON.stringify(data) }),
 };
