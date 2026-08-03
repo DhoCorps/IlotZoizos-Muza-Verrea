@@ -1,3 +1,4 @@
+// apps/hub-central/components/ecommerce/products/ProductForm.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -12,7 +13,6 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
   const [category, setCategory] = useState('FONT_SPRITE');
   const [visibility, setVisibility] = useState('PUBLIC');
   
-  // 🪡 Taxonomie dynamique
   const [categories, setCategories] = useState<{ value: string; label: string }[]>([
     { value: 'FONT_SPRITE', label: 'Police / Sprite' },
     { value: 'DIGITAL_GOOD', label: 'Bien Numérique' },
@@ -28,7 +28,7 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
           setCategories(data.categories);
         }
       })
-      .catch(() => {/* Fallback silencieux sur les valeurs par défaut */});
+      .catch(() => {});
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -53,7 +53,7 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="flex items-center justify-between pb-4 border-b border-white/5">
         <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
-          <Plus size={16} className="text-cyan-400" /> Déposer un Artefact
+          <Plus size={16} className="text-[#E5484D]" /> Déposer un Artefact
         </h2>
         <button type="button" onClick={onClose} className="text-xs font-mono text-slate-500 hover:text-white uppercase">[ Fermer ]</button>
       </div>
@@ -63,7 +63,7 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
         <select 
           value={storeUid} 
           onChange={(e) => setStoreUid(e.target.value)}
-          className="w-full bg-black/60 border border-white/10 px-4 py-3 rounded-xl text-xs text-white font-mono outline-none focus:border-cyan-500"
+          className="w-full bg-black/60 border border-white/10 px-4 py-3 rounded-xl text-xs text-white font-mono outline-none focus:border-[#E5484D]"
         >
           {stores.map((s) => (
             <option key={s.uid} value={s.uid}>{s.storeName}</option>
@@ -79,7 +79,7 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
           onChange={(e) => setTitle(e.target.value)}
           placeholder="ex: Police Cyberpunk V1" 
           required
-          className="w-full bg-black/60 border border-white/10 px-4 py-3 rounded-xl text-xs text-white font-mono outline-none focus:border-cyan-500" 
+          className="w-full bg-black/60 border border-white/10 px-4 py-3 rounded-xl text-xs text-white font-mono outline-none focus:border-[#E5484D]" 
         />
       </div>
 
@@ -91,7 +91,7 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
           placeholder="Caractéristiques..." 
           rows={3}
           required
-          className="w-full bg-black/60 border border-white/10 p-4 rounded-xl text-xs text-white font-mono outline-none focus:border-cyan-500" 
+          className="w-full bg-black/60 border border-white/10 p-4 rounded-xl text-xs text-white font-mono outline-none focus:border-[#E5484D]" 
         />
       </div>
 
@@ -105,7 +105,7 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
             onChange={(e) => setPriceCents(e.target.value)}
             placeholder="15.00" 
             required
-            className="w-full bg-black/60 border border-white/10 px-4 py-3 rounded-xl text-xs text-white font-mono outline-none focus:border-cyan-500" 
+            className="w-full bg-black/60 border border-white/10 px-4 py-3 rounded-xl text-xs text-white font-mono outline-none focus:border-[#E5484D]" 
           />
         </div>
 
@@ -114,7 +114,7 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
           <select 
             value={category} 
             onChange={(e) => setCategory(e.target.value)}
-            className="w-full bg-black/60 border border-white/10 px-4 py-3 rounded-xl text-xs text-white font-mono outline-none focus:border-cyan-500"
+            className="w-full bg-black/60 border border-white/10 px-4 py-3 rounded-xl text-xs text-white font-mono outline-none focus:border-[#E5484D]"
           >
             {categories.map((cat) => (
               <option key={cat.value} value={cat.value}>{cat.label}</option>
@@ -128,7 +128,7 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
         <select 
           value={visibility} 
           onChange={(e) => setVisibility(e.target.value)}
-          className="w-full bg-black/60 border border-white/10 px-4 py-3 rounded-xl text-xs text-white font-mono outline-none focus:border-cyan-500"
+          className="w-full bg-black/60 border border-white/10 px-4 py-3 rounded-xl text-xs text-white font-mono outline-none focus:border-[#E5484D]"
         >
           <option value="PUBLIC">🌍 Public</option>
           <option value="EXCHANGEABLE">🔄 Échangeable (Marketplace / Troc)</option>
@@ -137,7 +137,7 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
         </select>
       </div>
 
-      <button type="submit" className="w-full py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-black uppercase text-xs rounded-2xl shadow-lg transition-all">
+      <button type="submit" className="w-full py-4 bg-[#E5484D] hover:bg-[#d43b40] text-white font-black uppercase text-xs rounded-2xl shadow-lg transition-all">
         Ajouter au Catalogue
       </button>
     </form>

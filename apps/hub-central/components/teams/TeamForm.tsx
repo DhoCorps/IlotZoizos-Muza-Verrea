@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { RequireCapability } from '../auth/RequireCapability';
 import { CAPABILITIES } from '@ilot/types';
-import { Network, PenTool, Globe, Lock, Palette, Paperclip, Upload, Trash2, Loader2, FileText, ExternalLink } from 'lucide-react';
+import { Network, Globe, Lock, Paperclip, Upload, Trash2, Loader2, FileText, ExternalLink } from 'lucide-react';
 
 interface TeamFormProps {
   onSuccess: () => void;
@@ -22,7 +22,6 @@ export function TeamForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
-  // 🪡 SUTURE : Gestion des artefacts
   const [localDocuments, setLocalDocuments] = useState<any[]>(initialData?.documents || []);
   const [uploading, setUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
@@ -66,7 +65,6 @@ export function TeamForm({
     }
   };
 
-  // 🪡 SUTURE : Gestion physique de l'artefact
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !initialData?.uid) return;
@@ -138,7 +136,6 @@ export function TeamForm({
          </div>
       </div>
 
-      {/* 📁 GESTION DES ARTEFACTS (Visible uniquement si Mutation) */}
       {isEdit && (
         <div className="p-4 bg-white/[0.02] border border-white/5 rounded-xl space-y-4">
           <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-2"><Paperclip size={10} /> Artefacts (Fichiers)</label>

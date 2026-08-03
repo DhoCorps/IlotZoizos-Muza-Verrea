@@ -16,13 +16,11 @@ export default function BirdProfileForm({
   userCapabilities = [] 
 }: BirdProfileFormProps) {
   
-  // 🛡️ ÉTALONNAGE DU STATE : Aligné sur le Schéma Oiseau & Sanctuaire
   const [formData, setFormData] = useState({
     pseudo: initialData?.pseudo || '',
     email: initialData?.email || '',
     signature: initialData?.signature || '<(:<',
     frequenceHEX: initialData?.frequenceHEX || '#8b9dc3',
-    // 🪡 SUTURE : Conversion robuste du tableau de caps en string pour l'input
     capabilities: Array.isArray(initialData?.capabilities) ? initialData.capabilities.join(', ') : (initialData?.capabilities || ''),
     sanctuaire: {
       biographie: initialData?.sanctuaire?.biographie || '',
@@ -36,7 +34,6 @@ export default function BirdProfileForm({
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
-    // Gestion du Sanctuaire Polymorphe
     if (name.startsWith('sanctuaire.')) {
       const field = name.split('.')[1];
       setFormData(prev => ({
@@ -53,7 +50,6 @@ export default function BirdProfileForm({
     setLoading(true);
     setMessage(null);
 
-    // 🕊️ TRANSFORMATION DE L'INPUT : De la string vers le tableau de capacités pour la Silice
     const payload = {
       ...formData,
       uid: initialData?.uid, 
@@ -63,7 +59,6 @@ export default function BirdProfileForm({
     };
 
     try {
-      // 🛡️ SUTURE API : Appel à la route de mise à jour purifiée
       const response = await fetch('/api/auth/user/update', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -88,7 +83,6 @@ export default function BirdProfileForm({
   return (
     <form onSubmit={handleSubmit} className="max-w-2xl mx-auto p-8 bg-[#05070A]/80 border border-white/10 rounded-3xl shadow-2xl space-y-8 backdrop-blur-xl relative overflow-hidden">
       
-      {/* Indicateur de vibration visuelle */}
       <div className="absolute top-0 left-0 w-full h-1" style={{ backgroundColor: formData.frequenceHEX }} />
 
       <div className="flex items-center justify-between mb-8">
@@ -104,14 +98,12 @@ export default function BirdProfileForm({
         <div className="w-12 h-12 rounded-full border-4 border-white/5 shadow-inner" style={{ backgroundColor: formData.frequenceHEX }} />
       </div>
 
-      {/* Message système */}
       {message && (
         <div className={`p-4 rounded-xl border ${message.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' : 'bg-red-500/10 border-red-500/50 text-red-400'} text-xs font-mono uppercase tracking-widest`}>
           {message.text}
         </div>
       )}
 
-      {/* 👤 IDENTITÉ DE BASE */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="space-y-2">
           <label className="text-[10px] uppercase font-black text-[#E5484D] tracking-[0.2em] ml-1">Pseudonyme</label>
@@ -136,7 +128,6 @@ export default function BirdProfileForm({
         </div>
       </div>
 
-      {/* 🧠 SANCTUAIRE */}
       <div className="space-y-4">
         <div className="space-y-2">
           <label className="text-[10px] uppercase font-black text-slate-500 tracking-[0.2em] ml-1">Biographie du Sanctuaire</label>
@@ -150,7 +141,6 @@ export default function BirdProfileForm({
         </div>
       </div>
 
-      {/* 🎨 VIBRATIONS & POUVOIRS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-6 bg-white/[0.02] rounded-3xl border border-white/5">
         <div className="space-y-3">
           <div className="flex items-center gap-2 mb-1">
@@ -185,7 +175,6 @@ export default function BirdProfileForm({
         </div>
       </div>
 
-      {/* 🛡️ VALIDATION SOUVERAINE */}
       <div className="pt-4">
         <RequireCapability capabilities={userCapabilities} need={CAPABILITIES.MEMBER.UPDATE}>
           <button 

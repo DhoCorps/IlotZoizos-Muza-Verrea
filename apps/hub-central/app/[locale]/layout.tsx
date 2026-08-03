@@ -1,8 +1,11 @@
+// apps/hub-central/app/[locale]/layout.tsx
 import { ReactNode } from 'react';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { AuthProvider } from '../AuthProvider'; // 👈 Le pont d'identité
 import { LetrinFontProvider } from '../../components/letrin/LetrinFontContext'; // 👈 Le fournisseur de polices Letr'In
+import { UniversalGraphExplorer } from '../../components/graph/UniversalGraphExplorer'; // 👈 Le Navigateur Stellaire Global
+
 import '../globals.css';
 
 export default async function LocaleLayout({
@@ -28,6 +31,9 @@ export default async function LocaleLayout({
             {/* 🔠 LA FORGE TYPOGRAPHIQUE LETR'IN : Injecte le contexte global des polices */}
             <LetrinFontProvider>
               {children}
+
+              {/* 🌌 LE NAVIGATEUR STELLAIRE PERMANENT : Flotte en bas à droite pour explorer le graphe en tout temps */}
+              <UniversalGraphExplorer />
             </LetrinFontProvider>
 
           </NextIntlClientProvider>

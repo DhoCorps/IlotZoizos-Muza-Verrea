@@ -5,6 +5,9 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "../../../lib/auth";
 import { v4 as uuidv4 } from 'uuid';
 
+/**
+ * 🌿 ROUTE TAXONOMIE DE L'ÎLOT (Hybride DB + Fallbacks Statiques)
+ */
 export async function GET(req: Request) {
   try {
     await connectToDatabase();
@@ -16,8 +19,44 @@ export async function GET(req: Request) {
     if (domain) query.domain = domain;
     if (type) query.type = type;
 
+    // Récupération depuis la base de données
     const tags = await TaxonomyModel.find(query).sort({ name: 1 }).lean();
-    return NextResponse.json({ success: true, data: tags }, { status: 200 });
+
+    // Référentiels statiques de secours pour alimenter instantanément les formulaires front-end
+    const defaultTaxonomies = {
+      categories: [
+        { value: 'FONT_SPRITE', label: 'Police / Sprite' },
+        { value: 'DIGITAL_GOOD', label: 'Bien Numérique' },
+        { value: 'PHYSICAL_ARTIFACT', label: 'Objet Physique' },
+        { value: 'LORE_SCROLL', label: 'Parchemin / Lore' }
+      ],
+      instruments: [
+        { value: 'BASS', label: 'Basse / Fretless 🎸' },
+        { value: 'GUITAR', label: 'Guitare 🎸' },
+        { value: 'PIANO', label: 'Piano / Clavier 🎹' },
+        { value: 'DRUMS', label: 'Batterie 🥁' },
+        { value: 'VOCAL', label: 'Chant / Voix 🎤' },
+        { value: 'OTHER', label: 'Autre / Synth 🎛️' }
+      ],
+      sujetCategories: [
+        { value: 'MONOLOGUE', label: 'Monologue' },
+        { value: 'POETRY', label: 'Poésie' },
+        { value: 'TUTORIAL', label: 'Tutoriel' },
+        { value: 'TRACK_NOTE', label: 'Note de Piste' }
+      ],
+      projectCategories: [
+        { value: 'TECHNICAL', label: 'Technique' },
+        { value: 'ARTISTIC', label: 'Artistique' },
+        { value: 'SOCIAL', label: 'Social' }
+      ]
+    };
+
+    return NextResponse.json({ 
+      success: true, 
+      data: tags,
+      ...defaultTaxonomies // Permet aux composants d'utiliser soit data, soit les listes directes
+    }, { status: 200 });
+
   } catch (error: any) {
     console.error("🔥 Erreur lors de la lecture de la taxonomie :", error);
     return NextResponse.json({ error: error.message }, { status: 500 });

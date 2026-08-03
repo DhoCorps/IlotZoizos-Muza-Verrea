@@ -2,9 +2,9 @@
 'use client'; 
 
 import { useState, useEffect } from 'react';
-import { Layers, FolderPlus, Link as LinkIcon, Paperclip, Upload, Trash2, Loader2, FileText, ExternalLink } from 'lucide-react';
+import { Layers, FolderPlus, Paperclip, Upload, Trash2, Loader2, FileText, ExternalLink } from 'lucide-react';
 import { RequireCapability } from '../auth/RequireCapability';
-import { CAPABILITIES, IProjectDocument } from '@ilot/types'; // 🪡 SUTURE : Import du type propre
+import { CAPABILITIES, IProjectDocument } from '@ilot/types';
 
 interface ProjectFormProps {
   ownerUid: string;
@@ -39,7 +39,6 @@ export function ProjectForm({
   const [uploading, setUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
-  // 🪡 TAXONOMIE DYNAMIQUE : État pour les catégories de projets
   const [projectCategories, setProjectCategories] = useState<{ value: string; label: string }[]>([
     { value: 'TECHNICAL', label: 'Technique' },
     { value: 'ARTISTIC', label: 'Artistique' },
@@ -54,7 +53,7 @@ export function ProjectForm({
           setProjectCategories(data.projectCategories);
         }
       })
-      .catch(() => {/* Fallback silencieux sur les valeurs par défaut */});
+      .catch(() => {});
   }, []);
   
   const isEdit = !!initialData;
@@ -114,7 +113,6 @@ export function ProjectForm({
     }
   }; 
 
-  // 📤 LOGIQUE UPLOAD
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !initialData?.uid) return;
@@ -139,7 +137,6 @@ export function ProjectForm({
     }
   };
 
-  // 🧨 LOGIQUE DÉSINTÉGRATION
   const handleDeleteAttachment = async (doc: IProjectDocument) => {
     if (!confirm("Anéantir définitivement cet artefact ?")) return;
     const uid = doc.uid as unknown as string;
@@ -188,7 +185,6 @@ export function ProjectForm({
         <textarea name="description" defaultValue={initialData?.description} placeholder="Raconte l'intention du chantier..." className="w-full bg-black/40 border border-white/10 p-4 rounded-xl focus:border-[#E5484D] outline-none text-sm text-slate-200 h-24 resize-none" />
       </div>
 
-      {/* 📁 GESTION DES ARTEFACTS */}
       {isEdit && (
         <div className="p-4 bg-white/[0.02] border border-white/5 rounded-xl space-y-4">
            <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-2"><Paperclip size={10} /> Artefacts du Chantier</label>
@@ -211,7 +207,6 @@ export function ProjectForm({
         </div>
       )}
 
-      {/* Classification avec Catégories Dynamiques */}
       <div className="space-y-4">
         <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Classification</h4>
         <div className="grid grid-cols-3 gap-4">

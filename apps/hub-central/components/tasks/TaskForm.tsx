@@ -1,7 +1,7 @@
 // apps/hub-central/components/tasks/TaskForm.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { RequireCapability } from '../auth/RequireCapability';
 import { CAPABILITIES, TaskStatus } from '@ilot/types'; 
 import { Clock, AlertCircle, Layers, UserPlus, Type, Loader2, CalendarHeart, Target, Paperclip, Upload, Trash2, FileText, ExternalLink } from 'lucide-react';
@@ -31,7 +31,6 @@ export function TaskForm({
 }: TaskFormProps) {
   const isEdit = !!initialData;
   
-  // 🪡 SUTURE : Gestion locale des artefacts
   const [localAttachments, setLocalAttachments] = useState<any[]>(initialData?.content?.attachments || initialData?.fileUploads || []);
   const [uploading, setUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
@@ -43,7 +42,6 @@ export function TaskForm({
     return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   };
 
-  // 📤 LOGIQUE UPLOAD
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !initialData?.uid) return;
@@ -68,7 +66,6 @@ export function TaskForm({
     }
   };
 
-  // 🧨 LOGIQUE DÉSINTÉGRATION
   const handleDeleteAttachment = async (doc: any) => {
     if (!confirm("Anéantir définitivement cette pièce jointe ?")) return;
     setIsDeleting(doc.uid);
@@ -114,7 +111,6 @@ export function TaskForm({
         <textarea name="description" defaultValue={initialData?.content?.description} placeholder="Précise l'intention..." className="w-full bg-black/40 border border-white/10 p-4 rounded-xl text-sm text-slate-300 outline-none focus:border-[#E5484D] h-24 resize-none" />
       </div>
 
-      {/* 📁 GESTION DES ARTEFACTS (Visible uniquement en édition) */}
       {isEdit && (
         <div className="p-4 bg-white/[0.02] border border-white/5 rounded-xl space-y-4">
            <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-2"><Paperclip size={10} /> Artefacts de l'Atome</label>
@@ -158,7 +154,7 @@ export function TaskForm({
 
       <div className="flex flex-col gap-2">
         <label className="text-xs font-bold uppercase text-slate-500 flex items-center gap-2">
-          <CalendarHeart size={14} /> Programmation temporel
+          <CalendarHeart size={14} /> Programmation temporelle
         </label>
         <input type="datetime-local" name="scheduledAt" defaultValue={formatLocalTime(initialData?.dates?.scheduledAt || initialScheduledDate)} className="w-full bg-black/40 border border-white/5 rounded-xl p-4 text-sm text-white focus:outline-none focus:border-[#E5484D]/50 transition-colors" />
       </div>
