@@ -1,4 +1,11 @@
+// packages/types/src/ecommerce.types.ts
 import { z } from 'zod';
+
+export const CreationVisibilitySchema = z.enum(['PUBLIC', 'EXCHANGEABLE', 'VISIBLE', 'PRIVATE']);
+export type CreationVisibility = z.infer<typeof CreationVisibilitySchema>;
+
+export const ProductDomainSchema = z.enum(['MUSIC', 'GRAPHIC', 'VIDEO', 'CINEMA', 'PHYSICAL_GOODS', 'LORE', 'FONT', 'OTHER']);
+export type ProductDomain = z.infer<typeof ProductDomainSchema>;
 
 export const StoreSchema = z.object({
   uid: z.string(),
@@ -21,6 +28,7 @@ export const ProductSchema = z.object({
   stock: z.number().int().min(0).default(1),
   category: z.enum(['FONT_SPRITE', 'DIGITAL_GOOD', 'PHYSICAL_ARTIFACT', 'LORE_SCROLL']),
   imageUrl: z.string().url().optional(),
+  visibility: CreationVisibilitySchema.default('PUBLIC'), // 🪡 Correction : Utilisation du schéma Zod avec défaut
 });
 
 export const WishlistSchema = z.object({

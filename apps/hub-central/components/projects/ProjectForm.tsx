@@ -1,7 +1,7 @@
 // apps/hub-central/components/projects/ProjectForm.tsx
 'use client'; 
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layers, FolderPlus, Link as LinkIcon, Paperclip, Upload, Trash2, Loader2, FileText, ExternalLink } from 'lucide-react';
 import { RequireCapability } from '../auth/RequireCapability';
 import { CAPABILITIES, IProjectDocument } from '@ilot/types'; // 🪡 SUTURE : Import du type propre
@@ -26,7 +26,7 @@ export function ProjectForm({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
-const [localDocuments, setLocalDocuments] = useState<IProjectDocument[]>(
+  const [localDocuments, setLocalDocuments] = useState<IProjectDocument[]>(
     initialData?.documents?.map((d: any) => ({
       uid: String(d.uid),
       name: String(d.name),
@@ -38,6 +38,24 @@ const [localDocuments, setLocalDocuments] = useState<IProjectDocument[]>(
   );
   const [uploading, setUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
+
+  // 🪡 TAXONOMIE DYNAMIQUE : État pour les catégories de projets
+  const [projectCategories, setProjectCategories] = useState<{ value: string; label: string }[]>([
+    { value: 'TECHNICAL', label: 'Technique' },
+    { value: 'ARTISTIC', label: 'Artistique' },
+    { value: 'SOCIAL', label: 'Social' }
+  ]);
+
+  useEffect(() => {
+    fetch('/api/taxonomy')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.projectCategories) {
+          setProjectCategories(data.projectCategories);
+        }
+      })
+      .catch(() => {/* Fallback silencieux sur les valeurs par défaut */});
+  }, []);
   
   const isEdit = !!initialData;
 
@@ -113,7 +131,6 @@ const [localDocuments, setLocalDocuments] = useState<IProjectDocument[]>(
       });
       if (!res.ok) throw new Error("Échec du scellage.");
       const data = await res.json();
-      // On force le typage ici aussi
       setLocalDocuments((prev) => [...prev, data.document as IProjectDocument]);
     } catch (err: any) {
       alert(`🚨 Erreur d'alchimie : ${err.message}`);
@@ -125,7 +142,6 @@ const [localDocuments, setLocalDocuments] = useState<IProjectDocument[]>(
   // 🧨 LOGIQUE DÉSINTÉGRATION
   const handleDeleteAttachment = async (doc: IProjectDocument) => {
     if (!confirm("Anéantir définitivement cet artefact ?")) return;
-    setIsDeleting(doc.uid as string);
     const uid = doc.uid as unknown as string;
     const url = doc.url as unknown as string;
 
@@ -195,7 +211,7 @@ const [localDocuments, setLocalDocuments] = useState<IProjectDocument[]>(
         </div>
       )}
 
-      {/* Classification & Détails restent inchangés */}
+      {/* Classification avec Catégories Dynamiques */}
       <div className="space-y-4">
         <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Classification</h4>
         <div className="grid grid-cols-3 gap-4">
@@ -206,7 +222,9 @@ const [localDocuments, setLocalDocuments] = useState<IProjectDocument[]>(
             <option value="MEDIUM">Medium</option><option value="HIGH">High</option><option value="CRITICAL">Critique</option>
           </select>
           <select name="category" defaultValue={initialData?.category || "TECHNICAL"} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-slate-300">
-            <option value="TECHNICAL">Technique</option><option value="ARTISTIC">Artistique</option><option value="SOCIAL">Social</option>
+            {projectCategories.map((cat) => (
+              <option key={cat.value} value={cat.value}>{cat.label}</option>
+            ))}
           </select>
         </div>
       </div>

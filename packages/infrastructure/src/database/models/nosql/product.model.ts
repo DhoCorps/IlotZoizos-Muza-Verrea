@@ -10,9 +10,14 @@ export interface IProductDocument extends Document {
   currency: string;
   stock: number;
   category: string;
+  visibility : string;
   imageUrl?: string;
   createdAt: Date;
 }
+
+// Dans ton interface et ton schéma Mongoose
+export type CreationVisibility = 'PUBLIC' | 'EXCHANGEABLE' | 'VISIBLE' | 'PRIVATE';
+
 
 const ProductSchema = new Schema<IProductDocument>({
   uid: { type: String, required: true, unique: true, index: true },
@@ -29,6 +34,12 @@ const ProductSchema = new Schema<IProductDocument>({
     required: true 
   },
   imageUrl: { type: String, trim: true },
+  visibility: { 
+  type: String, 
+  enum: ['PUBLIC', 'EXCHANGEABLE', 'VISIBLE', 'PRIVATE'], 
+  default: 'PUBLIC',
+  required: true 
+},
 }, { timestamps: true });
 
 export const ProductModel = mongoose.models.Product || mongoose.model<IProductDocument>('Product', ProductSchema);

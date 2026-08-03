@@ -1,6 +1,7 @@
+// apps/hub-central/components/sujets/SujetForm.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Type, FileAudio, LayoutGrid, Upload, Music, ShieldCheck, ShoppingBag, Loader2 } from 'lucide-react';
 import { storage } from '../../../lib/apiClient';
 
@@ -26,6 +27,25 @@ export function SujetForm({
   const [uploadingFile, setUploadingFile] = useState(false);
   const isEdit = !!initialData;
 
+  // 🪡 TAXONOMIE DYNAMIQUE : Catégories de sujets
+  const [sujetCategories, setSujetCategories] = useState<{ value: string; label: string }[]>([
+    { value: 'MONOLOGUE', label: 'Monologue' },
+    { value: 'POETRY', label: 'Poésie' },
+    { value: 'TUTORIAL', label: 'Tutoriel' },
+    { value: 'TRACK_NOTE', label: 'Note de Piste' }
+  ]);
+
+  useEffect(() => {
+    fetch('/api/taxonomy')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.sujetCategories) {
+          setSujetCategories(data.sujetCategories);
+        }
+      })
+      .catch(() => {/* Fallback silencieux sur les valeurs par défaut */});
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
@@ -44,7 +64,6 @@ export function SujetForm({
         setUploadingFile(false);
       }
 
-      // Construction du payload incluant les nouveaux attributs artistiques
       const productId = formData.get('productId')?.toString();
       const payload = {
         title: formData.get('title')?.toString(),
@@ -53,6 +72,7 @@ export function SujetForm({
         copyright: formData.get('copyright')?.toString() || null,
         category: formData.get('category'),
         status: formData.get('status'),
+        visibility: formData.get('visibility')?.toString() || 'PUBLIC', // 🪡 Souveraineté de visibilité
         connections: {
           relatedProjects: selectedProjects
         },
@@ -118,7 +138,7 @@ export function SujetForm({
         />
       </div>
 
-      {/* 🪡 NOUVELLES ZONES : Paroles & Copyright */}
+      {/* Paroles & Copyright / Merch */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="space-y-2">
           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
@@ -159,61 +179,72 @@ export function SujetForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Classification */}
+      {/* Classification & Visibilité */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="space-y-3">
-          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">État & Forme</label>
-          <div className="flex gap-2">
-            <select name="status" defaultValue={initialData?.status || "DRAFT"} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]">
-              <option value="DRAFT">Brouillon</option>
-              <option value="PUBLISHED">Publié</option>
-              <option value="ARCHIVED">Archivé</option>
-            </select>
-            <select name="category" defaultValue={initialData?.category || "MONOLOGUE"} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]">
-              <option value="MONOLOGUE">Monologue</option>
-              <option value="POETRY">Poésie</option>
-              <option value="TUTORIAL">Tutoriel</option>
-              <option value="TRACK_NOTE">Note de Piste</option>
-            </select>
-          </div>
+          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">État</label>
+          <select name="status" defaultValue={initialData?.status || "DRAFT"} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]">
+            <option value="DRAFT">Brouillon</option>
+            <option value="PUBLISHED">Publié</option>
+            <option value="ARCHIVED">Archivé</option>
+          </select>
         </div>
 
-        {/* Média : URL ou Téléversement Cloudflare R2 */}
         <div className="space-y-3">
-          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
-            <FileAudio size={12} /> Fréquence Audio / Fichier (R2)
-          </label>
-          <div className="space-y-2">
-            <input 
-              type="url" 
-              name="audioTrackUrl" 
-              defaultValue={initialData?.media?.audioTrackUrl} 
-              placeholder="https://... ou téléversez ci-dessous" 
-              className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-emerald-500" 
-            />
-            <div className="flex items-center gap-2">
-              <label className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-[10px] font-mono text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer transition-all flex items-center gap-2 truncate">
-                <Upload size={12} className="text-emerald-400 shrink-0" />
-                <span className="truncate">{selectedFile ? selectedFile.name : "Joindre un fichier audio/médias"}</span>
-                <input 
-                  type="file" 
-                  className="hidden" 
-                  accept="audio/*,video/*,text/*,application/pdf"
-                  onChange={(e) => {
-                    if (e.target.files?.[0]) setSelectedFile(e.target.files[0]);
-                  }}
-                />
-              </label>
-              {selectedFile && (
-                <button 
-                  type="button" 
-                  onClick={() => setSelectedFile(null)}
-                  className="px-2 py-2 bg-red-500/10 text-red-400 border border-red-500/20 rounded-xl text-[10px]"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
+          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Forme (Taxonomie)</label>
+          <select name="category" defaultValue={initialData?.category || "MONOLOGUE"} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]">
+            {sujetCategories.map(cat => (
+              <option key={cat.value} value={cat.value}>{cat.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-3">
+          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Souveraineté</label>
+          <select name="visibility" defaultValue={initialData?.visibility || "PUBLIC"} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-emerald-500">
+            <option value="PUBLIC">🌍 Public</option>
+            <option value="EXCHANGEABLE">🔄 Échangeable</option>
+            <option value="VISIBLE">👁️ Visible</option>
+            <option value="PRIVATE">🔒 Privé</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Média : URL ou Téléversement Cloudflare R2 */}
+      <div className="space-y-3">
+        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+          <FileAudio size={12} /> Fréquence Audio / Fichier (R2)
+        </label>
+        <div className="space-y-2">
+          <input 
+            type="url" 
+            name="audioTrackUrl" 
+            defaultValue={initialData?.media?.audioTrackUrl} 
+            placeholder="https://... ou téléversez ci-dessous" 
+            className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-emerald-500" 
+          />
+          <div className="flex items-center gap-2">
+            <label className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-[10px] font-mono text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer transition-all flex items-center gap-2 truncate">
+              <Upload size={12} className="text-emerald-400 shrink-0" />
+              <span className="truncate">{selectedFile ? selectedFile.name : "Joindre un fichier audio/médias"}</span>
+              <input 
+                type="file" 
+                className="hidden" 
+                accept="audio/*,video/*,text/*,application/pdf"
+                onChange={(e) => {
+                  if (e.target.files?.[0]) setSelectedFile(e.target.files[0]);
+                }}
+              />
+            </label>
+            {selectedFile && (
+              <button 
+                type="button" 
+                onClick={() => setSelectedFile(null)}
+                className="px-2 py-2 bg-red-500/10 text-red-400 border border-red-500/20 rounded-xl text-[10px]"
+              >
+                ✕
+              </button>
+            )}
           </div>
         </div>
       </div>

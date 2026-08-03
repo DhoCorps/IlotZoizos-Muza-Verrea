@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus } from 'lucide-react';
 import { ecommerce } from '../../../lib/apiClient';
 
@@ -10,6 +10,26 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
   const [description, setDescription] = useState('');
   const [priceCents, setPriceCents] = useState('');
   const [category, setCategory] = useState('FONT_SPRITE');
+  const [visibility, setVisibility] = useState('PUBLIC');
+  
+  // 🪡 Taxonomie dynamique
+  const [categories, setCategories] = useState<{ value: string; label: string }[]>([
+    { value: 'FONT_SPRITE', label: 'Police / Sprite' },
+    { value: 'DIGITAL_GOOD', label: 'Bien Numérique' },
+    { value: 'PHYSICAL_ARTIFACT', label: 'Objet Physique' },
+    { value: 'LORE_SCROLL', label: 'Parchemin / Lore' }
+  ]);
+
+  useEffect(() => {
+    fetch('/api/taxonomy')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.categories) {
+          setCategories(data.categories);
+        }
+      })
+      .catch(() => {/* Fallback silencieux sur les valeurs par défaut */});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,7 +39,8 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
         title,
         description,
         priceCents: Math.round(parseFloat(priceCents) * 100),
-        category
+        category,
+        visibility
       });
       onSuccess();
       onClose();
@@ -95,12 +116,25 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
             onChange={(e) => setCategory(e.target.value)}
             className="w-full bg-black/60 border border-white/10 px-4 py-3 rounded-xl text-xs text-white font-mono outline-none focus:border-cyan-500"
           >
-            <option value="FONT_SPRITE">Police / Sprite</option>
-            <option value="DIGITAL_GOOD">Bien Numérique</option>
-            <option value="PHYSICAL_ARTIFACT">Objet Physique</option>
-            <option value="LORE_SCROLL">Parchemin / Lore</option>
+            {categories.map((cat) => (
+              <option key={cat.value} value={cat.value}>{cat.label}</option>
+            ))}
           </select>
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-[10px] font-mono uppercase tracking-widest text-slate-400">Visibilité & Souveraineté</label>
+        <select 
+          value={visibility} 
+          onChange={(e) => setVisibility(e.target.value)}
+          className="w-full bg-black/60 border border-white/10 px-4 py-3 rounded-xl text-xs text-white font-mono outline-none focus:border-cyan-500"
+        >
+          <option value="PUBLIC">🌍 Public</option>
+          <option value="EXCHANGEABLE">🔄 Échangeable (Marketplace / Troc)</option>
+          <option value="VISIBLE">👁️ Visible (Hors marché)</option>
+          <option value="PRIVATE">🔒 Privé</option>
+        </select>
       </div>
 
       <button type="submit" className="w-full py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-black uppercase text-xs rounded-2xl shadow-lg transition-all">

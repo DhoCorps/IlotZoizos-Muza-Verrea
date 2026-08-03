@@ -47,34 +47,39 @@ export function ContextualGraph({ rootUid, onNodeDoubleClick }: { rootUid: strin
         height={384}
         backgroundColor="rgba(0,0,0,0)"
         
-        // 🩸 SUTURE : Utilisation de la Fréquence (HEX) pour les Équipes, rouge pour les projets.
+        // 🩸 SUTURE : Attribution des couleurs selon la nature de l'entité
         nodeColor={(node: any) => {
-          if (node.type === 'Team') return node.frequency || '#10b981'; // Vert par défaut si pas de fréquence
-          if (node.type === 'Project') return '#E5484D';
-          if (node.type === 'Task') {
-            // Les tâches finies brillent légèrement plus
-            return node.status === 'DONE' ? '#94a3b8' : '#334155';
-          }
-          return '#f1f5f9'; // Utilisateurs ou autres
+          if (node.type === 'Oiseau') return node.frequency || '#f59e0b'; // Fréquence de l'Oiseau
+          if (node.type === 'Team') return node.frequency || '#10b981'; 
+          if (node.type === 'Project') return '#E5484D'; // Rouge Îlot
+          if (node.type === 'Partita') return '#8b5cf6'; // Violet musical
+          if (node.type === 'LetrinSprite') return '#06b6d4'; // Cyan typographique
+          if (node.type === 'Task') return node.status === 'DONE' ? '#94a3b8' : '#334155';
+          return '#f1f5f9'; 
         }}
 
-        // 🩸 SUTURE : Graphe Muet. Si la tâche n'a pas de nom, on affiche juste son type et statut.
+        // 🩸 SUTURE : Libellés contextuels enrichis
         nodeLabel={(node: any) => {
           if (node.type === 'Task') {
-             // Afficher le poids sédimenté si c'est fini, sinon juste le statut
              return `Atome [${node.status}] ${node.energyWeight ? `| Énergie: ${node.energyWeight}` : ''}`;
           }
-          return node.name || node.pseudo || node.uid; // Reste classique pour les autres
+          if (node.type === 'Partita') {
+             return `Partita [${node.instrument || 'Musique'}] : ${node.name}`;
+          }
+          if (node.type === 'LetrinSprite') {
+             return `Letr'In [${node.resolution}x${node.resolution}] : ${node.name}`;
+          }
+          return node.name || node.pseudo || node.uid;
         }}
 
-        // 🩸 SUTURE : Les nœuds gonflent selon l'énergie sédimentée !
+        // 🩸 SUTURE : Taille des nœuds selon leur importance / type
         nodeVal={(node: any) => {
-           // Si c'est une tâche achevée avec du poids, on augmente sa taille
            if (node.type === 'Task' && node.energyWeight) {
               return 4 + (node.energyWeight * 0.5); 
            }
-           // Taille par défaut selon le type
-           return node.type === 'Project' || node.type === 'Team' ? 8 : 4;
+           if (node.type === 'Project' || node.type === 'Team') return 8;
+           if (node.type === 'Partita' || node.type === 'LetrinSprite') return 6;
+           return 4;
         }}
 
         linkDirectionalParticles={2}

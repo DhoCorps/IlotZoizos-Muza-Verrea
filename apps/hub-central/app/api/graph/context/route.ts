@@ -10,7 +10,6 @@ export async function GET(req: Request) {
 
   const session = getNeo4jSession();
   try {
-    // Requête Cypher pour récupérer le contexte immédiat et les ponts transdisciplinaires
     const result = await session.run(`
       MATCH (root {uid: $rootUid})
       OPTIONAL MATCH (root)-[r]-(neighbor)
@@ -21,42 +20,50 @@ export async function GET(req: Request) {
     const links: any[] = [];
     const nodeIds = new Set();
 
+    const formatNodeData = (recordNode: any) => {
+      const props = recordNode.properties;
+      const label = recordNode.labels[0] || 'Entity';
+
+      return {
+        id: props.uid,
+        name: props.name || props.title || props.pseudo || props.content?.substring(0, 20) || 'Entité Sans Nom',
+        type: label,
+        frequency: props.frequenceHEX || props.color || null,
+        status: props.status || props.visibility || null,
+        energyWeight: props.energyWeight || null,
+        instrument: props.instrument || null,
+        resolution: props.resolution || null
+      };
+    };
+
     result.records.forEach(record => {
       const rootRecord = record.get('root');
       const neighborRecord = record.get('neighbor');
       const rel = record.get('r');
 
       if (rootRecord) {
-        const root = rootRecord.properties;
-        if (!nodeIds.has(root.uid)) {
-          nodes.push({ 
-            id: root.uid, 
-            name: root.name || root.title || root.pseudo || 'Nœud Racine', 
-            type: rootRecord.labels[0] || 'Entity' 
-          });
-          nodeIds.add(root.uid);
+        const rootFormatted = formatNodeData(rootRecord);
+        if (!nodeIds.has(rootFormatted.id)) {
+          nodes.push(rootFormatted);
+          nodeIds.add(rootFormatted.id);
         }
       }
 
       if (neighborRecord) {
-        const neighbor = neighborRecord.properties;
-        if (neighbor && neighbor.uid && !nodeIds.has(neighbor.uid)) {
-          nodes.push({ 
-            id: neighbor.uid, 
-            name: neighbor.name || neighbor.title || neighbor.pseudo || neighbor.content?.substring(0, 20) || 'Voisin Connexe', 
-            type: neighborRecord.labels[0] || 'Entity' 
-          });
-          nodeIds.add(neighbor.uid);
+        const neighborFormatted = formatNodeData(neighborRecord);
+        if (neighborFormatted.id && !nodeIds.has(neighborFormatted.id)) {
+          nodes.push(neighborFormatted);
+          nodeIds.add(neighborFormatted.id);
         }
       }
 
       if (rel && rootRecord && neighborRecord) {
-        const root = rootRecord.properties;
-        const neighbor = neighborRecord.properties;
-        if (root?.uid && neighbor?.uid) {
+        const rootProps = rootRecord.properties;
+        const neighborProps = neighborRecord.properties;
+        if (rootProps?.uid && neighborProps?.uid) {
           links.push({ 
-            source: root.uid, 
-            target: neighbor.uid, 
+            source: rootProps.uid, 
+            target: neighborProps.uid, 
             type: rel.type 
           });
         }
@@ -66,14 +73,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ nodes, links });
 
   } catch (error: any) {
-    // 🪡 SUTURE : Le bouclier d'erreur pour éviter le crash brutal du Hub
     console.error("🔥 Fracture lors de la lecture contextuelle du Graphe :", error);
     return NextResponse.json(
       { nodes: [], links: [], message: "Le maillage est temporairement illisible." },
       { status: 500 }
     );
   } finally {
-    // 🪡 SUTURE : Fermeture garantie de la session, quoi qu'il arrive
     await session.close();
   }
 }

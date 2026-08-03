@@ -1,7 +1,8 @@
+// apps/hub-central/components/partitions/PartitaForm.tsx
 'use client';
 
-import { useState } from 'react';
-import { Music, FileAudio, LayoutGrid, Upload, Sliders, ShoppingBag, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Music, FileAudio, LayoutGrid, Upload, ShoppingBag, Loader2 } from 'lucide-react';
 import { storage } from '../../lib/apiClient';
 
 interface PartitaFormProps {
@@ -23,6 +24,27 @@ export function PartitaForm({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const isEdit = !!initialData;
+
+  // 🪡 TAXONOMIE DYNAMIQUE : Instruments de musique
+  const [instruments, setInstruments] = useState<{ value: string; label: string }[]>([
+    { value: 'BASS', label: 'Basse / Fretless 🎸' },
+    { value: 'GUITAR', label: 'Guitare 🎸' },
+    { value: 'PIANO', label: 'Piano / Clavier 🎹' },
+    { value: 'DRUMS', label: 'Batterie 🥁' },
+    { value: 'VOCAL', label: 'Chant / Voix 🎤' },
+    { value: 'OTHER', label: 'Autre / Synth 🎛️' }
+  ]);
+
+  useEffect(() => {
+    fetch('/api/taxonomy')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.instruments) {
+          setInstruments(data.instruments);
+        }
+      })
+      .catch(() => {/* Fallback silencieux sur les valeurs par défaut */});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -51,6 +73,7 @@ export function PartitaForm({
         format: formData.get('format'),
         tuning: formData.get('tuning')?.toString() || 'E1-A1-D2-G2',
         status: formData.get('status'),
+        visibility: formData.get('visibility')?.toString() || 'PUBLIC',
         connections: {
           relatedProjects: selectedProjects
         },
@@ -108,17 +131,14 @@ export function PartitaForm({
         />
       </div>
 
-      {/* Caractéristiques Techniques de la Partition */}
+      {/* Caractéristiques Techniques de la Partition (Instruments Dynamiques) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="space-y-2">
           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Instrument</label>
           <select name="instrument" defaultValue={initialData?.instrument || "BASS"} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]">
-            <option value="BASS">Basse / Fretless 🎸</option>
-            <option value="GUITAR">Guitare 🎸</option>
-            <option value="PIANO">Piano / Clavier 🎹</option>
-            <option value="DRUMS">Batterie 🥁</option>
-            <option value="VOCAL">Chant / Voix 🎤</option>
-            <option value="OTHER">Autre / Synth 🎛️</option>
+            {instruments.map(inst => (
+              <option key={inst.value} value={inst.value}>{inst.label}</option>
+            ))}
           </select>
         </div>
 
@@ -161,7 +181,7 @@ export function PartitaForm({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* État de Publication */}
         <div className="space-y-2">
-          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Visibilité</label>
+          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Statut</label>
           <select name="status" defaultValue={initialData?.status || "DRAFT"} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]">
             <option value="DRAFT">Brouillon (Intime)</option>
             <option value="PUBLISHED">Publié (Ouvert)</option>
@@ -169,18 +189,35 @@ export function PartitaForm({
           </select>
         </div>
 
-        {/* E-Commerce Marchand */}
+        {/* Droits et Souveraineté de Visibilité */}
         <div className="space-y-2">
-          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
-            <ShoppingBag size={12} /> Produit Associé (Optionnel)
+          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+            Visibilité & Souveraineté
           </label>
-          <input 
-            name="productId" 
-            defaultValue={initialData?.merchLink?.productId} 
-            placeholder="ID Produit E-Commerce (ex: prod_bass_01)" 
-            className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]" 
-          />
+          <select 
+            name="visibility" 
+            defaultValue={initialData?.visibility || "PUBLIC"} 
+            className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-emerald-500"
+          >
+            <option value="PUBLIC">🌍 Public</option>
+            <option value="EXCHANGEABLE">🔄 Échangeable (Troc / Marketplace)</option>
+            <option value="VISIBLE">👁️ Visible (Hors marché)</option>
+            <option value="PRIVATE">🔒 Privé</option>
+          </select>
         </div>
+      </div>
+
+      {/* E-Commerce Marchand */}
+      <div className="space-y-2">
+        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+          <ShoppingBag size={12} /> Produit Associé (Optionnel)
+        </label>
+        <input 
+          name="productId" 
+          defaultValue={initialData?.merchLink?.productId} 
+          placeholder="ID Produit E-Commerce (ex: prod_bass_01)" 
+          className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]" 
+        />
       </div>
 
       {/* Média Audio (URL ou R2) */}

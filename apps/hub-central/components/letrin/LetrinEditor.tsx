@@ -7,6 +7,8 @@ import * as opentype from 'opentype.js';
 // --- STRUCTURES DE DONNÉES AVANCÉES (EXPORTÉES) ---
 export type ShapeType = 'full' | 'half-t' | 'half-b' | 'half-l' | 'half-r' | 'q-t' | 'q-b' | 'q-l' | 'q-r' | 'tl' | 'tr' | 'bl' | 'br' | 'tri-tl' | 'tri-tr' | 'tri-bl' | 'tri-br' | 'tri-t' | 'tri-b' | 'tri-l' | 'tri-r';
 
+export type CreationVisibility = 'PUBLIC' | 'EXCHANGEABLE' | 'VISIBLE' | 'PRIVATE';
+
 export interface PixelData {
   c: string; 
   s: ShapeType; 
@@ -20,16 +22,20 @@ interface LetrinEditorProps {
   fontTitle?: string;
   initialGridSize?: number;
   initialGlyphs?: Record<string, any[][]>; 
-  onSave: (matrices: Record<string, (PixelData | null)[][]>) => void;
+  initialVisibility?: CreationVisibility;
+  onSave: (matrices: Record<string, (PixelData | null)[][]>, visibility: CreationVisibility) => void;
 }
 
 export function LetrinEditor({ 
   fontTitle = "Mon Projet Letr'In", 
   initialGridSize = 16, 
   initialGlyphs = {}, 
+  initialVisibility = 'PUBLIC',
   onSave 
 }: LetrinEditorProps) {
   
+  const [visibility, setVisibility] = useState<CreationVisibility>(initialVisibility);
+
   const parseLegacyMatrix = (grid: any[][]): (PixelData | null)[][] => {
     return grid.map(row => row.map(cell => {
       if (!cell) return null;
@@ -463,7 +469,7 @@ export function LetrinEditor({
     font.download(`${localTitle.replace(/\s+/g, '_')}.ttf`);
   };
 
-  const exportToJson = () => triggerDownload("data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ font: localTitle, resolution, glyphs: matrices }, null, 2)), `${localTitle.replace(/\s+/g, '_')}_projet.json`);
+  const exportToJson = () => triggerDownload("data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ font: localTitle, resolution, visibility, glyphs: matrices }, null, 2)), `${localTitle.replace(/\s+/g, '_')}_projet.json`);
   const triggerDownload = (dataStr: string, filename: string) => { const a = document.createElement('a'); a.href = dataStr; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); };
 
   const handleJsonUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -475,6 +481,7 @@ export function LetrinEditor({
         const parsedData = JSON.parse(e.target?.result as string);
         if (parsedData.glyphs && typeof parsedData.resolution === 'number') {
           if (parsedData.font) setLocalTitle(parsedData.font);
+          if (parsedData.visibility) setVisibility(parsedData.visibility);
           setResolution(parsedData.resolution);
           const safeMatrices: Record<string, (PixelData | null)[][]> = {};
           Object.keys(parsedData.glyphs).forEach(k => safeMatrices[k] = parseLegacyMatrix(parsedData.glyphs[k]));
@@ -518,8 +525,25 @@ export function LetrinEditor({
 
         <input type="text" value={localTitle} onChange={(e) => setLocalTitle(e.target.value)} className="w-full bg-transparent border-b border-white/20 text-sm font-black uppercase tracking-widest text-slate-300 pb-2 focus:outline-none focus:border-[#E5484D] transition-colors" placeholder="Nom du projet" />
 
+        {/* 🌍 Sélecteur de Visibilité (Souveraineté) */}
+        <div className="space-y-2">
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+            Visibilité & Souveraineté
+          </label>
+          <select
+            value={visibility}
+            onChange={(e) => setVisibility(e.target.value as CreationVisibility)}
+            className="w-full bg-black/60 border border-white/10 rounded-xl p-3 text-xs text-slate-200 outline-none focus:border-[#E5484D]"
+          >
+            <option value="PUBLIC">🌍 Public (Visible par tous)</option>
+            <option value="EXCHANGEABLE">🔄 Échangeable (Disponible sur le Marketplace)</option>
+            <option value="VISIBLE">👁️ Visible (Hors marché)</option>
+            <option value="PRIVATE">🔒 Privé (Strictement personnel)</option>
+          </select>
+        </div>
+
         {editorMode === 'font' && (
-          <div className="grid grid-cols-6 gap-2 max-h-64 overflow-y-auto custom-scrollbar p-2 bg-black/20 rounded-2xl border border-white/5">
+          <div className="grid grid-cols-6 gap-2 max-h-48 overflow-y-auto custom-scrollbar p-2 bg-black/20 rounded-2xl border border-white/5">
             {alphabet.map(char => (
               <button key={char} onClick={() => setSelectedChar(char)} className={`aspect-square rounded-xl font-mono text-xs font-bold transition-all flex items-center justify-center ${selectedChar === char ? 'bg-slate-600 text-white' : matrices[char]?.some(r => r.some(c => c !== null)) ? 'bg-white/10 text-slate-200 border border-white/10' : 'bg-white/5 text-slate-500'}`}>{char}</button>
             ))}
@@ -528,7 +552,7 @@ export function LetrinEditor({
 
         {editorMode === 'sprite' && (
           <div className="space-y-4">
-            <div className="max-h-64 overflow-y-auto custom-scrollbar p-2 bg-black/20 rounded-2xl border border-white/5 space-y-2">
+            <div className="max-h-48 overflow-y-auto custom-scrollbar p-2 bg-black/20 rounded-2xl border border-white/5 space-y-2">
               {frames.map((frameId, index) => (
                 <div key={frameId} className={`flex items-center justify-between p-2 rounded-xl border ${selectedFrame === frameId ? 'bg-emerald-500/20 border-emerald-500/50' : 'bg-white/5 border-transparent'}`}>
                   <button onClick={() => setSelectedFrame(frameId)} className="flex-1 text-left text-xs font-mono font-bold">Frame {index + 1}</button>
@@ -571,7 +595,7 @@ export function LetrinEditor({
             </div>
           )}
           <div className="h-px w-full bg-white/10 my-2" />
-          <button onClick={() => onSave(matrices)} className="w-full py-2 bg-slate-600 hover:bg-slate-500 font-bold uppercase text-[10px] rounded-xl transition-all flex items-center justify-center gap-2"><Save size={14} /> Sauvegarder Projet</button>
+          <button onClick={() => onSave(matrices, visibility)} className="w-full py-2 bg-slate-600 hover:bg-slate-500 font-bold uppercase text-[10px] rounded-xl transition-all flex items-center justify-center gap-2"><Save size={14} /> Sauvegarder Projet</button>
           <div className="grid grid-cols-2 gap-2">
             <button onClick={exportToJson} className="py-2 bg-black/40 border border-white/10 hover:bg-white/10 font-bold uppercase text-[10px] rounded-xl transition-all flex items-center justify-center gap-1"><Download size={12} /> Exporter JSON</button>
             <button onClick={() => jsonInputRef.current?.click()} className="py-2 bg-black/40 border border-white/10 hover:bg-white/10 font-bold uppercase text-[10px] rounded-xl transition-all flex items-center justify-center gap-1"><Upload size={12} /> Importer JSON</button>
@@ -600,8 +624,8 @@ export function LetrinEditor({
              <div className="flex flex-col items-center gap-0.5 bg-black/40 p-1 rounded-xl border border-white/10">
                 <button onClick={() => panGrid(0, -1)} className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white" title="Décaler en haut"><ChevronUp size={14}/></button>
                 <div className="flex items-center gap-3">
-                   <button onClick={() => panGrid(-1, 0)} className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white" title="Décaler à gauche"><ChevronLeft size={14}/></button>
-                   <button onClick={() => panGrid(1, 0)} className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white" title="Décaler à droite"><ChevronRight size={14}/></button>
+                    <button onClick={() => panGrid(-1, 0)} className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white" title="Décaler à gauche"><ChevronLeft size={14}/></button>
+                    <button onClick={() => panGrid(1, 0)} className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white" title="Décaler à droite"><ChevronRight size={14}/></button>
                 </div>
                 <button onClick={() => panGrid(0, 1)} className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white" title="Décaler en bas"><ChevronDown size={14}/></button>
              </div>
@@ -692,9 +716,9 @@ export function LetrinEditor({
              </div>
              
              <div className="flex items-center gap-2 bg-black/30 p-1 rounded-xl border border-white/5">
-               <span className="text-[10px] font-mono text-slate-500 uppercase ml-2">Symétrie</span>
-               <button onClick={() => setMirrorX(!mirrorX)} className={`p-1.5 rounded-lg transition-all ${mirrorX ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-500'}`} title="Miroir Horizontal"><FlipHorizontal size={14} /></button>
-               <button onClick={() => setMirrorY(!mirrorY)} className={`p-1.5 rounded-lg transition-all ${mirrorY ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-500'}`} title="Miroir Vertical"><FlipVertical size={14} /></button>
+                <span className="text-[10px] font-mono text-slate-500 uppercase ml-2">Symétrie</span>
+                <button onClick={() => setMirrorX(!mirrorX)} className={`p-1.5 rounded-lg transition-all ${mirrorX ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-500'}`} title="Miroir Horizontal"><FlipHorizontal size={14} /></button>
+                <button onClick={() => setMirrorY(!mirrorY)} className={`p-1.5 rounded-lg transition-all ${mirrorY ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-500'}`} title="Miroir Vertical"><FlipVertical size={14} /></button>
              </div>
           </div>
         </div>
@@ -736,7 +760,7 @@ export function LetrinEditor({
                           left: (cell.s === 'half-r' || cell.s === 'tr' || cell.s === 'br') ? '50%' : (cell.s === 'q-r' ? '75%' : '0'),
                           right: (cell.s === 'half-l' || cell.s === 'tl' || cell.s === 'bl') ? '50%' : (cell.s === 'q-l' ? '75%' : '0'),
                           width: (['half-l', 'half-r', 'tl', 'tr', 'bl', 'br'].includes(cell.s)) ? '50%' : (['q-l', 'q-r'].includes(cell.s) ? '25%' : '100%'),
-                        height: (['half-t', 'half-b', 'tl', 'tr', 'bl', 'br'].includes(cell.s)) ? '50%' : (['q-t', 'q-b'].includes(cell.s) ? '25%' : '100%'),
+                          height: (['half-t', 'half-b', 'tl', 'tr', 'bl', 'br'].includes(cell.s)) ? '50%' : (['q-t', 'q-b'].includes(cell.s) ? '25%' : '100%'),
                         }}
                       />
                     )}
