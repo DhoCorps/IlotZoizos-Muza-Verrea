@@ -1,4 +1,4 @@
-// apps/hub-central/app/[locale]/(inceptions)/letr-in/page.tsx
+// apps/hub-central/app/[locale]/(inceptions)/letrinSprite/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -6,9 +6,12 @@ import {
   Type, Plus, Trash2, Edit3, Loader2, Sparkles, Compass, Save, ArrowLeft 
 } from 'lucide-react';
 import { lettrinSprites } from '../../../../lib/apiClient';
-import { LetrinEditor } from '../../../../components/letrin/LetrinEditor';
+import { LetrinEditor, PixelData } from '../../../../components/letrin/LetrinEditor';
 
-export default function LetrInDashboard() {
+type GlyphMatrix = (PixelData | null)[][];
+type MatricesRecord = Record<string, GlyphMatrix>;
+
+export default function LetrInSpritePage() {
   const [fonts, setFonts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
@@ -53,19 +56,17 @@ export default function LetrInDashboard() {
     }
   };
 
-  // Sauvegarde des glyphes de l'éditeur vers la Silice & le Graphe
-  const handleSaveFont = async (glyphsMap: Record<string, number[][]>) => {
+  // Sauvegarde des glyphes de l'éditeur vers la Silice & le Graphe avec gestion PixelData
+  const handleSaveFont = async (matrices: MatricesRecord) => {
     try {
-      // Transformation de la matrice frontend vers le format unifié lettrinSprite
-      const formattedGlyphs = Object.entries(glyphsMap).map(([char, matrix]) => ({
+      const formattedGlyphs = Object.entries(matrices).map(([char, matrix]) => ({
         character: char,
         frames: [
           {
             frameIndex: 0,
             width: matrix[0]?.length || 16,
             height: matrix.length || 16,
-            // Conversion aplatie des lignes de pixels pour le stockage
-            pixels: matrix.flat().map(val => val.toString())
+            pixels: matrix.flat().map(cell => cell ? (cell.c !== 'transparent' ? cell.c : 'filled') : '0')
           }
         ],
         advanceWidth: matrix[0]?.length || 16
@@ -91,27 +92,41 @@ export default function LetrInDashboard() {
     }
   };
 
-  if (isEditing) {
-    // Préparation des glyphes initiaux si on édite une police existante
-    let initialGlyphs: Record<string, number[][]> = {};
-    if (currentFont && currentFont.glyphs) {
-      currentFont.glyphs.forEach((g: any) => {
-        if (g.frames && g.frames[0]) {
-          const frame = g.frames[0];
-          const width = frame.width || 16;
-          const height = frame.height || 16;
-          const flatPixels = frame.pixels.map((p: string) => parseInt(p, 10));
-          
-          // Reconstitution de la matrice 2D
-          const matrix: number[][] = [];
-          for (let i = 0; i < height; i++) {
-            matrix.push(flatPixels.slice(i * width, (i + 1) * width));
-          }
-          initialGlyphs[g.character] = matrix;
+  // Préparation des glyphes initiaux si on édite une police existante
+  let initialGlyphs: MatricesRecord = {};
+  if (isEditing && currentFont && currentFont.glyphs) {
+    currentFont.glyphs.forEach((g: any) => {
+      if (g.frames && g.frames[0]) {
+        const frame = g.frames[0];
+        const width = frame.width || 16;
+        const height = frame.height || 16;
+        
+        const matrix: GlyphMatrix = [];
+        for (let i = 0; i < height; i++) {
+          const rowSlice = frame.pixels.slice(i * width, (i + 1) * width);
+          const rowCells: (PixelData | null)[] = rowSlice.map((p: string) => {
+            if (p === '0' || !p) return null;
+            return {
+              c: p === 'filled' ? '#708090' : p,
+              s: 'full',
+              r: 0,
+              bt: false,
+              bb: false,
+              bl: false,
+              br: false,
+              bc: 'transparent',
+              bw: 1
+            };
+          });
+          matrix.push(rowCells);
         }
-      });
-    }
+        initialGlyphs[g.character] = matrix;
+      }
+    });
+  }
 
+  // Si on est en mode édition, on affiche l'éditeur Letr'In
+  if (isEditing) {
     return (
       <div className="max-w-7xl mx-auto space-y-6 pb-24 animate-in fade-in duration-500">
         <div className="flex items-center justify-between p-6 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl">
@@ -134,7 +149,7 @@ export default function LetrInDashboard() {
         {/* L'Éditeur de Sprite Letr'In */}
         <LetrinEditor 
           fontTitle={fontName}
-          gridSize={16}
+          initialGridSize={16}
           initialGlyphs={initialGlyphs}
           onSave={handleSaveFont}
         />
@@ -142,6 +157,7 @@ export default function LetrInDashboard() {
     );
   }
 
+  // Sinon, on affiche le Dashboard / Catalogue des polices
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-24 animate-in fade-in duration-500">
       

@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Link } from '../../navigation';
+import { Link } from '../../../navigation';
 import { 
   Type, Plus, Trash2, Edit3, BookOpen, Loader2, 
   Layers, Sparkles, Compass 

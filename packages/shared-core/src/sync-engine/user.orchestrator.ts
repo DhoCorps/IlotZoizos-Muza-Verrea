@@ -6,7 +6,7 @@ import { TaskModel } from '../../../infrastructure/src/database/models/nosql/tas
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { IOiseau, CAPABILITIES } from '@ilot/types';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
 

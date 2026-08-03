@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Type, FileAudio, LayoutGrid, Upload, Music, ShieldCheck, ShoppingBag, Loader2 } from 'lucide-react';
-import { storage } from '../../lib/apiClient';
+import { storage } from '../../../lib/apiClient';
 
 interface SujetFormProps {
   initialData?: any;

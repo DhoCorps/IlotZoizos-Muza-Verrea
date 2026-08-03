@@ -57,6 +57,25 @@ export const BarterOfferSchema = z.object({
   createdAt: z.date().optional(),
 });
 
+export interface IOrderItem {
+  productUid: string;
+  title: string;
+  quantity: number;
+  pricePaid: number;
+  currency: 'EUR' | 'SHARDS';
+}
+
+export interface IOrder {
+  uid: string;
+  buyerUid: string;
+  storeUid?: string;
+  items: IOrderItem[];
+  totalAmount: number;
+  currency: 'EUR' | 'SHARDS';
+  status: 'PENDING' | 'PAID' | 'COMPLETED' | 'CANCELLED';
+  createdAt?: Date;
+}
+
 export type Store = z.infer<typeof StoreSchema>;
 export type Product = z.infer<typeof ProductSchema>;
 export type Wishlist = z.infer<typeof WishlistSchema>;

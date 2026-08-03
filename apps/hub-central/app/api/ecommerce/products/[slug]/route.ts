@@ -1,3 +1,4 @@
+// apps/hub-central/app/api/ecommerce/products/[slug]/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../../../../../lib/auth";
@@ -9,9 +10,6 @@ interface RouteParams {
   params: Promise<{ slug: string }>;
 }
 
-// ==========================================
-// GET : Ausculter un artefact (produit) spécifique
-// ==========================================
 export async function GET(req: Request, { params }: RouteParams) {
   try {
     await connectToDatabase();
@@ -32,16 +30,13 @@ export async function GET(req: Request, { params }: RouteParams) {
   }
 }
 
-// ==========================================
-// DELETE : Retirer un artefact de la matrice
-// ==========================================
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
     await connectToDatabase();
     const { slug } = await params;
     
     const session = await getServerSession(authOptions);
-    const userUid = (session?.user as any)?.uid;
+    const userUid = (session?.user as any)?.uid || (session?.user as any)?.id;
     const sessionCaps = (session?.user as any)?.capabilities || [];
 
     if (!userUid) {

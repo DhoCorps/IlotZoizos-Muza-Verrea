@@ -70,7 +70,7 @@ export default function Sidebar() {
 
         {/* Navigation vers Letr'In & Sprites */}
         <Link
-          href="/letr-in"
+          href="/letrinSprite"
           className="flex flex-col items-center gap-2 group text-slate-500 hover:text-cyan-400 transition-all"
           title="Letr'In & Sprites"
         >

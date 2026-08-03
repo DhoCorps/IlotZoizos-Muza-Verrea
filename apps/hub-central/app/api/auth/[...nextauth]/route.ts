@@ -1,7 +1,7 @@
 // apps/hub-central/app/api/auth/[...nextauth]/route.ts
 import NextAuth, { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { OiseauModel, franchirLaPorte, connectToDatabase } from '@ilot/infrastructure';
 
 // 🌟 SUTURE : Configuration interne pour éclairer l'ensemble de l'Îlot (Non-exportée pour apaiser le compilateur Next.js)

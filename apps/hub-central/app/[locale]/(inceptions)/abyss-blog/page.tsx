@@ -7,7 +7,7 @@ import {
   Type, Plus, Trash2, Edit3, BookOpen, Loader2, 
   Layers, Filter, Sparkles, FolderPlus, Compass 
 } from 'lucide-react';
-import { SujetForm } from '../../../../components/sujets/SujetForm';
+import { SujetForm } from '../../../../components/abyss-blog/sujets/SujetForm';
 
 export default function AbyssBlogDashboard() {
   const [sujets, setSujets] = useState<any[]>([]);
@@ -29,12 +29,13 @@ export default function AbyssBlogDashboard() {
       
       if (resSujets.ok) {
         const data = await resSujets.json();
-        if (Array.isArray(data)) setSujets(data);
+        const sujetList = Array.isArray(data) ? data : (data.data || data.sujets || []);
+        setSujets(sujetList);
       }
       
       if (resProjects.ok) {
         const data = await resProjects.json();
-        const projList = Array.isArray(data) ? data : (data.data || []);
+        const projList = Array.isArray(data) ? data : (data.data || data.projects || []);
         setProjects(projList);
       }
     } catch (err) {
@@ -53,7 +54,7 @@ export default function AbyssBlogDashboard() {
     try {
       const res = await fetch(`/api/sujets/${uid}`, { method: 'DELETE' });
       if (res.ok) {
-        setSujets(prev => prev.filter(s => s.uid !== uid));
+        setSujets(prev => prev.filter(s => s.uid !== uid && s._id !== uid));
       }
     } catch (err) {
       console.error("🔥 Erreur lors de la désintégration :", err);
@@ -78,8 +79,10 @@ export default function AbyssBlogDashboard() {
 
   const filteredSujets = sujets.filter(s => {
     const matchesStatus = statusFilter === 'ALL' || s.status === statusFilter;
-    const matchesSearch = s.title?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          s.content?.toLowerCase().includes(searchTerm.toLowerCase());
+    const term = searchTerm.toLowerCase();
+    const matchesSearch = s.title?.toLowerCase().includes(term) || 
+                          s.content?.toLowerCase().includes(term) ||
+                          s.category?.toLowerCase().includes(term);
     return matchesStatus && matchesSearch;
   });
 
@@ -150,74 +153,77 @@ export default function AbyssBlogDashboard() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredSujets.map((sujet: any) => (
-            <div 
-              key={sujet.uid || sujet._id} 
-              className="p-6 bg-black/30 border border-white/5 rounded-3xl backdrop-blur-md flex flex-col justify-between space-y-6 hover:border-white/20 transition-all group"
-            >
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest ${
-                    sujet.status === 'PUBLISHED' 
-                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                      : sujet.status === 'ARCHIVED'
-                      ? 'bg-slate-500/10 text-slate-400 border border-slate-500/20'
-                      : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                  }`}>
-                    {sujet.status}
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-500">
-                    {sujet.category}
-                  </span>
-                </div>
-
-                <h3 className="text-lg font-black uppercase text-white group-hover:text-[#E5484D] transition-colors line-clamp-1">
-                  {sujet.title}
-                </h3>
-
-                <p className="text-xs text-slate-400 font-sans line-clamp-3 leading-relaxed">
-                  {sujet.content}
-                </p>
-              </div>
-
-              <div className="space-y-4 pt-4 border-t border-white/5">
-                {sujet.connections?.relatedProjects?.length > 0 && (
-                  <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-500">
-                    <Layers size={12} className="text-[#E5484D]" />
-                    <span>{sujet.connections.relatedProjects.length} chantier(s) relié(s)</span>
+          {filteredSujets.map((sujet: any) => {
+            const sujetKey = sujet.uid || sujet._id;
+            return (
+              <div 
+                key={sujetKey} 
+                className="p-6 bg-black/30 border border-white/5 rounded-3xl backdrop-blur-md flex flex-col justify-between space-y-6 hover:border-white/20 transition-all group"
+              >
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest ${
+                      sujet.status === 'PUBLISHED' 
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                        : sujet.status === 'ARCHIVED'
+                        ? 'bg-slate-500/10 text-slate-400 border border-slate-500/20'
+                        : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                    }`}>
+                      {sujet.status || 'DRAFT'}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      {sujet.category || 'Général'}
+                    </span>
                   </div>
-                )}
 
-                <div className="flex items-center justify-between gap-2">
-                  <Link 
-                    href={{
-                      pathname: '/abyss-blog/[slug]',
-                      params: { slug: sujet.slug }
-}}
-                    className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-white font-mono text-[10px] uppercase font-bold rounded-xl border border-white/10 text-center transition-all flex items-center justify-center gap-1.5"
-                  >
-                    <BookOpen size={12} /> Lire
-                  </Link>
+                  <h3 className="text-lg font-black uppercase text-white group-hover:text-[#E5484D] transition-colors line-clamp-1">
+                    {sujet.title}
+                  </h3>
 
-                  <button 
-                    onClick={() => handleOpenEdit(sujet)}
-                    className="p-2.5 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl border border-white/10 transition-all"
-                    title="Ajuster"
-                  >
-                    <Edit3 size={14} />
-                  </button>
+                  <p className="text-xs text-slate-400 font-sans line-clamp-3 leading-relaxed">
+                    {sujet.content}
+                  </p>
+                </div>
 
-                  <button 
-                    onClick={() => handleDelete(sujet.uid)}
-                    className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl border border-red-500/20 transition-all"
-                    title="Dissoudre"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                <div className="space-y-4 pt-4 border-t border-white/5">
+                  {sujet.connections?.relatedProjects?.length > 0 && (
+                    <div className="flex items-center gap-1.5 text-[10px] font-mono text-slate-500">
+                      <Layers size={12} className="text-[#E5484D]" />
+                      <span>{sujet.connections.relatedProjects.length} chantier(s) relié(s)</span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-2">
+                    <Link 
+                      href={{
+                        pathname: '/abyss-blog/[slug]',
+                        params: { slug: sujet.slug || sujetKey }
+                      }}
+                      className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-white font-mono text-[10px] uppercase font-bold rounded-xl border border-white/10 text-center transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <BookOpen size={12} /> Lire
+                    </Link>
+
+                    <button 
+                      onClick={() => handleOpenEdit(sujet)}
+                      className="p-2.5 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl border border-white/10 transition-all"
+                      title="Ajuster"
+                    >
+                      <Edit3 size={14} />
+                    </button>
+
+                    <button 
+                      onClick={() => handleDelete(sujetKey)}
+                      className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl border border-red-500/20 transition-all"
+                      title="Dissoudre"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {filteredSujets.length === 0 && (
             <div className="col-span-full py-20 text-center space-y-4 bg-black/20 border border-white/5 rounded-3xl">

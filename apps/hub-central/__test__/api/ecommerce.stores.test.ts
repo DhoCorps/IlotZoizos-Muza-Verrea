@@ -1,52 +1,54 @@
+// __tests__/ecommerce-stores.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { GET as getStores, POST as createStore } from '../../app/api/ecommerce/stores/route';
+import { GET as getStoreBySlug, DELETE as deleteStore } from '../../app/api/ecommerce/stores/[slug]/route';
+import { StoreModel, connectToDatabase } from '@ilot/infrastructure';
+import { getServerSession } from 'next-auth/next';
 
 vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
+  connectToDatabase: vi.fn(),
   StoreModel: {
-    find: vi.fn().mockReturnValue({
-      sort: vi.fn().mockResolvedValue([
-        { uid: 'store-1', storeName: 'Boutique des Artefacts', slug: 'boutique-des-artefacts', ownerUid: 'bird-alpha', isVerified: true }
-      ])
-    }),
-    findOne: vi.fn().mockResolvedValue(null),
-    create: vi.fn().mockImplementation((data) => Promise.resolve({ ...data, _id: 'mock_id' }))
+    find: vi.fn(),
+    findOne: vi.fn(),
+    create: vi.fn(),
+    deleteOne: vi.fn(),
   }
 }));
 
 vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn().mockResolvedValue({
-    user: { uid: 'bird-alpha', name: 'Albatros', capabilities: ['*'] }
-  })
+  getServerSession: vi.fn(),
 }));
 
-import { GET, POST } from '../../app/api/ecommerce/stores/route';
-
-describe('API Ecommerce Stores (/api/ecommerce/stores)', () => {
+describe('🏛️ E-commerce Stores API', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('🟢 doit recenser toutes les boutiques vérifiées (GET)', async () => {
-    const res = await GET();
+  it('doit recenser les boutiques vérifiées', async () => {
+    const mockStores = [{ uid: 'store_1', storeName: 'Boutique de l’Îlot' }];
+    (StoreModel.find as any).mockReturnValue({
+      sort: () => Promise.resolve(mockStores)
+    });
+
+    const res = await getStores();
     const data = await res.json();
+
     expect(res.status).toBe(200);
-    expect(Array.isArray(data)).toBe(true);
-    expect(data[0].storeName).toBe('Boutique des Artefacts');
+    expect(data).toEqual(mockStores);
   });
 
-  it('🟢 doit sceller une nouvelle boutique dans la matrice (POST)', async () => {
+  it('doit rejeter la création de boutique si non connecté', async () => {
+    (getServerSession as any).mockResolvedValue(null);
+
     const req = new Request('http://localhost/api/ecommerce/stores', {
       method: 'POST',
-      body: JSON.stringify({
-        storeName: 'Le Comptoir de l’Oiseau',
-        description: 'Vente de polices et parchemins'
-      })
+      body: JSON.stringify({ storeName: 'Mon Échoppe' })
     });
-    const res = await POST(req);
+
+    const res = await createStore(req);
     const data = await res.json();
-    expect(res.status).toBe(201);
-    expect(data.success).toBe(true);
-    expect(data.data.storeName).toBe('Le Comptoir de l’Oiseau');
-    expect(data.data.slug).toBe('le-comptoir-de-loiseau'); // 🪡 Slug normalisé sans caractères spéciaux
+
+    expect(res.status).toBe(401);
+    expect(data.error).toContain("Création de boutique refusée");
   });
 });

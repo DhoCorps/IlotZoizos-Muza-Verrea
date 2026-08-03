@@ -4,9 +4,6 @@ import { ITeam, IProject, ITask, IStatus } from "../../../packages/types";
 
 const BASE_URL = '/api';
 
-/**
- * 🌀 TYPE DE RÉPONSE UNIFIÉ
- */
 interface ApiResponse<T> {
   data?: T;
   error?: string;
@@ -44,17 +41,11 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
   return (responseData.data !== undefined ? responseData.data : responseData) as T;
 }
 
-/**
- * 🔑 MODULE : L'ARRIVÉE (Auth)
- */
 export const auth = {
   register: (data: Partial<ISeed>) => 
     apiFetch<IOiseau>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
 };
 
-/**
- * 👤 MODULE : LE SANCTUAIRE (Users)
- */
 export const user = {
   getMe: () => apiFetch<IOiseau>('/user/me'),
   mutateStructure: (data: { uid: string, frequenceHEX?: string, sanctuaire?: any, aura?: string[] }) => 
@@ -62,9 +53,6 @@ export const user = {
   getLineage: () => apiFetch<any>('/user/lineage'),
 };
 
-/**
- * 🌿 MODULE : LES FRAGMENTS (Projets)
- */
 export const projects = {
   getAll: () => apiFetch<IProject[]>('/projects'),
   getById: (uid: string) => apiFetch<IProject>(`/projects/${uid}`),
@@ -76,9 +64,6 @@ export const projects = {
   getStatuses: () => apiFetch<IStatus[]>('/projects/statuses/all'),
 };
 
-/**
- * 🏘️ MODULE : LES NIDS (Teams)
- */
 export const teams = {
   getAll: () => apiFetch<any[]>('/teams'), 
   create: (data: any) => apiFetch<any>('/teams', { method: 'POST', body: JSON.stringify(data) }),
@@ -98,11 +83,8 @@ export const teams = {
     }),
 };
 
-/**
- * ☁️ MODULE : LE CIERGE (Storage/Upload)
- */
 export const storage = {
-  upload: async (file: File, entityType: 'project' | 'task' | 'team' | 'sujet' | 'font' | string, entityId: string) => {
+  upload: async (file: File, entityType: string, entityId: string) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('entityType', entityType);
@@ -114,17 +96,11 @@ export const storage = {
   }
 };
 
-/**
- * 🦅 MODULE : LA VOLÉE (Tous les oiseaux)
- */
 export const users = {
   getAll: () => apiFetch<Partial<IOiseau>[]>('/users'),
   getByUid: (uid: string) => apiFetch<IOiseau>(`/users/${uid}`)
 };
 
-/**
- * 📜 MODULE : ABYSS BLOG (Sujets & Monologues)
- */
 export const sujets = {
   getAll: () => apiFetch<any[]>('/sujets'),
   create: (data: any) => apiFetch<any>('/sujets', { method: 'POST', body: JSON.stringify(data) }),
@@ -132,9 +108,6 @@ export const sujets = {
   delete: (uid: string) => apiFetch<void>(`/sujets/${uid}`, { method: 'DELETE' }),
 };
 
-/**
- * 🎸 MODULE : PARTITA (Partitions & Tablatures)
- */
 export const partitions = {
   getAll: () => apiFetch<any[]>('/partitions'),
   getById: (uid: string) => apiFetch<any>(`/partitions/${uid}`),
@@ -143,9 +116,6 @@ export const partitions = {
   delete: (uid: string) => apiFetch<void>(`/partitions/${uid}`, { method: 'DELETE' }),
 };
 
-/**
- * 🔠 MODULE : LETR'IN & SPRITES (Typographies)
- */
 export const lettrinSprites = {
   getAll: () => apiFetch<any[]>('/letrin/sprites'),
   getById: (fontId: string) => apiFetch<any>(`/letrin/sprites/${fontId}`),
@@ -154,9 +124,6 @@ export const lettrinSprites = {
   delete: (fontId: string) => apiFetch<void>(`/letrin/sprites/${fontId}`, { method: 'DELETE' }),
 };
 
-/**
- * 💘 MODULE : KONTAKT-RH (Tinder Pro & Quêtes)
- */
 export const kontakt = {
   getProfiles: (params?: { alignment?: string; status?: string }) => {
     const query = new URLSearchParams(params as any).toString();
@@ -170,37 +137,41 @@ export const kontakt = {
 };
 
 /**
- * 🛒 MODULE : LE MARCHAND DE L'ÎLOT (E-commerce & Troc)
+ * 🛒 MODULE : LE GRAND BAZAR & E-COMMERCE (Artefacts, Wishlists, Commandes)
  */
 export const ecommerce = {
+  // 🏛️ Boutiques (Stores)
   getStores: () => apiFetch<any[]>('/ecommerce/stores'),
-  createStore: (data: { storeName: string; description: string; stripeAccountId?: string }) => 
+  getStoreBySlug: (slug: string) => apiFetch<any>(`/ecommerce/stores/${slug}`),
+  createStore: (data: { storeName: string; description?: string; stripeAccountId?: string }) => 
     apiFetch<any>('/ecommerce/stores', { method: 'POST', body: JSON.stringify(data) }),
-  
+  deleteStore: (slug: string) => apiFetch<void>(`/ecommerce/stores/${slug}`, { method: 'DELETE' }),
+
+  // 📦 Produits (Products)
   getProducts: (params?: { storeUid?: string; category?: string }) => {
     const query = new URLSearchParams(params as any).toString();
     return apiFetch<any[]>(`/ecommerce/products${query ? `?${query}` : ''}`);
   },
+  getProductBySlug: (slug: string) => apiFetch<any>(`/ecommerce/products/${slug}`),
   createProduct: (data: any) => apiFetch<any>('/ecommerce/products', { method: 'POST', body: JSON.stringify(data) }),
+  deleteProduct: (slug: string) => apiFetch<void>(`/ecommerce/products/${slug}`, { method: 'DELETE' }),
   
+  // 💖 Wishlists (Supporte getWishlist et getWishlists pour éviter les conflits)
   getWishlist: () => apiFetch<any>('/ecommerce/wishlist'),
-  toggleWishlist: (productUid: string) => apiFetch<any>('/ecommerce/wishlist', { method: 'POST', body: JSON.stringify({ productUid }) }),
+  getWishlists: () => apiFetch<any>('/ecommerce/wishlist'),
+  createWishlist: (name: string) => apiFetch<any>('/ecommerce/wishlist', { method: 'POST', body: JSON.stringify({ name }) }),
+  toggleWishlist: (productUid: string, wishlistUid?: string) => apiFetch<any>('/ecommerce/wishlist', { method: 'POST', body: JSON.stringify({ productUid, wishlistUid }) }),
+  deleteWishlistOrItem: (itemId: string) => apiFetch<void>(`/ecommerce/wishlist/${itemId}`, { method: 'DELETE' }),
   
+  // 🛒 Commandes (Orders)
+  createOrder: (orderData: any) => apiFetch<any>('/ecommerce/orders', { method: 'POST', body: JSON.stringify(orderData) }),
+  getOrder: (slug: string) => apiFetch<any>(`/ecommerce/orders/${slug}`),
+  updateOrderStatus: (slug: string, status: string) => apiFetch<any>(`/ecommerce/orders/${slug}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+
+  // 🤝 Troc (Barter)
   getBarterOffers: () => apiFetch<any[]>('/ecommerce/barter'),
   proposeBarter: (data: { receiverUid?: string; offeredProductUids: string[]; requestedProductUids: string[] }) => 
     apiFetch<any>('/ecommerce/barter', { method: 'POST', body: JSON.stringify(data) }),
   resolveBarter: (barterUid: string, status: 'ACCEPTED' | 'REJECTED') => 
     apiFetch<any>('/ecommerce/barter', { method: 'PATCH', body: JSON.stringify({ barterUid, status }) })
-};
-
-/**
- * 🕸️ MODULE : LA RÉSONANCE (Transdisciplinaire)
- */
-export const resonance = {
-  weaveLink: (data: { sourceUid: string; sourceLabel: string; targetUid: string; targetLabel: string; relationType: string }) => 
-    apiFetch<any>('/resonance/links', { method: 'POST', body: JSON.stringify(data) }),
-  getEchoes: (targetUid: string) => 
-    apiFetch<any[]>(`/resonance/echoes?targetUid=${encodeURIComponent(targetUid)}`),
-  sendEcho: (data: { targetUid: string; targetLabel: string; echoType: 'TEXT' | 'EMOJI'; content: string }) => 
-    apiFetch<any>('/resonance/echoes', { method: 'POST', body: JSON.stringify(data) }),
 };

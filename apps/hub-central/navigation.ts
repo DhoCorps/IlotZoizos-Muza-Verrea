@@ -1,3 +1,4 @@
+// apps/hub-central/i18n.ts (ou fichier de routing next-intl)
 import { defineRouting } from 'next-intl/routing';
 import { createNavigation } from 'next-intl/navigation';
 
@@ -9,13 +10,19 @@ export const routing = defineRouting({
     '/': '/',
     '/le-bordel-de-dho': '/le-bordel-de-dho',
     '/abyss-blog': '/abyss-blog',
+    '/abyss-blog/editor': '/abyss-blog/editor',
     '/abyss-blog/[slug]': '/abyss-blog/[slug]',
+    '/marketplace': '/marketplace',
+    '/ecommerce': '/ecommerce',
+    '/ecommerce/editor': '/ecommerce/editor',
+    '/ecommerce/[slug]': '/ecommerce/[slug]',
     '/partita': '/partita',
     '/partita/[slug]': '/partita/[slug]',
-    '/letr-in': '/letr-in',
+    '/letrinSprite': '/letrinSprite',
     '/kontakt': '/kontakt',
+    '/kontakt/cv-editor': '/kontakt/cv-editor',
     '/tom-hat-toes': '/tom-hat-toes',
-    // 🪡 Ajout de toutes les routes du Dashboard utilisées dans la NavBar
+    // 🪡 Routes du Dashboard et des Nids
     '/dashboard': '/dashboard',
     '/dashboard/teams': '/dashboard/teams',
     '/dashboard/flock': '/dashboard/flock',

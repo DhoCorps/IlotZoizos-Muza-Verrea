@@ -1,10 +1,10 @@
+// apps/hub-central/app/api/ecommerce/products/route.ts
 import { NextResponse } from 'next/server';
-import { connectToDatabase } from '@ilot/infrastructure';
-import { ProductModel } from '@ilot/infrastructure';
+import { connectToDatabase, ProductModel } from '@ilot/infrastructure';
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../../../../lib/auth";
 import { v4 as uuidv4 } from 'uuid';
-import { slugify } from '../../../../lib/slugify'; // 🪡 Import du générateur d'URL
+import { slugify } from '../../../../lib/slugify';
 
 export async function GET(req: Request) {
   try {
@@ -17,7 +17,7 @@ export async function GET(req: Request) {
     if (storeUid) query.storeUid = storeUid;
     if (category) query.category = category;
 
-    const products = await ProductModel.find(query).sort({ createdAt: -1 });
+    const products = await ProductModel.find(query).sort({ createdAt: -1 }).lean();
     return NextResponse.json(products, { status: 200 });
   } catch (error: any) {
     console.error("🔥 Erreur lors de la lecture des artefacts :", error);
@@ -34,10 +34,11 @@ export async function POST(req: Request) {
 
     await connectToDatabase();
     const body = await req.json();
+    const userUid = (session.user as any).uid || (session.user as any).id;
     const productUid = `prod_${uuidv4()}`;
 
-    // 🪡 1. Génération du Slug Unique
-    let baseSlug = slugify(body.title);
+    // Génération et unicité du Slug
+    const baseSlug = slugify(body.title || 'artefact');
     let finalSlug = baseSlug;
     
     let slugExists = await ProductModel.findOne({ slug: finalSlug });
@@ -48,16 +49,17 @@ export async function POST(req: Request) {
       counter++;
     }
 
-    // 2. Enregistrement dans MongoDB
+    // Enregistrement dans MongoDB avec attribution du créateur (sellerUid)
     const newProduct = await ProductModel.create({
       ...body,
       uid: productUid,
-      slug: finalSlug // Injection de la belle URL
+      slug: finalSlug,
+      sellerUid: body.sellerUid || userUid
     });
 
     return NextResponse.json({
       success: true,
-      message: "Artefact ajouté au catalogue.",
+      message: "Artefact ajouté au catalogue de l'Îlot.",
       data: newProduct
     }, { status: 201 });
 

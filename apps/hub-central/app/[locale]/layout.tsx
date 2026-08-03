@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { AuthProvider } from '../AuthProvider'; // 👈 Le pont d'identité
+import { LetrinFontProvider } from '../../components/letrin/LetrinFontContext'; // 👈 Le fournisseur de polices Letr'In
 import '../globals.css';
 
 export default async function LocaleLayout({
@@ -9,18 +10,13 @@ export default async function LocaleLayout({
   params
 }: {
   children: ReactNode;
-  params: Promise<{ locale: string }>; // ⚠️ params est désormais traité comme une promesse
+  params: Promise<{ locale: string }>;
 }) {
-  // On attend la résolution des paramètres pour extraire la locale
   const { locale } = await params;
   const messages = await getMessages();
 
   return (
     <html lang={locale}>
-      {/* 🌑 FONDATIONS DE LA MATRICE :
-        Fond abyssal OLED, texte purifié (antialiased), hauteur minimale garantie, 
-        et sélection de texte rouge organique (Bio-Tech).
-      */}
       <body className="bg-[#05070A] text-slate-200 antialiased min-h-screen flex flex-col selection:bg-[#E5484D]/30 selection:text-white">
         
         {/* 🛰️ LE CŒUR DU NEXUS : Maintient la session de l'oiseau active partout */}
@@ -28,7 +24,12 @@ export default async function LocaleLayout({
           
           {/* 🌐 LA MATRICE LINGUISTIQUE : Assure la traduction dans tout l'Îlot */}
           <NextIntlClientProvider locale={locale} messages={messages}>
-            {children}
+            
+            {/* 🔠 LA FORGE TYPOGRAPHIQUE LETR'IN : Injecte le contexte global des polices */}
+            <LetrinFontProvider>
+              {children}
+            </LetrinFontProvider>
+
           </NextIntlClientProvider>
           
         </AuthProvider>
