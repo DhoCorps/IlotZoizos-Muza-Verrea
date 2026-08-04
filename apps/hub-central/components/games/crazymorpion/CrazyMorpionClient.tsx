@@ -4,12 +4,12 @@ import { useState, useEffect } from 'react';
 import { Socket } from 'socket.io-client';
 import { 
     CrazyMorpionRoomToSend, 
-    ChatMessage
+    ChatMessage,
+    CRAZYMORPION_SYMBOL_EMPTY
 } from '@ilot/shared-core';
-import { CRAZYMORPION_SYMBOL_EMPTY } from '@ilot/shared-core';
 
 interface CrazyMorpionClientProps {
-    socket: Socket; // <-- Ajouté ici pour correspondre au parent
+    socket: Socket;
     roomId: string;
     username: string;
 }
@@ -20,11 +20,9 @@ export default function CrazyMorpionClient({ socket, roomId, username }: CrazyMo
     const [chatInput, setChatInput] = useState('');
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-    // --- 1. ÉCOUTEURS SUR LE SOCKET REÇU EN PROP ---
     useEffect(() => {
         if (!socket) return;
 
-        // Si le socket est déjà connecté, on rejoint la salle
         if (socket.connected) {
             socket.emit('room:join', { roomId, username });
         }
@@ -64,7 +62,6 @@ export default function CrazyMorpionClient({ socket, roomId, username }: CrazyMo
             setErrorMsg('Déconnecté du serveur de jeu.');
         });
 
-        // Nettoyage des écouteurs à la destruction du composant (sans tuer le socket global du hub)
         return () => {
             socket.emit('room:leave', { roomId });
             socket.off('connect', handleConnect);
@@ -80,7 +77,6 @@ export default function CrazyMorpionClient({ socket, roomId, username }: CrazyMo
         };
     }, [socket, roomId, username]);
 
-    // --- 2. ACTIONS DU JOUEUR ---
     const handleCellClick = (x: number, y: number) => {
         if (!socket || !gameState || gameState.state !== 'playing') return;
         if (gameState.currentTurnPlayerId !== socket.id) return;
@@ -115,9 +111,8 @@ export default function CrazyMorpionClient({ socket, roomId, username }: CrazyMo
         setChatInput('');
     };
 
-    // --- 3. RENDU DE L'UI ---
     if (!gameState) {
-        return <div className="p-8 text-center text-slate-300">Initialisation du plateau...</div>;
+        return <div className="p-8 text-center text-slate-300 font-mono">Initialisation du plateau...</div>;
     }
 
     const isMyTurn = gameState.currentTurnPlayerId === socket?.id;
@@ -131,7 +126,7 @@ export default function CrazyMorpionClient({ socket, roomId, username }: CrazyMo
             <div className="flex-1 bg-slate-900 rounded-xl p-6 border border-white/10 shadow-xl">
                 <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
                     <h2 className="text-2xl font-bold text-white">{gameState.name}</h2>
-                    <span className="px-3 py-1 bg-slate-800 rounded-full text-sm text-slate-300">
+                    <span className="px-3 py-1 bg-slate-800 rounded-full text-sm text-slate-300 font-mono">
                         Manche {gameState.round}
                     </span>
                 </div>
@@ -173,7 +168,7 @@ export default function CrazyMorpionClient({ socket, roomId, username }: CrazyMo
                         <p>{gameState.winnerId === socket?.id ? "Vous avez gagné !" : (gameState.winnerId ? "Vous avez perdu." : "Match nul !")}</p>
                         <button 
                             onClick={handleRestart}
-                            className="mt-4 px-6 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors"
+                            className="mt-4 px-6 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors font-bold"
                         >
                             Rejouer
                         </button>
@@ -238,7 +233,7 @@ export default function CrazyMorpionClient({ socket, roomId, username }: CrazyMo
                         placeholder="Transmettre..."
                         className="flex-1 bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
                     />
-                    <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-sm transition-colors">
+                    <button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded-lg text-sm transition-colors font-bold">
                         Envoyer
                     </button>
                 </form>

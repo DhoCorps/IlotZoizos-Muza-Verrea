@@ -21,8 +21,37 @@ import {
     AtomikGrid,
     PlayerState
 } from '../games/atomikkfar/Atomik-K-FarTypes';
+// 🎬 Import des types CineMax
+import {
+    CineMaxDifficultyRule,
+    CineMaxQuestion,
+    CineMaxGameOptions
+} from '../games/cinemax/CineMaxTypes';
+// 🎨 Import des types Soon'Art
+import {
+    Point,
+    CircleSelection,
+    Treasure,
+    PlayerGuess,
+    SoonArtGameStatus,
+    SoonArtGameOptions
+} from '../games/soonart/SoonArtTypes';
+// 🚀 Import des types Galak-T-K
+import {
+    GalakTKPoint,
+    GalakTKGameOptions,
+    GalakTKPlayerCellMark,
+    CellMarkStatus
+} from '../games/galak-t-k/GalakTKTypes';
+// 🎲 Import des types Plum'Zee
+import {
+    PlumZeeDie,
+    PlumZeePlayerScoreSheet,
+    PlumZeeGameOptions,
+    PlumZeeCombinationKey
+} from '../games/plumzee/PlumZeeTypes';
 
-export type PlayerStatus = 'connected' | 'disconnected' | 'disconnected_temp' | 'waiting' | 'playing' | 'gameOver' | 'waitingForPlayers' | 'readyToStart' | 'inGame' | 'empty' | 'paused';
+export type PlayerStatus = 'connected' | 'disconnected' | 'disconnected_temp' | 'waiting' | 'playing' | 'gameOver' | 'waitingForPlayers' | 'readyToStart' | 'inGame' | 'empty' | 'paused' | 'scanning' | 'marking';
 
 export interface ChatMessage {
     id: string;
@@ -33,7 +62,8 @@ export interface ChatMessage {
     timestamp: number;
 }
 
-export type GameType = 'CrazyMorpion' | 'KoOonTreeZ' | 'AtomikKFardE';
+// 🎬🎨🚀🎲 Ajout de PlumZee aux GameTypes
+export type GameType = 'CrazyMorpion' | 'KoOonTreeZ' | 'AtomikKFardE' | 'CineMax' | 'SoonArt' | 'GalakTK' | 'PlumZee';
 
 export interface BasePlayer {
     id: string;
@@ -61,6 +91,35 @@ export interface PlayerInRoom extends BasePlayer {
 export type CrazyMorpionPlayerClient = PlayerInRoom & { symbol: string | null };
 export type KoOonTreeZPlayerClient = PlayerInRoom;
 export type AtomikKFardEPlayerClient = PlayerInRoom & { deck: AtomikDeck; hand: AtomikDeck; handSize?: number };
+
+// 🎬 Interface Client pour le joueur CineMax
+export type CineMaxPlayerClient = PlayerInRoom & {
+    errorCount: number;
+    isBuzzerLocked: boolean;
+    currentQuestion: CineMaxQuestion | null;
+    pendingDifficultyChoice: boolean;
+};
+
+// 🎨 Interface Client pour le joueur Soon'Art
+export type SoonArtPlayerClient = PlayerInRoom & {
+    circlesUsed: number;
+    guesses: PlayerGuess[];
+};
+
+// 🚀 Interface Client pour le joueur Galak-T-K
+export type GalakTKPlayerClient = PlayerInRoom & {
+    starsFoundCount: number;
+    turnsTaken: number;
+    markedCells: GalakTKPlayerCellMark[];
+    foundStarPositions: GalakTKPoint[];
+};
+
+// 🎲 Interface Client pour le joueur Plum'Zee
+export type PlumZeePlayerClient = PlayerInRoom & {
+    scoreSheet: PlumZeePlayerScoreSheet;
+    rollsLeft: number;
+    hasFinished: boolean;
+};
 
 export interface BaseRoomData {
     id: string;
@@ -150,7 +209,53 @@ export interface AtomikKFardERoomToSend extends BaseRoomData {
     gameHistory: string[];
 }
 
-export type RoomToSend = CrazyMorpionRoomToSend | KoOonTreeZRoomToSend | AtomikKFardERoomToSend;
+// 🎬 Salle de jeu formatée pour l'envoi au client CineMax
+export interface CineMaxRoomToSend extends BaseRoomData {
+    gameType: 'CineMax';
+    players: CineMaxPlayerClient[];
+    gameOptions: CineMaxGameOptions;
+    targetMovieId: string | null;
+    targetMovieTitle: string | null;
+    targetMoviePoster: string | null;
+    pelliculeBlur: number;
+    roundTimerInterval: NodeJS.Timeout | null;
+    currentRoundTimeLeft: number;
+    buzzerWinnerId: string | null;
+}
+
+// 🎨 Salle de jeu formatée pour l'envoi au client Soon'Art
+export interface SoonArtRoomToSend extends BaseRoomData {
+    gameType: 'SoonArt';
+    players: SoonArtPlayerClient[];
+    gameOptions: SoonArtGameOptions;
+    circles: CircleSelection[];
+    treasures: Treasure[];
+    treasuresCount: number;
+    scanTimeLeft: number;
+    markTimeLeft: number;
+}
+
+// 🚀 Salle de jeu formatée pour l'envoi au client Galak-T-K
+export interface GalakTKRoomToSend extends BaseRoomData {
+    gameType: 'GalakTK';
+    players: GalakTKPlayerClient[];
+    gameOptions: GalakTKGameOptions;
+    stars: GalakTKPoint[];
+    currentTurnPlayerId: string | null;
+}
+
+// 🎲 Salle de jeu formatée pour l'envoi au client Plum'Zee
+export interface PlumZeeRoomToSend extends BaseRoomData {
+    gameType: 'PlumZee';
+    players: PlumZeePlayerClient[];
+    gameOptions: PlumZeeGameOptions;
+    currentDice: PlumZeeDie[];
+    currentTurnPlayerId: string | null;
+    currentRound: number;
+}
+
+// 🎬🎨🚀🎲 Ajout à l'Union des Rooms
+export type RoomToSend = CrazyMorpionRoomToSend | KoOonTreeZRoomToSend | AtomikKFardERoomToSend | CineMaxRoomToSend | SoonArtRoomToSend | GalakTKRoomToSend | PlumZeeRoomToSend;
 export type InitialGameData = RoomToSend;
 export type GameBoardUpdateData = RoomToSend;
 export type GameOverData = RoomToSend;
@@ -210,7 +315,47 @@ export interface AtomikKFardEClientState extends PlayerBaseClientState {
     playerStates: Record<string, PlayerState> | null;
 }
 
-export type ClientGlobalState = CrazyMorpionGameClientState | KoOonTreeZClientState | AtomikKFardEClientState;
+// 🎬 État Client Global pour CineMax
+export interface CineMaxClientState extends PlayerBaseClientState {
+    gameType: 'CineMax';
+    players: CineMaxPlayerClient[];
+    gameOptions: CineMaxGameOptions;
+    targetMovieTitle: string | null;
+    targetMoviePoster: string | null;
+    pelliculeBlur: number;
+    currentRoundTimeLeft: number;
+    buzzerWinnerId: string | null;
+}
+
+// 🎨 État Client Global pour Soon'Art
+export interface SoonArtClientState extends PlayerBaseClientState {
+    gameType: 'SoonArt';
+    players: SoonArtPlayerClient[];
+    gameOptions: SoonArtGameOptions;
+    circles: CircleSelection[];
+    scanTimeLeft: number;
+    markTimeLeft: number;
+}
+
+// 🚀 État Client Global pour Galak-T-K
+export interface GalakTKClientState extends PlayerBaseClientState {
+    gameType: 'GalakTK';
+    players: GalakTKPlayerClient[];
+    gameOptions: GalakTKGameOptions;
+    currentTurnPlayerId: string | null;
+}
+
+// 🎲 État Client Global pour Plum'Zee
+export interface PlumZeeClientState extends PlayerBaseClientState {
+    gameType: 'PlumZee';
+    players: PlumZeePlayerClient[];
+    gameOptions: PlumZeeGameOptions;
+    currentDice: PlumZeeDie[];
+    currentTurnPlayerId: string | null;
+}
+
+// 🎬🎨🚀🎲 Ajout à l'Union des États Clients Globaux
+export type ClientGlobalState = CrazyMorpionGameClientState | KoOonTreeZClientState | AtomikKFardEClientState | CineMaxClientState | SoonArtClientState | GalakTKClientState | PlumZeeClientState;
 
 export interface BaseMakeMoveRequest {
     roomId: string;
@@ -236,6 +381,45 @@ export interface AtomikKFardEMakeMoveRequest extends BaseMakeMoveRequest {
     action: any;
 }
 
+// 🎬 Requête de jeu pour CineMax
+export interface CineMaxMakeMoveRequest extends BaseMakeMoveRequest {
+    gameType: 'CineMax';
+    action: 'SOLVE_QUESTION' | 'HIT_BUZZER' | 'SELECT_DIFFICULTY';
+    payload?: any;
+}
+
+// 🎨 Requête de jeu pour Soon'Art
+export interface SoonArtMakeMoveRequest extends BaseMakeMoveRequest {
+    gameType: 'SoonArt';
+    action: 'DRAW_CIRCLE' | 'PLACE_GUESS';
+    payload: {
+        center?: Point;
+        radius?: number;
+        position?: Point;
+    };
+}
+
+// 🚀 Requête de jeu pour Galak-T-K
+export interface GalakTKMakeMoveRequest extends BaseMakeMoveRequest {
+    gameType: 'GalakTK';
+    action: 'CLICK_CELL' | 'MARK_CELL';
+    payload: {
+        position: GalakTKPoint;
+        markStatus?: CellMarkStatus;
+    };
+}
+
+// 🎲 Requête de jeu pour Plum'Zee
+export interface PlumZeeMakeMoveRequest extends BaseMakeMoveRequest {
+    gameType: 'PlumZee';
+    action: 'ROLL_DICE' | 'TOGGLE_LOCK' | 'SCORE_COMBINATION';
+    payload: {
+        dieIndex?: number;
+        combinationKey?: PlumZeeCombinationKey;
+    };
+}
+
+// 🎬🎨🚀🎲 Mise à jour des options de création de salon pour inclure Plum'Zee
 export interface CreateRoomRequest {
     username: string;
     gameType: GameType;
@@ -251,6 +435,19 @@ export interface CreateRoomRequest {
     atomikKfardeTeamMode?: AtomikKFardETeamMode;
     atomikKfardeGameStyle?: AtomikKFardEStyle;
     atomikKfardeTimePerRound?: AtomikTimePerRound;
+    cineMaxDifficultyRule?: CineMaxDifficultyRule;
+    cineMaxTimePerRound?: number;
+    cineMaxScoreToWin?: number;
+    soonArtTotalTreasures?: number;
+    soonArtMaxCircles?: number;
+    soonArtMapWidth?: number;
+    soonArtMapHeight?: number;
+    galakTKGridWidth?: number;
+    galakTKGridHeight?: number;
+    galakTKTotalStars?: number;
+    galakTKMode?: 'global' | 'local';
+    plumZeeMaxRounds?: number;
+    plumZeeTurnTimeLimit?: number;
 }
 
 export interface JoinRoomRequest {

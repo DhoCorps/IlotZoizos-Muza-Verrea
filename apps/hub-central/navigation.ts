@@ -1,4 +1,4 @@
-// apps/hub-central/i18n.ts
+// apps/hub-central/navigation.ts
 import { defineRouting } from 'next-intl/routing';
 import { createNavigation } from 'next-intl/navigation';
 
@@ -44,7 +44,20 @@ export const routing = defineRouting({
     '/games': '/games',
     '/games/crazymorpion': '/games/crazymorpion',
     '/games/kooontreez': '/games/kooontreez',
-    '/games/atomikkfarde': '/games/atomikkfarde'
+    '/games/atomik-k-far': '/games/atomik-k-far',
+    '/games/atomik-k-far/[slug]': '/games/atomik-k-far/[slug]', // Ajout de la route slugged si besoin
+    // 🎬 ROUTES DE CINÉ-MAX
+    '/games/cinemax': '/games/cinemax',
+    '/games/cinemax/[slug]': '/games/cinemax/[slug]',
+    // 🎨 ROUTES DE SOON'ART
+    '/games/soonart': '/games/soonart',
+    '/games/soonart/[slug]': '/games/soonart/[slug]',
+    // 🚀 ROUTES DE GALAK-T-K
+    '/games/galak-t-k': '/games/galak-t-k',
+    '/games/galak-t-k/[slug]': '/games/galak-t-k/[slug]',
+    // 🎲 ROUTES DE PLUM'ZEE
+    '/games/plumzee': '/games/plumzee',
+    '/games/plumzee/[slug]': '/games/plumzee/[slug]'
   }
 });
 

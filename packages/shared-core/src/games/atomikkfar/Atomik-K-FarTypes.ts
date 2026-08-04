@@ -18,6 +18,8 @@ export interface GridCell {
     color: string;
     isPermanentlyContested: boolean;
     conquerableBy?: AtomikCardType;
+    isRadioactive: boolean;
+    isNest: boolean;
 }
 
 export type AtomikCardType = 'Cafard(e)' | 'Pierre' | 'Feuille' | 'Ciseaux' | 'Bombe H';

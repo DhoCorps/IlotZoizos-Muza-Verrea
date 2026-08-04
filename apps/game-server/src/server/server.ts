@@ -12,17 +12,29 @@ import cors from 'cors';
 import { CrazyMorpionSymbol, CrazyMorpionGrid } from '@ilot/shared-core';
 import { CrazyMorpionManager } from '../games/crazymorpion/CrazyMorpionManager';
 import { KoOonTreeZManager } from '../games/kooontreez/KoOonTreeZManager';
-import { AtomikKFardEManager } from '../games/atomik-k-far/Atomik-K-FarManager'; // Corrigé (majuscule)
+import { AtomikKFardEManager } from '../games/atomik-k-far/Atomik-K-FarManager'; 
+import { CineMaxManager } from '../games/cinemax/CineMaxManager'; 
+import { SoonArtManager } from '../games/soonart/SoonArtManager'; 
+import { GalakTKManager } from '../games/galak-t-k/GalakTKManager'; 
+import { PlumZeeManager } from '../games/plumzee/PlumZeeManager'; // 🎲 Import du Manager Plum'Zee
 
 import { CrazyMorpionGameRoom as ManagerCrazyMorpionGameRoom } from '@ilot/shared-core';
 import { KoOonTreeZGameRoom as ManagerKoOonTreeZGameRoom, KoOonTreeZPlayer } from '@ilot/shared-core';
 import { AtomikKFardEGameRoom as ManagerAtomikKFardEGameRoom, Player as AtomikPlayer } from '@ilot/shared-core';
+import { CineMaxGameRoom as ManagerCineMaxGameRoom } from '@ilot/shared-core'; 
+import { SoonArtGameRoom as ManagerSoonArtGameRoom } from '@ilot/shared-core'; 
+import { GalakTKGameRoom as ManagerGalakTKGameRoom } from '@ilot/shared-core'; 
+import { PlumZeeGameRoom as ManagerPlumZeeGameRoom } from '@ilot/shared-core'; // 🎲 Import de la Room Plum'Zee
 
 import {
     BaseMakeMoveRequest,
     CrazyMorpionMakeMoveRequest,
     KoOonTreeZMakeMoveRequest,
     AtomikKFardEMakeMoveRequest,
+    CineMaxMakeMoveRequest, 
+    SoonArtMakeMoveRequest, 
+    GalakTKMakeMoveRequest, 
+    PlumZeeMakeMoveRequest, // 🎲
     RoomToSend,
     CreateRoomRequest,
     ChatMessage,
@@ -30,7 +42,11 @@ import {
     GameType,
     CrazyMorpionPlayerClient,
     KoOonTreeZPlayerClient,
-    AtomikKFardEGameOptions
+    AtomikKFardEPlayerClient,
+    CineMaxPlayerClient, 
+    SoonArtPlayerClient, 
+    AtomikKFardEGameOptions,
+    CineMaxDifficultyRule 
 } from '@ilot/shared-core';
 
 import {
@@ -41,13 +57,15 @@ import {
     KoOonTreezSoloMode,
     CurrentFlag
 } from '@ilot/shared-core';
-import { Player, 
-        AtomikKFardEGameRoom,
-        AtomikKFardEPlayer,
-        AtomikKFardENbPlayer,
-        AtomikKFardEMode, 
-        AtomikKFardEOption, 
-        AtomikKFardEStyle  } from '@ilot/shared-core';
+import { 
+    Player, 
+    AtomikKFardEGameRoom,
+    AtomikKFardEPlayer,
+    AtomikKFardENbPlayer,
+    AtomikKFardEMode, 
+    AtomikKFardEOption, 
+    AtomikKFardEStyle  
+} from '@ilot/shared-core';
 
 // --- Configuration de base du serveur ---
 const PORT = process.env.PORT || 3002;
@@ -85,7 +103,7 @@ interface BaseServerRoom {
     id: string;
     name: string;
     players: PlayerInRoom[]; 
-    state: 'waiting' | 'playing' | 'gameOver' | 'paused' | 'readyToStart' | 'empty';
+    state: 'waiting' | 'playing' | 'gameOver' | 'paused' | 'readyToStart' | 'empty' | 'waitingForPlayers' | 'inGame';
     winnerId: string | null;
     round: number;
     chatMessages: ChatMessage[];
@@ -116,12 +134,28 @@ interface ServerKoOonTreeZRoom extends BaseServerRoom {
 
 interface ServerAtomikKFardERoom extends ManagerAtomikKFardEGameRoom {
     gameType: 'AtomikKFardE';
-    players: AtomikKFardEPlayer[]; // <--- Utilise AtomikKFardEPlayer[] au lieu de Player[]
+    players: AtomikKFardEPlayer[];
     atomikKfardEOptions?: AtomikKFardEGameOptions;
 }
 
+interface ServerCineMaxRoom extends ManagerCineMaxGameRoom {
+    gameType: 'CineMax';
+}
 
-type ServerGameRoom = ServerCrazyMorpionRoom | ServerKoOonTreeZRoom | ServerServerAtomikRoomHelper;
+interface ServerSoonArtRoom extends ManagerSoonArtGameRoom {
+    gameType: 'SoonArt';
+}
+
+interface ServerGalakTKRoom extends ManagerGalakTKGameRoom {
+    gameType: 'GalakTK';
+}
+
+// 🎲 Interface Serveur pour Plum'Zee
+interface ServerPlumZeeRoom extends ManagerPlumZeeGameRoom {
+    gameType: 'PlumZee';
+}
+
+type ServerGameRoom = ServerCrazyMorpionRoom | ServerKoOonTreeZRoom | ServerServerAtomikRoomHelper | ServerCineMaxRoom | ServerSoonArtRoom | ServerGalakTKRoom | ServerPlumZeeRoom;
 type ServerServerAtomikRoomHelper = ServerAtomikKFardERoom;
 
 const rooms: Map<string, ServerGameRoom> = new Map();
@@ -132,11 +166,28 @@ const ROOM_DELETION_GRACE_PERIOD_MS = 10000;
 
 const crazyMorpionManager = new CrazyMorpionManager(io);
 const koOonTreeZManager = new KoOonTreeZManager(io);
-const atomikKFardEManager = new AtomikKFardEManager(io); // Corrigé (nom de classe avec majuscule)
+const atomikKFardEManager = new AtomikKFardEManager(io); 
+const cineMaxManager = new CineMaxManager(io);
+const soonArtManager = new SoonArtManager(io);
+const galakTKManager = new GalakTKManager(io);
+const plumZeeManager = new PlumZeeManager(io); // 🎲 Instanciation du Manager Plum'Zee
 
 function roomToRoomToSend(room: ServerGameRoom, requestingPlayerId?: string): RoomToSend {
     if (room.gameType === 'AtomikKFardE') {
         return atomikKFardEManager.toClientRoom(room as AtomikKFardEGameRoom);
+    }
+    if (room.gameType === 'CineMax') {
+        return cineMaxManager.toClientRoom(room as ManagerCineMaxGameRoom);
+    }
+    if (room.gameType === 'SoonArt') {
+        return soonArtManager.toClientRoom(room as ManagerSoonArtGameRoom);
+    }
+    if (room.gameType === 'GalakTK') {
+        return galakTKManager.toClientRoom(room as ManagerGalakTKGameRoom, requestingPlayerId);
+    }
+    // 🎲 Traitement spécifique pour Plum'Zee
+    if (room.gameType === 'PlumZee') {
+        return plumZeeManager.toClientRoom(room as ManagerPlumZeeGameRoom);
     }
 
     const playersToSend = room.players.map(p => {
@@ -232,6 +283,8 @@ io.on('connection', (socket: Socket) => {
                 koOonTreeZManager.notifyPlayerDisconnect(socket.id, room.id);
             } else if (room.gameType === 'AtomikKFardE') {
                 atomikKFardEManager.notifyPlayerDisconnect(socket.id, room.id);
+            } else if (room.gameType === 'PlumZee') {
+                plumZeeManager.notifyPlayerDisconnect(socket.id, room.id);
             }
 
             let updatedRoomFromManager: ServerGameRoom | undefined;
@@ -245,6 +298,15 @@ io.on('connection', (socket: Socket) => {
             } else if (room.gameType === 'AtomikKFardE') {
                 const roomFromManager = atomikKFardEManager.getRoom(room.id);
                 if (roomFromManager) updatedRoomFromManager = { ...roomFromManager, gameType: 'AtomikKFardE' } as ServerAtomikKFardERoom;
+            } else if (room.gameType === 'SoonArt') {
+                const roomFromManager = soonArtManager.getRoom(room.id);
+                if (roomFromManager) updatedRoomFromManager = { ...roomFromManager, gameType: 'SoonArt' } as ServerSoonArtRoom;
+            } else if (room.gameType === 'GalakTK') {
+                const roomFromManager = galakTKManager.getRoom(room.id);
+                if (roomFromManager) updatedRoomFromManager = { ...roomFromManager, gameType: 'GalakTK' } as ServerGalakTKRoom;
+            } else if (room.gameType === 'PlumZee') {
+                const roomFromManager = plumZeeManager.getRoom(room.id);
+                if (roomFromManager) updatedRoomFromManager = { ...roomFromManager, gameType: 'PlumZee' } as ServerPlumZeeRoom;
             }
 
             if (updatedRoomFromManager) {
@@ -280,6 +342,9 @@ io.on('connection', (socket: Socket) => {
                         if (room.gameType === 'CrazyMorpion') crazyMorpionManager.deleteRoom(room.id);
                         else if (room.gameType === 'KoOonTreeZ') koOonTreeZManager.deleteRoom(room.id);
                         else if (room.gameType === 'AtomikKFardE') atomikKFardEManager.deleteRoom(room.id);
+                        else if (room.gameType === 'SoonArt') soonArtManager.deleteRoom(room.id);
+                        else if (room.gameType === 'GalakTK') galakTKManager.deleteRoom(room.id);
+                        else if (room.gameType === 'PlumZee') plumZeeManager.deleteRoom(room.id); // 🎲
                         
                         io.emit('room:list', getAllRoomsToSend());
                     }
@@ -298,8 +363,30 @@ io.on('connection', (socket: Socket) => {
         atomikKFardEMode?: AtomikKFardEMode; 
         atomikKFardEOption?: AtomikKFardEOption; 
         atomikKFardEGameStyle?: AtomikKFardEStyle; 
+        cineMaxNbPlayer?: any;
+        cineMaxDifficultyRule?: CineMaxDifficultyRule;
+        cineMaxTimePerRound?: number;
+        cineMaxScoreToWin?: number;
+        soonArtTotalTreasures?: number;
+        soonArtMaxCircles?: number;
+        galakTKGridWidth?: number;
+        galakTKGridHeight?: number;
+        galakTKTotalStars?: number;
+        galakTKMode?: 'global' | 'local';
+        // 🎲 Options Plum'Zee
+        plumZeeMaxRounds?: number;
+        plumZeeTurnTimeLimit?: number;
     }) => {
-        const { username, roomName, gameType, kooonTreezNbPlayer, kooonTreezMode, kooonTreezOption, kooonTreezLevel, kooonTreezSoloMode, atomikKFardENbPlayer, atomikKFardEMode, atomikKFardEOption, atomikKFardEGameStyle } = payload;
+        const { 
+            username, roomName, gameType, 
+            kooonTreezNbPlayer, kooonTreezMode, kooonTreezOption, kooonTreezLevel, kooonTreezSoloMode, 
+            atomikKFardENbPlayer, atomikKFardEMode, atomikKFardEOption, atomikKFardEGameStyle,
+            cineMaxNbPlayer, cineMaxDifficultyRule, cineMaxTimePerRound, cineMaxScoreToWin,
+            soonArtTotalTreasures, soonArtMaxCircles,
+            galakTKGridWidth, galakTKGridHeight, galakTKTotalStars, galakTKMode,
+            plumZeeMaxRounds, plumZeeTurnTimeLimit
+        } = payload;
+        
         const roomId = Date.now().toString();
         let newRoomServer: ServerGameRoom | null = null;
         let roomToSendToClient: RoomToSend | null = null;
@@ -340,6 +427,45 @@ io.on('connection', (socket: Socket) => {
                 const roomFromManager = atomikKFardEManager.createRoom(roomId, roomName || `Salon de ${username}`, ownerPlayerId, username, socket.id, atomikKFardEOptions);
                 newRoomServer = { ...roomFromManager, gameType: 'AtomikKFardE' } as ServerAtomikKFardERoom;
                 roomToSendToClient = atomikKFardEManager.toClientRoom(newRoomServer as AtomikKFardEGameRoom);
+            } else if (gameType === 'CineMax') {
+                const cineMaxOptions = {
+                    nbPlayer: cineMaxNbPlayer || 'duo',
+                    timePerRound: cineMaxTimePerRound || 120,
+                    scoreToWin: cineMaxScoreToWin || 100,
+                    difficultyRule: cineMaxDifficultyRule || 'SERVER_CHAOS'
+                };
+                const roomFromManager = cineMaxManager.createRoom(roomId, roomName || `Salon de ${username}`, ownerPlayerId, username, socket.id, cineMaxOptions);
+                newRoomServer = { ...roomFromManager, gameType: 'CineMax' } as ServerCineMaxRoom;
+                roomToSendToClient = cineMaxManager.toClientRoom(newRoomServer as ManagerCineMaxGameRoom);
+            } else if (gameType === 'SoonArt') {
+                const soonArtOptions = {
+                    mapWidth: 800,
+                    mapHeight: 600,
+                    totalTreasures: soonArtTotalTreasures || 5,
+                    maxCircles: soonArtMaxCircles || 10
+                };
+                const roomFromManager = soonArtManager.createRoom(roomId, roomName || `Galerie de ${username}`, ownerPlayerId, username, socket.id, soonArtOptions);
+                newRoomServer = { ...roomFromManager, gameType: 'SoonArt' } as ServerSoonArtRoom;
+                roomToSendToClient = soonArtManager.toClientRoom(newRoomServer as ManagerSoonArtGameRoom);
+            } else if (gameType === 'GalakTK') {
+                const galakTKOptions = {
+                    gridWidth: galakTKGridWidth || 8,
+                    gridHeight: galakTKGridHeight || 8,
+                    totalStars: galakTKTotalStars || 8,
+                    mode: galakTKMode || 'global'
+                };
+                const roomFromManager = galakTKManager.createRoom(roomId, roomName || `Secteur de ${username}`, ownerPlayerId, username, socket.id, galakTKOptions);
+                newRoomServer = { ...roomFromManager, gameType: 'GalakTK' } as ServerGalakTKRoom;
+                roomToSendToClient = galakTKManager.toClientRoom(newRoomServer as ManagerGalakTKGameRoom, ownerPlayerId);
+            } else if (gameType === 'PlumZee') {
+                // 🎲 Initialisation Plum'Zee
+                const plumZeeOptions = {
+                    maxRounds: plumZeeMaxRounds || 13,
+                    turnTimeLimitSec: plumZeeTurnTimeLimit || 60
+                };
+                const roomFromManager = plumZeeManager.createRoom(roomId, roomName || `Boulier de ${username}`, ownerPlayerId, username, socket.id, plumZeeOptions);
+                newRoomServer = { ...roomFromManager, gameType: 'PlumZee' } as ServerPlumZeeRoom;
+                roomToSendToClient = plumZeeManager.toClientRoom(newRoomServer as ManagerPlumZeeGameRoom);
             } else {
                 throw new Error('Type de jeu non pris en charge.');
             }
@@ -382,11 +508,26 @@ io.on('connection', (socket: Socket) => {
         } else if (room.gameType === 'AtomikKFardE') {
             const roomFromManager = atomikKFardEManager.handlePlayerJoin(roomId, username, socket.id);
             if (roomFromManager) updatedGameRoom = { ...roomFromManager, gameType: 'AtomikKFardE' } as ServerAtomikKFardERoom;
+        } else if (room.gameType === 'CineMax') {
+            const roomFromManager = cineMaxManager.handlePlayerJoin(roomId, username, socket.id);
+            if (roomFromManager) updatedGameRoom = { ...roomFromManager, gameType: 'CineMax' } as ServerCineMaxRoom;
+        } else if (room.gameType === 'SoonArt') {
+            const roomFromManager = soonArtManager.handlePlayerJoin(roomId, username, socket.id);
+            if (roomFromManager) updatedGameRoom = { ...roomFromManager, gameType: 'SoonArt' } as ServerSoonArtRoom;
+        } else if (room.gameType === 'GalakTK') {
+            const roomFromManager = galakTKManager.handlePlayerJoin(roomId, username, socket.id);
+            if (roomFromManager) updatedGameRoom = { ...roomFromManager, gameType: 'GalakTK' } as ServerGalakTKRoom;
+        } else if (room.gameType === 'PlumZee') {
+            // 🎲 Entrée dans un salon Plum'Zee
+            const roomFromManager = plumZeeManager.handlePlayerJoin(roomId, username, socket.id);
+            if (roomFromManager) updatedGameRoom = { ...roomFromManager, gameType: 'PlumZee' } as ServerPlumZeeRoom;
         }
 
         if (updatedGameRoom) {
             rooms.set(roomId, updatedGameRoom);
-            io.to(roomId).emit('room:updated', roomToRoomToSend(updatedGameRoom));
+            for (const sockId of io.sockets.adapter.rooms.get(roomId) || []) {
+                io.to(sockId).emit('room:updated', roomToRoomToSend(updatedGameRoom, sockId));
+            }
             io.emit('room:list', getAllRoomsToSend());
         } else {
             socket.emit('error:message', `Impossible de rejoindre le salon ${roomId}.`);
@@ -407,6 +548,7 @@ io.on('connection', (socket: Socket) => {
         if (room.gameType === 'CrazyMorpion') crazyMorpionManager.notifyPlayerDisconnect(socket.id, room.id);
         else if (room.gameType === 'KoOonTreeZ') koOonTreeZManager.notifyPlayerDisconnect(socket.id, room.id);
         else if (room.gameType === 'AtomikKFardE') atomikKFardEManager.notifyPlayerDisconnect(socket.id, room.id);
+        else if (room.gameType === 'PlumZee') plumZeeManager.notifyPlayerDisconnect(socket.id, room.id);
 
         let updatedRoomFromManager: ServerGameRoom | undefined;
         if (room.gameType === 'CrazyMorpion') {
@@ -418,11 +560,22 @@ io.on('connection', (socket: Socket) => {
         } else if (room.gameType === 'AtomikKFardE') {
             const rf = atomikKFardEManager.getRoom(room.id);
             if (rf) updatedRoomFromManager = { ...rf, gameType: 'AtomikKFardE' } as ServerAtomikKFardERoom;
+        } else if (room.gameType === 'SoonArt') {
+            const rf = soonArtManager.getRoom(room.id);
+            if (rf) updatedRoomFromManager = { ...rf, gameType: 'SoonArt' } as ServerSoonArtRoom;
+        } else if (room.gameType === 'GalakTK') {
+            const rf = galakTKManager.getRoom(room.id);
+            if (rf) updatedRoomFromManager = { ...rf, gameType: 'GalakTK' } as ServerGalakTKRoom;
+        } else if (room.gameType === 'PlumZee') {
+            const rf = plumZeeManager.getRoom(room.id);
+            if (rf) updatedRoomFromManager = { ...rf, gameType: 'PlumZee' } as ServerPlumZeeRoom;
         }
 
         if (updatedRoomFromManager) {
             rooms.set(roomId, updatedRoomFromManager);
-            io.to(roomId).emit('room:updated', roomToRoomToSend(updatedRoomFromManager));
+            for (const sockId of io.sockets.adapter.rooms.get(roomId) || []) {
+                io.to(sockId).emit('room:updated', roomToRoomToSend(updatedRoomFromManager, sockId));
+            }
         }
         io.emit('room:list', getAllRoomsToSend());
     });
@@ -449,6 +602,27 @@ io.on('connection', (socket: Socket) => {
                 atomikKFardEManager.handleMakeMove(akData.roomId, akData.playerId, akData.action);
                 const rf = atomikKFardEManager.getRoom(akData.roomId);
                 if (rf) updatedGameRoom = { ...rf, gameType: 'AtomikKFardE' } as ServerAtomikKFardERoom;
+            } else if (data.gameType === 'CineMax' && room.gameType === 'CineMax') {
+                const cmxData = data as CineMaxMakeMoveRequest;
+                cineMaxManager.handleMakeMove(cmxData.roomId, cmxData.playerId, cmxData);
+                const rf = (cineMaxManager as any).rooms?.get(cmxData.roomId);
+                if (rf) updatedGameRoom = { ...rf, gameType: 'CineMax' } as ServerCineMaxRoom;
+            } else if (data.gameType === 'SoonArt' && room.gameType === 'SoonArt') {
+                const saData = data as SoonArtMakeMoveRequest;
+                soonArtManager.handleMakeMove(saData.roomId, saData.playerId, saData);
+                const rf = soonArtManager.getRoom(saData.roomId);
+                if (rf) updatedGameRoom = { ...rf, gameType: 'SoonArt' } as ServerSoonArtRoom;
+            } else if (data.gameType === 'GalakTK' && room.gameType === 'GalakTK') {
+                const gkData = data as GalakTKMakeMoveRequest;
+                galakTKManager.handleMakeMove(gkData.roomId, gkData.playerId, gkData);
+                const rf = galakTKManager.getRoom(gkData.roomId);
+                if (rf) updatedGameRoom = { ...rf, gameType: 'GalakTK' } as ServerGalakTKRoom;
+            } else if (data.gameType === 'PlumZee' && room.gameType === 'PlumZee') {
+                // 🎲 Action Plum'Zee (Roll Dice, Toggle Lock, Score Combination)
+                const pzData = data as PlumZeeMakeMoveRequest;
+                plumZeeManager.handleMakeMove(pzData.roomId, pzData.playerId, pzData);
+                const rf = plumZeeManager.getRoom(pzData.roomId);
+                if (rf) updatedGameRoom = { ...rf, gameType: 'PlumZee' } as ServerPlumZeeRoom;
             }
         } catch (error: any) {
             socket.emit('error:message', `Action invalide: ${error.message}`);
@@ -457,7 +631,9 @@ io.on('connection', (socket: Socket) => {
 
         if (updatedGameRoom) {
             rooms.set(updatedGameRoom.id, updatedGameRoom);
-            io.to(updatedGameRoom.id).emit('game:state-update', roomToRoomToSend(updatedGameRoom));
+            for (const sockId of io.sockets.adapter.rooms.get(updatedGameRoom.id) || []) {
+                io.to(sockId).emit('game:state-update', roomToRoomToSend(updatedGameRoom, sockId));
+            }
             io.emit('room:list', getAllRoomsToSend());
         }
     });
@@ -511,6 +687,11 @@ io.on('connection', (socket: Socket) => {
                 atomikKFardEManager.handleRestartRequest(roomId, socket.id);
                 const rf = atomikKFardEManager.getRoom(roomId);
                 if (rf) updatedGameRoom = { ...rf, gameType: 'AtomikKFardE' } as ServerAtomikKFardERoom;
+            } else if (room.gameType === 'PlumZee') {
+                // 🎲 Redémarrage Plum'Zee
+                plumZeeManager.handleRestartRequest(roomId, socket.id);
+                const rf = plumZeeManager.getRoom(roomId);
+                if (rf) updatedGameRoom = { ...rf, gameType: 'PlumZee' } as ServerPlumZeeRoom;
             }
         } catch (error: any) {
             socket.emit('error:message', `Erreur redémarrage: ${error.message}`);
@@ -543,6 +724,11 @@ io.on('connection', (socket: Socket) => {
                 atomikKFardEManager.handleChatMessage(message);
                 const rf = atomikKFardEManager.getRoom(message.roomId);
                 if (rf) updatedGameRoom = { ...rf, gameType: 'AtomikKFardE' } as ServerAtomikKFardERoom;
+            } else if (room.gameType === 'PlumZee') {
+                // 🎲 Chat Plum'Zee
+                plumZeeManager.handleChatMessage(message);
+                const rf = plumZeeManager.getRoom(message.roomId);
+                if (rf) updatedGameRoom = { ...rf, gameType: 'PlumZee' } as ServerPlumZeeRoom;
             }
         } catch (error: any) {
             socket.emit('error:message', `Erreur chat: ${error.message}`);

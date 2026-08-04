@@ -7,7 +7,7 @@ import { RoomToSend } from '@ilot/shared-core';
 
 // Composants de jeux à implémenter par la suite
 import CrazyMorpionClient from './crazymorpion/CrazyMorpionClient';
-import KoOonTreeZClient from './kooontreez/KoOonTreezClient';
+import KoOonTreeZClient from './kooontreez/KoOonTreeZClient';
 
 const SERVER_URL = process.env.NEXT_PUBLIC_GAME_SERVER_URL || 'http://localhost:3002';
 

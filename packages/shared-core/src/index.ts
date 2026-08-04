@@ -27,6 +27,14 @@ export * from './games/kooontreez/KoOonTreeZTypes';
 export * from './games/kooontreez/KoOonTreeZLogic';
 export * from './games/atomikkfar/Atomik-K-FarTypes';
 export * from './games/atomikkfar/Atomik-K-FarLogic';
+export * from './games/cinemax/CineMaxTypes';
+export * from './games/cinemax/CineMaxLogic';
+export * from './games/soonart/SoonArtTypes';
+export * from './games/soonart/SoonArtLogic';
+export * from './games/galak-t-k/GalakTKTypes';
+export * from './games/galak-t-k/GalakTKLogic';
+export * from './games/plumzee/PlumZeeTypes';
+export * from './games/plumzee/PlumZeeLogic';
 export * from '../src/types/shared.types';
 
 export * from './utils/seve.engine';
