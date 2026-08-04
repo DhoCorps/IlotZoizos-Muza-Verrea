@@ -1,5 +1,4 @@
 // packages/shared-core/src/sync-engine/resonance.orchestrator.ts
-
 import { TransactionManager } from './transactionManager';
 import { getNeo4jSession } from '@ilot/infrastructure';
 import { ActionSignature, CAPABILITIES } from '@ilot/types';
@@ -7,7 +6,6 @@ import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
 
 // --- LES SYMBOLES DU MAILLAGE ---
-// Définit les types de liens possibles entre les différents organes de l'Îlot
 export type ResonanceType = 
   | 'ILLUMINATES'   // Ex: Blog -> Projet (Le texte explique le projet)
   | 'MENTIONS'      // Ex: Blog -> E-commerce (Le texte cite un produit)
@@ -32,14 +30,12 @@ export class ResonanceOrchestrator {
     relationType: ResonanceType,
     signature: ActionSignature
   ) {
-    // Seul l'Architecte ou un processus système peut forger des ponts structurels
     if (!signature.capabilities.includes('*') && !signature.capabilities.includes(CAPABILITIES.SYSTEM.ALL)) {
       throw new IlotError("Aura insuffisante pour tisser le maillage global.", "FORBIDDEN", 403);
     }
 
     return await TransactionManager.execute("Tissage Transdisciplinaire", async (mongoSession, neo4jTx) => {
       
-      // La magie de Neo4j : on injecte les Labels dynamiquement pour trouver les noeuds peu importe leur domaine
       const cypher = `
         MATCH (source:${sourceLabel} { uid: $sourceUid })
         MATCH (target:${targetLabel} { uid: $targetUid })
@@ -64,13 +60,13 @@ export class ResonanceOrchestrator {
 
   /**
    * 💬 L'ÉCHO SOCIAL (Commentaires & Emojis)
-   * Permet à un Oiseau de réagir à n'importe quelle entité de l'Îlot (Blog, Produit, Jeu...)
+   * Permet à un Oiseau de réagir à n'importe quelle entité de l'Îlot
    */
   async addSocialEcho(
     targetUid: string,
     targetLabel: EntityLabel,
     echoType: 'TEXT' | 'EMOJI',
-    content: string, // Le texte du commentaire ou l'emoji (ex: "🔥")
+    content: string,
     signature: ActionSignature
   ) {
     if (!signature.actorUid) throw new IlotError("Oiseau fantôme.", "UNAUTHORIZED", 401);
@@ -80,12 +76,10 @@ export class ResonanceOrchestrator {
       const echoUid = `echo_${randomUUID()}`;
       const relation = echoType === 'TEXT' ? 'ECHOES' : 'VIBRATES';
 
-      // 1. Écriture dans le Graphe (On crée la relation)
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         MATCH (target:${targetLabel} { uid: $targetUid })
         
-        // On crée la relation avec ses métadonnées directement gravées sur le lien
         CREATE (u)-[r:${relation} { 
           uid: $echoUid,
           content: $content,
@@ -108,7 +102,7 @@ export class ResonanceOrchestrator {
 
   /**
    * 🔍 LE RADAR DE RÉSONANCE
-   * Va chercher toutes les entités connectées à un noeud spécifique, peu importe leur domaine d'origine.
+   * Va chercher toutes les entités connectées à un nœud spécifique
    */
   async getResonances(uid: string) {
     const session = getNeo4jSession();
@@ -137,12 +131,10 @@ export class ResonanceOrchestrator {
   }
 
   /**
- * Recherche les résonances transversales entre un oiseau et le reste de la volière
- * en se basant sur le partage de tags ou de fréquences dans le graphe Neo4j.
- */
-public async findTransversalResonances(userUid: string): Promise<{ peerUid: string; sharedTags: string[]; score: number }[]> {
+   * Recherche les résonances transversales entre un oiseau et le reste de la volière
+   */
+  public async findTransversalResonances(userUid: string): Promise<{ peerUid: string; sharedTags: string[]; score: number }[]> {
     return await TransactionManager.execute('findTransversalResonances', async (mongoSession, neo4jTx) => {
-        // Requête Cypher Neo4j pour trouver les pairs partageant des nœuds sémantiques ou des tags similaires
         const query = `
             MATCH (target:User {uid: $userUid})-[:PARTAGE]->(tag:Tag)<-[:PARTAGE]-(peer:User)
             WHERE target <> peer
@@ -156,10 +148,8 @@ public async findTransversalResonances(userUid: string): Promise<{ peerUid: stri
         return result.records.map(record => ({
             peerUid: record.get('peerUid'),
             sharedTags: record.get('sharedTags'),
-            score: record.get('commonCount').toNumber() * 2 // Application du coefficient de résonance transversale
+            score: record.get('commonCount').toNumber() * 2 
         }));
     });
   }
-
 }
-

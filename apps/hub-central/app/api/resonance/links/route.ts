@@ -1,3 +1,4 @@
+// apps/hub-central/app/api/resonance/links/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../../../../lib/auth";

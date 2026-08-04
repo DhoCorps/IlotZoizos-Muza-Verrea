@@ -1,0 +1,38 @@
+// apps/hub-central/__test__/api/task.irrigation.api.test.ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { POST } from '../../app/api/tasks/[slug]/irrigate/route';
+import { TaskIrrigationOrchestrator } from '@ilot/shared-core';
+
+vi.mock('next-auth/next', () => ({
+  getServerSession: vi.fn(),
+}));
+
+import { getServerSession } from 'next-auth/next';
+
+describe('API Task Irrigation - Loi de l’Irrigation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('❌ doit rejeter les requêtes non authentifiées', async () => {
+    (getServerSession as any).mockResolvedValueOnce(null);
+
+    const req = new Request('http://localhost/api/tasks/task-1/irrigate', {
+      method: 'POST'
+    });
+
+    const res = await POST(req, { params: { slug: 'task-1' } });
+    expect(res.status).toBe(401);
+  });
+
+  it('🌱 doit évaluer correctement l’irrigation via l’orchestrateur statique', () => {
+    const task = {
+      title: 'Fondation',
+      status: 'ACTIVE' as const,
+      dependencies: [{ id: '1', health: 1 }]
+    };
+    const result = TaskIrrigationOrchestrator.evaluateAndSanitize(task);
+    expect(result.isIrrigated).toBe(1);
+    expect(result.status).toBe('ACTIVE');
+  });
+});

@@ -1,5 +1,8 @@
 // packages/shared-core/src/sync-engine/market.regulation.orchestrator.ts
 import { SeveEngine, ExchangeItem } from '../utils/seve.engine';
+import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
+import { IlotError } from '../errors/ilot.errors';
+import { ActionSignature } from '@ilot/types';
 
 export interface MarketEntityContext {
     uid: string;
@@ -19,7 +22,7 @@ export class MarketRegulationOrchestrator {
     private static readonly THRESHOLD_JP = 1.0;
 
     /**
-     * Évalue si une transaction de prise/achat est juste et régule le flux par la latence
+     * Évalue si une transaction de prise/achat est juste et régule le flux par la latence (statique, pure)
      */
     public static evaluateMarketAccess(context: MarketEntityContext, takeValue: number): MarketRegulationResult {
         // 1. Calcul de la Balance Vitale (Lambda)
@@ -64,6 +67,55 @@ export class MarketRegulationOrchestrator {
             vitalBalance,
             latencyMs: 0,
             message: `🌱 [Market] Échange équilibré. Bonne circulation de la sève.`
+        };
+    }
+
+    /**
+     * ⚖️ ÉVALUATION CONNECTÉE À LA SILICE
+     * Récupère le contexte réel de l'oiseau en base et persiste son état de régulation.
+     */
+    public async processConnectedRegulation(
+        userIdentifier: string,
+        takeValue: number,
+        currentNeeds: number,
+        creationFactor: number,
+        signature: ActionSignature
+    ): Promise<MarketRegulationResult & { targetUid: string }> {
+        const user = await OiseauModel.findOne({ 
+            $or: [{ slug: userIdentifier }, { uid: userIdentifier }, { pseudo: userIdentifier }] 
+        });
+
+        if (!user) throw new IlotError("Oiseau introuvable dans la Silice.", "NOT_FOUND", 404);
+
+        const exchanges: ExchangeItem[] = user.exchanges || [];
+
+        const context: MarketEntityContext = {
+            uid: user.uid,
+            exchanges,
+            currentNeeds,
+            creationFactor
+        };
+
+        const regulation = MarketRegulationOrchestrator.evaluateMarketAccess(context, takeValue);
+
+        // Persistance de l'état de régulation dans MongoDB
+        await OiseauModel.findOneAndUpdate(
+            { uid: user.uid },
+            { 
+                $set: { 
+                    'marketRegulationState': {
+                        lastVitalBalance: regulation.vitalBalance,
+                        lastLatencyMs: regulation.latencyMs,
+                        isAuthorized: regulation.isAuthorized,
+                        evaluatedAt: new Date()
+                    }
+                } 
+            }
+        );
+
+        return {
+            targetUid: user.uid,
+            ...regulation
         };
     }
 }

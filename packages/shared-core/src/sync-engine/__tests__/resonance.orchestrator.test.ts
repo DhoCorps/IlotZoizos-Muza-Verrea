@@ -1,103 +1,163 @@
 // packages/shared-core/src/sync-engine/__tests__/resonance.orchestrator.test.ts
-import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ResonanceOrchestrator } from '../resonance.orchestrator';
 import { TransactionManager } from '../transactionManager';
-import { connectToDatabase } from '@ilot/infrastructure'; // 🩸 SUTURE : Import de la connexion de la Silice
+import { getNeo4jSession } from '@ilot/infrastructure';
+import { IlotError } from '../../errors/ilot.errors';
+import { CAPABILITIES } from '@ilot/types';
 
-// Mock du Transaction Manager enrichi pour simuler la résonance transversale
+// Mocks de l'infrastructure Neo4j et TransactionManager
 vi.mock('../transactionManager', () => ({
-  TransactionManager: {
-    execute: vi.fn().mockImplementation(async (name, callback) => {
-      const mockMongoSession = { startTransaction: vi.fn(), commitTransaction: vi.fn(), abortTransaction: vi.fn(), endSession: vi.fn() };
-      
-      const mockNeo4jTx = {
-        run: vi.fn().mockImplementation(async (query: string) => {
-          if (query.includes('findTransversalResonances') || query.includes('PARTAGE')) {
-            return {
-              records: [
-                {
-                  get: (key: string) => {
-                    if (key === 'peerUid') return 'bird-delta-999';
-                    if (key === 'sharedTags') return ['blues', 'fretless', 'impro'];
-                    if (key === 'commonCount') return { toNumber: () => 3 };
-                    return null;
-                  }
-                }
-              ]
-            };
-          }
-          return { records: [{ get: () => 'link_1' }] };
-        })
-      };
-
-      return await callback(mockMongoSession as any, mockNeo4jTx as any);
-    })
-  }
+    TransactionManager: {
+        execute: vi.fn()
+    }
 }));
 
-describe('ResonanceOrchestrator - Tisseur de Liens, Échos & Résonance Transversale', () => {
-  let orchestrator: ResonanceOrchestrator;
-  const mockActorUid = 'bird-alpha-001';
+vi.mock('@ilot/infrastructure', () => ({
+    getNeo4jSession: vi.fn()
+}));
 
-  beforeAll(async () => {
-    // Évite le timeout de Mongoose en s'assurant que la Silice est éveillée
-    try {
-      await connectToDatabase();
-    } catch (e) {
-      // Ignoré si simulé
-    }
-  });
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    orchestrator = new ResonanceOrchestrator();
-  });
-
-  it('🟢 doit tisser un lien transdisciplinaire si l\'Architecte possède l\'aura absolue (*)', async () => {
-    const result = await orchestrator.weaveCrossDomainLink(
-      'sujet-1',
-      'Sujet',
-      'prod-1',
-      'Product',
-      'MENTIONS',
-      { actorUid: mockActorUid, capabilities: ['*'], issuedAt: new Date() }
-    );
-    expect(result.success).toBe(true);
-  });
-
-  it('🔴 doit interdire le tissage global si l\'Oiseau ne possède pas l\'aura requise (403)', async () => {
-    await expect(
-      orchestrator.weaveCrossDomainLink(
-        'sujet-1',
-        'Sujet',
-        'prod-1',
-        'Product',
-        'MENTIONS',
-        { actorUid: mockActorUid, capabilities: [], issuedAt: new Date() }
-      )
-    ).rejects.toThrow();
-  });
-
-  it('🟢 doit enregistrer un écho social avec succès', async () => {
-    const result = await orchestrator.addSocialEcho(
-      'sujet-1',
-      'Sujet',
-      'TEXT',
-      'Magnifique résonance harmonique.',
-      { actorUid: mockActorUid, capabilities: [], issuedAt: new Date() }
-    );
-    expect(result.success).toBe(true);
-    expect(result.content).toBe('Magnifique résonance harmonique.');
-    expect(result.type).toBe('TEXT');
-  });
-
-  it('🎸 doit détecter une résonance transversale entre deux oiseaux partageant des affinités (ex: blues)', async () => {
-    const resonances = await orchestrator.findTransversalResonances(mockActorUid);
+describe('ResonanceOrchestrator - Le Tisserand et Résonance Transversale', () => {
     
-    expect(resonances).toBeDefined();
-    expect(resonances.length).toBeGreaterThan(0);
-    expect(resonances[0].peerUid).toBe('bird-delta-999');
-    expect(resonances[0].sharedTags).toContain('blues');
-    expect(resonances[0].score).toBe(6); // 3 tags communs * 2
-  });
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    describe('weaveCrossDomainLink', () => {
+        const orchestrator = new ResonanceOrchestrator();
+
+        it('❌ doit rejeter le tissage si l’acteur n’a pas les privilèges système requis', async () => {
+            const signature = { actorUid: 'user-bird', capabilities: ['READ'] };
+
+            await expect(
+                orchestrator.weaveCrossDomainLink('src-1', 'Sujet', 'tgt-1', 'Product', 'ILLUMINATES', signature)
+            ).rejects.toThrow(IlotError);
+        });
+
+        it('🕸️ doit tisser avec succès un pont transdisciplinaire si l’acteur est autorisé', async () => {
+            const signature = { actorUid: 'architect-uid', capabilities: [CAPABILITIES.SYSTEM.ALL] };
+
+            (TransactionManager.execute as any).mockImplementationOnce(async (name: string, callback: any) => {
+                const mockNeo4jTx = {
+                    run: vi.fn().mockResolvedValue({
+                        records: [{ get: (key: string) => ({}) }]
+                    })
+                };
+                return await callback({}, mockNeo4jTx);
+            });
+
+            const result = await orchestrator.weaveCrossDomainLink('src-1', 'Sujet', 'tgt-1', 'Product', 'ILLUMINATES', signature);
+            expect(result.success).toBe(true);
+            expect(TransactionManager.execute).toHaveBeenCalled();
+        });
+
+        it('❌ doit lever une erreur si l’un des nœuds est introuvable dans le Graphe', async () => {
+            const signature = { actorUid: 'architect-uid', capabilities: ['*'] };
+
+            (TransactionManager.execute as any).mockImplementationOnce(async (name: string, callback: any) => {
+                const mockNeo4jTx = {
+                    run: vi.fn().mockResolvedValue({ records: [] }) // Aucun enregistrement retourné
+                };
+                return await callback({}, mockNeo4jTx);
+            });
+
+            await expect(
+                orchestrator.weaveCrossDomainLink('src-ghost', 'Sujet', 'tgt-ghost', 'Product', 'ILLUMINATES', signature)
+            ).rejects.toThrow("L'un des deux nœuds est introuvable dans le Graphe.");
+        });
+    });
+
+    describe('addSocialEcho', () => {
+        const orchestrator = new ResonanceOrchestrator();
+
+        it('❌ doit rejeter l’écho si l’oiseau est un fantôme (pas d’actorUid)', async () => {
+            const signature = { actorUid: '', capabilities: [] };
+
+            await expect(
+                orchestrator.addSocialEcho('target-1', 'Sujet', 'TEXT', 'Superbe', signature)
+            ).rejects.toThrow("Oiseau fantôme.");
+        });
+
+        it('💬 doit sédimenter un écho social avec succès', async () => {
+            const signature = { actorUid: 'bird-uid-1', capabilities: [] };
+
+            (TransactionManager.execute as any).mockImplementationOnce(async (name: string, callback: any) => {
+                const mockNeo4jTx = {
+                    run: vi.fn().mockResolvedValue({ records: [] })
+                };
+                return await callback({}, mockNeo4jTx);
+            });
+
+            const result = await orchestrator.addSocialEcho('target-1', 'Sujet', 'EMOJI', '🔥', signature);
+            expect(result.success).toBe(true);
+            expect(result.content).toBe('🔥');
+            expect(result.type).toBe('EMOJI');
+        });
+    });
+
+    describe('getResonances', () => {
+        const orchestrator = new ResonanceOrchestrator();
+
+        it('🔍 doit récupérer toutes les résonances connectées à un nœud via Neo4j', async () => {
+            const mockSession = {
+                run: vi.fn().mockResolvedValue({
+                    records: [
+                        {
+                            get: (key: string) => {
+                                const map: any = {
+                                    relationType: 'ILLUMINATES',
+                                    neighborType: 'Project',
+                                    neighborUid: 'proj-1',
+                                    neighborTitle: 'Cyberpunk Project',
+                                    neighborName: null
+                                };
+                                return map[key];
+                            }
+                        }
+                    ]
+                }),
+                close: vi.fn().mockResolvedValue(undefined)
+            };
+
+            (getNeo4jSession as any).mockReturnValue(mockSession);
+
+            const resonances = await orchestrator.getResonances('center-uid');
+            expect(resonances).toHaveLength(1);
+            expect(resonances[0].relation).toBe('ILLUMINATES');
+            expect(resonances[0].title).toBe('Cyberpunk Project');
+            expect(mockSession.close).toHaveBeenCalled();
+        });
+    });
+
+    describe('findTransversalResonances', () => {
+        const orchestrator = new ResonanceOrchestrator();
+
+        it('📈 doit calculer les résonances transversales basées sur les tags partagés', async () => {
+            (TransactionManager.execute as any).mockImplementationOnce(async (name: string, callback: any) => {
+                const mockNeo4jTx = {
+                    run: vi.fn().mockResolvedValue({
+                        records: [
+                            {
+                                get: (key: string) => {
+                                    const map: any = {
+                                        peerUid: 'peer-bird-2',
+                                        sharedTags: ['neo4j', 'typescript'],
+                                        commonCount: { toNumber: () => 2 }
+                                    };
+                                    return map[key];
+                                }
+                            }
+                        ]
+                    })
+                };
+                return await callback({}, mockNeo4jTx);
+            });
+
+            const results = await orchestrator.findTransversalResonances('target-bird-1');
+            expect(results).toHaveLength(1);
+            expect(results[0].peerUid).toBe('peer-bird-2');
+            expect(results[0].sharedTags).toEqual(['neo4j', 'typescript']);
+            expect(results[0].score).toBe(4); // 2 * 2
+        });
+    });
 });
