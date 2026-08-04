@@ -1,8 +1,8 @@
 // apps/hub-central/app/api/projects/[projectId]/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { ProjectOrchestrator } from '@ilot/shared-core/src/sync-engine/project.orchestrator';
-import { ProjectModel } from '@ilot/infrastructure/src/database/models/nosql/project.model';
+import { ProjectOrchestrator } from '@ilot/shared-core';
+import { ProjectModel } from '@ilot/infrastructure';
 import { getNeo4jSession } from '@ilot/infrastructure/src/database/neo4j';
 import { connectToDatabase } from '@ilot/infrastructure'; // ✅ SUTURE : Import de l'éveil de la Silice
 import { CAPABILITIES, ActionSignature } from '@ilot/types';

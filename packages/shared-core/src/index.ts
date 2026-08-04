@@ -1,4 +1,5 @@
 // Pour l'instant on exporte la logique métier
+export * from './sync-engine/transactionManager'
 export * from './integrity/moral.checker';
 export * from './sync-engine/user.orchestrator';
 export * from './sync-engine/team.orchestrator';
@@ -29,5 +30,14 @@ export * from './games/atomikkfar/Atomik-K-FarLogic';
 export * from '../src/types/shared.types';
 
 export * from './utils/seve.engine';
+export * from './sync-engine/task.irrigation.orchestrator';
+export * from './sync-engine/task.resonance.orchestrator';
+export * from './sync-engine/resonance.orchestrator';
+export * from './sync-engine/demopraxy.orchestrator';
+export * from './sync-engine/sovereign.purge.orchestrator';
+export * from './sync-engine/market.regulation.orchestrator';
+export * from './sync-engine/consciousness.salon.orchestrator';
+
+
 
 export * from './utils/observatory.engine';

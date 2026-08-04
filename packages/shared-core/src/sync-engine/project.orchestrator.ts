@@ -24,9 +24,6 @@ const generateSlug = (text: string) => {
   return text.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
 };
 
-
-
-
 /**
  * 🛰️ PROJECT ORCHESTRATOR 
  * Modèle : "Zero-Identity" - L'Orchestrateur exécute selon la Signature.
@@ -102,9 +99,12 @@ export class ProjectOrchestrator {
   }
 
   // --- 🎨 MUTATION (Update) ---
-  async mutateProject(projectUid: string, updates: any, signature: ActionSignature): Promise<ProjectSyncResult> {
-    const project = await ProjectModel.findOne({ uid: projectUid });
+  async mutateProject(projectIdentifier: string, updates: any, signature: ActionSignature): Promise<ProjectSyncResult> {
+    // Résolution universelle du projet par son slug ou son uid
+    const project = await ProjectModel.findOne({ $or: [{ slug: projectIdentifier }, { uid: projectIdentifier }] });
     if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
+
+    const projectUid = project.uid;
 
     return await TransactionManager.execute("Mutation Chantier", async (mongoSession, neo4jTx) => {
       
@@ -140,67 +140,65 @@ export class ProjectOrchestrator {
     });
   }
 
-private async getFullDeletionOrder(projectUid: string) {
-  const session = getNeo4jSession();
-  try {
-    // On récupère le chemin complet pour calculer la profondeur réelle
-    const result = await session.run(`
-      MATCH (root:Project {uid: $projectUid})
+  private async getFullDeletionOrder(projectUid: string) {
+    const session = getNeo4jSession();
+    try {
+      const result = await session.run(`
+        MATCH (root:Project {uid: $projectUid})
+        
+        // 1. Tâches et leur profondeur
+        MATCH path = (root)-[:CONTAINS*0..]->(p:Project)-[:TASK_OF]-(t:Task)
+        RETURN t.uid as uid, 'TASK' as type, length(path) + 10 as sortDepth
+        
+        UNION
+        
+        // 2. Projets et leur profondeur
+        MATCH path = (root)-[:CONTAINS*0..]->(p:Project)
+        RETURN p.uid as uid, 'PROJECT' as type, length(path) as sortDepth
+        
+        ORDER BY sortDepth DESC
+      `, { projectUid });
       
-      // 1. Tâches et leur profondeur
-      MATCH path = (root)-[:CONTAINS*0..]->(p:Project)-[:TASK_OF]-(t:Task)
-      RETURN t.uid as uid, 'TASK' as type, length(path) + 10 as sortDepth
-      
-      UNION
-      
-      // 2. Projets et leur profondeur
-      MATCH path = (root)-[:CONTAINS*0..]->(p:Project)
-      RETURN p.uid as uid, 'PROJECT' as type, length(path) as sortDepth
-      
-      ORDER BY sortDepth DESC
-    `, { projectUid });
-    
-    return result.records.map(r => ({ uid: r.get('uid'), type: r.get('type') }));
-  } finally {
-    await session.close();
+      return result.records.map(r => ({ uid: r.get('uid'), type: r.get('type') }));
+    } finally {
+      await session.close();
+    }
   }
-}
 
- // 2. MÉTHODE DE SUPPRESSION D'UN PROJET (Unité)
+  // 2. MÉTHODE DE SUPPRESSION D'UN PROJET (Unité)
   async disintegrateProject(projectUid: string, session: any, neo4jTx: any) {
     await ProjectModel.deleteOne({ uid: projectUid }, { session });
     await neo4jTx.run(`MATCH (p:Project {uid: $uid}) DETACH DELETE p`, { uid: projectUid });
   }
 
-/**
+  /**
    * 🧨 DISSOUS LE CHANTIER ET TOUTES SES TRACES (Fichiers + Atomes)
    */
-  async dissolveProject(projectUid: string, signature: ActionSignature) {
+  async dissolveProject(projectIdentifier: string, signature: ActionSignature) {
+    const project = await ProjectModel.findOne({ $or: [{ slug: projectIdentifier }, { uid: projectIdentifier }] });
+    if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
+
+    const projectUid = project.uid;
     const nodesToDestroy = await this.getFullDeletionOrder(projectUid);
 
     return await TransactionManager.execute("Désintégration Totale", async (mongoSession, neo4jTx) => {
       
       for (const node of nodesToDestroy) {
         if (node.type === 'TASK') {
-          // 1. Délégation à l'orchestrateur de tâche (qui doit aussi purger ses fichiers)
           await this.taskOrch.disintegrateTask(node.uid, signature);
         } else if (node.type === 'PROJECT') {
-          // 2. PURGE PHYSIQUE : On récupère les documents avant de détruire le document Mongo
-          const project = await ProjectModel.findOne({ uid: node.uid }).session(mongoSession);
-          if (project && project.documents) {
-            for (const doc of project.documents) {
+          const targetProject = await ProjectModel.findOne({ uid: node.uid }).session(mongoSession);
+          if (targetProject && targetProject.documents) {
+            for (const doc of targetProject.documents) {
               try {
-                // Utilisation du helper pour extraire la clef technique et purger
                 const key = storageService.extractKeyFromUrl(doc.url);
                 await storageService.deleteFile(key);
               } catch (err) {
                 console.error(`⚠️ [Orchestrator] Échec purge fichier ${doc.url} :`, err);
-                // On continue la purge même si un fichier échoue
               }
             }
           }
 
-          // 3. Suppression DB
           await ProjectModel.deleteOne({ uid: node.uid }, { session: mongoSession });
           await neo4jTx.run(`MATCH (p:Project {uid: $uid}) DETACH DELETE p`, { uid: node.uid });
         }
@@ -213,7 +211,7 @@ private async getFullDeletionOrder(projectUid: string) {
   // --- 📎 ATTACHEMENT : AJOUT DE FICHIERS ---
 
   async appendFiles(
-    projectUid: string, 
+    projectIdentifier: string, 
     fileUrls: string[], 
     signature: ActionSignature
   ) {
@@ -221,8 +219,11 @@ private async getFullDeletionOrder(projectUid: string) {
       throw new IlotError("Aura insuffisante pour injecter des données dans ce chantier.", "FORBIDDEN", 403);
     }
 
+    const project = await ProjectModel.findOne({ $or: [{ slug: projectIdentifier }, { uid: projectIdentifier }] });
+    if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
+
     const updated = await ProjectModel.findOneAndUpdate(
-      { uid: projectUid }, 
+      { uid: project.uid }, 
       { $push: { fileUploads: { $each: fileUrls } }, $set: { "dates.lastActivity": new Date() } }, 
       { new: true }
     );

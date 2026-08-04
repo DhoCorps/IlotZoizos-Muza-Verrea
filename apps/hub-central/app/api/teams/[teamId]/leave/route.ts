@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { connectToDatabase } from '@ilot/infrastructure';
 import { authOptions } from "../../../../../lib/auth"; // 🪡 SUTURE : Alignement géométrique vers ta source unique
-import { TeamOrchestrator } from '@ilot/shared-core/src/sync-engine/team.orchestrator';
+import { TeamOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 
 /**

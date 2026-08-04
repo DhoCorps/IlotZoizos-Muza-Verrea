@@ -4,7 +4,7 @@ import { getServerSession } from "next-auth/next";
 import { connectToDatabase } from '@ilot/infrastructure';
 import { TeamModel } from '@ilot/infrastructure/src/database/models/nosql/team.model';
 import { authOptions } from "../../../../../../lib/auth";
-import { TransactionManager } from '@ilot/shared-core/src/sync-engine/transactionManager';
+import { TransactionManager } from '@ilot/shared-core';
 
 export async function DELETE(
   req: Request,

@@ -1,7 +1,7 @@
 // apps/hub-central/app/api/teams/[teamId]/members/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { TeamOrchestrator } from "@ilot/shared-core/src/sync-engine/team.orchestrator";
+import { TeamOrchestrator } from "@ilot/shared-core";
 import { ActionSignature } from "@ilot/types";
 import { authOptions } from "../../../../../lib/auth"; 
 import { connectToDatabase } from '@ilot/infrastructure';

@@ -3,8 +3,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { OiseauModel } from "@ilot/infrastructure/src/database/models/nosql/user.model";
-import { OiseauOrchestrator } from "@ilot/shared-core/src/sync-engine/user.orchestrator"; // ✅ Import correct de la Forge
+import { OiseauModel } from "@ilot/infrastructure";
+import { OiseauOrchestrator } from "@ilot/shared-core"; // ✅ Import correct de la Forge
 // import { authOptions } from "../../../lib/auth"; // Décommente si nécessaire
 
 /**

@@ -135,4 +135,31 @@ export class ResonanceOrchestrator {
       await session.close();
     }
   }
+
+  /**
+ * Recherche les résonances transversales entre un oiseau et le reste de la volière
+ * en se basant sur le partage de tags ou de fréquences dans le graphe Neo4j.
+ */
+public async findTransversalResonances(userUid: string): Promise<{ peerUid: string; sharedTags: string[]; score: number }[]> {
+    return await TransactionManager.execute('findTransversalResonances', async (mongoSession, neo4jTx) => {
+        // Requête Cypher Neo4j pour trouver les pairs partageant des nœuds sémantiques ou des tags similaires
+        const query = `
+            MATCH (target:User {uid: $userUid})-[:PARTAGE]->(tag:Tag)<-[:PARTAGE]-(peer:User)
+            WHERE target <> peer
+            RETURN peer.uid AS peerUid, collect(tag.name) AS sharedTags, count(tag) AS commonCount
+            ORDER BY commonCount DESC
+            LIMIT 10
+        `;
+
+        const result = await neo4jTx.run(query, { userUid });
+        
+        return result.records.map(record => ({
+            peerUid: record.get('peerUid'),
+            sharedTags: record.get('sharedTags'),
+            score: record.get('commonCount').toNumber() * 2 // Application du coefficient de résonance transversale
+        }));
+    });
+  }
+
 }
+

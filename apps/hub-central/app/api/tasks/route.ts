@@ -3,9 +3,8 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../../../lib/auth"; // 🪡 SUTURE : Approvisionnement direct au sanctuaire unique
 import { connectToDatabase, getNeo4jSession } from '@ilot/infrastructure'; // 🪡 SUTURE DE CONNEXION : Import unifié pour préserver le Singleton Neo4j
-import { TaskOrchestrator } from '@ilot/shared-core/src/sync-engine/task.orchestrator';
-import { TaskModel } from '@ilot/infrastructure/src/database/models/nosql/task.model';
-import { ProjectModel } from '@ilot/infrastructure/src/database/models/nosql/project.model';
+import { TaskOrchestrator } from '@ilot/shared-core';
+import { TaskModel, ProjectModel } from '@ilot/infrastructure';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 
 

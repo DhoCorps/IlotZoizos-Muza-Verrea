@@ -50,7 +50,7 @@ export default withAuth(
 
     // 4. Espaces publics autorisés à la volée (avec correction pour les pages d'auth sans locale)
     const publicPathnameRegex = RegExp(
-      `^(/(${locales.join('|')}))?/(abyss-blog|partita|letr-in|le-bordel-de-dho|marchand|marketplace|ecommerce|agora)(/.*)?$`,
+      `^(/(${locales.join('|')}))?/(abyss-blog|partita|letr-in|le-bordel-de-dho|marchand|marketplace|ecommerce|agora|salon)(/.*)?$`,
       'i'
     );
     

@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../../../lib/auth";
 import { TeamModel, getNeo4jSession, connectToDatabase } from "@ilot/infrastructure"; 
-import { TeamOrchestrator } from "@ilot/shared-core/src/sync-engine/team.orchestrator";
+import { TeamOrchestrator } from "@ilot/shared-core";
 import { TeamSchema, CAPABILITIES, ActionSignature } from "@ilot/types";
 
 /**

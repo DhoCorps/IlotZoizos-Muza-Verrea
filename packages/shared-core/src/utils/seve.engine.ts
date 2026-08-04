@@ -16,6 +16,12 @@ export interface ExchangeItem {
     value: number;
 }
 
+export interface EcosystemPulseInput {
+    totalResonance: number;
+    activeStasisCount: number;
+    totalBirds: number;
+}
+
 export class SeveEngine {
     /**
      * 1. La Loi de l'Irrigation (It)
@@ -50,5 +56,40 @@ export class SeveEngine {
         const gifts = exchanges.filter(e => e.type === 'GIFT').reduce((s, e) => s + e.value, 0);
         const takes = exchanges.filter(e => e.type === 'TAKE').reduce((s, e) => s + e.value, 0);
         return gifts - takes;
+    }
+
+    /**
+     * 4. L'Équation du Temps de Stase (T_pause)
+     * Calcule la durée de la mise en stase nécessaire pour digérer l'émotion brute
+     * en fonction de l'intensité et de la capacité d'acceptation actuelle de l'Oiseau.
+     */
+    public static calculateStasisTime(emotionalIntensity: number, currentAcceptance: number): number {
+        const acceptance = Math.max(1, currentAcceptance); // Évite la division par zéro
+        const pauseMinutes = emotionalIntensity / acceptance;
+        return Number(pauseMinutes.toFixed(1));
+    }
+
+    /**
+     * 5. L'Équation de la Juste Prise (Jp)
+     * Distingue le besoin biologique de la prédation perverse.
+     * Jp = (Don / Besoin) * Facteur de création (Omega)
+     */
+    public static calculateJustTake(totalGifts: number, currentNeeds: number, creationFactor: number): number {
+        const needs = Math.max(0.1, currentNeeds); // Évite la division par zéro
+        const ratio = totalGifts / needs;
+        const justTakeScore = ratio * creationFactor;
+        return Number(justTakeScore.toFixed(2));
+    }
+
+    /**
+     * 6. L'Indice de Pulsation Globale (Pg)
+     * Calcule la tension ou l'harmonie de l'écosystème pour moduler l'uniformisation visuelle.
+     */
+    public static calculateGlobalPulsation(input: EcosystemPulseInput): number {
+        const birds = Math.max(1, input.totalBirds);
+        const basePulse = (input.totalResonance / birds) - (input.activeStasisCount * 2);
+        // Normalisation entre 0 (urgence/rouge sombre) et 100 (harmonie/gris-bleuté)
+        const normalizedPulse = Math.max(0, Math.min(100, basePulse * 10));
+        return Number(normalizedPulse.toFixed(1));
     }
 }

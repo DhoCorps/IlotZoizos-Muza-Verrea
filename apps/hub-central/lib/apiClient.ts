@@ -51,46 +51,53 @@ export const user = {
   mutateStructure: (data: { uid: string, frequenceHEX?: string, sanctuaire?: any, aura?: string[] }) => 
     apiFetch<any>('/auth/user/update', { method: 'PUT', body: JSON.stringify(data) }),
   getLineage: () => apiFetch<any>('/user/lineage'),
-  // 🔭 Connexion au rapport vibratoire de l'Observatoire
-  getObservatory: (userId: string) => apiFetch<any>(`/users/${userId}/observatory`),
+  getObservatory: (userSlug: string) => apiFetch<any>(`/users/${userSlug}/observatory`),
 };
 
 export const projects = {
   getAll: () => apiFetch<IProject[]>('/projects'),
-  getById: (uid: string) => apiFetch<IProject>(`/projects/${uid}`),
+  getById: (projectSlug: string) => apiFetch<IProject>(`/projects/${projectSlug}`),
   create: (data: Partial<IProject>) => 
     apiFetch<IProject>('/projects', { method: 'POST', body: JSON.stringify(data) }),
-  update: (uid: string, data: Partial<IProject>) => 
-    apiFetch<IProject>(`/projects/${uid}`, { method: 'PATCH', body: JSON.stringify(data) }), 
-  delete: (uid: string) => apiFetch<void>(`/projects/${uid}`, { method: 'DELETE' }),
+  update: (projectSlug: string, data: Partial<IProject>) => 
+    apiFetch<IProject>(`/projects/${projectSlug}`, { method: 'PATCH', body: JSON.stringify(data) }), 
+  delete: (projectSlug: string) => apiFetch<void>(`/projects/${projectSlug}`, { method: 'DELETE' }),
   getStatuses: () => apiFetch<IStatus[]>('/projects/statuses/all'),
+};
+
+export const tasks = {
+  getAll: (projectSlug?: string) => apiFetch<ITask[]>(`/tasks${projectSlug ? `?projectUid=${projectSlug}` : ''}`),
+  getBySlug: (taskSlug: string) => apiFetch<ITask>(`/tasks/${taskSlug}`),
+  create: (data: Partial<ITask>) => apiFetch<ITask>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  update: (taskSlug: string, data: Partial<ITask>) => apiFetch<ITask>(`/tasks/${taskSlug}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (taskSlug: string) => apiFetch<void>(`/tasks/${taskSlug}`, { method: 'DELETE' }),
 };
 
 export const teams = {
   getAll: () => apiFetch<any[]>('/teams'), 
   create: (data: any) => apiFetch<any>('/teams', { method: 'POST', body: JSON.stringify(data) }),
-  getById: (teamUid: string) => apiFetch<ITeam>(`/teams/${teamUid}`),
-  update: (teamUid: string, data: Partial<ITeam>) => 
-    apiFetch<ITeam>(`/teams/${teamUid}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  delete: (teamUid: string) => apiFetch<void>(`/teams/${teamUid}`, { method: 'DELETE' }),
-  getChirps: (teamUid: string) => apiFetch<any[]>(`/teams/${teamUid}/chirps`),
-  sendChirp: (teamUid: string, content: string) => 
-    apiFetch<any>(`/teams/${teamUid}/chirps`, { method: 'POST', body: JSON.stringify({ content }) }),
-  removeMember: (teamUid: string, userUid: string) => 
-    apiFetch<void>(`/teams/${teamUid}/members/${userUid}`, { method: 'DELETE' }),
-  inviteBird: (teamUid: string, userUid: string, capabilities: string[]) => 
-    apiFetch<any>(`/teams/${teamUid}/members`, { 
+  getById: (teamSlug: string) => apiFetch<ITeam>(`/teams/${teamSlug}`),
+  update: (teamSlug: string, data: Partial<ITeam>) => 
+    apiFetch<ITeam>(`/teams/${teamSlug}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (teamSlug: string) => apiFetch<void>(`/teams/${teamSlug}`, { method: 'DELETE' }),
+  getChirps: (teamSlug: string) => apiFetch<any[]>(`/teams/${teamSlug}/chirps`),
+  sendChirp: (teamSlug: string, content: string) => 
+    apiFetch<any>(`/teams/${teamSlug}/chirps`, { method: 'POST', body: JSON.stringify({ content }) }),
+  removeMember: (teamSlug: string, userSlug: string) => 
+    apiFetch<void>(`/teams/${teamSlug}/members/${userSlug}`, { method: 'DELETE' }),
+  inviteBird: (teamSlug: string, userSlug: string, capabilities: string[]) => 
+    apiFetch<any>(`/teams/${teamSlug}/members`, { 
       method: 'POST', 
-      body: JSON.stringify({ userUid, action: 'INVITE', capabilities }) 
+      body: JSON.stringify({ userSlug, action: 'INVITE', capabilities }) 
     }),
 };
 
 export const storage = {
-  upload: async (file: File, entityType: string, entityId: string) => {
+  upload: async (file: File, entityType: string, entitySlug: string) => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('entityType', entityType);
-    formData.append('entityId', entityId);
+    formData.append('entityId', entitySlug);
     return apiFetch<{ url: string; fileId: string }>('/storage/upload', { 
       method: 'POST', 
       body: formData 
@@ -100,30 +107,30 @@ export const storage = {
 
 export const users = {
   getAll: () => apiFetch<Partial<IOiseau>[]>('/users'),
-  getByUid: (uid: string) => apiFetch<IOiseau>(`/users/${uid}`)
+  getByUid: (userSlug: string) => apiFetch<IOiseau>(`/users/${userSlug}`)
 };
 
 export const sujets = {
   getAll: () => apiFetch<any[]>('/sujets'),
   create: (data: any) => apiFetch<any>('/sujets', { method: 'POST', body: JSON.stringify(data) }),
-  update: (uid: string, data: any) => apiFetch<any>(`/sujets/${uid}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (uid: string) => apiFetch<void>(`/sujets/${uid}`, { method: 'DELETE' }),
+  update: (sujetSlug: string, data: any) => apiFetch<any>(`/sujets/${sujetSlug}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (sujetSlug: string) => apiFetch<void>(`/sujets/${sujetSlug}`, { method: 'DELETE' }),
 };
 
 export const partitions = {
   getAll: () => apiFetch<any[]>('/partitions'),
-  getById: (uid: string) => apiFetch<any>(`/partitions/${uid}`),
+  getById: (partitionSlug: string) => apiFetch<any>(`/partitions/${partitionSlug}`),
   create: (data: any) => apiFetch<any>('/partitions', { method: 'POST', body: JSON.stringify(data) }),
-  update: (uid: string, data: any) => apiFetch<any>(`/partitions/${uid}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (uid: string) => apiFetch<void>(`/partitions/${uid}`, { method: 'DELETE' }),
+  update: (partitionSlug: string, data: any) => apiFetch<any>(`/partitions/${partitionSlug}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (partitionSlug: string) => apiFetch<void>(`/partitions/${partitionSlug}`, { method: 'DELETE' }),
 };
 
 export const lettrinSprites = {
   getAll: () => apiFetch<any[]>('/letrin/sprites'),
-  getById: (fontId: string) => apiFetch<any>(`/letrin/sprites/${fontId}`),
+  getById: (fontSlug: string) => apiFetch<any>(`/letrin/sprites/${fontSlug}`),
   create: (data: any) => apiFetch<any>('/letrin/sprites', { method: 'POST', body: JSON.stringify(data) }),
-  update: (fontId: string, data: any) => apiFetch<any>(`/letrin/sprites/${fontId}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (fontId: string) => apiFetch<void>(`/letrin/sprites/${fontId}`, { method: 'DELETE' }),
+  update: (fontSlug: string, data: any) => apiFetch<any>(`/letrin/sprites/${fontSlug}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (fontSlug: string) => apiFetch<void>(`/letrin/sprites/${fontSlug}`, { method: 'DELETE' }),
 };
 
 export const kontakt = {
@@ -131,66 +138,62 @@ export const kontakt = {
     const query = new URLSearchParams(params as any).toString();
     return apiFetch<any[]>(`/kontakt/profiles${query ? `?${query}` : ''}`);
   },
-  getProfileByUserUid: (userUid: string) => apiFetch<any>(`/kontakt/profiles/${userUid}`),
+  getProfileByUserUid: (userSlug: string) => apiFetch<any>(`/kontakt/profiles/${userSlug}`),
   saveProfile: (data: any) => apiFetch<any>('/kontakt/profiles', { method: 'POST', body: JSON.stringify(data) }),
-  swipe: (targetUid: string, action: 'LIKE' | 'PASS') => apiFetch<any>('/kontakt/swipes', { method: 'POST', body: JSON.stringify({ targetUid, action }) }),
+  swipe: (targetSlug: string, action: 'LIKE' | 'PASS') => apiFetch<any>('/kontakt/swipes', { method: 'POST', body: JSON.stringify({ targetUid: targetSlug, action }) }),
   getQuests: () => apiFetch<any[]>('/kontakt/quests'),
   createQuest: (data: any) => apiFetch<any>('/kontakt/quests', { method: 'POST', body: JSON.stringify(data) }),
 };
 
-/**
- * 🛒 MODULE : LE GRAND BAZAR & E-COMMERCE (Artefacts, Wishlists, Commandes)
- */
 export const ecommerce = {
-  // 🏛️ Boutiques (Stores)
   getStores: () => apiFetch<any[]>('/ecommerce/stores'),
-  getStoreBySlug: (slug: string) => apiFetch<any>(`/ecommerce/stores/${slug}`),
+  getStoreBySlug: (storeSlug: string) => apiFetch<any>(`/ecommerce/stores/${storeSlug}`),
   createStore: (data: { storeName: string; description?: string; stripeAccountId?: string }) => 
     apiFetch<any>('/ecommerce/stores', { method: 'POST', body: JSON.stringify(data) }),
-  deleteStore: (slug: string) => apiFetch<void>(`/ecommerce/stores/${slug}`, { method: 'DELETE' }),
-
-  // 📦 Produits (Products)
+  deleteStore: (storeSlug: string) => apiFetch<void>(`/ecommerce/stores/${storeSlug}`, { method: 'DELETE' }),
   getProducts: (params?: { storeUid?: string; category?: string }) => {
     const query = new URLSearchParams(params as any).toString();
     return apiFetch<any[]>(`/ecommerce/products${query ? `?${query}` : ''}`);
   },
-  getProductBySlug: (slug: string) => apiFetch<any>(`/ecommerce/products/${slug}`),
+  getProductBySlug: (productSlug: string) => apiFetch<any>(`/ecommerce/products/${productSlug}`),
   createProduct: (data: any) => apiFetch<any>('/ecommerce/products', { method: 'POST', body: JSON.stringify(data) }),
-  deleteProduct: (slug: string) => apiFetch<void>(`/ecommerce/products/${slug}`, { method: 'DELETE' }),
-  
-  // 💖 Wishlists (Supporte getWishlist et getWishlists pour éviter les conflits)
+  deleteProduct: (productSlug: string) => apiFetch<void>(`/ecommerce/products/${productSlug}`, { method: 'DELETE' }),
   getWishlist: () => apiFetch<any>('/ecommerce/wishlist'),
   getWishlists: () => apiFetch<any>('/ecommerce/wishlist'),
   createWishlist: (name: string) => apiFetch<any>('/ecommerce/wishlist', { method: 'POST', body: JSON.stringify({ name }) }),
-  toggleWishlist: (productUid: string, wishlistUid?: string) => apiFetch<any>('/ecommerce/wishlist', { method: 'POST', body: JSON.stringify({ productUid, wishlistUid }) }),
-  deleteWishlistOrItem: (itemId: string) => apiFetch<void>(`/ecommerce/wishlist/${itemId}`, { method: 'DELETE' }),
-  
-  // 🛒 Commandes (Orders)
+  toggleWishlist: (productSlug: string, wishlistSlug?: string) => apiFetch<any>('/ecommerce/wishlist', { method: 'POST', body: JSON.stringify({ productUid: productSlug, wishlistUid: wishlistSlug }) }),
+  deleteWishlistOrItem: (itemSlug: string) => apiFetch<void>(`/ecommerce/wishlist/${itemSlug}`, { method: 'DELETE' }),
   createOrder: (orderData: any) => apiFetch<any>('/ecommerce/orders', { method: 'POST', body: JSON.stringify(orderData) }),
-  getOrder: (slug: string) => apiFetch<any>(`/ecommerce/orders/${slug}`),
-  updateOrderStatus: (slug: string, status: string) => apiFetch<any>(`/ecommerce/orders/${slug}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
-
-  // 🤝 Troc (Barter)
+  getOrder: (orderSlug: string) => apiFetch<any>(`/ecommerce/orders/${orderSlug}`),
+  updateOrderStatus: (orderSlug: string, status: string) => apiFetch<any>(`/ecommerce/orders/${orderSlug}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   getBarterOffers: () => apiFetch<any[]>('/ecommerce/barter'),
   proposeBarter: (data: { receiverUid?: string; offeredProductUids: string[]; requestedProductUids: string[] }) => 
     apiFetch<any>('/ecommerce/barter', { method: 'POST', body: JSON.stringify(data) }),
-  resolveBarter: (barterUid: string, status: 'ACCEPTED' | 'REJECTED') => 
-    apiFetch<any>('/ecommerce/barter', { method: 'PATCH', body: JSON.stringify({ barterUid, status }) })
+  resolveBarter: (barterSlug: string, status: 'ACCEPTED' | 'REJECTED') => 
+    apiFetch<any>('/ecommerce/barter', { method: 'PATCH', body: JSON.stringify({ barterUid: barterSlug, status }) })
 };
 
-/**
- * 🎮 MODULE : LE NEXUS DES JEUX (Statistiques, Leaderboards, Historique)
- */
 export const games = {
-  // Récupérer les statistiques globales d'un joueur
-  getPlayerStats: (userUid: string) => 
-    apiFetch<any>(`/games/stats/${userUid}`),
-  
-  // Mettre à jour les statistiques (appelé par le serveur après une victoire)
-  updatePlayerStats: (userUid: string, data: { game: string, isWin: boolean, score: number }) => 
-    apiFetch<any>(`/games/stats/${userUid}`, { method: 'POST', body: JSON.stringify(data) }),
-  
-  // Récupérer le classement d'un jeu spécifique
-  getLeaderboard: (gameType: string) => 
-    apiFetch<any[]>(`/games/leaderboard/${gameType}`),
+  getPlayerStats: (userSlug: string) => apiFetch<any>(`/games/stats/${userSlug}`),
+  updatePlayerStats: (userSlug: string, data: { game: string, isWin: boolean, score: number }) => 
+    apiFetch<any>(`/games/stats/${userSlug}`, { method: 'POST', body: JSON.stringify(data) }),
+  getLeaderboard: (gameType: string) => apiFetch<any[]>(`/games/leaderboard/${gameType}`),
+};
+
+export const salon = {
+  calculateEntanglement: (resonanceScore: number, mutualTrustIndex: number) =>
+    apiFetch<{ entanglementLevel: number }>('/salon/thought', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'ENTANGLEMENT', resonanceScore, mutualTrustIndex })
+    }),
+  sealThought: (plainThought: string, sharedSecretKey: string) =>
+    apiFetch<{ sealed: any }>('/salon/thought', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'SEAL', plainThought, sharedSecretKey })
+    }),
+  unsealThought: (enactedThought: any, sharedSecretKey: string) =>
+    apiFetch<{ unsealed: string }>('/salon/thought', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'UNSEAL', enactedThought, sharedSecretKey })
+    }),
 };

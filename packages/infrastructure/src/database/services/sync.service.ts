@@ -1,4 +1,4 @@
-// packages/shared-core/src/services/sync.service.ts
+// packages/infrastructure/src/database/services/sync.service.ts
 import { OiseauOrchestrator } from '../../../../shared-core/src/sync-engine/user.orchestrator';
 import { TeamOrchestrator } from '../../../../shared-core/src/sync-engine/team.orchestrator';
 import { ProjectOrchestrator } from '../../../../shared-core/src/sync-engine/project.orchestrator';
@@ -6,23 +6,49 @@ import { TaskOrchestrator } from '../../../../shared-core/src/sync-engine/task.o
 import { KanbanOrchestrator } from '../../../../shared-core/src/sync-engine/kanban.orchestrator';
 
 /**
- * 🛰️ SYNC SERVICE
- * Le Registre central des Orchestrateurs. 
- * Permet d'accéder à toutes les méthodes de synchronisation depuis un point unique.
+ * ⚡ SERVICE DE SYNCHRONISATION UNIFIÉ
+ * Utilise des getters paresseux pour éviter les pièges de dépendance circulaire au démarrage.
  */
 class SyncService {
-  public readonly oiseaux = new OiseauOrchestrator();
-  public readonly teams = new TeamOrchestrator();
-  public readonly projects = new ProjectOrchestrator();
-  public readonly tasks = new TaskOrchestrator();
-  public readonly kanban = new KanbanOrchestrator();
+  private _oiseaux?: OiseauOrchestrator;
+  private _teams?: TeamOrchestrator;
+  private _projects?: ProjectOrchestrator;
+  private _tasks?: TaskOrchestrator;
+  private _kanban?: KanbanOrchestrator;
 
-  /**
-   * Vérification de l'état des deux mondes.
-   */
-  async healthCheck() {
-    // Logique pour vérifier si Mongo et Neo4j sont "UP"
-    return { status: 'UP', timestamp: new Date() };
+  public get oiseaux() {
+    if (!this._oiseaux) {
+      this._oiseaux = new OiseauOrchestrator();
+    }
+    return this._oiseaux;
+  }
+
+  public get teams() {
+    if (!this._teams) {
+      this._teams = new TeamOrchestrator();
+    }
+    return this._teams;
+  }
+
+  public get projects() {
+    if (!this._projects) {
+      this._projects = new ProjectOrchestrator();
+    }
+    return this._projects;
+  }
+
+  public get tasks() {
+    if (!this._tasks) {
+      this._tasks = new TaskOrchestrator();
+    }
+    return this._tasks;
+  }
+
+  public get kanban() {
+    if (!this._kanban) {
+      this._kanban = new KanbanOrchestrator();
+    }
+    return this._kanban;
   }
 }
 

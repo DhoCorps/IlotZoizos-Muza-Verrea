@@ -1,13 +1,17 @@
 @import "tailwindcss";
 
-/* 🩸 L'ambiance Bio-Tech Éco-OLED 2030 */
+/* 🩸 L'ambiance Bio-Tech Éco-OLED 2030 & Modulation Écosystémique */
 :root {
-  --bio-bg: #05070A; 
-  --bio-card: rgba(10, 13, 18, 0.4); 
+  --bio-bg: #11161d; /* Gris-bleuté écologique par défaut (ajusté pour la sève) */
+  --bio-card: rgba(17, 22, 29, 0.4); 
   --bio-accent: #E5484D; 
   --bio-accent-glow: rgba(229, 72, 77, 0.12); 
   --bio-border: rgba(255, 255, 255, 0.03);
   --bio-grid: rgba(255, 255, 255, 0.015);
+  
+  /* 🌱 Variables du Filtre d'Uniformisation Visuelle (Pg) */
+  --ecosystem-saturation: 1;
+  --ecosystem-hue-rotate: 0deg;
 }
 
 @layer base {
@@ -15,6 +19,8 @@
     background-color: var(--bio-bg);
     color: #EDEDED;
     -webkit-font-smoothing: antialiased;
+    filter: saturate(var(--ecosystem-saturation)) hue-rotate(var(--ecosystem-hue-rotate));
+    transition: background-color 1.5s cubic-bezier(0.16, 1, 0.3, 1), filter 1.5s cubic-bezier(0.16, 1, 0.3, 1);
     background-image: 
       linear-gradient(var(--bio-grid) 1px, transparent 1px),
       linear-gradient(90deg, var(--bio-grid) 1px, transparent 1px),

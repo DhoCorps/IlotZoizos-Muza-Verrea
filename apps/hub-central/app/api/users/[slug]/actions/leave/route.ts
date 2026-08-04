@@ -3,10 +3,9 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { connectToDatabase } from '@ilot/infrastructure';
 import { authOptions } from "../../../../../../lib/auth"; 
-import { TeamOrchestrator } from '@ilot/shared-core/src/sync-engine/team.orchestrator'; // Vérifie que le nom du fichier est bien OiseauOrchestrator
-import { OiseauModel } from '@ilot/infrastructure/src/database/models/nosql/user.model';
+import { TeamOrchestrator } from '@ilot/shared-core'; // Vérifie que le nom du fichier est bien OiseauOrchestrator
+import { OiseauModel } from '@ilot/infrastructure';
 import { IOiseau, ActionSignature } from '@ilot/types';
-import { OiseauOrchestrator } from '@ilot/shared-core/src/sync-engine/user.orchestrator'; // 🪡 SUTURE : Correction du nom de classe
 
 export async function POST(req: Request, { params }: { params: { userId: string } }) {
   try {

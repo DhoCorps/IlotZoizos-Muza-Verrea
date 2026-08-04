@@ -1,13 +1,13 @@
 // apps/hub-central/app/api/teams/[teamId]/respond/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { TeamModel } from '@ilot/infrastructure/src/database/models/nosql/team.model';
-import { OiseauModel } from '@ilot/infrastructure/src/database/models/nosql/user.model';
-import { ProjectModel } from '@ilot/infrastructure/src/database/models/nosql/project.model'; // 🪡 SUTURE : Import des modèles pour la cascade souveraine
-import { TaskModel } from '@ilot/infrastructure/src/database/models/nosql/task.model';       // 🪡 SUTURE : Import des modèles pour la cascade souveraine
+import { TeamModel } from '@ilot/infrastructure';
+import { OiseauModel } from '@ilot/infrastructure';
+import { ProjectModel } from '@ilot/infrastructure'; // 🪡 SUTURE : Import des modèles pour la cascade souveraine
+import { TaskModel } from '@ilot/infrastructure/src';       // 🪡 SUTURE : Import des modèles pour la cascade souveraine
 import { connectToDatabase, getNeo4jSession } from '@ilot/infrastructure'; 
 import { authOptions } from "../../../../../lib/auth"; 
-import { TransactionManager } from '@ilot/shared-core/src/sync-engine/transactionManager';
+import { TransactionManager } from '@ilot/shared-core';
 
 export async function POST(req: Request, { params }: { params: { teamId: string } }) {
   try {

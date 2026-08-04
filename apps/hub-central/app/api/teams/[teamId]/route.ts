@@ -1,7 +1,7 @@
 // apps/hub-central/app/api/teams/[teamId]/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
-import { TeamOrchestrator} from "@ilot/shared-core/src/sync-engine/team.orchestrator"; // ✅ Import de l'Orch ET de la Signature
+import { TeamOrchestrator} from "@ilot/shared-core"; // ✅ Import de l'Orch ET de la Signature
 import { getNeo4jSession, connectToDatabase, TeamModel } from '@ilot/infrastructure'; // 🪡 SUTURE : Intégration de la Silice pour le GET
 import { CAPABILITIES, ActionSignature } from '@ilot/types'; 
 import { authOptions } from "../../../../lib/auth"; // 🌟 SUTURE : La boussole d'Aura pour éclairer la Session

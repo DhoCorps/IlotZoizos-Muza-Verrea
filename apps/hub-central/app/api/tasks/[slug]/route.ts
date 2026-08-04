@@ -2,9 +2,9 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { connectToDatabase } from '@ilot/infrastructure'; 
-import { TaskOrchestrator } from '@ilot/shared-core/src/sync-engine/task.orchestrator';
-import { TaskModel } from '@ilot/infrastructure/src/database/models/nosql/task.model';
-import { getNeo4jSession } from '@ilot/infrastructure/src/database/neo4j';
+import { TaskOrchestrator } from '@ilot/shared-core';
+import { TaskModel } from '@ilot/infrastructure';
+import { getNeo4jSession } from '@ilot/infrastructure';
 import { authOptions } from "../../../../lib/auth";
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 

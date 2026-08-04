@@ -22,8 +22,10 @@ export const routing = defineRouting({
     '/kontakt': '/kontakt',
     '/kontakt/cv-editor': '/kontakt/cv-editor',
     '/tom-hat-toes': '/tom-hat-toes',
-    // 🔭 Enregistrement de l'Observatoire des Fréquences
+    // 🔭 Observatoire des Fréquences
     '/observatoire': '/observatoire',
+    // 🌌 Salon Privé (E2EE)
+    '/salon': '/salon',
     // Routes du Dashboard et des Nids
     '/dashboard': '/dashboard',
     '/dashboard/teams': '/dashboard/teams',

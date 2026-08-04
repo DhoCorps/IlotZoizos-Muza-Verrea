@@ -6,6 +6,7 @@
   "dependencies": {
     "mongoose": "^8.0.0",
     "neo4j-driver": "^5.0.0",
-    "@ilot/types": "workspace:*"
+    "@ilot/types": "workspace:*",
+    "@ilot/shared-core": "workspace:*"
   }
 }

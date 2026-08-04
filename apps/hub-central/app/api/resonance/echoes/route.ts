@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../../../../lib/auth";
 import { connectToDatabase } from '@ilot/infrastructure';
-import { ResonanceOrchestrator } from '@ilot/shared-core/src/sync-engine/resonance.orchestrator';
-import { ResonanceModel } from '@ilot/infrastructure/src/database/models/nosql/resonance.model';
+import { ResonanceOrchestrator } from '@ilot/shared-core';
+import { ResonanceModel } from '@ilot/infrastructure';
 import { EchoSchema, ActionSignature } from '@ilot/types';
 
 export async function GET(req: Request) {

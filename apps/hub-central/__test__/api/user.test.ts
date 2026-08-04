@@ -59,7 +59,7 @@ vi.mock('../../../packages/shared-core/src/sync-engine/transactionManager', () =
 }));
 
 // 🛡️ 4. INGESTION DU COMPOSANT API NETTOYÉ
-import { POST as LEAVE_SANCTUARY } from '../../app/api/users/[userId]/actions/leave/route';
+import { POST as LEAVE_SANCTUARY } from '../../app/api/users/[slug]/actions/leave/route';
 import { getServerSession } from "next-auth/next";
 
 describe("Souveraineté : L'Exil de l'Oiseau (Départ)", () => {

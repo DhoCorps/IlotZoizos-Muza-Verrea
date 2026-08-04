@@ -15,6 +15,10 @@ export interface TaskSyncResult {
   neo4j: any;
 }
 
+const generateSlug = (text: string) => {
+  return text.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
+};
+
 export class TaskOrchestrator {
   
   /**
@@ -25,8 +29,9 @@ export class TaskOrchestrator {
     data: any, // On accepte un payload flexible pour la normalisation
     signature: ActionSignature 
   ) {
-    // 1. Identification du Chantier parent
-    const project = await ProjectModel.findOne({ uid: data.projectUid });
+    // 1. Identification du Chantier parent (via slug ou uid)
+    const projectIdentifier = data.projectUid || data.projectSlug;
+    const project = await ProjectModel.findOne({ $or: [{ slug: projectIdentifier }, { uid: projectIdentifier }] });
     if (!project) throw new IlotError("Chantier parent introuvable.", "NOT_FOUND", 404);
 
     // Extraction de la date pour le scope de la transaction
@@ -48,7 +53,7 @@ export class TaskOrchestrator {
         `;
         const check = await neo4jTx.run(checkCypher, { 
           actorUid: signature.actorUid, 
-          pUid: data.projectUid
+          pUid: project.uid
         });
 
         const caps = check.records[0]?.get('allCaps').flat() || [];
@@ -65,9 +70,11 @@ export class TaskOrchestrator {
       // Normalisation du contenu
       const title = data.title || data.content?.title || "Atome sans nom";
       const description = data.description || data.content?.description || "";
+      const taskSlug = data.slug || generateSlug(title);
 
       const created = await TaskModel.create([{
         uid: taskUid,
+        slug: taskSlug,
         projectUid: project.uid, 
         parentUid: data.parentUid || null,
         creatorUid: signature.actorUid, 
@@ -101,6 +108,7 @@ export class TaskOrchestrator {
         
         CREATE (t:Task { 
           uid: $taskUid, 
+          slug: $slug,
           name: $name, 
           status: $status, 
           createdAt: datetime() 
@@ -133,6 +141,7 @@ export class TaskOrchestrator {
         parentUid: newTask.parentUid || null, 
         assigneeUids: newTask.assigneeUids || [], 
         taskUid: newTask.uid, 
+        slug: (newTask as any).slug || taskSlug,
         name: title,
         status: newTask.status
       });
@@ -145,14 +154,18 @@ export class TaskOrchestrator {
    * 🎭 MUTATION INTÉGRALE : FAIRE ÉVOLUER UN ATOME
    * Synchronisation totale entre la Silice (Mongo) et le Graphe (Neo4j)
    */
-  async updateTask(taskUid: string, updates: any, signature: ActionSignature) {
+  async updateTask(taskIdentifier: string, updates: any, signature: ActionSignature) {
+    // Résolution universelle par slug ou uid
+    const task = await TaskModel.findOne({ $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] });
+    if (!task) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
+
+    const taskUid = task.uid;
+
     return await TransactionManager.execute("Mutation Atome (Atomique)", async (mongoSession, neo4jTx) => {
       
       // 🐘 1. SILICE (Mongo) : Mise à jour sécurisée
-      // Nettoyage et aplatissement des dates
       const mongoUpdate: any = { $set: { ...updates, "dates.updatedAt": new Date() } };
       
-      // Si on reçoit des dates spécifiques, on s'assure de ne pas écraser l'objet dates entier
       if (updates.dates) {
         delete mongoUpdate.$set.dates;
         for (const [key, value] of Object.entries(updates.dates)) {
@@ -179,11 +192,11 @@ export class TaskOrchestrator {
       
       const title = updates.content?.title || updates.title;
       if (title) {
-        cypherQuery += `, t.name = $name`;
+        cypherQuery += `, t.name = $name, t.slug = $slug`;
         cypherParams.name = title;
+        cypherParams.slug = generateSlug(title);
       }
 
-      // Synchronisation de la date dans le Graphe
       const scheduledAt = updates.dates?.scheduledAt || updates["dates.scheduledAt"];
       if (scheduledAt) {
         cypherQuery += `, t.scheduledAt = datetime($scheduledAt)`;
@@ -228,16 +241,18 @@ export class TaskOrchestrator {
   /**
    * 💀 DÉSINTÉGRATION EN CASCADE RECURSIVE
    */
-  async disintegrateTask(taskUid: string, signature: ActionSignature) {
+  async disintegrateTask(taskIdentifier: string, signature: ActionSignature) {
     const hasPower = signature.capabilities.includes(CAPABILITIES.TASK.DELETE) || 
                      signature.capabilities.includes('*');
 
     if (!hasPower) throw new IlotError("Aura insuffisante.", "FORBIDDEN", 403);
 
-    
+    const taskTarget = await TaskModel.findOne({ $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] });
+    if (!taskTarget) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
+
+    const taskUid = taskTarget.uid;
 
     return await TransactionManager.execute("Désintégration d'Atome", async (mongoSession, neo4jTx) => {
-      // 🕸️ 1. Graphe Neo4j : Découverte récursive de la lignée d'Atomes enfants
       const hierarchyCheck = await neo4jTx.run(`
         MATCH (t:Task { uid: $taskUid })
         OPTIONAL MATCH (child:Task)-[:CHILD_OF*]->(t)
@@ -247,28 +262,24 @@ export class TaskOrchestrator {
       const childUids = hierarchyCheck.records[0]?.get('childUids') || [];
       const uidsToPurge = [taskUid, ...childUids];
 
-      // 🐘 2. Silice Mongo : Purge des données
       await TaskModel.deleteMany({ uid: { $in: uidsToPurge } }, { session: mongoSession });
 
-      // 🕸️ 3. Graphe Neo4j : Suppression définitive
       await neo4jTx.run(`
         MATCH (t:Task) WHERE t.uid IN $uidsToPurge
         DETACH DELETE t
       `, { uidsToPurge });
 
       const task = await TaskModel.findOne({ uid: taskUid }).session(mongoSession);
-    if (task && task.documents && task.documents.length > 0) {
-      // 🪡 SUTURE : On purge chaque document physique
-      for (const doc of task.documents) {
-        try {
-          await storageService.deleteFile(doc.url); // Appel à ton service de stockage
-        } catch (err) {
-          console.error(`🚨 Échec de purge physique pour ${doc.uid} :`, err);
-          // Décision : On continue quand même ou on bloque ? 
-          // Par sécurité, on continue pour ne pas bloquer la désintégration.
+      if (task && task.documents && task.documents.length > 0) {
+        for (const doc of task.documents) {
+          try {
+            const key = storageService.extractKeyFromUrl(doc.url);
+            await storageService.deleteFile(key);
+          } catch (err) {
+            console.error(`🚨 Échec de purge physique pour le document :`, err);
+          }
         }
       }
-    }
 
       return { success: true, purgedCount: uidsToPurge.length };
     });
@@ -277,10 +288,13 @@ export class TaskOrchestrator {
   /**
    * ⏱️ SÉDIMENTATION TEMPORELLE : VALIDER UN POMODORO
    */
-  async completePomodoro(taskUid: string, signature: ActionSignature) {
+  async completePomodoro(taskIdentifier: string, signature: ActionSignature) {
+    const task = await TaskModel.findOne({ $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] });
+    if (!task) throw new IlotError("Atome introuvable ou évaporé.", "NOT_FOUND", 404);
+
+    const taskUid = task.uid;
+
     return await TransactionManager.execute("Validation Pomodoro", async (mongoSession, neo4jTx) => {
-      
-      // 🐘 1. SILICE (Mongo)
       const updatedTask = await TaskModel.findOneAndUpdate(
         { uid: taskUid },
         { $inc: { "pomodoros.completed": 1 } },
@@ -289,7 +303,6 @@ export class TaskOrchestrator {
 
       if (!updatedTask) throw new IlotError("Atome introuvable ou évaporé.", "NOT_FOUND", 404);
 
-      // 🕸️ 2. GRAPHE (Neo4j)
       const cypher = `
         MATCH (u:User {uid: $actorUid})
         MATCH (t:Task {uid: $taskUid})

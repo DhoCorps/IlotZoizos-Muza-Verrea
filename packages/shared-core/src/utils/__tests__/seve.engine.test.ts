@@ -30,4 +30,29 @@ describe('SeveEngine - La Physique de l\'Îlot', () => {
         // 80 (Dons) - 20 (Prises) = 60
         expect(SeveEngine.calculateVitalBalance(exchanges)).toBe(60);
     });
+
+    it('🌙 [Temps de Stase] doit calculer la durée de pause nécessaire face à l\'intensité émotionnelle', () => {
+        const emotionalIntensity = 45;
+        const currentAcceptance = 3;
+        // 45 / 3 = 15 minutes de stase
+        expect(SeveEngine.calculateStasisTime(emotionalIntensity, currentAcceptance)).toBe(15);
+    });
+
+    it('🕊️ [Juste Prise] doit évaluer si le prélèvement est légitime selon le don, le besoin et le facteur de création', () => {
+        const totalGifts = 20;
+        const currentNeeds = 5;
+        const creationFactor = 1.2; // Omega
+        // (20 / 5) * 1.2 = 4 * 1.2 = 4.8
+        expect(SeveEngine.calculateJustTake(totalGifts, currentNeeds, creationFactor)).toBe(4.8);
+    });
+
+    it('🌐 [Indice de Pulsation Globale] doit calculer la pulsation de l\'écosystème en tenant compte de la résonance et de la stase', () => {
+        const input = {
+            totalResonance: 50,
+            activeStasisCount: 2,
+            totalBirds: 5
+        };
+        // (50 / 5) - (2 * 2) = 10 - 4 = 6. 6 * 10 = 60.0
+        expect(SeveEngine.calculateGlobalPulsation(input)).toBe(60.0);
+    });
 });
