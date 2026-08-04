@@ -2,22 +2,35 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import ForceGraph2D from 'react-force-graph-2d';
+import dynamic from 'next/dynamic';
 import { Compass, Maximize2, Minimize2, RefreshCw, Filter } from 'lucide-react';
+
+// Importation dynamique indispensable pour s'affranchir définitivement du SSR sur le canvas
+const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
+  ssr: false,
+});
 
 export function UniversalGraphExplorer({ initialRootUid }: { initialRootUid?: string }) {
   const [rootUid, setRootUid] = useState<string>(initialRootUid || '');
-  const [rawData, setRawData] = useState({ nodes: [], links: [] });
+  const [rawData, setRawData] = useState<{ nodes: any[]; links: any[] }>({ nodes: [], links: [] });
   const [loading, setLoading] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [filterType, setFilterType] = useState<string>('ALL');
+  const [isMounted, setIsMounted] = useState(false);
   
   // Dimensions dynamiques pour le redimensionnement fluide
   const [dimensions, setDimensions] = useState({ width: 384, height: 384 });
   const fgRef = useRef<any>();
 
+  // Activation du montage côté client
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   // Gestion intelligente du redimensionnement de la fenêtre
   useEffect(() => {
+    if (!isMounted) return;
+
     const updateDimensions = () => {
       if (isExpanded) {
         setDimensions({
@@ -32,12 +45,12 @@ export function UniversalGraphExplorer({ initialRootUid }: { initialRootUid?: st
     updateDimensions();
     window.addEventListener('resize', updateDimensions);
     return () => window.removeEventListener('resize', updateDimensions);
-  }, [isExpanded]);
+  }, [isExpanded, isMounted]);
 
   // Point d'ancrage initial par défaut
   useEffect(() => {
     if (!rootUid) {
-      fetch('/api/user')
+      fetch('/api/users')
         .then(res => res.json())
         .then(user => {
           if (user?.uid || user?.id) {
@@ -55,7 +68,7 @@ export function UniversalGraphExplorer({ initialRootUid }: { initialRootUid?: st
     try {
       const res = await fetch(`/api/graph/context?uid=${uid}`);
       const newData = await res.json();
-      setRawData(newData);
+      setRawData(newData || { nodes: [], links: [] });
       setTimeout(() => fgRef.current?.zoomToFit(400), 150);
     } catch (err) {
       console.error("🔥 Erreur de navigation stellaire :", err);
@@ -76,14 +89,14 @@ export function UniversalGraphExplorer({ initialRootUid }: { initialRootUid?: st
     fgRef.current?.centerAt(node.x, node.y, 400);
   };
 
-  // Filtrage des nœuds et des liens associés
+  // Filtrage sécurisé des nœuds et des liens associés
   const filteredData = {
-    nodes: rawData.nodes.filter((node: any) => filterType === 'ALL' || node.type === filterType),
-    links: rawData.links.filter((link: any) => {
-      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
-      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+    nodes: (rawData.nodes || []).filter((node: any) => filterType === 'ALL' || node.type === filterType),
+    links: (rawData.links || []).filter((link: any) => {
+      const sourceId = typeof link.source === 'object' ? link.source?.id : link.source;
+      const targetId = typeof link.target === 'object' ? link.target?.id : link.target;
       const activeNodeIds = new Set(
-        rawData.nodes
+        (rawData.nodes || [])
           .filter((node: any) => filterType === 'ALL' || node.type === filterType)
           .map((n: any) => n.id)
       );
@@ -146,26 +159,30 @@ export function UniversalGraphExplorer({ initialRootUid }: { initialRootUid?: st
 
       {/* Le Moteur Visuel du Graphe (Palette écologique : Gris ardoise bleuté & Rouge) */}
       <div className="flex-1 w-full h-full flex items-center justify-center cursor-grab active:cursor-grabbing pt-12">
-        <ForceGraph2D
-          ref={fgRef}
-          graphData={filteredData}
-          width={dimensions.width}
-          height={dimensions.height}
-          backgroundColor="rgba(0,0,0,0)"
-          nodeColor={(node: any) => {
-            if (node.id === rootUid) return '#E5484D'; // Racine active en rouge vermeil
-            if (node.type === 'Project') return '#E5484D';
-            if (node.type === 'Partita' || node.type === 'LetrinSprite') return '#708090'; // Gris ardoise bleuté
-            if (node.type === 'Oiseau' || node.type === 'Team') return '#475569'; // Gris sombre
-            return '#64748b'; // Nuance neutre respectueuse de l'écologie visuelle
-          }}
-          nodeLabel={(node: any) => `✨ [${node.type}] ${node.name || node.pseudo || node.id} (Cliquer pour voyager)`}
-          nodeVal={(node: any) => node.id === rootUid ? 12 : 6}
-          linkDirectionalParticles={2}
-          linkDirectionalParticleSpeed={0.005}
-          linkColor={() => '#334155'} // Liens discrets en gris ardoise foncé
-          onNodeClick={handleNodeClick}
-        />
+        {isMounted ? (
+          <ForceGraph2D
+            ref={fgRef}
+            graphData={filteredData}
+            width={dimensions.width}
+            height={dimensions.height}
+            backgroundColor="rgba(0,0,0,0)"
+            nodeColor={(node: any) => {
+              if (node.id === rootUid) return '#E5484D'; // Racine active en rouge vermeil
+              if (node.type === 'Project') return '#E5484D';
+              if (node.type === 'Partita' || node.type === 'LetrinSprite') return '#708090'; // Gris ardoise bleuté
+              if (node.type === 'Oiseau' || node.type === 'Team') return '#475569'; // Gris sombre
+              return '#64748b'; // Nuance neutre respectueuse de l'écologie visuelle
+            }}
+            nodeLabel={(node: any) => `✨ [${node.type}] ${node.name || node.pseudo || node.id} (Cliquer pour voyager)`}
+            nodeVal={(node: any) => node.id === rootUid ? 12 : 6}
+            linkDirectionalParticles={2}
+            linkDirectionalParticleSpeed={0.005}
+            linkColor={() => '#334155'} // Liens discrets en gris ardoise foncé
+            onNodeClick={handleNodeClick}
+          />
+        ) : (
+          <div className="text-[10px] font-mono text-slate-500 animate-pulse">Initialisation du Nexus...</div>
+        )}
       </div>
 
       {/* Guide contextuel en bas (mode réduit) */}

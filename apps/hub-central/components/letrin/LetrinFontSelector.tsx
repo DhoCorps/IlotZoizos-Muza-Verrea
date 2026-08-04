@@ -37,7 +37,7 @@ export function LetrinFontSelector({ onFontSelect }: LetrinFontSelectorProps) {
   useEffect(() => {
     // Si le Context global ne gère pas déjà le fetch, on le fait localement
     if (!globalContext) {
-      fetch('/api/fonts')
+      fetch('/api/letrin/fonts')
         .then(res => res.json())
         .then(data => {
           if (data.success) {

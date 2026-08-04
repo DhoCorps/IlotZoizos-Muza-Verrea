@@ -1,4 +1,7 @@
 // apps/hub-central/app/api/ecommerce/barter/matchmaker/route.ts
+
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import { getNeo4jSession } from '@ilot/infrastructure';
 import { getServerSession } from "next-auth/next";

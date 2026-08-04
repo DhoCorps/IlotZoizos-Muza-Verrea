@@ -29,7 +29,7 @@ export function LetrinFontProvider({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     // 1. Récupération des polices depuis l'API au chargement global
-    fetch('/api/fonts')
+    fetch('/api/letrin/fonts')
       .then(res => res.json())
       .then(data => {
         if (data.success) {

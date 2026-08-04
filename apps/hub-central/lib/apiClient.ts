@@ -51,6 +51,8 @@ export const user = {
   mutateStructure: (data: { uid: string, frequenceHEX?: string, sanctuaire?: any, aura?: string[] }) => 
     apiFetch<any>('/auth/user/update', { method: 'PUT', body: JSON.stringify(data) }),
   getLineage: () => apiFetch<any>('/user/lineage'),
+  // 🔭 Connexion au rapport vibratoire de l'Observatoire
+  getObservatory: (userId: string) => apiFetch<any>(`/users/${userId}/observatory`),
 };
 
 export const projects = {
@@ -174,4 +176,21 @@ export const ecommerce = {
     apiFetch<any>('/ecommerce/barter', { method: 'POST', body: JSON.stringify(data) }),
   resolveBarter: (barterUid: string, status: 'ACCEPTED' | 'REJECTED') => 
     apiFetch<any>('/ecommerce/barter', { method: 'PATCH', body: JSON.stringify({ barterUid, status }) })
+};
+
+/**
+ * 🎮 MODULE : LE NEXUS DES JEUX (Statistiques, Leaderboards, Historique)
+ */
+export const games = {
+  // Récupérer les statistiques globales d'un joueur
+  getPlayerStats: (userUid: string) => 
+    apiFetch<any>(`/games/stats/${userUid}`),
+  
+  // Mettre à jour les statistiques (appelé par le serveur après une victoire)
+  updatePlayerStats: (userUid: string, data: { game: string, isWin: boolean, score: number }) => 
+    apiFetch<any>(`/games/stats/${userUid}`, { method: 'POST', body: JSON.stringify(data) }),
+  
+  // Récupérer le classement d'un jeu spécifique
+  getLeaderboard: (gameType: string) => 
+    apiFetch<any[]>(`/games/leaderboard/${gameType}`),
 };

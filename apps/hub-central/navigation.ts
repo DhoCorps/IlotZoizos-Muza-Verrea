@@ -1,4 +1,4 @@
-// apps/hub-central/i18n.ts (ou fichier de routing next-intl)
+// apps/hub-central/i18n.ts
 import { defineRouting } from 'next-intl/routing';
 import { createNavigation } from 'next-intl/navigation';
 
@@ -22,7 +22,9 @@ export const routing = defineRouting({
     '/kontakt': '/kontakt',
     '/kontakt/cv-editor': '/kontakt/cv-editor',
     '/tom-hat-toes': '/tom-hat-toes',
-    // 🪡 Routes du Dashboard et des Nids
+    // 🔭 Enregistrement de l'Observatoire des Fréquences
+    '/observatoire': '/observatoire',
+    // Routes du Dashboard et des Nids
     '/dashboard': '/dashboard',
     '/dashboard/teams': '/dashboard/teams',
     '/dashboard/flock': '/dashboard/flock',
@@ -35,7 +37,12 @@ export const routing = defineRouting({
     '/settings': '/settings',
     '/auth/login': '/auth/login',
     '/auth/register': '/auth/register',
-    '/auth/forgot-password': '/auth/forgot-password'
+    '/auth/forgot-password': '/auth/forgot-password',
+    // 🎮 ROUTES DU NEXUS DES JEUX
+    '/games': '/games',
+    '/games/crazymorpion': '/games/crazymorpion',
+    '/games/kooontreez': '/games/kooontreez',
+    '/games/atomikkfarde': '/games/atomikkfarde'
   }
 });
 

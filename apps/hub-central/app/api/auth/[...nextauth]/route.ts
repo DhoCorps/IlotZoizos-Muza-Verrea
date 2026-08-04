@@ -1,4 +1,3 @@
-// apps/hub-central/app/api/auth/[...nextauth]/route.ts
 import NextAuth, { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from 'bcryptjs';
@@ -72,21 +71,9 @@ const authOptions: NextAuthOptions = {
       }
 
       // 🛡️ SUTURE : Rafraîchissement Dynamique des Plumes (Capabilities)
-      // Si on demande une mise à jour manuelle ou si le token est déjà établi
       if (trigger === "update" && session?.capabilities) {
         token.capabilities = session.capabilities;
       } 
-      // Sinon, pour éviter la désynchronisation au 147 Bd Baille, 
-      // on peut forcer une vérification en base si nécessaire :
-      else if (!user && token.uid) {
-        try {
-          // Note: On ne le fait pas à chaque appel pour les performances, 
-          // mais c'est ici que la "vérité" doit être rétablie si l'Oiseau bug.
-          // Pour l'instant, on se repose sur la session, mais on prépare le terrain.
-        } catch (err) {
-          console.error("🔥 [JWT] Erreur de synchro des Plumes:", err);
-        }
-      }
       
       return token;
     },
@@ -100,11 +87,10 @@ const authOptions: NextAuthOptions = {
     }
   },
   pages: {
-    signIn: '/auth/signin',
+    signIn: '/auth/login', // 👈 Correction ici pour pointer vers la vraie route de login de l'Îlot
   }
 };
 
 const handler = NextAuth(authOptions);
 
-// Next.js ne voit plus que des méthodes HTTP pures. Le compilateur est apaisé.
 export { handler as GET, handler as POST };
