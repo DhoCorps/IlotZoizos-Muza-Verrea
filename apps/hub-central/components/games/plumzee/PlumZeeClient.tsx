@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Socket } from 'socket.io-client';
-import { PlumZeeRoomToSend, ChatMessage } from '@ilot/shared-core';
+import { PlumZeeRoomToSend } from '@ilot/shared-core';
 
 interface PlumZeeClientProps {
   socket: Socket;
@@ -37,8 +37,6 @@ const COMBINATIONS: { key: string; label: string; desc: string }[] = [
 
 export default function PlumZeeClient({ socket, roomId, username }: PlumZeeClientProps) {
   const [gameState, setGameState] = useState<PlumZeeRoomToSend | null>(null);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   // Apparence : 'sober' ou '3d'
@@ -67,11 +65,6 @@ export default function PlumZeeClient({ socket, roomId, username }: PlumZeeClien
     socket.on('connect', handleConnect);
     socket.on('room:joined', handleStateUpdate);
     socket.on('game:state-update', handleStateUpdate);
-
-    socket.on('chat:message', (msg: ChatMessage) => {
-      setChatMessages(prev => [...prev, msg]);
-    });
-
     socket.on('error:message', (msg: string) => setErrorMsg(msg));
 
     return () => {
@@ -79,7 +72,6 @@ export default function PlumZeeClient({ socket, roomId, username }: PlumZeeClien
       socket.off('connect', handleConnect);
       socket.off('room:joined', handleStateUpdate);
       socket.off('game:state-update', handleStateUpdate);
-      socket.off('chat:message');
       socket.off('error:message');
     };
   }, [socket, roomId, username]);
@@ -109,7 +101,6 @@ export default function PlumZeeClient({ socket, roomId, username }: PlumZeeClien
   const handleScoreCombination = (combinationKey: string) => {
     if (!socket || gameState?.state !== 'playing') return;
     
-    // Déclenchement de l'animation du crayon magique
     setAnimatingCombination(combinationKey);
     setTimeout(() => {
       setAnimatingCombination(null);
@@ -120,21 +111,7 @@ export default function PlumZeeClient({ socket, roomId, username }: PlumZeeClien
         action: 'SCORE_COMBINATION',
         payload: { combinationKey }
       });
-    }, 600); // 600ms de tracé magique
-  };
-
-  const handleSendChat = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!socket || !chatInput.trim()) return;
-    socket.emit('chat:send-message', {
-      id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-      senderUsername: username,
-      senderId: socket.id,
-      text: chatInput.trim(),
-      roomId,
-      timestamp: Date.now()
-    });
-    setChatInput('');
+    }, 600);
   };
 
   if (!gameState) return <div className="text-center text-slate-400 py-12 font-mono">Ouverture du parchemin Plum’Zee...</div>;
@@ -218,7 +195,6 @@ export default function PlumZeeClient({ socket, roomId, username }: PlumZeeClien
                   </div>
                 );
               } else {
-                // Style Sobre (Plate)
                 return (
                   <button
                     key={die.id}

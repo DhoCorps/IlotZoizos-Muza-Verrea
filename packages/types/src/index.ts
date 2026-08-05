@@ -14,6 +14,7 @@ export * from './models/partita.types';
 export * from './models/letrinSprite.types';
 export * from './core/kontakt.types';
 export * from './core/ecommerce.types';
+export * from './core/gameHistory.types';
 
 export interface ActionSignature {
   actorUid: string;       

@@ -4,6 +4,10 @@ import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { AuthProvider } from '../AuthProvider'; 
 
+// 💬 IMPORTS DES COMMUNICATIONS
+import { ChatProvider } from '../../context/ChatContext'; 
+import { GlobalChatWidget } from '../../components/chat/GlobalChatWidget'; 
+
 import '../globals.css';
 
 export default async function LocaleLayout({
@@ -26,8 +30,16 @@ export default async function LocaleLayout({
           {/* 🌐 LA MATRICE LINGUISTIQUE : Assure la traduction */}
           <NextIntlClientProvider locale={locale} messages={messages}>
             
-            {/* Le contenu de la page s'affiche ici, sans interférences lourdes */}
-            {children}
+            {/* 💬 GESTIONNAIRE DE COMMUNICATIONS : Le contexte global du chat */}
+            <ChatProvider>
+              
+              {/* Le contenu de la page s'affiche ici, sans interférences lourdes */}
+              {children}
+
+              {/* 📡 LE TERMINAL : Le widget de chat qui flotte au-dessus de tout */}
+              <GlobalChatWidget />
+
+            </ChatProvider>
 
           </NextIntlClientProvider>
           

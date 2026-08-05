@@ -1,5 +1,4 @@
 // packages/shared-core/src/games/plumzee/PlumZeeTypes.ts
-import { ChatMessage } from '../../types/shared.types';
 
 export type PlumZeeSymbolValue = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -66,7 +65,6 @@ export interface PlumZeeGameRoom {
     currentTurnPlayerId: string | null;
     currentRound: number;
     round: number; // Requis par BaseRoomData
-    chatMessages: ChatMessage[]; // Requis par BaseRoomData
     scores: { [playerId: string]: number }; // Requis par BaseRoomData
     currentDice: PlumZeeDie[];
     roundStartTime: number;

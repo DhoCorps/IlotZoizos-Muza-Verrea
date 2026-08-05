@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Socket } from 'socket.io-client';
-import { SoonArtRoomToSend, ChatMessage } from '@ilot/shared-core';
+import { SoonArtRoomToSend } from '@ilot/shared-core';
 
 interface SoonArtClientProps {
   socket: Socket;
@@ -14,8 +14,6 @@ type ToolMode = 'scan' | 'mark';
 
 export default function SoonArtClient({ socket, roomId, username }: SoonArtClientProps) {
   const [gameState, setGameState] = useState<SoonArtRoomToSend | null>(null);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   const [toolMode, setToolMode] = useState<ToolMode>('scan');
@@ -48,11 +46,6 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
     socket.on('room:joined', handleStateUpdate);
     socket.on('game:init', handleStateUpdate);
     socket.on('game:state-update', handleStateUpdate);
-    
-    socket.on('chat:message', (msg: ChatMessage) => {
-      setChatMessages(prev => [...prev, msg]);
-    });
-
     socket.on('error:message', (msg: string) => setErrorMsg(msg));
 
     return () => {
@@ -61,7 +54,6 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
       socket.off('room:joined', handleStateUpdate);
       socket.off('game:init', handleStateUpdate);
       socket.off('game:state-update', handleStateUpdate);
-      socket.off('chat:message');
       socket.off('error:message');
     };
   }, [socket, roomId, username]);
@@ -78,7 +70,6 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
       setStartPoint({ x, y });
       setCurrentRadius(0);
     } else if (toolMode === 'mark') {
-      // Poser un repère de trésor directement
       socket?.emit('game:make-move', {
         roomId,
         playerId: socket.id,
@@ -108,7 +99,6 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
       return;
     }
 
-    // Envoi du cercle au serveur
     socket?.emit('game:make-move', {
       roomId,
       playerId: socket.id,
@@ -125,31 +115,16 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
     setCurrentRadius(0);
   };
 
-  const handleSendChat = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!socket || !chatInput.trim()) return;
-    socket.emit('chat:send-message', {
-      id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-      senderUsername: username,
-      senderId: socket.id,
-      text: chatInput.trim(),
-      roomId,
-      timestamp: Date.now()
-    });
-    setChatInput('');
-  };
-
   if (!gameState) return <div className="text-center text-slate-400 py-12 font-mono">Chargement de la toile Soon'Art...</div>;
 
-  const me = gameState.players.find(p => p.id === socket?.id);
   const mapWidth = gameState.gameOptions?.mapWidth || 800;
   const mapHeight = gameState.gameOptions?.mapHeight || 600;
 
   return (
-    <div className="max-w-7xl mx-auto p-4 flex flex-col lg:flex-row gap-6">
+    <div className="max-w-6xl mx-auto p-4 flex flex-col items-center gap-6">
       
-      {/* ZONE CENTRALE : LA CARTE / TOILE */}
-      <div className="flex-[3] bg-slate-900 rounded-2xl p-6 border border-white/10 shadow-xl flex flex-col items-center">
+      {/* ZONE CENTRALE : LA TOILE / CARTE */}
+      <div className="w-full bg-slate-900 rounded-2xl p-6 border border-white/10 shadow-xl flex flex-col items-center">
         
         {/* Header du plateau */}
         <div className="w-full flex justify-between items-center mb-4 pb-3 border-b border-white/10">
@@ -186,6 +161,20 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
           </div>
         )}
 
+        {/* Tableau des Artistes */}
+        <div className="w-full grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          {gameState.players.map(p => (
+            <div key={p.id} className="bg-slate-800/40 p-3 rounded-xl border border-white/5 flex flex-col items-center">
+              <span className={`text-xs font-medium truncate max-w-full ${p.status === 'connected' ? 'text-white' : 'text-slate-500 line-through'}`}>
+                {p.username} {p.id === socket?.id && '(Moi)'}
+              </span>
+              <span className="mt-1 bg-amber-600/30 text-amber-300 border border-amber-500/30 text-[11px] font-bold px-2 py-0.5 rounded-full font-mono">
+                {p.score} pts
+              </span>
+            </div>
+          ))}
+        </div>
+
         {/* LA TOILE INTERACTIVE SVG */}
         <div className="relative border-2 border-slate-800 rounded-xl overflow-hidden cursor-crosshair bg-black/60 shadow-inner">
           <svg
@@ -197,7 +186,6 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
             onMouseUp={handleMouseUp}
             className="w-full h-auto max-h-[600px] block"
           >
-            {/* Grille de fond subtile */}
             <defs>
               <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
                 <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="1" />
@@ -255,60 +243,6 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
             ))}
           </svg>
         </div>
-      </div>
-
-      {/* PANNEAU LATÉRAL : JOUEURS ET CHAT */}
-      <div className="flex-1 flex flex-col gap-6">
-        
-        {/* Scores */}
-        <div className="bg-slate-900 rounded-2xl border border-white/10 p-5 shadow-xl">
-          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 font-mono">Artistes & Collection</h3>
-          <div className="space-y-3">
-            {gameState.players.map(p => (
-              <div key={p.id} className="flex justify-between items-center bg-slate-800/40 p-3 rounded-xl border border-white/5">
-                <span className={`font-medium ${p.status === 'connected' ? 'text-white' : 'text-slate-500 line-through'}`}>
-                  {p.username} {p.id === socket?.id && '(Moi)'}
-                </span>
-                <span className="bg-amber-600/30 text-amber-300 border border-amber-500/30 text-xs font-bold px-3 py-1 rounded-full font-mono">
-                  {p.score} pts
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Chat */}
-        <div className="flex-1 bg-slate-900 rounded-2xl border border-white/10 flex flex-col shadow-xl overflow-hidden min-h-[300px]">
-          <div className="p-3.5 border-b border-white/10 bg-slate-800/40 text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">
-            Salon des Critiques d'Art
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {chatMessages.map(msg => {
-              const isMe = msg.senderId === socket?.id;
-              return (
-                <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                  <span className="text-[10px] text-slate-500 mb-1">{msg.senderUsername}</span>
-                  <div className={`px-3 py-2 rounded-xl max-w-[85%] text-sm ${isMe ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-200'}`}>
-                    {msg.text}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <form onSubmit={handleSendChat} className="p-3 border-t border-white/10 bg-slate-800/40 flex gap-2">
-            <input 
-              type="text" 
-              value={chatInput} 
-              onChange={e => setChatInput(e.target.value)} 
-              placeholder="Critique..." 
-              className="flex-1 bg-black/50 border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-amber-500" 
-            />
-            <button type="submit" className="bg-amber-600 hover:bg-amber-500 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors">
-              Envoyer
-            </button>
-          </form>
-        </div>
-
       </div>
 
     </div>

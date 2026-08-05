@@ -33,6 +33,7 @@ export interface CineMaxGameOptions {
     timePerRound: number; // Temps maximum pour deviner le film
     scoreToWin: number; // Score cible pour gagner la partie
     difficultyRule: CineMaxDifficultyRule;
+    maxRounds: number;
 }
 
 export interface CineMaxGameRoom extends CineMaxRoomToSend {

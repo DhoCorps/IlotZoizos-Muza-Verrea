@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import CineMaxBoard from './CineMaxBoard'; // Ton composant visuel précédent
+import CineMaxBoard from './CineMaxBoard'; 
 
 interface CineMaxRoomClientProps {
   roomId: string;
@@ -21,8 +21,9 @@ export default function CineMaxRoomClient({ roomId, username, playerId }: CineMa
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    // 1. Connexion au serveur Socket.IO (adapter l'URL selon ton env)
-    const socketIo = io('http://localhost:3002');
+    // 1. Connexion au serveur Socket.IO avec variable d'env
+    const SERVER_URL = process.env.NEXT_PUBLIC_GAME_SERVER_URL || 'http://localhost:3002';
+    const socketIo = io(SERVER_URL);
     setSocket(socketIo);
 
     socketIo.on('connect', () => {
@@ -30,7 +31,7 @@ export default function CineMaxRoomClient({ roomId, username, playerId }: CineMa
       socketIo.emit('room:join', { roomId, username });
     });
 
-    // 2. Écoute des mises à jour globales de la salle (le flou de l'affiche, scores, etc.)
+    // 2. Écoute des mises à jour globales de la salle
     socketIo.on('game:state-update', (roomData: any) => {
       if (roomData.gameType === 'CineMax') {
         setPelliculeBlur(roomData.pelliculeBlur);
@@ -49,7 +50,7 @@ export default function CineMaxRoomClient({ roomId, username, playerId }: CineMa
       }
     });
 
-    // 3. Écoute des mises à jour personnelles (ex: nouvelle question après choix de difficulté)
+    // 3. Écoute des mises à jour personnelles
     socketIo.on('cinemax:personal-update', (data: any) => {
       if (data.currentQuestion) setCurrentQuestion(data.currentQuestion);
       setPendingDifficultyChoice(data.pendingDifficultyChoice);

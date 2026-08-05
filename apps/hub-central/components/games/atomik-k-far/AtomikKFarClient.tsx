@@ -1,4 +1,3 @@
-// apps/hub-central/components/games/atomikkfarde/AtomikClient.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -78,16 +77,12 @@ export default function AtomikClient({ socket, roomId, username }: AtomikClientP
   const me = gameState.players.find(p => p.socketId === socket.id || p.id === socket.id);
   const myPlayerId = me?.id || '';
   
-  // D'ABORD : on déclare l'index pour éviter l'erreur "Block-scoped variable used before declaration"
   const roomIndexOfMe = gameState.players.findIndex(p => p.id === myPlayerId);
   const isP1 = roomIndexOfMe === 0;
 
-  // ENSUITE : on l'utilise pour définir la main du joueur
   const myHand = gameState.player1Hand.some(c => c.id) && roomIndexOfMe === 0 ? gameState.player1Hand : 
                  (gameState.player2Hand.some(c => c.id) && roomIndexOfMe === 1 ? gameState.player2Hand : me?.hand || []);
 
-
-  // Grille affichée = Grille globale + Surimpression des coups joués par le joueur ce tour-ci
   const displayGrid = gameState.grid.map((row, r) => 
     row.map((cell, c) => {
       const mySubmittedCell = gameState.playerStates[myPlayerId]?.submittedGrid?.[r]?.[c];
@@ -157,7 +152,6 @@ export default function AtomikClient({ socket, roomId, username }: AtomikClientP
               {displayGrid.map((row, r) => 
                 row.map((cell: any, c: number) => {
                   
-                  // Calcul du style de la case
                   let cellClass = "bg-slate-900 border-white/5";
                   let content = "";
 
@@ -175,7 +169,6 @@ export default function AtomikClient({ socket, roomId, username }: AtomikClientP
                     cellClass = "bg-[#6C757D]/20 border-[#6C757D]/50";
                   }
 
-                  // Surimpression de ma carte en attente de résolution
                   if (cell.pendingCard) {
                      content = CARD_ICONS[cell.pendingCard.type] || '?';
                      cellClass += isP1 ? " border-b-4 border-b-red-500 opacity-80" : " border-b-4 border-b-blue-500 opacity-80";

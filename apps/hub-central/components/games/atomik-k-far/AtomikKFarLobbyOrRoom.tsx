@@ -12,15 +12,15 @@ interface AtomikLobbyProps {
 export default function AtomikLobbyOrRoom({ username, initialRoomId }: AtomikLobbyProps) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [roomId, setRoomId] = useState<string>(initialRoomId);
-  const [isInRoom, setIsInRoom] = useState<boolean>(false);
+  const [isInRoom, setIsInRoom] = useState<boolean>(!!initialRoomId);
   const [roomName, setRoomName] = useState<string>('Bunker de ' + username);
   const [availableRooms, setAvailableRooms] = useState<any[]>([]);
 
-  // Options de création
-  const [gridOption, setGridOption] = useState('Sonic'); // Sonic (3x3) par défaut
+  const [gridOption, setGridOption] = useState('Sonic'); 
 
   useEffect(() => {
-    const socketIo = io('http://localhost:3002');
+    const SERVER_URL = process.env.NEXT_PUBLIC_GAME_SERVER_URL || 'http://localhost:3002';
+    const socketIo = io(SERVER_URL);
     setSocket(socketIo);
 
     socketIo.on('connect', () => {

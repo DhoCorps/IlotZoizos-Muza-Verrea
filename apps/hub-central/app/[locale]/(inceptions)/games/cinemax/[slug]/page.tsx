@@ -3,11 +3,12 @@ import { redirect } from 'next/navigation';
 import CineMaxRoomClient from '../../../../../../components/games/cinemax/CineMaxRoomClient';
 
 export default async function CineMaxRoomPage({
-  params: { locale, roomId }
+  params
 }: {
-  params: { locale: string; roomId: string }
+  params: Promise<{ locale: string; roomId: string }>
 }) {
   const session = await getServerSession();
+  const { locale, roomId } = await params;
 
   if (!session || !session.user) {
     redirect(`/${locale}/auth/login`);

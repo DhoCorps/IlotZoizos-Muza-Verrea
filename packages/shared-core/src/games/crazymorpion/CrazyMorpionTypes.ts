@@ -63,7 +63,6 @@ export interface CrazyMorpionGameRoom {
     round: number;
     gameType: 'CrazyMorpion'; // Discriminant
     maxPlayers: number;
-    chatMessages: import('../../types/shared.types').ChatMessage[]; // Utilise ChatMessage de shared.ts
     scores: Record<string, number>;
     turnPassTimer?: number;
     playerDisconnectTimers: Map<string, NodeJS.Timeout>;

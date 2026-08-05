@@ -13,11 +13,10 @@ interface KoOonTreeZLobbyOrRoomProps {
 export default function KoOonTreeZLobbyOrRoom({ username, initialRoomId }: KoOonTreeZLobbyOrRoomProps) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [roomId, setRoomId] = useState<string>(initialRoomId);
-  const [isInRoom, setIsInRoom] = useState<boolean>(false);
+  const [isInRoom, setIsInRoom] = useState<boolean>(initialRoomId !== 'default-room' && !!initialRoomId);
   const [roomName, setRoomName] = useState<string>('Expédition de ' + username);
   const [availableRooms, setAvailableRooms] = useState<any[]>([]);
 
-  // Options de jeu sélectionnables pour la création
   const [nbPlayer, setNbPlayer] = useState<KoOonTreezNbPlayer>('duo');
   const [mode, setMode] = useState<KoOonTreezMode>('DvsP');
   const [option, setOption] = useState<KoOonTreezOption>('Champ-De-Bataille');
@@ -25,7 +24,8 @@ export default function KoOonTreeZLobbyOrRoom({ username, initialRoomId }: KoOon
   const [soloMode, setSoloMode] = useState<KoOonTreezSoloMode>('training');
 
   useEffect(() => {
-    const socketIo = io('http://localhost:3002');
+    const SERVER_URL = process.env.NEXT_PUBLIC_GAME_SERVER_URL || 'http://localhost:3002';
+    const socketIo = io(SERVER_URL);
     setSocket(socketIo);
 
     socketIo.on('connect', () => {

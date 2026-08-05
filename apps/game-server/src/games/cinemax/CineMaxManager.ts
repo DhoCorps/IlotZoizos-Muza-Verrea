@@ -1,6 +1,5 @@
 // apps/game-server/src/games/cinemax/CineMaxManager.ts
 import { Server } from 'socket.io';
-import { ChatMessage } from '@ilot/shared-core'; // Adapte les imports partagés
 import { 
     CineMaxGameRoom, 
     CineMaxPlayer, 
@@ -9,6 +8,9 @@ import {
     CineMaxDifficulty
 } from '@ilot/shared-core'; // Ton fichier de types partagés
 import { CineMaxLogic } from '@ilot/shared-core'; // La logique métier
+
+// 💾 IMPORT DU SERVICE D'ARCHIVAGE 
+import { GameStatsService } from '@ilot/infrastructure';
 
 const ROUND_DURATION_SECONDS = 120; // 2 minutes par film
 const BUZZER_LOCK_DURATION_MS = 10000; // 10 secondes de blocage après une erreur
@@ -62,7 +64,6 @@ export class CineMaxManager {
             state: 'waitingForPlayers',
             winnerId: null,
             round: 0,
-            chatMessages: [],
             gameType: 'CineMax',
             maxPlayers: maxPlayers,
             scores: { [ownerPlayer.id]: 0 },
@@ -241,10 +242,6 @@ export class CineMaxManager {
             const blurReduction = CineMaxLogic.getBlurReductionForDifficulty(player.currentQuestion.difficulty);
             room.pelliculeBlur = Math.max(0, room.pelliculeBlur - blurReduction);
 
-            this.io.to(room.id).emit('chat:message', {
-                id: Date.now().toString(), roomId: room.id, senderId: 'SYSTEM', senderUsername: 'Matrice',
-                text: `${player.username} a trouvé un indice ! L'image s'éclaircit de ${blurReduction}%.`, timestamp: Date.now()
-            });
         } else {
             // Si faux, petit feedback. Pas de pénalité de points ici, la pénalité est sur le buzzer.
             this.io.to(player.socketId!).emit('error:message', "Mauvaise réponse. Cherche encore !");
@@ -300,17 +297,12 @@ export class CineMaxManager {
                 }
             }, BUZZER_LOCK_DURATION_MS);
 
-            this.io.to(room.id).emit('chat:message', {
-                id: Date.now().toString(), roomId: room.id, senderId: 'SYSTEM', senderUsername: 'Matrice',
-                text: `🚨 Aïe ! ${player.username} a buzzé faux. Pénalité de -${penalty} points !`, timestamp: Date.now()
-            });
-
             this.io.to(room.id).emit('game:update', this.toClientRoom(room));
         }
     }
 
     /**
-     * 🛑 FIN DU ROUND
+     * 🛑 FIN DU ROUND (et potentiellement FIN DU JEU)
      */
     private endRound(roomId: string, winnerId: string | null) {
         const room = this.rooms.get(roomId);
@@ -321,8 +313,6 @@ export class CineMaxManager {
             room.roundTimerInterval = null;
         }
 
-        room.state = 'waiting'; // Pause avant le prochain film
-
         if (winnerId) {
             const winner = room.players.find(p => p.id === winnerId);
             console.log(`[CineMaxManager] Coupé ! ${winner?.username} a trouvé le film : ${room.targetMovieTitle}`);
@@ -330,11 +320,77 @@ export class CineMaxManager {
             console.log(`[CineMaxManager] Coupé ! Personne n'a trouvé le film : ${room.targetMovieTitle}`);
         }
 
-        // On envoie la mise à jour finale de la manche (image nette, vainqueur)
-        this.io.to(room.id).emit('game:round-end', this.toClientRoom(room));
+        // =========================================================
+        // 🏆 VÉRIFICATION DE FIN DE PARTIE (GAME OVER)
+        // =========================================================
+        // Dans Ciné-Max, la partie peut s'arrêter au bout de "maxRounds" ou quand un joueur atteint "scoreToWin"
+        const maxScoreReched = room.players.some(p => p.score >= (room.gameOptions.scoreToWin || 500));
+        const maxRoundsReached = room.gameOptions.maxRounds && room.round >= room.gameOptions.maxRounds;
 
-        // Relancer le round suivant après 10 secondes (optionnel)
-        // setTimeout(() => this.startRound(roomId), 10000); 
+        if (maxScoreReched || maxRoundsReached) {
+            room.state = 'gameOver';
+            
+            // Déterminer le grand vainqueur de la partie
+            let grandWinner = room.players[0];
+            room.players.forEach(p => {
+                if(p.score > grandWinner.score) grandWinner = p;
+            });
+            room.winnerId = grandWinner.id;
+
+            console.log(`[CineMaxManager] FIN DE PARTIE dans le salon ${roomId}. Grand Vainqueur: ${grandWinner.username}`);
+
+            // 💾 DÉCLENCHEMENT DE L'ARCHIVAGE (MONGO + NEO4J)
+            const duration = (room.gameOptions.timePerRound || ROUND_DURATION_SECONDS) * room.round; 
+            
+            const matchData = {
+                gameType: 'CineMax' as const,
+                roomId: room.id,
+                startedAt: new Date(Date.now() - (duration * 1000)), // Estimation simple
+                endedAt: new Date(),
+                durationSeconds: duration,
+                players: room.players.map(p => {
+                    return {
+                        uid: p.id, 
+                        pseudo: p.username,
+                        score: p.score,
+                        isWinner: p.id === room.winnerId,
+                        specificStats: {
+                            moviesGuessed: p.id === winnerId ? 1 : 0, // Exemple de stat spécifique
+                            errorsMade: p.errorCount
+                        }
+                    };
+                }),
+                matchMetadata: {
+                    difficultyRule: room.gameOptions.difficultyRule,
+                    totalRoundsPlayed: room.round
+                }
+            };
+
+            // Envoi en tâche de fond
+            GameStatsService.recordMatch(matchData).then((success: boolean) => {
+                if(success) console.log(`[CineMaxManager] Historique sauvegardé avec succès pour le salon ${roomId}`);
+            });
+
+            // On signale aux clients que la partie entière est terminée
+            this.io.to(room.id).emit('game:over', this.toClientRoom(room));
+
+        } else {
+            // Si la partie n'est pas finie, on passe à l'état 'waiting' (pause entre les films)
+            room.state = 'waiting'; 
+            
+            // On envoie la mise à jour de fin de manche (pour afficher l'affiche nette, etc.)
+            this.io.to(room.id).emit('game:round-end', this.toClientRoom(room));
+
+            // Relancer le round suivant après 10 secondes
+            // L'intervalle est créé ici pour assurer le flow automatique
+            setTimeout(() => {
+                const currentRoom = this.rooms.get(roomId);
+                // On vérifie que la salle existe toujours et n'a pas été vidée pendant la pause
+                if (currentRoom && currentRoom.players.length > 0) {
+                    this.startRound(roomId);
+                }
+            }, 10000); 
+        }
     }
 
     /**
@@ -345,7 +401,7 @@ export class CineMaxManager {
         const clientRoom = { ...room };
         
         // IMPORTANT : On cache le titre du film à deviner tant qu'il n'est pas trouvé
-        if (room.pelliculeBlur > 0 && !room.buzzerWinnerId) {
+        if (room.pelliculeBlur > 0 && !room.buzzerWinnerId && room.state !== 'gameOver') {
             clientRoom.targetMovieTitle = null; 
         }
 

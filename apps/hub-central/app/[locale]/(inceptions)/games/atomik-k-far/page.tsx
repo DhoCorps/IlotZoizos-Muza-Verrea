@@ -3,20 +3,22 @@ import { redirect } from 'next/navigation';
 import AtomikLobbyOrRoom from '../../../../../components/games/atomik-k-far/AtomikKFarLobbyOrRoom';
 
 export default async function AtomikPage({
-  params: { locale },
+  params,
   searchParams
 }: {
-  params: { locale: string };
-  searchParams: { room?: string };
+  params: Promise<{ locale: string }>;
+  searchParams: Promise<{ room?: string }>;
 }) {
   const session = await getServerSession();
+  const { locale } = await params;
+  const resolvedSearchParams = await searchParams;
 
   if (!session || !session.user) {
     redirect(`/${locale}/auth/login`);
   }
 
   const username = session.user.name || 'Artilleur Anonyme';
-  const initialRoomId = searchParams.room || '';
+  const initialRoomId = resolvedSearchParams.room || '';
 
   return (
     <AtomikLobbyOrRoom username={username} initialRoomId={initialRoomId} />

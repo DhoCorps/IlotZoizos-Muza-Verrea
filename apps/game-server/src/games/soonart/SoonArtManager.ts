@@ -8,6 +8,9 @@ import {
     SoonArtLogic
 } from '@ilot/shared-core';
 
+// 💾 IMPORT DU SERVICE D'ARCHIVAGE 
+import { GameStatsService } from '@ilot/infrastructure';
+
 export class SoonArtManager {
     private io: Server;
     private rooms: Map<string, SoonArtGameRoom>;
@@ -62,7 +65,6 @@ export class SoonArtManager {
             state: 'waiting',
             winnerId: null,
             round: 1,
-            chatMessages: [],
             gameType: 'SoonArt',
             maxPlayers: 4,
             scores: { [ownerPlayer.id]: 0 },
@@ -76,7 +78,8 @@ export class SoonArtManager {
             treasuresCount: treasures.length, // <--- ICI : C'est la propriété qui manquait !
             circles: [],
             scanTimeLeft: 120,
-            markTimeLeft: 60
+            markTimeLeft: 60,
+            // (Note: l'idéal serait d'ajouter roundStartTime: Date.now() dans SoonArtGameRoom pour la précision)
         };
 
         this.rooms.set(roomId, newRoom);
@@ -118,6 +121,8 @@ export class SoonArtManager {
 
         if (room.state === 'waiting' && room.players.length >= 2) {
             room.state = 'playing';
+            // Idéalement on devrait marquer le début de la partie ici
+            // (room as any).roundStartTime = Date.now();
         }
 
         return room;
@@ -193,6 +198,45 @@ export class SoonArtManager {
                     }
                 }
                 room.winnerId = winner;
+                
+                console.log(`[SoonArtManager] FIN DE PARTIE dans le salon ${roomId}. Vainqueur : ${winner || 'Aucun'}`);
+
+                // =========================================================
+                // 💾 DÉCLENCHEMENT DE L'ARCHIVAGE (MONGO + NEO4J)
+                // =========================================================
+                // Puisque roundStartTime n'est pas dans l'interface originale, on utilise les timers 
+                // pour estimer la durée max jouée (scanTime + markTime max) ou une valeur par défaut.
+                const estimatedDuration = 180; // 3 minutes par défaut
+                
+                const matchData = {
+                    gameType: 'SoonArt' as const,
+                    roomId: room.id,
+                    startedAt: new Date(Date.now() - (estimatedDuration * 1000)),
+                    endedAt: new Date(),
+                    durationSeconds: estimatedDuration,
+                    players: room.players.map(p => {
+                        return {
+                            uid: p.id, 
+                            pseudo: p.username,
+                            score: p.score || 0,
+                            isWinner: p.id === room.winnerId,
+                            specificStats: {
+                                circlesUsed: p.circlesUsed,
+                                totalGuessesMade: p.guesses.length
+                            }
+                        };
+                    }),
+                    matchMetadata: {
+                        totalTreasures: room.gameOptions.totalTreasures,
+                        mapDimensions: `${room.gameOptions.mapWidth}x${room.gameOptions.mapHeight}`
+                    }
+                };
+
+                // Envoi en tâche de fond
+                GameStatsService.recordMatch(matchData).then((success: boolean) => {
+                    if(success) console.log(`[SoonArtManager] Historique sauvegardé avec succès pour le salon ${roomId}`);
+                });
+                // =========================================================
             }
 
             this.io.to(room.id).emit('game:state-update', this.toClientRoom(room));

@@ -7,13 +7,11 @@ export const metadata = {
 
 export default function PlumZeeLayout({
   children,
-  params
 }: {
   children: React.ReactNode;
-  params: { locale: string };
 }) {
   return (
-    <div className="min-h-screen bg-[#07090E] text-slate-100">
+    <div className="min-h-screen bg-[#07090E] text-slate-100 flex flex-col">
       <header className="w-full border-b border-amber-500/20 bg-black/50 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky top-0 z-50">
         <div className="flex items-center gap-3">
           <span className="text-xl">🎲</span>
@@ -25,7 +23,7 @@ export default function PlumZeeLayout({
           Îlot Zoizos • Boulier des Dés Cosmiques
         </div>
       </header>
-      <main className="p-4 md:p-8 flex flex-col items-center justify-center">
+      <main className="flex-1 p-4 md:p-8 flex flex-col items-center justify-center">
         {children}
       </main>
     </div>

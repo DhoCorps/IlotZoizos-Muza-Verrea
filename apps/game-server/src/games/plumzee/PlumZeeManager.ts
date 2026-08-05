@@ -6,9 +6,11 @@ import {
     PlumZeeGameOptions, 
     PlumZeeMakeMoveRequest, 
     PlumZeeRoomToSend,
-    ChatMessage
 } from '@ilot/shared-core';
 import { PlumZeeLogic } from '@ilot/shared-core';
+
+// 💾 IMPORT DU SERVICE D'ARCHIVAGE 
+import { GameStatsService } from '@ilot/infrastructure';
 
 export class PlumZeeManager {
     private io: Server;
@@ -58,7 +60,6 @@ export class PlumZeeManager {
             currentTurnPlayerId: ownerPlayer.id,
             currentRound: 1,
             round: 1,
-            chatMessages: [],
             scores: { [ownerPlayer.id]: 0 },
             currentDice: PlumZeeLogic.rollInitialDice(),
             roundStartTime: Date.now()
@@ -172,12 +173,6 @@ export class PlumZeeManager {
         return room;
     }
 
-    public handleChatMessage(message: ChatMessage): void {
-        const room = this.rooms.get(message.roomId);
-        if (!room) return;
-        room.chatMessages.push(message);
-    }
-
     public handleRestartRequest(roomId: string, playerId: string): void {
         const room = this.rooms.get(roomId);
         if (!room) return;
@@ -242,6 +237,45 @@ export class PlumZeeManager {
             if (winner) {
                 room.winnerId = winner.id;
             }
+
+            console.log(`[PlumZeeManager] FIN DE PARTIE dans le salon ${room.id}. Vainqueur : ${winner?.username || 'Aucun'}`);
+
+            // =========================================================
+            // 💾 DÉCLENCHEMENT DE L'ARCHIVAGE (MONGO + NEO4J)
+            // =========================================================
+            // On calcule la durée globale de la partie
+            const durationInSeconds = room.roundStartTime ? Math.floor((Date.now() - room.roundStartTime) / 1000) : (maxRounds * 30);
+            
+            const matchData = {
+                gameType: 'PlumZee' as const,
+                roomId: room.id,
+                startedAt: room.roundStartTime ? new Date(room.roundStartTime) : new Date(Date.now() - (durationInSeconds * 1000)), 
+                endedAt: new Date(),
+                durationSeconds: durationInSeconds,
+                players: room.players.map(p => {
+                    return {
+                        uid: p.id, 
+                        pseudo: p.username,
+                        score: p.totalScore || 0,
+                        isWinner: p.id === room.winnerId,
+                        specificStats: {
+                            // On peut archiver le parchemin final pour les statistiques détaillées
+                            finalScoreSheet: JSON.stringify(p.scoreSheet),
+                            totalRollsMade: Object.keys(p.scoreSheet).length * 3 // Approximation
+                        }
+                    };
+                }),
+                matchMetadata: {
+                    totalRoundsPlayed: room.currentRound - 1, // Le dernier incrément dépasse la limite
+                    maxRoundsSet: maxRounds
+                }
+            };
+
+            // Envoi en tâche de fond
+            GameStatsService.recordMatch(matchData).then((success: boolean) => {
+                if(success) console.log(`[PlumZeeManager] Historique sauvegardé avec succès pour le salon ${room.id}`);
+            });
+            // =========================================================
         }
     }
 
@@ -266,7 +300,6 @@ export class PlumZeeManager {
             state: room.state as any,
             winnerId: room.winnerId,
             round: room.currentRound,
-            chatMessages: room.chatMessages,
             maxPlayers: room.maxPlayers,
             scores: room.scores,
             gameOptions: room.gameOptions,

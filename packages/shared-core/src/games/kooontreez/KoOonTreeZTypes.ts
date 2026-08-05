@@ -69,7 +69,6 @@ export interface KoOonTreeZGameRoom {
     gameType: 'KoOonTreeZ'; 
     maxPlayers: number ;
     expectedAnswer: string | null;
-    chatMessages: import('../../types/shared.types').ChatMessage[];
     scores: Record<string, number>; 
     
     kooonTreezNbPlayer: KoOonTreezNbPlayer;

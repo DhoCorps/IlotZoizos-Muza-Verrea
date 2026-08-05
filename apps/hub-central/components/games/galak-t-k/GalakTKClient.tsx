@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Socket } from 'socket.io-client';
-import { GalakTKRoomToSend, ChatMessage } from '@ilot/shared-core';
+import { GalakTKRoomToSend } from '@ilot/shared-core';
 
 interface GalakTKClientProps {
   socket: Socket;
@@ -12,8 +12,6 @@ interface GalakTKClientProps {
 
 export default function GalakTKClient({ socket, roomId, username }: GalakTKClientProps) {
   const [gameState, setGameState] = useState<GalakTKRoomToSend | null>(null);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,11 +35,6 @@ export default function GalakTKClient({ socket, roomId, username }: GalakTKClien
     socket.on('connect', handleConnect);
     socket.on('room:joined', handleStateUpdate);
     socket.on('game:state-update', handleStateUpdate);
-
-    socket.on('chat:message', (msg: ChatMessage) => {
-      setChatMessages(prev => [...prev, msg]);
-    });
-
     socket.on('error:message', (msg: string) => setErrorMsg(msg));
 
     return () => {
@@ -49,7 +42,6 @@ export default function GalakTKClient({ socket, roomId, username }: GalakTKClien
       socket.off('connect', handleConnect);
       socket.off('room:joined', handleStateUpdate);
       socket.off('game:state-update', handleStateUpdate);
-      socket.off('chat:message');
       socket.off('error:message');
     };
   }, [socket, roomId, username]);
@@ -91,20 +83,6 @@ export default function GalakTKClient({ socket, roomId, username }: GalakTKClien
     });
   };
 
-  const handleSendChat = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!socket || !chatInput.trim()) return;
-    socket.emit('chat:send-message', {
-      id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-      senderUsername: username,
-      senderId: socket.id,
-      text: chatInput.trim(),
-      roomId,
-      timestamp: Date.now()
-    });
-    setChatInput('');
-  };
-
   if (!gameState) return <div className="text-center text-slate-400 py-12 font-mono">Chargement du secteur Galak-T-K...</div>;
 
   const me = gameState.players.find(p => p.id === socket?.id);
@@ -113,10 +91,10 @@ export default function GalakTKClient({ socket, roomId, username }: GalakTKClien
   const gridHeight = gameState.gameOptions?.gridHeight || 8;
 
   return (
-    <div className="max-w-7xl mx-auto p-4 flex flex-col lg:flex-row gap-6">
+    <div className="max-w-4xl mx-auto p-4 flex flex-col items-center gap-6">
       
-      {/* GRILLE SPATIALE */}
-      <div className="flex-[3] bg-slate-900 rounded-2xl p-6 border border-purple-900/30 shadow-xl flex flex-col items-center">
+      {/* GRILLE SPATIALE & CLASSEMENT */}
+      <div className="w-full bg-slate-900 rounded-2xl p-6 border border-purple-900/30 shadow-xl flex flex-col items-center">
         
         <div className="w-full flex justify-between items-center mb-4 pb-3 border-b border-purple-900/30">
           <div>
@@ -141,9 +119,23 @@ export default function GalakTKClient({ socket, roomId, username }: GalakTKClien
           </div>
         )}
 
+        {/* Tableau des Pilotes */}
+        <div className="w-full grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          {gameState.players.map(p => (
+            <div key={p.id} className="bg-slate-800/40 p-3 rounded-xl border border-white/5 flex flex-col items-center">
+              <span className={`text-xs font-medium truncate max-w-full ${p.status === 'connected' ? 'text-white' : 'text-slate-500 line-through'}`}>
+                {p.username} {p.id === socket?.id && '(Moi)'} {gameState.currentTurnPlayerId === p.id && '🟢'}
+              </span>
+              <span className="mt-1 bg-purple-950 text-purple-300 border border-purple-800/40 text-[11px] font-bold px-2 py-0.5 rounded-full font-mono">
+                {p.starsFoundCount} ⭐ ({p.turnsTaken}c)
+              </span>
+            </div>
+          ))}
+        </div>
+
         {/* LE PLATEAU DE JEU */}
         <div 
-          className="grid gap-1.5 p-4 bg-black/60 rounded-xl border border-purple-900/40 shadow-inner"
+          className="grid gap-1.5 p-4 bg-black/60 rounded-xl border border-purple-900/40 shadow-inner overflow-x-auto"
           style={{ gridTemplateColumns: `repeat(${gridWidth}, minmax(0, 1fr))` }}
         >
           {Array.from({ length: gridHeight }).map((_, y) => 
@@ -174,56 +166,6 @@ export default function GalakTKClient({ socket, roomId, username }: GalakTKClien
           )}
         </div>
         <p className="text-[11px] font-mono text-slate-500 mt-3">💡 Clic gauche pour sonder • Clic droit pour marquer (· / 🎯)</p>
-      </div>
-
-      {/* CLASSEMENT & CHAT */}
-      <div className="flex-1 flex flex-col gap-6">
-        <div className="bg-slate-900 rounded-2xl border border-purple-900/30 p-5 shadow-xl">
-          <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 font-mono">Pilotes & Radar</h3>
-          <div className="space-y-3">
-            {gameState.players.map(p => (
-              <div key={p.id} className="flex justify-between items-center bg-slate-800/40 p-3 rounded-xl border border-white/5">
-                <span className={`font-medium ${p.status === 'connected' ? 'text-white' : 'text-slate-500 line-through'}`}>
-                  {p.username} {p.id === socket?.id && '(Moi)'} {gameState.currentTurnPlayerId === p.id && '🟢'}
-                </span>
-                <span className="bg-purple-950 text-purple-300 border border-purple-800/40 text-xs font-bold px-3 py-1 rounded-full font-mono">
-                  {p.starsFoundCount} ⭐ ({p.turnsTaken} coups)
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex-1 bg-slate-900 rounded-2xl border border-purple-900/30 flex flex-col shadow-xl overflow-hidden min-h-[300px]">
-          <div className="p-3.5 border-b border-purple-900/30 bg-slate-800/40 text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">
-            Communications Spatiales
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {chatMessages.map(msg => {
-              const isMe = msg.senderId === socket?.id;
-              return (
-                <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                  <span className="text-[10px] text-slate-500 mb-1">{msg.senderUsername}</span>
-                  <div className={`px-3 py-2 rounded-xl max-w-[85%] text-sm ${isMe ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-200'}`}>
-                    {msg.text}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <form onSubmit={handleSendChat} className="p-3 border-t border-purple-900/30 bg-slate-800/40 flex gap-2">
-            <input 
-              type="text" 
-              value={chatInput} 
-              onChange={e => setChatInput(e.target.value)} 
-              placeholder="Message..." 
-              className="flex-1 bg-black/50 border border-purple-900/30 rounded-xl px-3.5 py-2 text-sm text-white focus:outline-none focus:border-cyan-500" 
-            />
-            <button type="submit" className="bg-cyan-600 hover:bg-cyan-500 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors">
-              Envoyer
-            </button>
-          </form>
-        </div>
       </div>
 
     </div>

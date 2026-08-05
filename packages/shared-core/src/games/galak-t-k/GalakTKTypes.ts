@@ -13,6 +13,7 @@ export interface GalakTKGameOptions {
     gridHeight: number;
     totalStars: number;
     mode: GalakTKMode;
+    gridSize: GalakTKGridSize;
 }
 
 export type CellMarkStatus = 'empty' | 'star' | 'unknown';

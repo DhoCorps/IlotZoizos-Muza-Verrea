@@ -1,4 +1,3 @@
-// apps/hub-central/middleware.ts
 import createMiddleware from 'next-intl/middleware';
 import { routing } from './navigation';
 import { withAuth } from "next-auth/middleware";
@@ -48,13 +47,28 @@ export default withAuth(
       return NextResponse.redirect(new URL(`/${currentLocale}/agora`, req.url));
     }
 
-    // 4. Espaces publics autorisés à la volée (avec correction pour les pages d'auth sans locale)
-    const publicPathnameRegex = RegExp(
-      `^(/(${locales.join('|')}))?/(abyss-blog|partita|letr-in|le-bordel-de-dho|marchand|marketplace|ecommerce|agora|salon)(/.*)?$`,
-      'i'
-    );
-    
-    const isOtherPublicPage = publicPathnameRegex.test(pathname);
+    // 4. Espaces publics autorisés à la volée
+    // SÉCURITÉ : La regex d'origine (/.*)?$ laissait passer des routes privées qui commençaient par un mot public (ex: /ecommerce/admin).
+    // On utilise maintenant une validation plus stricte par préfixes.
+    const publicPrefixes = [
+      '/abyss-blog', 
+      '/partita', 
+      '/letr-in', 
+      '/le-bordel-de-dho', 
+      '/marchand', 
+      '/marketplace', 
+      '/ecommerce', 
+      '/agora'
+      // NOTE: Le '/salon' a été retiré car c'est un espace privé (E2EE) qui nécessite d'être connecté.
+    ];
+
+    // Vérifie si l'URL est la page d'accueil ou correspond à l'un des préfixes autorisés
+    const isOtherPublicPage = pathname === `/${currentLocale}` || publicPrefixes.some(prefix => {
+      const fullPrefix = `/${currentLocale}${prefix}`;
+      // La page est publique si elle est exactement le préfixe ou si elle en est un sous-chemin valide
+      return pathname === fullPrefix || pathname.startsWith(`${fullPrefix}/`);
+    });
+
     // La page est publique si elle est dans la liste d'auth OU dans la liste des autres pages autorisées
     const isPublicPage = isAuthPage || isOtherPublicPage;
 

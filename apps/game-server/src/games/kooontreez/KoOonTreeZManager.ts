@@ -1,6 +1,6 @@
 // apps/game-server/src/games/kooontreez/KoOonTreeZManager.ts
 import { Server } from 'socket.io';
-import { ChatMessage, RoomToSend } from '@ilot/shared-core';
+import { RoomToSend } from '@ilot/shared-core';
 
 import {
     KoOonTreeZPlayer,
@@ -53,7 +53,6 @@ export class KoOonTreeZManager {
             state: 'waiting',
             winnerId: null,
             round: 0,
-            chatMessages: [],
             gameType: 'KoOonTreeZ',
             maxPlayers: this.getMaxPlayersForMode(kooonTreezNbPlayer),
             scores: { [creatorPlayer.id]: 0 },
@@ -348,18 +347,6 @@ export class KoOonTreeZManager {
         return room;
     }
 
-    public handleChatMessage(message: ChatMessage): void {
-        const room = koOonTreeZRooms.get(message.roomId);
-        if (room) {
-            message.timestamp = Date.now();
-            room.chatMessages.push(message);
-            if (room.chatMessages.length > 50) {
-                room.chatMessages.splice(0, room.chatMessages.length - 50);
-            }
-            this.io.to(message.roomId).emit('chat:message', message);
-        }
-    }
-
     public notifyPlayerDisconnect(socketId: string, roomId: string): void {
         const room = koOonTreeZRooms.get(roomId);
         if (!room) return;
@@ -448,7 +435,6 @@ export class KoOonTreeZManager {
             kooonTreezOption: room.kooonTreezOption,
             kooonTreezLevel: room.kooonTreezLevel,
             kooonTreezSoloMode: room.kooonTreezSoloMode,
-            chatMessages: room.chatMessages,
             currentRoundTimeLeft: room.currentRoundTimeLeft,
             totalFlagsRecognized: room.totalFlagsRecognized,
             targetFlagsCount: room.targetFlagsCount,

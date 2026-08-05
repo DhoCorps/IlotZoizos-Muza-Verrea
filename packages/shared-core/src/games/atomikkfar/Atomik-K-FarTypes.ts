@@ -1,7 +1,6 @@
 // src/games/atomik-k-fard-e/AtomikKFardETypes.ts
 import {
     PlayerInRoom,
-    ChatMessage,
 } from '../../types/shared.types';
 
 export enum CellOwner {
@@ -130,7 +129,6 @@ export interface AtomikKFardEGameRoom {
     bombPropagationOrigin: CellCoordinates | null;
     cafardBombPlayer1PropagationOrigin: CellCoordinates | null;
     cafardBombPlayer2PropagationOrigin: CellCoordinates | null;
-    chatMessages: ChatMessage[];
     turnPassTimer?: NodeJS.Timeout | null;
     playerDisconnectTimers: Map<string, NodeJS.Timeout>;
     gameHistory: string[];

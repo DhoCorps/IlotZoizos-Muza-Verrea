@@ -25,8 +25,11 @@ export * from './database/models/nosql/barterOffer.model';
 
 export * from './database/models/nosql/taxonomy.model';
 
+export * from './database/models/nosql/gameHistory.model';
+
 export * from './database/services/mutation.service';
 export * from './database/services/sync.service';
+export * from './database/services/gameStats.service';
 
 export * from './database/models/graph/user.graph';
 export * from './database/models/graph/team.graph';

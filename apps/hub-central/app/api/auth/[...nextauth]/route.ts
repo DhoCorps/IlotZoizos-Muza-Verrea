@@ -3,7 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from 'bcryptjs';
 import { OiseauModel, franchirLaPorte, connectToDatabase } from '@ilot/infrastructure';
 
-// 🌟 SUTURE : Configuration interne pour éclairer l'ensemble de l'Îlot (Non-exportée pour apaiser le compilateur Next.js)
+// 🌟 SUTURE : Configuration interne pour éclairer l'ensemble de l'Îlot
 const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -33,16 +33,21 @@ const authOptions: NextAuthOptions = {
             throw new Error("L'harmonie est brisée. Mot de passe incorrect.");
         }
 
-        // 4. 🌟 L'ÉCHO NEO4J
+        // 4. 🌟 L'ÉCHO NEO4J (SÉCURISÉ & OPTIMISÉ : Non-bloquant)
+        // On ne bloque plus le login avec un "await". Si Neo4j est lent, MongoDB connecte quand même l'Oiseau.
         try {
-          await franchirLaPorte({
+          franchirLaPorte({
             uid: oiseau.uid,
             pseudo: oiseau.pseudo,
             frequenceHEX: oiseau.frequenceHEX
+          }).then(() => {
+            console.log(`✨ [Auth] ${oiseau.pseudo} a franchi la porte Neo4j en tâche de fond.`);
+          }).catch((graphError) => {
+            console.error(`🔥 [Auth] Erreur de résonance Neo4j pour ${oiseau.pseudo} (Non-bloquant):`, graphError);
           });
-          console.log(`✨ [Auth] ${oiseau.pseudo} a franchi la porte avec succès.`);
-        } catch (graphError) {
-          console.error(`🔥 [Auth] Erreur de résonance Neo4j pour ${oiseau.pseudo}:`, graphError);
+        } catch (error) {
+          // Attrape toute erreur synchrone potentielle lors de l'initialisation de franchirLaPorte
+          console.error(`🔥 [Auth] Erreur inattendue au lancement du processus Neo4j:`, error);
         }
 
         // 5. Transmission de l'essence initiale
@@ -87,7 +92,7 @@ const authOptions: NextAuthOptions = {
     }
   },
   pages: {
-    signIn: '/auth/login', // 👈 Correction ici pour pointer vers la vraie route de login de l'Îlot
+    signIn: '/auth/login', 
   }
 };
 

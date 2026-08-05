@@ -53,15 +53,6 @@ import {
 
 export type PlayerStatus = 'connected' | 'disconnected' | 'disconnected_temp' | 'waiting' | 'playing' | 'gameOver' | 'waitingForPlayers' | 'readyToStart' | 'inGame' | 'empty' | 'paused' | 'scanning' | 'marking';
 
-export interface ChatMessage {
-    id: string;
-    roomId: string;
-    senderId: string;
-    senderUsername: string;
-    text: string;
-    timestamp: number;
-}
-
 // 🎬🎨🚀🎲 Ajout de PlumZee aux GameTypes
 export type GameType = 'CrazyMorpion' | 'KoOonTreeZ' | 'AtomikKFardE' | 'CineMax' | 'SoonArt' | 'GalakTK' | 'PlumZee';
 
@@ -128,7 +119,6 @@ export interface BaseRoomData {
     state: PlayerStatus;
     winnerId: string | null;
     round: number;
-    chatMessages: ChatMessage[];
     gameType: GameType;
     maxPlayers: number;
     scores: { [playerId: string]: number };
@@ -273,7 +263,6 @@ export interface PlayerBaseClientState {
     state: PlayerStatus;
     winnerId: string | null;
     round: number;
-    chatMessages: ChatMessage[];
     gameType: GameType;
     currentRooms?: RoomToSend[];
 }

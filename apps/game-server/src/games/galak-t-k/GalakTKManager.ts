@@ -9,6 +9,9 @@ import {
 } from '@ilot/shared-core';
 import { GalakTKLogic } from '@ilot/shared-core';
 
+// 💾 IMPORT DU SERVICE D'ARCHIVAGE 
+import { GameStatsService } from '@ilot/infrastructure';
+
 export class GalakTKManager {
     private io: Server;
     private rooms: Map<string, GalakTKGameRoom>;
@@ -156,6 +159,45 @@ export class GalakTKManager {
                     room.winnerId = player.id;
                     const totalTime = Date.now() - player.startTime;
                     player.score = GalakTKLogic.calculateGamerScore(player.turnsTaken, totalTime, room.stars.length);
+                    
+                    console.log(`[GalakTKManager] FIN DE PARTIE dans le secteur ${roomId}. Vainqueur : ${player.username}`);
+
+                    // =========================================================
+                    // 💾 DÉCLENCHEMENT DE L'ARCHIVAGE (MONGO + NEO4J)
+                    // =========================================================
+                    const durationInSeconds = Math.floor((Date.now() - room.roundStartTime) / 1000);
+                    
+                    const matchData = {
+                        gameType: 'GalakTK' as const,
+                        roomId: room.id,
+                        startedAt: new Date(room.roundStartTime), 
+                        endedAt: new Date(),
+                        durationSeconds: durationInSeconds,
+                        players: room.players.map(p => {
+                            return {
+                                uid: p.id, 
+                                pseudo: p.username,
+                                score: p.score || 0, // Score calculé à la fin uniquement pour le vainqueur
+                                isWinner: p.id === room.winnerId,
+                                specificStats: {
+                                    starsFound: p.starsFoundCount,
+                                    turnsTaken: p.turnsTaken,
+                                    timeSpentMs: p.totalTimeMs || (Date.now() - p.startTime) // Approximation si pas géré finement
+                                }
+                            };
+                        }),
+                        matchMetadata: {
+                            gridSize: room.gameOptions.gridSize,
+                            totalStars: room.stars.length
+                        }
+                    };
+
+                    // Envoi en tâche de fond (Fire and Forget)
+                    GameStatsService.recordMatch(matchData).then((success: boolean) => {
+                        if(success) console.log(`[GalakTKManager] Historique sauvegardé avec succès pour le secteur ${roomId}`);
+                    });
+                    // =========================================================
+
                 } else {
                     // RÈGLE : Le joueur rejoue s'il trouve une étoile !
                     // room.currentTurnPlayerId reste inchangé.

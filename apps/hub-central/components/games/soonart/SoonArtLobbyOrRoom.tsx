@@ -12,16 +12,16 @@ interface SoonArtLobbyOrRoomProps {
 export default function SoonArtLobbyOrRoom({ username, initialRoomId }: SoonArtLobbyOrRoomProps) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [roomId, setRoomId] = useState<string>(initialRoomId);
-  const [isInRoom, setIsInRoom] = useState<boolean>(false);
+  const [isInRoom, setIsInRoom] = useState<boolean>(initialRoomId !== 'default-room' && !!initialRoomId);
   const [roomName, setRoomName] = useState<string>('Galerie de ' + username);
   const [availableRooms, setAvailableRooms] = useState<any[]>([]);
 
-  // Paramètres de la partie
   const [totalTreasures, setTotalTreasures] = useState<number>(5);
   const [maxCircles, setMaxCircles] = useState<number>(10);
 
   useEffect(() => {
-    const socketIo = io('http://localhost:3002');
+    const SERVER_URL = process.env.NEXT_PUBLIC_GAME_SERVER_URL || 'http://localhost:3002';
+    const socketIo = io(SERVER_URL);
     setSocket(socketIo);
 
     socketIo.on('connect', () => {
@@ -74,7 +74,6 @@ export default function SoonArtLobbyOrRoom({ username, initialRoomId }: SoonArtL
           🎨 Galeries Soon’Art
         </h2>
 
-        {/* Création de salon */}
         <form onSubmit={handleCreateRoom} className="mb-8 flex flex-col gap-4">
           <div>
             <label className="block text-xs font-mono uppercase tracking-widest text-slate-400 mb-2">Nom de la Galerie</label>
@@ -120,7 +119,6 @@ export default function SoonArtLobbyOrRoom({ username, initialRoomId }: SoonArtL
 
         <div className="h-px w-full bg-slate-800 my-6" />
 
-        {/* Liste des salons existants */}
         <div>
           <h3 className="text-sm font-mono uppercase tracking-widest text-slate-400 mb-4">Salons d'Art Actifs</h3>
           {availableRooms.length === 0 ? (

@@ -1,4 +1,3 @@
-// src/games/crazymorpion/CrazyMorpionManager.ts
 // Ce fichier gère la logique et l'état des parties de CrazyMorpion.
 
 import { Server } from 'socket.io'; // Importe seulement 'Server' pour émettre des événements
@@ -21,10 +20,12 @@ import {
 
 import {
     RoomToSend, // Type d'union générique pour toutes les données de pièce envoyées (inclut CrazyMorpionRoomToSend)
-    ChatMessage, // Utilise le ChatMessage générique de shared.ts
     CrazyMorpionRoomToSend,
     CrazyMorpionGameClientState // IMPORTANT: Importe ClientGlobalState pour le cast sur window.player
 } from '@ilot/shared-core';
+
+// 💾 IMPORT DU SERVICE D'ARCHIVAGE 
+import { GameStatsService } from '@ilot/infrastructure';
 
 // NOTE IMPORTANTE : L'interface CrazyMorpionGameRoom n'est plus définie ici.
 // Elle est importée depuis './CrazyMorpionTypes.js' sous l'alias InternalCrazyMorpionGameRoom.
@@ -68,7 +69,6 @@ export class CrazyMorpionManager {
             state: 'waiting',
             winnerId: null,
             round: 1,
-            chatMessages: [],
             gameType: 'CrazyMorpion',
             maxPlayers: 2,
             winningCells: null,
@@ -317,7 +317,81 @@ export class CrazyMorpionManager {
             }
 
             console.log(`[CrazyMorpionManager] Le joueur ${actualWinnerPlayer?.username} a remporté la manche dans le salon ${roomId}!`);
+            
+            // =========================================================
+            // 💾 ARCHIVAGE DE LA PARTIE (MONGO + NEO4J)
+            // =========================================================
+            // CrazyMorpion n'a pas de timer de manche complexe, on peut estimer 
+            // la durée via le nombre de coups, ou utiliser une date par défaut
+            const estimatedDuration = room.round * 30; // 30 sec par manche par défaut
+
+            const matchData = {
+                gameType: 'CrazyMorpion' as const,
+                roomId: room.id,
+                startedAt: new Date(Date.now() - (estimatedDuration * 1000)),
+                endedAt: new Date(),
+                durationSeconds: estimatedDuration,
+                players: room.players.map(p => ({
+                    uid: p.id,
+                    pseudo: p.username,
+                    score: room.scores[p.id] || 0,
+                    isWinner: p.id === roundWinnerId,
+                    specificStats: {
+                        symbolAssigned: (p as CrazyMorpionPlayer).symbol
+                    }
+                })),
+                matchMetadata: {
+                    totalRounds: room.round,
+                    draw: false
+                }
+            };
+
+            GameStatsService.recordMatch(matchData).then((success: boolean) => {
+                if(success) console.log(`[CrazyMorpionManager] Historique sauvegardé avec succès pour le salon ${roomId}`);
+            });
+            // =========================================================
+
             // Émet la RoomToSend complète (qui inclut winnerId, grid, players etc.)
+            this.io.to(roomId).emit('game:over', this.roomToRoomToSend(room));
+            this.io.emit('room:list', Array.from(crazyMorpionRooms.values()).map(this.roomToRoomToSend));
+            return;
+        }
+
+        // --- GESTION DU MATCH NUL ---
+        if (drawInfo && !winInfo.playerHasWon && !winInfo.ennemyHasWon) {
+            room.state = 'gameOver';
+            room.winnerId = 'draw'; // Signal d'égalité
+            
+            console.log(`[CrazyMorpionManager] ÉGALITÉ dans le salon ${roomId}! Grille pleine sans vainqueur.`);
+            
+            // =========================================================
+            // 💾 ARCHIVAGE DE LA PARTIE (ÉGALITÉ)
+            // =========================================================
+            const estimatedDuration = room.round * 30;
+            const matchData = {
+                gameType: 'CrazyMorpion' as const,
+                roomId: room.id,
+                startedAt: new Date(Date.now() - (estimatedDuration * 1000)),
+                endedAt: new Date(),
+                durationSeconds: estimatedDuration,
+                players: room.players.map(p => ({
+                    uid: p.id,
+                    pseudo: p.username,
+                    score: room.scores[p.id] || 0,
+                    isWinner: false, // Pas de vainqueur
+                    specificStats: { symbolAssigned: (p as CrazyMorpionPlayer).symbol }
+                })),
+                matchMetadata: {
+                    totalRounds: room.round,
+                    draw: true
+                }
+            };
+
+            GameStatsService.recordMatch(matchData).then((success: boolean) => {
+                if(success) console.log(`[CrazyMorpionManager] Historique (Match Nul) sauvegardé pour le salon ${roomId}`);
+            });
+            // =========================================================
+
             this.io.to(roomId).emit('game:over', this.roomToRoomToSend(room));
             this.io.emit('room:list', Array.from(crazyMorpionRooms.values()).map(this.roomToRoomToSend));
             return;
@@ -395,27 +469,6 @@ export class CrazyMorpionManager {
 
     /**
      * @public
-     * @description Gère l'envoi d'un message de chat dans un salon.
-     * Appelé par `server.ts` sur l'événement `chat:send-message`.
-     * @param {ChatMessage} message Le message à envoyer (maintenant générique).
-     */
-    public handleChatMessage(message: ChatMessage): void { // Utilise ChatMessage générique
-        const room = crazyMorpionRooms.get(message.roomId);
-        if (room) {
-            message.timestamp = Date.now();
-            room.chatMessages.push(message);
-            if (room.chatMessages.length > 50) {
-                room.chatMessages.splice(0, room.chatMessages.length - 50);
-            }
-            this.io.to(message.roomId).emit('chat:message', message);
-        } else {
-            console.warn(`[CrazyMorpionManager] Salon de chat ${message.roomId} non trouvé.`);
-            this.io.to(message.senderId).emit('error:message', 'Salon de chat non trouvé.');
-        }
-    }
-
-    /**
-     * @public
      * @description Notifie le manager qu'un joueur s'est déconnecté.
      * Appelé par `server.ts`. Gère le statut du joueur et le passage de tour avec délai de grâce.
      * @param {string} socketId L'ID du socket qui s'est déconnecté.
@@ -468,13 +521,67 @@ export class CrazyMorpionManager {
                                 currentRoom.state = 'gameOver';
                                 currentRoom.winnerId = null;
                                 console.log(`[CrazyMorpionManager] Partie interrompue dans le salon ${currentRoom.id}: plus de joueurs connectés après déconnexion définitive.`);
+                                
+                                // =========================================================
+                                // 💾 ARCHIVAGE FORFAITAIRE (VICTOIRE PAR FORFAIT OU ANNULATION)
+                                // =========================================================
+                                // Comme les deux joueurs sont déconnectés, c'est un match nul forcé
+                                const estimatedDuration = currentRoom.round * 30;
+                                const matchData = {
+                                    gameType: 'CrazyMorpion' as const,
+                                    roomId: currentRoom.id,
+                                    startedAt: new Date(Date.now() - (estimatedDuration * 1000)),
+                                    endedAt: new Date(),
+                                    durationSeconds: estimatedDuration,
+                                    players: currentRoom.players.map(p => ({
+                                        uid: p.id,
+                                        pseudo: p.username,
+                                        score: currentRoom.scores[p.id] || 0,
+                                        isWinner: false, 
+                                        specificStats: { disconnectStatus: p.status }
+                                    })),
+                                    matchMetadata: { reason: 'All players disconnected' }
+                                };
+                                GameStatsService.recordMatch(matchData).then((success: boolean) => {
+                                    if(success) console.log(`[CrazyMorpionManager] Historique d'interruption sauvegardé pour ${roomId}`);
+                                });
+                                // =========================================================
+
                                 this.io.to(currentRoom.id).emit('game:interrupted', { message: `Tous les joueurs sont déconnectés du salon.`, gameType: 'CrazyMorpion' });
                             }
                             // Émettre la mise à jour de la room à tous les joueurs du salon + la liste des salons globale
                             this.io.to(currentRoom.id).emit('room:joined', this.roomToRoomToSend(currentRoom));
                             this.io.emit('room:list', Array.from(crazyMorpionRooms.values()).map(this.roomToRoomToSend));
                         } else if (currentRoom.players.filter(p => p.status === 'connected').length === 1 && currentRoom.state === 'playing') {
-                            // Si un joueur quitte et qu'il en reste un, le salon passe en attente
+                            // Si un joueur quitte (définitivement) et qu'il en reste un
+                            const winnerPlayer = currentRoom.players.find(p => p.status === 'connected');
+                            
+                            // =========================================================
+                            // 💾 ARCHIVAGE VICTOIRE PAR FORFAIT
+                            // =========================================================
+                            if(winnerPlayer) {
+                                const estimatedDuration = currentRoom.round * 30;
+                                const matchData = {
+                                    gameType: 'CrazyMorpion' as const,
+                                    roomId: currentRoom.id,
+                                    startedAt: new Date(Date.now() - (estimatedDuration * 1000)),
+                                    endedAt: new Date(),
+                                    durationSeconds: estimatedDuration,
+                                    players: currentRoom.players.map(p => ({
+                                        uid: p.id,
+                                        pseudo: p.username,
+                                        score: currentRoom.scores[p.id] || 0,
+                                        isWinner: p.id === winnerPlayer.id, 
+                                        specificStats: { wonByForfeit: p.id === winnerPlayer.id }
+                                    })),
+                                    matchMetadata: { reason: 'Opponent disconnected' }
+                                };
+                                GameStatsService.recordMatch(matchData).then((success: boolean) => {
+                                    if(success) console.log(`[CrazyMorpionManager] Historique forfaitaire sauvegardé pour ${roomId}`);
+                                });
+                            }
+                            // =========================================================
+
                             currentRoom.state = 'waiting';
                             currentRoom.currentTurnPlayerId = null;
                             currentRoom.winningCells = null;
@@ -576,29 +683,12 @@ export class CrazyMorpionManager {
             id: room.id,
             name: room.name,
             gameType: room.gameType, // 'CrazyMorpion'
-            // Correction ici: On ne peut pas accéder à window.player.symbol ici car window.player est côté client
-            // Le symbole du joueur doit venir de la 'room' elle-même si nécessaire pour l'état global de la pièce
-            // ou être passé explicitement si c'est pour un joueur spécifique.
-            // Pour CrazyMorpionRoomToSend, la propriété 'symbol' est celle du joueur actuel sur le client.
-            // Elle n'a pas sa place ici dans le Manager qui prépare l'objet 'room' pour tout le monde.
-            // C'est le client qui doit trouver SON symbole dans la liste des joueurs quand il reçoit 'room:joined' ou 'game:init'.
-            // Si 'lastPlacedSymbol' est ce que tu voulais, assure-toi que la pièce a bien cette propriété.
-            // Sinon, cette ligne 'symbol: window.player.symbol' devrait être supprimée ou gérée autrement.
-            // Je l'ai commentée car elle n'a pas de sens dans le contexte du serveur construisant un objet générique de pièce.
-            // Si tu veux un symbole spécifique pour le DERNIER coup joué, il devrait être une propriété de 'room'.
-            // Sinon, l'erreur 2339 était liée au CLIENT, pas au MANAGER.
-            // Pour l'instant, je vais la supprimer pour que le code compile, à toi de voir si tu as un 'lastPlacedSymbol' dans 'InternalCrazyMorpionGameRoom'.
-            // Si tu veux représenter le symbole du joueur actuel DANS LA ROOM, il faut l'ajouter à InternalCrazyMorpionGameRoom.
-            // En l'absence de cette propriété sur InternalCrazyMorpionGameRoom, je retire la ligne.
-            // symbol: (window.player as CrazyMorpionGameClientState).symbol, // <-- C'était l'erreur 2339 côté client! Pas ici!
-            // lastPlacedSymbol: "", // Si c'est cette propriété que tu voulais, elle doit être dans InternalCrazyMorpionGameRoom
             players: playersToSend,
             state: room.state,
             currentTurnPlayerId : room.currentTurnPlayerId,
             winnerId: room.winnerId,
             round: room.round,
             maxPlayers: room.maxPlayers,
-            chatMessages: room.chatMessages,
             grid: room.grid,
             winningCells: room.winningCells,
             scores: room.scores,

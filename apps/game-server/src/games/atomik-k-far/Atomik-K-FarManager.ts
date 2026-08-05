@@ -1,4 +1,3 @@
-// src/games/atomikkfarde/AtomikKFardEManager.ts
 // Ce fichier gère la logique et l'état des parties d'Atomik-K-Fard(e).
 import { Server } from 'socket.io';
 import {
@@ -7,8 +6,11 @@ import {
     AtomikKFardEPlayer // Import crucial: on utilise le Player spécifique au jeu, pas le Player générique
 } from "@ilot/shared-core"; // S'assurer que les imports sont corrects
 import { AtomikKFardELogic } from "@ilot/shared-core"; // Importer la logique
-import { AtomikKFardEPlayerClient, RoomToSend, ChatMessage, AtomikKFardERoomToSend, AtomikKFardEGameOptions } from '@ilot/shared-core'; // Inclure AtomikKFardERoomToSend
+import { AtomikKFardEPlayerClient, RoomToSend, AtomikKFardERoomToSend, AtomikKFardEGameOptions } from '@ilot/shared-core'; // Inclure AtomikKFardERoomToSend
 import { Socket } from 'socket.io-client';
+
+// 💾 IMPORT DU SERVICE D'ARCHIVAGE (Assure-toi que ce chemin correspond à ton arborescence)
+import { GameStatsService } from '@ilot/infrastructure'; 
 
 // REMARQUE : `atomikKFardERooms` n'est plus une variable globale ici.
 // Elle sera gérée comme une propriété d'instance dans la classe AtomikKFardEManager.
@@ -140,7 +142,6 @@ export class AtomikKFardEManager {
             bombPropagationOrigin: null,
             cafardBombPlayer1PropagationOrigin: null,
             cafardBombPlayer2PropagationOrigin: null,
-            chatMessages: [],
             turnPassTimer: null,
             playerDisconnectTimers: new Map(),
             gameHistory: [],
@@ -248,7 +249,7 @@ export class AtomikKFardEManager {
                 maxRounds: room.gameOptions.maxRounds,
                 timePerRound: room.gameOptions.timePerRound,
             },
-            chatMessages: room.chatMessages,
+    
         };
     }
     /**
@@ -484,7 +485,6 @@ export class AtomikKFardEManager {
                 bombPropagationOrigin: null,
                 cafardBombPlayer1PropagationOrigin: null,
                 cafardBombPlayer2PropagationOrigin: null,
-                chatMessages: [], // Initialise un tableau vide
                 turnPassTimer: null,
                 playerDisconnectTimers: new Map(), // Initialise une nouvelle Map
                 gameHistory: [],
@@ -893,7 +893,6 @@ export class AtomikKFardEManager {
         room.bombPropagationOrigin = null;
         room.cafardBombPlayer1PropagationOrigin = null;
         room.cafardBombPlayer2PropagationOrigin = null;
-        room.chatMessages = [];
         room.turnPassTimer = null;
         room.playerDisconnectTimers = new Map<string, NodeJS.Timeout>();
         room.gameHistory = [];
@@ -932,7 +931,7 @@ export class AtomikKFardEManager {
         if (room.currentRound === 0 || room.roundResults.length > 0) { // Si c'est le tout début, ou si un round vient d'être résolu
              room.currentRound++;
         }
-       
+        
         // Arrêtez TOUJOURS l'ancien intervalle avant d'en créer un nouveau.
         if (room.roundTimerInterval) {
             clearInterval(room.roundTimerInterval);
@@ -987,28 +986,6 @@ export class AtomikKFardEManager {
     }
 
 
-    
-    /**
-     * @public
-     * @description Gère l'envoi d'un message de chat dans un salon.
-     * @param {ChatMessage} message Le message à envoyer (utilise le type générique).
-     */
-    public handleChatMessage(message: ChatMessage): void {
-        console.log(`[AtomikKFardEManager] handleChatMessage: Message reçu pour le salon ${message.roomId} de ${message.senderUsername}: '${message.text}'`);
-        const room = this.rooms.get(message.roomId); // <-- Utilise this.rooms
-        if (room) {
-            message.timestamp = Date.now();
-            room.chatMessages.push(message);
-            if (room.chatMessages.length > 50) {
-                room.chatMessages.splice(0, room.chatMessages.length - 50);
-            }
-            this.io.to(message.roomId).emit('chat:message', message);
-        } else {
-            console.warn(`[AtomikKFardE] handleChatMessage: Salon de chat ${message.roomId} non trouvé.`);
-            this.io.to(message.senderId).emit('error:message', 'Salon de chat non trouvé.');
-        }
-    }
-
     /**
      * @function startRoundTimer
      * @description Démarre le timer pour le round actuel.
@@ -1026,8 +1003,8 @@ export class AtomikKFardEManager {
 
         room.currentRoundTimer = setInterval(() => {
             room.currentRoundTimeLeft--;
-            // TODO: Émettre le temps restant à tous les clients
-            // this.io.to(roomId).emit('timerUpdate', room.currentRoundTimeLeft);
+            // ✅ DIFFUSION DU TEMPS RESTANT AUX CLIENTS DÉCOMMENTÉE ET ACTIVE
+            this.io.to(roomId).emit('atomikkfarde:countdown', room.currentRoundTimeLeft);
 
             if (room.currentRoundTimeLeft <= 0) {
                 clearInterval(room.currentRoundTimer!);
@@ -1249,11 +1226,60 @@ export class AtomikKFardEManager {
 
         // Préparer le prochain round ou terminer la partie
         room.currentRound++;
+        
         if (room.currentRound > room.maxRounds || room.team1Score >= room.gameOptions.scoreToWin || room.team2Score >= room.gameOptions.scoreToWin) {
             room.state = 'gameOver';
             room.winnerId = this.determineGameWinner(room);
             console.log(`Partie terminée dans la salle ${roomId}. Vainqueur: ${room.winnerId || 'Aucun'}`);
-            // TODO: Émettre un événement de fin de partie
+            
+            // ==========================================
+            // 💾 DÉCLENCHEMENT DE L'ARCHIVAGE (MONGO + NEO4J)
+            // ==========================================
+            
+            // On calcule la durée totale (simplifié: on prend l'heure actuelle moins une "startedAt" fictive pour l'exemple. 
+            // L'idéal est d'ajouter une propriété `startedAt: Date` dans AtomikKFardEGameRoom lors de la création de la salle).
+            const duration = room.gameOptions.timePerRound * (room.currentRound - 1); 
+            
+            const matchData = {
+                gameType: 'AtomikKFardE' as const,
+                roomId: room.id,
+                startedAt: new Date(Date.now() - (duration * 1000)), // Date de début calculée
+                endedAt: new Date(),
+                durationSeconds: duration,
+                players: room.players.map(p => {
+                    const isWin = room.winnerId === p.id || 
+                                 (room.winnerId === 'Team1' && room.teams.player1.includes(p.id)) ||
+                                 (room.winnerId === 'Team2' && room.teams.player2.includes(p.id));
+                    
+                    return {
+                        uid: p.id, // Assure-toi que p.id contient bien l'UID réel de la base de données
+                        pseudo: p.username,
+                        score: room.scores[p.id] || 0,
+                        isWinner: isWin,
+                        specificStats: {
+                            // On pourrait ajouter des stats spécifiques d'Atomik ici
+                            cardsPlayed: room.currentRound - 1
+                        }
+                    };
+                }),
+                matchMetadata: {
+                    gridOption: room.gameOptions.option,
+                    teamMode: room.gameOptions.teamMode,
+                    totalRounds: room.currentRound - 1
+                }
+            };
+
+            // On lance l'archivage en tâche de fond (Fire and Forget) pour ne pas bloquer le serveur
+            // ✅ FIX: TYPAGE DE LA PROMESSE POUR RÉSOUDRE L'ERREUR ANY
+            GameStatsService.recordMatch(matchData).then((success: boolean) => {
+                if(success) console.log(`[AtomikKFardEManager] Historique sauvegardé avec succès pour la salle ${roomId}`);
+            });
+
+            // ==========================================
+
+            // ✅ EMISSION EVENT: Fin de partie DÉCOMMENTÉE ET ACTIVE
+            this.io.to(roomId).emit('game:over', this.toClientRoom(room)); 
+            
         } else {
             // Réinitialiser les états des joueurs pour le nouveau round
             room.players.forEach(p => {
@@ -1265,11 +1291,12 @@ export class AtomikKFardEManager {
             console.log(`Début du round ${room.currentRound} dans la salle ${roomId}.`);
             // Redémarrer le timer
             this.startRoundTimer(roomId);
-            // TODO: Émettre un événement de début de nouveau round
+            // ✅ EMISSION EVENT: Nouveau round DÉCOMMENTÉE ET ACTIVE
+            this.io.to(roomId).emit('game:new-round', this.toClientRoom(room));
         }
 
-        // TODO: Émettre l'état mis à jour de la salle à tous les clients
-        // this.io.to(roomId).emit('roomUpdate', room);
+        // ✅ EMISSION EVENT: Mise à jour globale DÉCOMMENTÉE ET ACTIVE
+        this.io.to(roomId).emit('room:updated', this.toClientRoom(room));
     }
 
     /**
@@ -1355,7 +1382,6 @@ export class AtomikKFardEManager {
             players: playersToSend,
             state: room.state,
             winnerId: room.winnerId,
-            chatMessages: room.chatMessages,
             deck: room.deck,
             gameOptions: {
                 option: room.gameOptions.option,

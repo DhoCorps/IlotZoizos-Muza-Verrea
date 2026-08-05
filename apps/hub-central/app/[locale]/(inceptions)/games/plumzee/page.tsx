@@ -3,20 +3,22 @@ import { redirect } from 'next/navigation';
 import PlumZeeLobbyOrRoom from '../../../../../components/games/plumzee/PlumZeeLobbyOrRoom';
 
 export default async function PlumZeePage({
-  params: { locale },
+  params,
   searchParams
 }: {
-  params: { locale: string };
-  searchParams: { room?: string };
+  params: Promise<{ locale: string }>;
+  searchParams: Promise<{ room?: string }>;
 }) {
   const session = await getServerSession();
+  const { locale } = await params;
+  const resolvedSearchParams = await searchParams;
 
   if (!session || !session.user) {
     redirect(`/${locale}/auth/login`);
   }
 
   const username = session.user.name || 'Oiseau Anonyme';
-  const initialRoomId = searchParams.room || 'default-room';
+  const initialRoomId = resolvedSearchParams.room || 'default-room';
 
   return (
     <PlumZeeLobbyOrRoom username={username} initialRoomId={initialRoomId} />

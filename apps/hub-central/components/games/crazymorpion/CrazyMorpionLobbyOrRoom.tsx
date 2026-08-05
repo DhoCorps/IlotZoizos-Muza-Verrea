@@ -12,13 +12,13 @@ interface CrazyMorpionLobbyOrRoomProps {
 export default function CrazyMorpionLobbyOrRoom({ username, initialRoomId }: CrazyMorpionLobbyOrRoomProps) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [roomId, setRoomId] = useState<string>(initialRoomId);
-  const [isInRoom, setIsInRoom] = useState<boolean>(false);
+  const [isInRoom, setIsInRoom] = useState<boolean>(initialRoomId !== 'default-room' && !!initialRoomId);
   const [roomName, setRoomName] = useState<string>('Salon de ' + username);
   const [availableRooms, setAvailableRooms] = useState<any[]>([]);
 
   useEffect(() => {
-    // Connexion au serveur Socket.IO (port 3002)
-    const socketIo = io('http://localhost:3002');
+    const SERVER_URL = process.env.NEXT_PUBLIC_GAME_SERVER_URL || 'http://localhost:3002';
+    const socketIo = io(SERVER_URL);
     setSocket(socketIo);
 
     socketIo.on('connect', () => {
