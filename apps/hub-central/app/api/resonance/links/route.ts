@@ -1,26 +1,50 @@
 // apps/hub-central/app/api/resonance/links/route.ts
-import { NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
+
+import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../../../../lib/auth";
 import { connectToDatabase } from '@ilot/infrastructure';
 import { ResonanceOrchestrator } from '@ilot/shared-core';
-import { WeaveLinkSchema, ActionSignature } from '@ilot/types';
+import { WeaveLinkSchema, ActionSignature, EntityLabel, ResonanceType } from '@ilot/types';
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    await connectToDatabase();
-    const session = await getServerSession(authOptions);
+    let session;
+    try {
+      session = await getServerSession(authOptions);
+    } catch (sessionErr) {
+      console.error("🔥 [SESSION ERROR RESONANCE LINKS POST]", sessionErr);
+      return NextResponse.json({ error: "Erreur de lecture d'Aura (session)." }, { status: 500 });
+    }
+
     const userUid = (session?.user as any)?.uid;
     const sessionCaps = (session?.user as any)?.capabilities || [];
 
     if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié. Le Graphe refuse le tissage aveugle." }, { status: 401 });
+      return NextResponse.json({ error: "Oiseau non identifié dans la canopée." }, { status: 401 });
     }
 
-    const body = await req.json();
-    const validation = WeaveLinkSchema.safeParse(body);
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR RESONANCE LINKS POST]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
+    }
+
+    let rawBody;
+    try {
+      rawBody = await req.json();
+    } catch (parseErr) {
+      return NextResponse.json({ error: "Le chant (requête) est illisible." }, { status: 400 });
+    }
+
+    const validation = WeaveLinkSchema.safeParse(rawBody);
     if (!validation.success) {
-      return NextResponse.json({ error: "Forme du pont invalide.", details: validation.error.flatten() }, { status: 400 });
+      return NextResponse.json(
+        { error: "Lien malformé.", details: validation.error.flatten() }, 
+        { status: 400 }
+      );
     }
 
     const signature: ActionSignature = {
@@ -28,23 +52,31 @@ export async function POST(req: Request) {
       capabilities: sessionCaps
     };
 
-    const orchestrator = new ResonanceOrchestrator();
-    const result = await orchestrator.weaveCrossDomainLink(
-      validation.data.sourceUid,
-      validation.data.sourceLabel,
-      validation.data.targetUid,
-      validation.data.targetLabel,
-      validation.data.relationType,
-      signature
-    );
+    let result;
+    try {
+      // 🕸️ APPEL STATIQUE DIRECT (Suppression définitive du "new ResonanceOrchestrator()")
+      result = await ResonanceOrchestrator.weaveCrossDomainLink(
+        validation.data.sourceUid,
+        validation.data.sourceLabel as EntityLabel,
+        validation.data.targetUid,
+        validation.data.targetLabel as EntityLabel,
+        validation.data.relationType as ResonanceType,
+        signature
+      );
+    } catch (neoErr: any) {
+      console.error("🌋 [NEO4J WEAVE FORGE ERROR] :", neoErr);
+      const status = neoErr.status || 500;
+      return NextResponse.json({ error: neoErr.message || "Le Graphe a rejeté le tissage." }, { status });
+    }
 
     return NextResponse.json({
       success: true,
       message: `Pont transdisciplinaire [${validation.data.relationType}] forgé avec succès dans le Graphe !`,
-      result
+      data: result
     }, { status: 201 });
+
   } catch (error: any) {
-    console.error("🌋 Fracture lors du tissage global :", error);
-    return NextResponse.json({ error: error.message || "La matrice a rejeté le lien." }, { status: error.statusCode || 500 });
+    console.error("🌋 Fracture globale lors du tissage de liens :", error);
+    return NextResponse.json({ error: error.message || "La tempête a brisé le pont." }, { status: 500 });
   }
 }

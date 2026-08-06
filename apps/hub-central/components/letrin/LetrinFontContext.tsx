@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { compileAndInjectFont } from '../../app/api/letrin/fonts/injector/fontInjector'; // Ajuste ton chemin d'import
+import { compileAndInjectFont } from '../../../hub-central/utils/letrin-compiler'; // Ajuste ton chemin d'import
 
 interface FontItem {
   _id: string;

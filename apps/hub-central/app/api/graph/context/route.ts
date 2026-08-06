@@ -1,15 +1,29 @@
-// apps/hub-central/app/api/graph/context/route.ts
 import { NextResponse } from 'next/server';
 import { getNeo4jSession } from '@ilot/infrastructure';
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const rootUid = searchParams.get('uid');
-
-  if (!rootUid) return NextResponse.json({ nodes: [], links: [] });
-
-  const session = getNeo4jSession();
+  let session;
   try {
+    let url;
+    try {
+      url = new URL(req.url);
+    } catch (urlErr) {
+      return NextResponse.json({ nodes: [], links: [], message: "URL invalide." }, { status: 400 });
+    }
+
+    const rootUid = url.searchParams.get('uid');
+
+    if (!rootUid) {
+      return NextResponse.json({ nodes: [], links: [] }, { status: 200 });
+    }
+
+    try {
+      session = getNeo4jSession();
+    } catch (neoInitErr) {
+      console.error("❌ [NEO4J SESSION INIT ERROR]", neoInitErr);
+      return NextResponse.json({ nodes: [], links: [], message: "Matrice de graphe injoignable." }, { status: 500 });
+    }
+
     const result = await session.run(`
       MATCH (root {uid: $rootUid})
       OPTIONAL MATCH (root)-[r]-(neighbor)
@@ -43,7 +57,7 @@ export async function GET(req: Request) {
 
       if (rootRecord) {
         const rootFormatted = formatNodeData(rootRecord);
-        if (!nodeIds.has(rootFormatted.id)) {
+        if (rootFormatted.id && !nodeIds.has(rootFormatted.id)) {
           nodes.push(rootFormatted);
           nodeIds.add(rootFormatted.id);
         }
@@ -70,7 +84,7 @@ export async function GET(req: Request) {
       }
     });
 
-    return NextResponse.json({ nodes, links });
+    return NextResponse.json({ nodes, links }, { status: 200 });
 
   } catch (error: any) {
     console.error("🔥 Fracture lors de la lecture contextuelle du Graphe :", error);
@@ -79,6 +93,12 @@ export async function GET(req: Request) {
       { status: 500 }
     );
   } finally {
-    await session.close();
+    if (session) {
+      try {
+        await session.close();
+      } catch (closeErr) {
+        console.error("🔥 [NEO4J SESSION CLOSE ERROR]", closeErr);
+      }
+    }
   }
 }

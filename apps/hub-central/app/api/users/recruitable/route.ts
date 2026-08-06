@@ -1,104 +1,110 @@
-// apps/hub-central/app/api/users/route.ts
-export const dynamic = 'force-dynamic';
-
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { OiseauModel } from "@ilot/infrastructure";
-import { OiseauOrchestrator } from "@ilot/shared-core"; // ✅ Import correct de la Forge
-// import { authOptions } from "../../../lib/auth"; // Décommente si nécessaire
+import { connectToDatabase, OiseauModel, getNeo4jSession } from "@ilot/infrastructure"; 
+import { authOptions } from "../../../../lib/auth"; // Ajuste le chemin selon ton arborescence
+
+export const dynamic = 'force-dynamic';
+
+interface OiseauUser {
+  id: string;
+  uid: string;
+  capabilities: string[];
+}
 
 /**
- * 🔍 GET : Recensement des Oiseaux (La Volière Publique)
- * (Je garde ton code, la mécanique de recherche par Aura est superbe)
+ * 🔍 GET : Recensement des Oiseaux RECRUTABLES pour un Nid spécifique
+ * /api/users/recruitable?teamSlug=nid-alpha&search=Artisan
  */
 export async function GET(req: Request) {
   try {
-    // 🛡️ DOUANE : Il faut au moins être un Oiseau pour voir les autres Oiseaux
-    const session = await getServerSession();
-    if (!session?.user) {
+    // -------------------------------------------------------------------------
+    // 1. ÉVEIL DE LA SILICE
+    // -------------------------------------------------------------------------
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR RECRUITABLE GET]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
+    }
+
+    // -------------------------------------------------------------------------
+    // 2. DOUANE : SÉCURISATION DE L'ACCÈS
+    // -------------------------------------------------------------------------
+    let session;
+    try {
+      session = await getServerSession(authOptions);
+    } catch (sessionErr) {
+      return NextResponse.json({ error: "Erreur de lecture d'Aura." }, { status: 500 });
+    }
+
+    const currentUid = (session?.user as OiseauUser | undefined)?.uid;
+    if (!currentUid) {
       return NextResponse.json({ error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
     }
 
-    // 🔍 Extraction des filtres depuis l'URL
+    // -------------------------------------------------------------------------
+    // 3. VALIDATION DES PARAMÈTRES DE RECHERCHE
+    // -------------------------------------------------------------------------
     const { searchParams } = new URL(req.url);
     const search = searchParams.get('search');
+    const teamSlug = searchParams.get('teamSlug');
 
-    let query: any = {};
+    if (!teamSlug) {
+      return NextResponse.json({ error: "L'onde manque de précision : le teamSlug est requis." }, { status: 400 });
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. LE BOUCLIER DU GRAPHE (Neo4j) - Exclusion des membres existants
+    // -------------------------------------------------------------------------
+    const neoSession = getNeo4jSession();
+    // On exclut d'office l'utilisateur qui fait la recherche
+    const excludedUids: string[] = [currentUid]; 
+
+    try {
+      const cypher = `
+        MATCH (u:User)-[:FOUNDED|MEMBER_OF|INVITED_TO]->(t:Team)
+        WHERE t.slug = $teamSlug OR t.uid = $teamSlug
+        RETURN u.uid AS uid
+      `;
+      const result = await neoSession.run(cypher, { teamSlug });
+      
+      result.records.forEach(record => {
+        const u = record.get('uid');
+        if (u && !excludedUids.includes(u)) {
+          excludedUids.push(u);
+        }
+      });
+    } catch (neoErr) {
+      console.error("🔥 [NEO4J RECRUITABLE ERROR]", neoErr);
+      return NextResponse.json({ error: "Le Graphe est momentanément muet." }, { status: 500 });
+    } finally {
+      try { await neoSession.close(); } catch (e) {}
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. LA RECHERCHE DANS LA SILICE (MongoDB)
+    // -------------------------------------------------------------------------
+    // On filtre impérativement tous ceux qui sont dans excludedUids
+    let query: any = { uid: { $nin: excludedUids } };
 
     if (search) {
-      // SUTURE : On utilise "pseudo" et "aura"
       query.$or = [
+        { slug: { $regex: search, $options: 'i' } },
         { pseudo: { $regex: search, $options: 'i' } },
         { capabilities: { $regex: search, $options: 'i' } } 
       ];
     }
 
-    // 🛰️ On récupère les oiseaux (en protégeant les données sensibles)
-    const users = await OiseauModel.find(query)
-      .select('uid pseudo frequenceHEX aura signature') // On ne renvoie QUE ce qui est public
-      .sort({ createdAt: -1 })
+    // 🛰️ Extraction chirurgicale
+    const recruitableUsers = await OiseauModel.find(query)
+      .select('uid slug pseudo frequenceHEX capabilities avatarUrl signature') 
       .limit(20) 
       .lean();
 
-    return NextResponse.json(users);
+    return NextResponse.json(recruitableUsers, { status: 200 });
+
   } catch (error) {
-    console.error("🔥 Erreur lors du recensement des oiseaux :", error);
-    return NextResponse.json({ error: "Le Nexus n'a pas pu lister les oiseaux." }, { status: 500 });
-  }
-}
-
-/**
- * 🐣 POST : Éclosion d'un Oiseau (Inscription)
- * Attention : Cette route doit rester publique. Pas de Signature ici.
- */
-export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-
-    // 🛡️ Validation de base avant d'appeler l'Orchestrateur
-    if (!body.email || !body.pseudo || !body.password) {
-      return NextResponse.json(
-        { error: "L'œuf est incomplet (Email, Pseudo et Mot de passe requis)." }, 
-        { status: 400 }
-      );
-    }
-
-    // 🛡️ On vérifie l'unicité dans la Silice avant de déranger le Graphe
-    const existingUser = await OiseauModel.findOne({ 
-      $or: [{ email: body.email }, { pseudo: body.pseudo }] 
-    });
-
-    if (existingUser) {
-      return NextResponse.json(
-        { error: "Cet oiseau chante déjà dans une autre cage (Email ou Pseudo déjà pris)." }, 
-        { status: 400 }
-      );
-    }
-
-    // 🌟 LA MAGIE DE L'ORCHESTRATEUR (La vraie Suture !)
-    const orchestrator = new OiseauOrchestrator(); // ✅ Instanciation propre de la Forge
-
-    // L'Orchestrateur gère la transaction Mongo+Neo4j et le Hash du mot de passe
-    const syncResult = await orchestrator.fosterOiseau({
-      email: body.email,
-      pseudo: body.pseudo,
-      password: body.password, 
-      frequenceHEX: body.frequenceHEX || '#8b9dc3'
-    });
-
-    // L'orchestrateur renvoie un SyncResult complet (on extrait la data Mongo pour le client)
-    const nouvelOiseau = syncResult.mongo;
-
-    return NextResponse.json({
-      success: true,
-      message: "L'oiseau a éclos dans le Nexus et dans le Graphe !",
-      uid: nouvelOiseau.uid
-    }, { status: 201 });
-
-  } catch (error: any) {
-    // Si l'erreur vient de la Forge (IlotError), on récupère le bon statut
-    const status = error.statusCode || 500;
-    console.error("🔥 Erreur d'éclosion :", error);
-    return NextResponse.json({ error: error.message || "L'œuf a été brisé lors de l'éclosion." }, { status });
+    console.error("🔥 Erreur lors du recensement des recrues :", error);
+    return NextResponse.json({ error: "Le Nexus n'a pas pu lister les oiseaux recrutables." }, { status: 500 });
   }
 }

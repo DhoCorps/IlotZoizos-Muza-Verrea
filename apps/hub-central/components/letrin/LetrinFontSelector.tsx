@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { compileAndInjectFont } from '../../app/api/letrin/fonts/injector/fontInjector';
+import { compileAndInjectFont } from '../../../hub-central/utils/letrin-compiler';
 import { useLetrinFont } from './LetrinFontContext'; // Optionnel : utilise le Context s'il est présent
 import { Type, Upload } from 'lucide-react';
 

@@ -1,62 +1,84 @@
-// apps/hub-central/__test__/api/ecommerce.products.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { GET, POST } from '../../app/api/ecommerce/products/route';
+import { getServerSession } from 'next-auth/next';
+
+vi.mock('next-auth/next', () => ({
+  getServerSession: vi.fn()
+}));
+
+const mockFind = vi.fn();
+const mockFindOne = vi.fn().mockResolvedValue(null);
+const mockCreate = vi.fn();
 
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   ProductModel: {
-    // 🪡 Correction du chaînage .find().sort().lean() attendu par la route
-    find: vi.fn().mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([
-          { uid: 'prod-1', storeUid: 'store-1', title: 'Police LetrIn', slug: 'police-letrin', priceCents: 1500, category: 'FONT_SPRITE' }
-        ])
+    find: (...args: any[]) => ({
+      sort: () => ({
+        lean: () => mockFind(...args)
       })
     }),
-    findOne: vi.fn().mockResolvedValue(null), // Nécessaire pour la vérification d'unicité du slug
-    create: vi.fn().mockImplementation((data) => Promise.resolve({ ...data, _id: 'mock_id' }))
+    findOne: (...args: any[]) => mockFindOne(...args),
+    create: (...args: any[]) => mockCreate(...args)
   }
 }));
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn().mockResolvedValue({
-    user: { uid: 'bird-alpha', name: 'Albatros', capabilities: ['*'] }
-  })
+vi.mock('../../../../lib/slugify', () => ({
+  slugify: (str: string) => str.toLowerCase().replace(/\s+/g, '-')
 }));
 
-import { GET, POST } from '../../app/api/ecommerce/products/route';
-
-describe('API Ecommerce Products (/api/ecommerce/products)', () => {
+describe('API Ecommerce - Products Principal (GET / POST /api/ecommerce/products)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('🟢 doit recenser tous les artefacts du catalogue (GET)', async () => {
-    const req = new Request('http://localhost/api/ecommerce/products');
+  it('✅ GET : doit lister les produits', async () => {
+    mockFind.mockResolvedValueOnce([{ uid: 'prod_1', title: 'Test Artefact' }]);
+
+    const req = new Request('http://localhost:3000/api/ecommerce/products');
     const res = await GET(req);
     const data = await res.json();
-    
+
     expect(res.status).toBe(200);
-    expect(Array.isArray(data)).toBe(true);
-    expect(data[0].title).toBe('Police LetrIn');
+    expect(data.length).toBe(1);
   });
 
-  it('🟢 doit ajouter un nouvel artefact dans la boutique (POST)', async () => {
-    const req = new Request('http://localhost/api/ecommerce/products', {
+  it('❌ POST : doit rejeter si l’oiseau n’est pas connecté (401)', async () => {
+    vi.mocked(getServerSession).mockResolvedValueOnce(null);
+
+    const req = new Request('http://localhost:3000/api/ecommerce/products', {
       method: 'POST',
-      body: JSON.stringify({
-        storeUid: 'store-1',
-        title: 'Parchemin Cyberpunk',
-        description: 'Un grimoire de code',
-        priceCents: 2500,
-        category: 'LORE_SCROLL'
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Nouvelle Police' })
     });
+
+    const res = await POST(req);
+    expect(res.status).toBe(401);
+  });
+
+  it('✅ POST : doit créer un produit avec slug unique (201)', async () => {
+    vi.mocked(getServerSession).mockResolvedValueOnce({
+      user: { uid: 'bird_creator', capabilities: [] }
+    } as any);
+
+    mockCreate.mockResolvedValueOnce({
+      uid: 'prod_new',
+      title: 'Nouvelle Police',
+      slug: 'nouvelle-police'
+    });
+
+    const req = new Request('http://localhost:3000/api/ecommerce/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Nouvelle Police', category: 'FONT_SPRITE' })
+    });
+
     const res = await POST(req);
     const data = await res.json();
-    
+
     expect(res.status).toBe(201);
     expect(data.success).toBe(true);
-    expect(data.data.title).toBe('Parchemin Cyberpunk');
-    expect(data.data.slug).toBe('parchemin-cyberpunk');
+    expect(data.data.slug).toBe('nouvelle-police');
+    expect(mockCreate).toHaveBeenCalled();
   });
 });

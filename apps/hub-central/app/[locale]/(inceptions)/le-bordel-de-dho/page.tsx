@@ -13,6 +13,7 @@ import { ProductCard } from '../../../../components/ecommerce/products/ProductCa
 import { ProductForm } from '../../../../components/ecommerce/products/ProductForm';
 import { BarterCard } from '../../../../components/ecommerce/barter/BarterCard';
 import { BarterForm } from '../../../../components/ecommerce/barter/BarterForm';
+import ResonanceButton from '../../../../components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Le tisseur de liens
 
 export default function MarchandDashboard() {
   const { products, stores, wishlist, loading, activeTab, setActiveTab, refreshEcommerce } = useEcommerce();
@@ -160,7 +161,21 @@ export default function MarchandDashboard() {
         <div className="space-y-6 animate-in fade-in duration-300">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {stores.map((store: any) => (
-              <StoreCard key={store.uid} store={store} />
+              <div key={store.uid} className="relative group">
+                <StoreCard store={store} />
+                
+                {/* 🕸️ NOUVEAU : Bouton de Résonance pour la Boutique */}
+                {/* Il est positionné en absolute pour s'intégrer discrètement sur la carte de la boutique */}
+                <div className="absolute top-4 right-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  <ResonanceButton 
+                    targetSlug={store.ownerSlug || store.ownerUid || 'marchand'} // Le slug du créateur de la boutique
+                    type="FOLLOWS_SPECIFIC"
+                    entityId={store.uid}
+                    variant="icon"
+                    initialIsFollowing={store.isFollowedByMe} // Mettre à jour depuis l'API plus tard
+                  />
+                </div>
+              </div>
             ))}
           </div>
 

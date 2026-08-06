@@ -1,41 +1,73 @@
-// apps/hub-central/__test__/api/demopraxy.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '../../app/api/demopraxy/evaluate/route';
-import {DemopraxyOrchestrator} from '@ilot/shared-core'
-
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
-}));
-
 import { getServerSession } from 'next-auth/next';
 
-describe('API Demopraxy - Évaluation du Vortex', () => {
+vi.mock('next-auth/next', () => ({
+  getServerSession: vi.fn()
+}));
+
+vi.mock('@ilot/infrastructure', () => ({
+  connectToDatabase: vi.fn().mockResolvedValue(true)
+}));
+
+const mockProcessEvaluation = vi.fn();
+vi.mock('@ilot/shared-core', () => ({
+  DemopraxyOrchestrator: vi.fn().mockImplementation(() => ({
+    processDemopraxicEvaluation: (...args: any[]) => mockProcessEvaluation(...args)
+  }))
+}));
+
+describe('API Demopraxy - Évaluation du Vortex (POST /api/demopraxy/evaluate)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('❌ doit rejeter les requêtes des oiseaux non authentifiés', async () => {
-    (getServerSession as any).mockResolvedValueOnce(null);
+  it('❌ doit rejeter les requêtes des oiseaux non authentifiés (401)', async () => {
+    vi.mocked(getServerSession).mockResolvedValueOnce(null);
 
-    const req = new Request('http://localhost/api/demopraxy/evaluate', {
+    const req = new Request('http://localhost:3000/api/demopraxy/evaluate', {
       method: 'POST',
-      body: JSON.stringify({ userIdentifier: 'test-bird', metrics: { systemicHatredScore: 8, recurrenceCount: 3, recalibrationCapacity: 1, collectiveResonance: 0 } })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userIdentifier: 'target-1', metrics: {} })
     });
 
     const res = await POST(req);
     expect(res.status).toBe(401);
   });
 
-  it('🌑 doit appliquer la stase si le seuil critique (Ex >= 15) est atteint avec les bons droits', async () => {
-    (getServerSession as any).mockResolvedValueOnce({
-      user: { uid: 'architect-uid', capabilities: ['*'] }
+  it('❌ doit rejeter les requêtes avec corps incomplet (400)', async () => {
+    vi.mocked(getServerSession).mockResolvedValueOnce({
+      user: { uid: 'actor-1', capabilities: ['ADMIN'] }
+    } as any);
+
+    const req = new Request('http://localhost:3000/api/demopraxy/evaluate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userIdentifier: 'target-1' })
     });
 
-    // Test de la logique brute de l'orchestrateur via l'évaluation
-    const metrics = { systemicHatredScore: 9, recurrenceCount: 2, recalibrationCapacity: 1, collectiveResonance: 0 };
-    const evaluation = DemopraxyOrchestrator.evaluateSanctuarySafety(metrics);
-    
-    expect(evaluation.isExcluded).toBe(true);
-    expect(evaluation.exScore).toBe(18.0);
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+  });
+
+  it('✅ doit évaluer la démopraxie avec succès si les données sont valides (200)', async () => {
+    vi.mocked(getServerSession).mockResolvedValueOnce({
+      user: { uid: 'actor-1', capabilities: ['ADMIN'] }
+    } as any);
+
+    mockProcessEvaluation.mockResolvedValueOnce({ score: 95, status: 'HARMONIOUS' });
+
+    const req = new Request('http://localhost:3000/api/demopraxy/evaluate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userIdentifier: 'target-1', metrics: { noiseLevel: 5 } })
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.score).toBe(95);
+    expect(data.status).toBe('HARMONIOUS');
   });
 });

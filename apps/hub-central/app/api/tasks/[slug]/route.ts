@@ -1,12 +1,17 @@
-// apps/hub-central/app/api/tasks/[taskId]/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { connectToDatabase } from '@ilot/infrastructure'; 
+import { connectToDatabase, TaskModel, getNeo4jSession } from '@ilot/infrastructure'; 
 import { TaskOrchestrator } from '@ilot/shared-core';
-import { TaskModel } from '@ilot/infrastructure';
-import { getNeo4jSession } from '@ilot/infrastructure';
 import { authOptions } from "../../../../lib/auth";
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
+
+/**
+ * 🌿 INTERFACE DES PARAMÈTRES DE ROUTE
+ * Conforme à l'exigence asynchrone de Next.js 15+ pour les segments dynamiques.
+ */
+interface RouteParams {
+  params: Promise<{ taskId: string }>;
+}
 
 /**
  * 🛡️ UTILITAIRE DE DOUANE (Spécifique à l'Atome)
@@ -14,8 +19,9 @@ import { CAPABILITIES, ActionSignature } from '@ilot/types';
  * pour renvoyer le tableau complet des capacités requis pour la Signature.
  */
 async function getTaskCapabilities(userUid: string, taskUid: string): Promise<string[]> {
-  const session = getNeo4jSession();
+  let session;
   try {
+    session = getNeo4jSession();
     const cypher = `
       MATCH (t:Task {uid: $taskUid})
       OPTIONAL MATCH (t)-[:TASK_OF]->(p:Project)
@@ -45,11 +51,11 @@ async function getTaskCapabilities(userUid: string, taskUid: string): Promise<st
 
     let compiledCaps = [...new Set([...projectCaps, ...teamDefaultCaps])];
 
-    // SUTURE : Octroi des droits organiques (Lecture, Update, ET Delete pour les propriétaires)
+    // SUTURE : Octroi des droits organiques (Lecture, Update, ET Delete pour les assignés/créateurs)
     if (isDirectlyInvolved) {
         if (!compiledCaps.includes(CAPABILITIES.TASK.READ)) compiledCaps.push(CAPABILITIES.TASK.READ);
         if (!compiledCaps.includes(CAPABILITIES.TASK.UPDATE)) compiledCaps.push(CAPABILITIES.TASK.UPDATE);
-        if (!compiledCaps.includes(CAPABILITIES.TASK.DELETE)) compiledCaps.push(CAPABILITIES.TASK.DELETE); // ✅ CORRIGÉ : Ajout du droit de DELETE
+        if (!compiledCaps.includes(CAPABILITIES.TASK.DELETE)) compiledCaps.push(CAPABILITIES.TASK.DELETE);
     }
 
     // 🌟 VISITEUR D'HONNEUR : Droit d'observation accordé si invité au Nid parent
@@ -58,93 +64,196 @@ async function getTaskCapabilities(userUid: string, taskUid: string): Promise<st
     }
 
     return compiledCaps;
+  } catch (error) {
+    console.error("🔥 Fracture lors de la compilation d'Aura sur l'Atome :", error);
+    return [];
   } finally {
-    await session.close();
+    if (session) {
+      try {
+        await session.close();
+      } catch (closeErr) {
+        console.error("⚠️ Erreur lors de la fermeture de la session Neo4j :", closeErr);
+      }
+    }
   }
 }
 
 /**
  * 🔍 GET : Ausculter un Atome spécifique (La Loupe)
  */
-export async function GET(req: Request, { params }: { params: { taskId: string } }) {
+export async function GET(req: Request, { params }: RouteParams) {
   try {
-    await connectToDatabase();
-    
-    // 🛡️ SUTURE : Passage de authOptions
-    const session = await getServerSession(authOptions);
-    const userUid = (session?.user as any)?.uid;
-    if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR TASK GET]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
+    }
 
-    const caps = await getTaskCapabilities(userUid, params.taskId);
+    let resolvedParams;
+    try {
+      resolvedParams = await params;
+    } catch (paramErr) {
+      return NextResponse.json({ error: "Identifiant d'atome invalide." }, { status: 400 });
+    }
+
+    let session;
+    try {
+      session = await getServerSession(authOptions);
+    } catch (sessionErr) {
+      console.error("🔥 [SESSION ERROR TASK GET]", sessionErr);
+      return NextResponse.json({ error: "Erreur de lecture d'Aura." }, { status: 500 });
+    }
+
+    const userUid = (session?.user as any)?.uid;
+    if (!userUid) {
+      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
+    }
+
+    let caps: string[] = [];
+    try {
+      caps = await getTaskCapabilities(userUid, resolvedParams.taskId);
+    } catch (capsErr) {
+      console.error("🔥 [CAPS ERROR TASK GET]", capsErr);
+    }
+
     if (!caps.includes(CAPABILITIES.TASK.READ) && !caps.includes('*')) {
         return NextResponse.json({ error: "L'accès à cet Atome t'est refusé." }, { status: 403 });
     }
 
-    const task = await TaskModel.findOne({ uid: params.taskId }).lean();
-    if (!task) return NextResponse.json({ error: "Atome non trouvé dans la silice." }, { status: 404 });
+    let task;
+    try {
+      task = await TaskModel.findOne({ uid: resolvedParams.taskId }).lean();
+    } catch (queryErr) {
+      console.error("🔥 [TASK QUERY ERROR]", queryErr);
+      return NextResponse.json({ error: "Échec de lecture dans la Silice." }, { status: 500 });
+    }
 
-    // Hydratation : On renvoie l'Atome avec les capacités de l'Oiseau
-    return NextResponse.json({ ...task, myCapabilities: caps });
+    if (!task) {
+      return NextResponse.json({ error: "Atome non trouvé dans la silice." }, { status: 404 });
+    }
+
+    return NextResponse.json({ ...task, myCapabilities: caps }, { status: 200 });
+
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("🔥 Erreur globale GET Task:", error);
+    return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
 }
 
 /**
  * 🚀 POST : Actions spécifiques sur un Atome (Création de sous-tâche / Sous-Atome Matrioshka)
  */
-export async function POST(req: Request, { params }: { params: { taskId: string } }) {
+export async function POST(req: Request, { params }: RouteParams) {
   try {
-    await connectToDatabase();
-    
-    const session = await getServerSession(authOptions);
-    const userUid = (session?.user as any)?.uid;
-    if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR TASK POST]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
+    }
 
-    const caps = await getTaskCapabilities(userUid, params.taskId);
+    let resolvedParams;
+    try {
+      resolvedParams = await params;
+    } catch (paramErr) {
+      return NextResponse.json({ error: "Identifiant d'atome invalide." }, { status: 400 });
+    }
+
+    let session;
+    try {
+      session = await getServerSession(authOptions);
+    } catch (sessionErr) {
+      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
+    }
+
+    const userUid = (session?.user as any)?.uid;
+    if (!userUid) {
+      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
+    }
+
+    let caps: string[] = [];
+    try {
+      caps = await getTaskCapabilities(userUid, resolvedParams.taskId);
+    } catch (e) {}
+
     if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !caps.includes('*')) {
         return NextResponse.json({ error: "Aura insuffisante pour agir sur cet Atome." }, { status: 403 });
     }
 
-    const body = await req.json();
-    const { action, data } = body;
+    let body;
+    try {
+      body = await req.json();
+    } catch (parseErr) {
+      return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
+    }
 
+    const { action, data } = body;
     const signature: ActionSignature = {
         actorUid: userUid,
         capabilities: caps
     };
 
-    const taskOrch = new TaskOrchestrator();
-
     if (action === 'CREATE_SUBTASK') {
-      // Logique bionique de sous-atome rattaché à son Atome parent
-      const newSubTask = await taskOrch.fosterTask({
-        ...data,
-        parentUid: params.taskId
-      }, signature);
-      return NextResponse.json(newSubTask, { status: 201 });
+      try {
+        const taskOrch = new TaskOrchestrator();
+        const newSubTask = await taskOrch.fosterTask({
+          ...data,
+          parentUid: resolvedParams.taskId
+        }, signature);
+        return NextResponse.json(newSubTask, { status: 201 });
+      } catch (orchErr: any) {
+        console.error("🌋 [TASK ORCHESTRATOR SUBTASK ERROR]", orchErr);
+        const status = orchErr.statusCode || orchErr.status || 500;
+        return NextResponse.json({ error: orchErr.message || "Échec de fondation de sous-atome." }, { status });
+      }
     }
 
     return NextResponse.json({ error: "Mouvement inconnu sur cet Atome." }, { status: 400 });
+
   } catch (error: any) {
+    console.error("🔥 Erreur globale POST Task:", error);
     const status = error.statusCode || 500;
-    return NextResponse.json({ error: error.message }, { status });
+    return NextResponse.json({ error: error.message || "Erreur interne." }, { status });
   }
 }
 
 /**
  * 🛠️ PATCH : Mutation d'un Atome (Status, Pomodoros, etc.)
  */
-export async function PATCH(req: Request, { params }: { params: { taskId: string } }) {
+export async function PATCH(req: Request, { params }: RouteParams) {
   try {
-    await connectToDatabase(); // 🛡️ Réveil de la Silice
-    
-    // 🪡 SUTURE : Intégration de la boussole authOptions pour éclairer la session
-    const session = await getServerSession(authOptions);
-    const userUid = (session?.user as any)?.uid;
-    if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR TASK PATCH]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
+    }
 
-    const caps = await getTaskCapabilities(userUid, params.taskId);
+    let resolvedParams;
+    try {
+      resolvedParams = await params;
+    } catch (paramErr) {
+      return NextResponse.json({ error: "Identifiant d'atome invalide." }, { status: 400 });
+    }
+
+    let session;
+    try {
+      session = await getServerSession(authOptions);
+    } catch (sessionErr) {
+      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
+    }
+
+    const userUid = (session?.user as any)?.uid;
+    if (!userUid) {
+      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
+    }
+
+    let caps: string[] = [];
+    try {
+      caps = await getTaskCapabilities(userUid, resolvedParams.taskId);
+    } catch (e) {}
+
     if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !caps.includes('*')) {
         return NextResponse.json({ error: "Tu ne peux pas faire muter cet Atome." }, { status: 403 });
     }
@@ -154,30 +263,68 @@ export async function PATCH(req: Request, { params }: { params: { taskId: string
         capabilities: caps
     };
 
-    const body = await req.json();
-    const taskOrch = new TaskOrchestrator(); 
+    let body;
+    try {
+      body = await req.json();
+    } catch (parseErr) {
+      return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
+    }
 
-    const updatedTask = await taskOrch.updateTask(params.taskId, body, signature);
-    return NextResponse.json(updatedTask);
+    let updatedTask;
+    try {
+      const taskOrch = new TaskOrchestrator(); 
+      updatedTask = await taskOrch.updateTask(resolvedParams.taskId, body, signature);
+    } catch (orchErr: any) {
+      console.error("🌋 [TASK ORCHESTRATOR UPDATE ERROR]", orchErr);
+      const status = orchErr.statusCode || orchErr.status || 500;
+      return NextResponse.json({ error: orchErr.message || "Échec de la mutation de l'Atome." }, { status });
+    }
+
+    return NextResponse.json(updatedTask, { status: 200 });
+
   } catch (error: any) {
+    console.error("🔥 Erreur globale PATCH Task:", error);
     const status = error.statusCode || 500;
-    return NextResponse.json({ error: error.message }, { status });
+    return NextResponse.json({ error: error.message || "Erreur interne." }, { status });
   }
 }
 
 /**
  * 🗑️ DELETE : Désintégration d'un Atome (Le Silence)
  */
-export async function DELETE(req: Request, { params }: { params: { taskId: string } }) {
+export async function DELETE(req: Request, { params }: RouteParams) {
   try {
-    await connectToDatabase(); // 🛡️ Réveil de la Silice
-    
-    // 🪡 SUTURE : Intégration de la boussole authOptions pour éclairer la session
-    const session = await getServerSession(authOptions);
-    const userUid = (session?.user as any)?.uid;
-    if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR TASK DELETE]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
+    }
 
-    const caps = await getTaskCapabilities(userUid, params.taskId);
+    let resolvedParams;
+    try {
+      resolvedParams = await params;
+    } catch (paramErr) {
+      return NextResponse.json({ error: "Identifiant d'atome invalide." }, { status: 400 });
+    }
+
+    let session;
+    try {
+      session = await getServerSession(authOptions);
+    } catch (sessionErr) {
+      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
+    }
+
+    const userUid = (session?.user as any)?.uid;
+    if (!userUid) {
+      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
+    }
+
+    let caps: string[] = [];
+    try {
+      caps = await getTaskCapabilities(userUid, resolvedParams.taskId);
+    } catch (e) {}
+
     if (!caps.includes(CAPABILITIES.TASK.DELETE) && !caps.includes('*')) {
         return NextResponse.json({ error: "La désintégration de cet Atome requiert plus d'aura." }, { status: 403 });
     }
@@ -187,12 +334,20 @@ export async function DELETE(req: Request, { params }: { params: { taskId: strin
         capabilities: caps
     };
 
-    const taskOrch = new TaskOrchestrator(); 
-    await taskOrch.disintegrateTask(params.taskId, signature);
+    try {
+      const taskOrch = new TaskOrchestrator(); 
+      await taskOrch.disintegrateTask(resolvedParams.taskId, signature);
+    } catch (orchErr: any) {
+      console.error("🌋 [TASK ORCHESTRATOR DISINTEGRATE ERROR]", orchErr);
+      const status = orchErr.statusCode || orchErr.status || 500;
+      return NextResponse.json({ error: orchErr.message || "Échec du rituel de désintégration." }, { status });
+    }
     
     return NextResponse.json({ message: "Atome rendu à la poussière du Nexus." }, { status: 200 });
+
   } catch (error: any) {
+    console.error("🔥 Erreur globale DELETE Task:", error);
     const status = error.statusCode || 500;
-    return NextResponse.json({ error: error.message }, { status });
+    return NextResponse.json({ error: error.message || "Erreur interne." }, { status });
   }
 }

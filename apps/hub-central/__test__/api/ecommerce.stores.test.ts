@@ -1,54 +1,90 @@
-// __tests__/ecommerce-stores.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET as getStores, POST as createStore } from '../../app/api/ecommerce/stores/route';
-import { GET as getStoreBySlug, DELETE as deleteStore } from '../../app/api/ecommerce/stores/[slug]/route';
-import { StoreModel, connectToDatabase } from '@ilot/infrastructure';
+import { GET, POST } from '../../app/api/ecommerce/stores/route';
 import { getServerSession } from 'next-auth/next';
 
+vi.mock('next-auth/next', () => ({
+  getServerSession: vi.fn()
+}));
+
+const mockFind = vi.fn();
+const mockFindOne = vi.fn().mockResolvedValue(null);
+const mockCreate = vi.fn();
+
 vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn(),
+  connectToDatabase: vi.fn().mockResolvedValue(true),
   StoreModel: {
-    find: vi.fn(),
-    findOne: vi.fn(),
-    create: vi.fn(),
-    deleteOne: vi.fn(),
+    find: (...args: any[]) => ({
+      sort: () => ({
+        lean: () => mockFind(...args)
+      })
+    }),
+    findOne: (...args: any[]) => mockFindOne(...args),
+    create: (...args: any[]) => mockCreate(...args)
   }
 }));
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
+const mockCreateStore = vi.fn().mockResolvedValue(true);
+vi.mock('@ilot/shared-core', () => ({
+  EcommerceOrchestrator: vi.fn().mockImplementation(() => ({
+    createStore: (...args: any[]) => mockCreateStore(...args)
+  }))
 }));
 
-describe('🏛️ E-commerce Stores API', () => {
+vi.mock('../../../../lib/slugify', () => ({
+  slugify: (str: string) => str.toLowerCase().replace(/\s+/g, '-')
+}));
+
+describe('API Ecommerce - Stores Principal (GET / POST /api/ecommerce/stores)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('doit recenser les boutiques vérifiées', async () => {
-    const mockStores = [{ uid: 'store_1', storeName: 'Boutique de l’Îlot' }];
-    (StoreModel.find as any).mockReturnValue({
-      sort: () => Promise.resolve(mockStores)
-    });
+  it('✅ GET : doit lister les boutiques vérifiées', async () => {
+    mockFind.mockResolvedValueOnce([{ uid: 'store_1', storeName: 'Artisanat Fretless' }]);
 
-    const res = await getStores();
+    const res = await GET();
     const data = await res.json();
 
     expect(res.status).toBe(200);
-    expect(data).toEqual(mockStores);
+    expect(data.length).toBe(1);
   });
 
-  it('doit rejeter la création de boutique si non connecté', async () => {
-    (getServerSession as any).mockResolvedValue(null);
+  it('❌ POST : doit rejeter si l’oiseau n’est pas connecté (401)', async () => {
+    vi.mocked(getServerSession).mockResolvedValueOnce(null);
 
-    const req = new Request('http://localhost/api/ecommerce/stores', {
+    const req = new Request('http://localhost:3000/api/ecommerce/stores', {
       method: 'POST',
-      body: JSON.stringify({ storeName: 'Mon Échoppe' })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storeName: 'Nouvelle Boutique' })
     });
 
-    const res = await createStore(req);
+    const res = await POST(req);
+    expect(res.status).toBe(401);
+  });
+
+  it('✅ POST : doit créer une boutique avec slug unique (201)', async () => {
+    vi.mocked(getServerSession).mockResolvedValueOnce({
+      user: { uid: 'bird_owner', capabilities: [] }
+    } as any);
+
+    mockCreate.mockResolvedValueOnce({
+      uid: 'store_new',
+      storeName: 'Nouvelle Boutique',
+      slug: 'nouvelle-boutique'
+    });
+
+    const req = new Request('http://localhost:3000/api/ecommerce/stores', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storeName: 'Nouvelle Boutique' })
+    });
+
+    const res = await POST(req);
     const data = await res.json();
 
-    expect(res.status).toBe(401);
-    expect(data.error).toContain("Création de boutique refusée");
+    expect(res.status).toBe(201);
+    expect(data.success).toBe(true);
+    expect(data.data.slug).toBe('nouvelle-boutique');
+    expect(mockCreate).toHaveBeenCalled();
   });
 });

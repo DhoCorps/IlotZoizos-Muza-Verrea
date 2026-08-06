@@ -1,20 +1,15 @@
-// packages/shared-core/src/sync-engine/resonance.orchestrator.ts
 import { TransactionManager } from './transactionManager';
 import { getNeo4jSession } from '@ilot/infrastructure';
-import { ActionSignature, CAPABILITIES } from '@ilot/types';
+import { ActionSignature, CAPABILITIES, EntityLabel, ResonanceType } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
 
-// --- LES SYMBOLES DU MAILLAGE ---
-export type ResonanceType = 
-  | 'ILLUMINATES'   // Ex: Blog -> Projet (Le texte explique le projet)
-  | 'MENTIONS'      // Ex: Blog -> E-commerce (Le texte cite un produit)
-  | 'INSPIRED_BY'   // Ex: Jeu -> Task (Le jeu est né de cette tâche)
-  | 'ECHOES'        // Ex: User -> N'importe quoi (Un commentaire)
-  | 'VIBRATES'      // Ex: User -> N'importe quoi (Un Like / Emoji)
-  | 'EMBEDDED_IN';  // Ex: Produit -> Letr'In (Le produit est dans la newsletter)
-
-export type EntityLabel = 'Sujet' | 'Project' | 'Task' | 'Team' | 'Product' | 'Game' | 'Letter';
+export interface IResonancePayload {
+  sourceUid: string;
+  targetUid: string;
+  type: ResonanceType;
+  entityId?: string;
+}
 
 export class ResonanceOrchestrator {
   
@@ -22,7 +17,7 @@ export class ResonanceOrchestrator {
    * 🕸️ LE TISSERAND TRANSDISCIPLINAIRE
    * Crée un pont direct entre deux modules distincts (ex: Blog -> Shop)
    */
-  async weaveCrossDomainLink(
+  public static async weaveCrossDomainLink(
     sourceUid: string,
     sourceLabel: EntityLabel,
     targetUid: string,
@@ -62,7 +57,7 @@ export class ResonanceOrchestrator {
    * 💬 L'ÉCHO SOCIAL (Commentaires & Emojis)
    * Permet à un Oiseau de réagir à n'importe quelle entité de l'Îlot
    */
-  async addSocialEcho(
+  public static async addSocialEcho(
     targetUid: string,
     targetLabel: EntityLabel,
     echoType: 'TEXT' | 'EMOJI',
@@ -104,7 +99,7 @@ export class ResonanceOrchestrator {
    * 🔍 LE RADAR DE RÉSONANCE
    * Va chercher toutes les entités connectées à un nœud spécifique
    */
-  async getResonances(uid: string) {
+  public static async getResonances(uid: string) {
     const session = getNeo4jSession();
     try {
       const cypher = `
@@ -133,7 +128,7 @@ export class ResonanceOrchestrator {
   /**
    * Recherche les résonances transversales entre un oiseau et le reste de la volière
    */
-  public async findTransversalResonances(userUid: string): Promise<{ peerUid: string; sharedTags: string[]; score: number }[]> {
+  public static async findTransversalResonances(userUid: string): Promise<{ peerUid: string; sharedTags: string[]; score: number }[]> {
     return await TransactionManager.execute('findTransversalResonances', async (mongoSession, neo4jTx) => {
         const query = `
             MATCH (target:User {uid: $userUid})-[:PARTAGE]->(tag:Tag)<-[:PARTAGE]-(peer:User)
@@ -151,5 +146,72 @@ export class ResonanceOrchestrator {
             score: record.get('commonCount').toNumber() * 2 
         }));
     });
+  }
+
+  /**
+   * 🕸️ NOUVEAU : TISSER LA RÉSONANCE (Abonnements Granulaires)
+   * Crée un lien d'abonnement et évalue la naissance d'une Harmonie (suivi mutuel).
+   */
+  public static async weaveResonance(payload: IResonancePayload): Promise<boolean> {
+    const session = getNeo4jSession();
+    try {
+      const { sourceUid, targetUid, type, entityId } = payload;
+
+      // 1. Tisser le lien spécifique (GLOBAL, SPECIFIC, ou ECLIPSE)
+      await session.run(
+        `MATCH (source:User {uid: $sourceUid}), (target:User {uid: $targetUid})
+         MERGE (source)-[r:RESONATES_WITH { entityId: $entityId, type: $type }]->(target)
+         ON CREATE SET r.createdAt = datetime()
+         ON MATCH SET r.updatedAt = datetime()`,
+        { sourceUid, targetUid, type, entityId: entityId || 'ALL' }
+      );
+
+      // 2. Vérification de l'Harmonie (Si c'est un abonnement GLOBAL mutuel)
+      let isHarmonic = false;
+      if (type === 'FOLLOWS_GLOBAL') {
+        const harmonyCheck = await session.run(
+          `MATCH (a:User {uid: $sourceUid})-[r1:RESONATES_WITH {type: 'FOLLOWS_GLOBAL'}]->(b:User {uid: $targetUid})
+           MATCH (b)-[r2:RESONATES_WITH {type: 'FOLLOWS_GLOBAL'}]->(a)
+           MERGE (a)-[h:HARMONY]-(b)
+           ON CREATE SET h.establishedAt = datetime()
+           RETURN h`
+        );
+        isHarmonic = harmonyCheck.records.length > 0;
+      }
+
+      return isHarmonic;
+    } catch (error) {
+      console.error("🌋 [NEO4J WEAVE FORGE ERROR] :", error);
+      throw new IlotError("Conflit dimensionnel lors du tissage.", "INTERNAL_ERROR", 500);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * ✂️ NOUVEAU : COUPER LE FIL (Désabonnement)
+   * Détruit la résonance et brise l'Harmonie si elle existait.
+   */
+  public static async severResonance(payload: IResonancePayload): Promise<void> {
+    const session = getNeo4jSession();
+    try {
+      const { sourceUid, targetUid, type, entityId } = payload;
+
+      await session.run(
+        `MATCH (source:User {uid: $sourceUid})-[r:RESONATES_WITH { entityId: $entityId, type: $type }]->(target:User {uid: $targetUid})
+         DELETE r
+         
+         // Rupture conditionnelle de l'Harmonie si on coupe un lien GLOBAL
+         WITH source, target
+         OPTIONAL MATCH (source)-[h:HARMONY]-(target)
+         DELETE h`,
+        { sourceUid, targetUid, type, entityId: entityId || 'ALL' }
+      );
+    } catch (error) {
+      console.error("🌋 [NEO4J SEVER ERROR] :", error);
+      throw new IlotError("Impossible de briser le lien.", "INTERNAL_ERROR", 500);
+    } finally {
+      await session.close();
+    }
   }
 }

@@ -1,9 +1,11 @@
+// apps/hub-central/app/[locale]/(inceptions)/partita/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { Music, Plus, Loader2, Sparkles, Compass } from 'lucide-react';
 import { PartitaCard } from '../../../../components/partita/PartitaCard';
 import { PartitaForm } from '../../../../components/partita/PartitaForm';
+import ResonanceButton from '../../../../components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Le tisseur de liens
 
 export default function PartitaDashboard() {
   const [partitions, setPartitions] = useState<any[]>([]);
@@ -172,14 +174,31 @@ export default function PartitaDashboard() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredPartitions.map((partition: any) => (
-            <PartitaCard 
-              key={partition.uid || partition._id}
-              partition={partition}
-              onEdit={handleOpenEdit}
-              onDelete={handleDelete}
-            />
-          ))}
+          {filteredPartitions.map((partition: any) => {
+            const partitionId = partition.uid || partition._id;
+            const authorSlug = partition.authorSlug || partition.ownerUid || 'createur-inconnu';
+
+            return (
+              <div key={partitionId} className="relative group">
+                {/* 🕸️ Bouton de Résonance granulaire positionné en surbrillance sur la carte */}
+                <div className="absolute top-4 right-4 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  <ResonanceButton 
+                    targetSlug={authorSlug}
+                    type="FOLLOWS_SPECIFIC"
+                    entityId={partitionId}
+                    variant="icon"
+                    initialIsFollowing={partition.isFollowedByMe}
+                  />
+                </div>
+
+                <PartitaCard 
+                  partition={partition}
+                  onEdit={handleOpenEdit}
+                  onDelete={handleDelete}
+                />
+              </div>
+            );
+          })}
 
           {filteredPartitions.length === 0 && (
             <div className="col-span-full py-20 text-center space-y-4 bg-black/20 border border-white/5 rounded-3xl">

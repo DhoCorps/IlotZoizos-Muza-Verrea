@@ -2,12 +2,16 @@
 'use client';
 
 import { useState } from 'react';
-import { Sparkles, Compass, Flame, Shield, Briefcase, Plus, Layers, User, Award, Terminal } from 'lucide-react';
+import { Sparkles, Compass, Flame, Shield, Briefcase, Plus, User, Terminal } from 'lucide-react';
 import { useKontakt } from './useKontakt';
 import KontaktSwipeDeck from '../../../../components/kontakt/KontaktSwipeDeck';
 
+// 🕸️ Le Tisseur est importé et sera passé aux cartes enfants (ex: KontaktSwipeDeck) 
+// ou utilisé directement quand on affichera le profil d'un autre oiseau.
+import ResonanceButton from '../../../../components/resonance/ResonanceButton'; 
+
 export default function KontaktDashboard() {
-  const { profiles, quests, loading, activeTab, setActiveTab, refreshKontakt } = useKontakt();
+  const { quests, activeTab, setActiveTab, refreshKontakt } = useKontakt();
   const [isQuestModalOpen, setIsQuestModalOpen] = useState(false);
   const [newQuestTitle, setNewQuestTitle] = useState('');
   const [newQuestDesc, setNewQuestDesc] = useState('');
@@ -65,6 +69,12 @@ export default function KontaktDashboard() {
           >
             <Plus size={16} /> Poster une Quête
           </button>
+
+          {/* 🕸️ Intégration temporaire de test (Masqué en prod pour ne pas s'abonner à soi-même) */}
+          <div className="hidden">
+             <ResonanceButton targetSlug="system_demo_target" type="FOLLOWS_GLOBAL" />
+          </div>
+
         </div>
       </div>
 
@@ -149,14 +159,17 @@ export default function KontaktDashboard() {
 
       {/* 🛡️ CONTENU DE L'ONGLET : FICHE DE PERSONNAGE */}
       {activeTab === 'my-profile' && (
-        <div className="p-8 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl space-y-6 animate-in fade-in duration-300">
-          <div className="flex items-center gap-4 border-b border-white/5 pb-6">
-            <div className="w-16 h-16 rounded-2xl bg-[#E5484D]/10 border border-[#E5484D]/30 flex items-center justify-center text-[#E5484D]">
-              <Shield size={32} />
-            </div>
-            <div>
-              <h2 className="text-2xl font-black uppercase text-white">Parchemin de l'Oiseau</h2>
-              <p className="text-xs font-mono text-slate-400">Édite tes attributs JDR et ton profil professionnel unifié.</p>
+        <div className="p-8 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl space-y-6 animate-in fade-in duration-300 relative">
+          
+          <div className="flex items-start justify-between border-b border-white/5 pb-6">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-[#E5484D]/10 border border-[#E5484D]/30 flex items-center justify-center text-[#E5484D]">
+                <Shield size={32} />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black uppercase text-white">Parchemin de l'Oiseau</h2>
+                <p className="text-xs font-mono text-slate-400">Édite tes attributs JDR et ton profil professionnel unifié.</p>
+              </div>
             </div>
           </div>
 

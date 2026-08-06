@@ -1,59 +1,67 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../../../../../lib/auth";
-import { connectToDatabase, SujetModel } from '@ilot/infrastructure';
-import { SujetOrchestrator } from '@ilot/shared-core';
-import { ActionSignature } from '@ilot/types';
+import { connectToDatabase, KontaktProfileModel } from '@ilot/infrastructure';
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
 }
 
 // ==========================================
-// GET : Ausculter un sujet spécifique par slug ou uid
+// GET : Ausculter un profil Kontakt spécifique
 // ==========================================
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    await connectToDatabase();
-    const { slug } = await params;
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR KONTAKT PROFILE GET]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
+    }
+
+    let slug;
+    try {
+      const resolvedParams = await params;
+      slug = resolvedParams.slug;
+    } catch (paramErr) {
+      return NextResponse.json({ error: "Identifiant de profil invalide." }, { status: 400 });
+    }
     
-    const session = await getServerSession(authOptions);
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-
-    // 🪡 Recherche par slug ou repli sur l'ancien uid pour compatibilité
-    const sujet = await SujetModel.findOne({ 
-      $or: [{ slug: slug }, { uid: slug }] 
-    }).lean();
-
-    if (!sujet) {
-      return NextResponse.json({ error: "Ce monologue s'est évaporé dans la brume." }, { status: 404 });
+    let profile;
+    try {
+      profile = await KontaktProfileModel.findOne({ 
+        $or: [{ slug: slug }, { uid: slug }, { userUid: slug }] 
+      }).lean();
+    } catch (queryErr) {
+      console.error("🔥 [KONTAKT PROFILE QUERY ERROR]", queryErr);
+      return NextResponse.json({ error: "Échec de lecture du profil." }, { status: 500 });
     }
 
-    const isPublic = sujet.status === 'PUBLISHED';
-    const isMine = sujet.authorUid === userUid;
-    const isArchitect = sessionCaps.includes('*');
-
-    if (!isPublic && !isMine && !isArchitect) {
-      return NextResponse.json({ error: "Ce monologue intime t'est fermé." }, { status: 403 });
+    if (!profile) {
+      return NextResponse.json({ error: "Ce profil Kontakt est introuvable dans la matrice." }, { status: 404 });
     }
 
-    return NextResponse.json(sujet, { status: 200 });
+    return NextResponse.json(profile, { status: 200 });
+
   } catch (error: any) {
-    console.error("🔥 Erreur GET Sujet :", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("🔥 Erreur GET Kontakt Profile :", error);
+    return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
 }
 
 // ==========================================
-// PUT : Mutation du Sujet
+// PUT : Mettre à jour son profil Kontakt
 // ==========================================
 export async function PUT(req: Request, { params }: RouteParams) {
   try {
-    await connectToDatabase();
-    const { slug } = await params;
-    
-    const session = await getServerSession(authOptions);
+    let session;
+    try {
+      session = await getServerSession(authOptions);
+    } catch (sessionErr) {
+      console.error("🔥 [SESSION ERROR KONTAKT PROFILE PUT]", sessionErr);
+      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
+    }
+
     const userUid = (session?.user as any)?.uid;
     const sessionCaps = (session?.user as any)?.capabilities || [];
 
@@ -61,46 +69,82 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
     }
 
-    const sujet = await SujetModel.findOne({ 
-      $or: [{ slug: slug }, { uid: slug }] 
-    });
-
-    if (!sujet) {
-      return NextResponse.json({ error: "Sujet introuvable." }, { status: 404 });
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR KONTAKT PROFILE PUT]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
     }
 
-    const isAuthor = sujet.authorUid === userUid;
+    let slug;
+    try {
+      const resolvedParams = await params;
+      slug = resolvedParams.slug;
+    } catch (paramErr) {
+      return NextResponse.json({ error: "Identifiant de profil invalide." }, { status: 400 });
+    }
+
+    let profile;
+    try {
+      profile = await KontaktProfileModel.findOne({ 
+        $or: [{ slug: slug }, { uid: slug }, { userUid: slug }] 
+      });
+    } catch (queryErr) {
+      console.error("🔥 [KONTAKT PROFILE UPDATE QUERY ERROR]", queryErr);
+      return NextResponse.json({ error: "Échec de recherche du profil." }, { status: 500 });
+    }
+
+    if (!profile) {
+      return NextResponse.json({ error: "Profil introuvable." }, { status: 404 });
+    }
+
+    const isOwner = profile.userUid === userUid;
     const isArchitect = sessionCaps.includes('*');
 
-    if (!isAuthor && !isArchitect) {
-      return NextResponse.json({ error: "Tu ne peux modifier que tes propres monologues." }, { status: 403 });
+    if (!isOwner && !isArchitect) {
+      return NextResponse.json({ error: "Tu ne peux modifier que ton propre profil Kontakt." }, { status: 403 });
     }
 
-    const body = await req.json();
+    let body;
+    try {
+      body = await req.json();
+    } catch (parseErr) {
+      return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
+    }
 
-    const updatedSujet = await SujetModel.findOneAndUpdate(
-      { uid: sujet.uid },
-      { $set: body },
-      { new: true }
-    ).lean();
+    let updatedProfile;
+    try {
+      updatedProfile = await KontaktProfileModel.findOneAndUpdate(
+        { uid: profile.uid },
+        { $set: body },
+        { new: true }
+      ).lean();
+    } catch (updateErr) {
+      console.error("🔥 [KONTAKT PROFILE SAVE ERROR]", updateErr);
+      return NextResponse.json({ error: "Échec de la mutation du profil." }, { status: 500 });
+    }
 
-    return NextResponse.json({ success: true, data: updatedSujet }, { status: 200 });
+    return NextResponse.json({ success: true, data: updatedProfile }, { status: 200 });
+
   } catch (error: any) {
-    console.error("🔥 Erreur PUT Sujet :", error);
-    const status = error.statusCode || 500;
-    return NextResponse.json({ error: error.message }, { status });
+    console.error("🔥 Erreur PUT Kontakt Profile :", error);
+    return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
 }
 
 // ==========================================
-// DELETE : Désintégration / Suppression du Sujet
+// DELETE : Dissoudre un profil Kontakt
 // ==========================================
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
-    await connectToDatabase();
-    const { slug } = await params;
-    
-    const session = await getServerSession(authOptions);
+    let session;
+    try {
+      session = await getServerSession(authOptions);
+    } catch (sessionErr) {
+      console.error("🔥 [SESSION ERROR KONTAKT PROFILE DELETE]", sessionErr);
+      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
+    }
+
     const userUid = (session?.user as any)?.uid;
     const sessionCaps = (session?.user as any)?.capabilities || [];
 
@@ -108,32 +152,53 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
     }
 
-    const sujet = await SujetModel.findOne({ 
-      $or: [{ slug: slug }, { uid: slug }] 
-    });
-
-    if (!sujet) {
-      return NextResponse.json({ error: "Sujet introuvable." }, { status: 404 });
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR KONTAKT PROFILE DELETE]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
     }
 
-    const signature: ActionSignature = {
-      actorUid: userUid,
-      capabilities: sessionCaps
-    };
-
-    const sujetOrch = new SujetOrchestrator();
-    
-    // Si l'orchestrateur gère la désintégration globale (Mongo + Neo4j)
-    if (typeof sujetOrch.disintegrateSujet === 'function') {
-      await sujetOrch.disintegrateSujet(sujet.uid, signature);
-    } else {
-      await SujetModel.deleteOne({ uid: sujet.uid });
+    let slug;
+    try {
+      const resolvedParams = await params;
+      slug = resolvedParams.slug;
+    } catch (paramErr) {
+      return NextResponse.json({ error: "Identifiant de profil invalide." }, { status: 400 });
     }
-    
-    return NextResponse.json({ success: true, message: "Le monologue a été réduit en cendres. Les liens dans le Graphe sont rompus." }, { status: 200 });
+
+    let profile;
+    try {
+      profile = await KontaktProfileModel.findOne({ 
+        $or: [{ slug: slug }, { uid: slug }, { userUid: slug }] 
+      });
+    } catch (queryErr) {
+      console.error("🔥 [KONTAKT PROFILE DELETE QUERY ERROR]", queryErr);
+      return NextResponse.json({ error: "Échec de recherche du profil." }, { status: 500 });
+    }
+
+    if (!profile) {
+      return NextResponse.json({ error: "Profil introuvable." }, { status: 404 });
+    }
+
+    const isOwner = profile.userUid === userUid;
+    const isArchitect = sessionCaps.includes('*');
+
+    if (!isOwner && !isArchitect) {
+      return NextResponse.json({ error: "Action non autorisée sur ce profil." }, { status: 403 });
+    }
+
+    try {
+      await KontaktProfileModel.deleteOne({ uid: profile.uid });
+    } catch (delErr) {
+      console.error("🔥 [KONTAKT PROFILE DELETE ERROR]", delErr);
+      return NextResponse.json({ error: "Échec de la dissolution du profil." }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, message: "Le profil Kontakt a été dissous de la matrice." }, { status: 200 });
+
   } catch (error: any) {
-    console.error("🔥 Erreur DELETE Sujet :", error);
-    const status = error.statusCode || 500;
-    return NextResponse.json({ error: error.message }, { status });
+    console.error("🔥 Erreur DELETE Kontakt Profile :", error);
+    return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
 }

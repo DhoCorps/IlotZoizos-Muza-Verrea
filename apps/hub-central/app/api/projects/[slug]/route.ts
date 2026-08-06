@@ -1,23 +1,16 @@
-// apps/hub-central/app/api/projects/[projectId]/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { ProjectOrchestrator } from '@ilot/shared-core';
-import { ProjectModel } from '@ilot/infrastructure';
-import { getNeo4jSession } from '@ilot/infrastructure/src/database/neo4j';
-import { connectToDatabase } from '@ilot/infrastructure'; // ✅ SUTURE : Import de l'éveil de la Silice
+import { ProjectModel, getNeo4jSession, connectToDatabase } from '@ilot/infrastructure';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
-import { authOptions } from "../../../../lib/auth"; // 🌟 SUTURE : Import de la boussole d'Aura pour éclairer getServerSession
+import { authOptions } from "../../../../lib/auth"; 
 
-/**
- * 🛡️ UTILITAIRE DE DOUANE
- * Vérifie si l'Oiseau possède la capacité requise sur ce Projet dans le Graphe.
- */
+interface RouteParams { params: Promise<{ projectId: string }> }
+
 async function getProjectCapabilities(userUid: string | undefined, projectUid: string) {
   if (!userUid) return { hasAccess: false, capabilities: [] as string[] };
-
   const session = getNeo4jSession();
   try {
-    // 🪡 SUTURE : Analyse territoriale complète incluant la passerelle d'invitation du Nid parent
     const result = await session.run(
       `MATCH (u:User {uid: $userUid})
        OPTIONAL MATCH (u)-[rDirect:CONTRIBUTES_TO|OWNER_OF]->(p:Project {uid: $projectUid})
@@ -27,51 +20,45 @@ async function getProjectCapabilities(userUid: string | undefined, projectUid: s
        RETURN DISTINCT compiledCaps, relTypes`,
       { userUid, projectUid }
     );
-    
     if (result.records.length === 0) return { hasAccess: false, capabilities: [] as string[] };
-    
     const record = result.records[0];
     let caps = record.get('compiledCaps').flat().filter(Boolean) as string[];
     const relTypes = record.get('relTypes') as string[];
-    
-    if (caps.length === 0 && relTypes.length === 0) {
-      return { hasAccess: false, capabilities: [] as string[] };
-    }
-    
-    // 🌟 VISITEUR D'HONNEUR : Si l'oiseau est invité, on lui octroie d'office le droit de lecture
+    if (caps.length === 0 && relTypes.length === 0) return { hasAccess: false, capabilities: [] as string[] };
     if (relTypes.includes('INVITED_TO')) {
       if (!caps.includes('project:read')) caps.push('project:read');
       if (!caps.includes('task:read')) caps.push('task:read');
     }
-    
     return { hasAccess: true, capabilities: caps };
+  } catch (err) {
+    console.error("🔥 Neo4j Capability Error:", err);
+    return { hasAccess: false, capabilities: [] as string[] };
   } finally {
     await session.close();
   }
 }
 
-/**
- * 🔍 GET : Ausculter un projet spécifique (La Loupe)
- */
-export async function GET(req: Request, { params }: { params: { projectId: string } }) {
+export async function GET(req: Request, { params }: RouteParams) {
   try {
-    await connectToDatabase(); // 🛡️ Réveil de la Silice
+    let resolvedParams;
+    try { resolvedParams = await params; } catch (err) { return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 }); }
+
+    try { await connectToDatabase(); } catch (dbErr) { return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 }); }
+
+    let session;
+    try { session = await getServerSession(authOptions); } catch (err) { return NextResponse.json({ error: "Erreur session." }, { status: 500 }); }
     
-    // 🪡 SUTURE : On passe authOptions pour redonner la vue à la session
-    const session = await getServerSession(authOptions);
     const userUid = (session?.user as any)?.uid;
     const sessionCaps = (session?.user as any)?.capabilities || [];
 
-    const project = await ProjectModel.findOne({ uid: params.projectId })
-      .select('-moderation.internalNotes')
-      .lean();
+    let project;
+    try {
+      project = await ProjectModel.findOne({ uid: resolvedParams.projectId }).select('-moderation.internalNotes').lean();
+    } catch (err) { return NextResponse.json({ error: "Fracture de lecture." }, { status: 500 }); }
     
-    if (!project) {
-      return NextResponse.json({ error: "Projet introuvable dans la silice." }, { status: 404 });
-    }
+    if (!project) return NextResponse.json({ error: "Chantier introuvable." }, { status: 404 });
 
-    // 🛡️ Logique de Démopraxie
-    const { hasAccess, capabilities } = await getProjectCapabilities(userUid, params.projectId);
+    const { hasAccess, capabilities } = await getProjectCapabilities(userUid, resolvedParams.projectId);
     const mergedCaps = [...new Set([...capabilities, ...sessionCaps])];
 
     const isPublic = project.visibility === 'PUBLIC' || project.visibility === 'OPEN_SOURCE';
@@ -81,113 +68,89 @@ export async function GET(req: Request, { params }: { params: { projectId: strin
       return NextResponse.json({ error: "Ce chantier est protégé. L'accès t'est refusé." }, { status: 403 });
     }
 
-    // L'HYDRATATION : Pouvoirs de l'Oiseau attachés au projet
-    const hydratedProject = {
-      ...project,
-      myCapabilities: mergedCaps
-    };
-    
-    return NextResponse.json(hydratedProject);
-  } catch (error: any) {
-    console.error(`🔥 Erreur d'auscultation (GET Project ${params.projectId}):`, error);
-    return NextResponse.json({ error: "Le murmure s'est brisé." }, { status: 500 });
-  }
+    return NextResponse.json({ ...project, myCapabilities: mergedCaps }, { status: 200 });
+  } catch (error: any) { return NextResponse.json({ error: "Erreur globale." }, { status: 500 }); }
 }
 
-/**
- * 🎭 PUT : Mutation du Chantier
- */
-export async function PUT(req: Request, { params }: { params: { projectId: string } }) {
+export async function PUT(req: Request, { params }: RouteParams) {
   try {
-    await connectToDatabase(); // 🛡️ Réveil de la Silice
+    let resolvedParams;
+    try { resolvedParams = await params; } catch (err) { return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 }); }
+
+    try { await connectToDatabase(); } catch (dbErr) { return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 }); }
+
+    let session;
+    try { session = await getServerSession(authOptions); } catch (err) { return NextResponse.json({ error: "Erreur session." }, { status: 500 }); }
     
-    // 🪡 SUTURE : On passe authOptions pour redonner la vue à la session
-    const session = await getServerSession(authOptions);
     const userUid = (session?.user as any)?.uid;
     if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
 
     const sessionCaps = (session?.user as any)?.capabilities || [];
-    const { capabilities } = await getProjectCapabilities(userUid, params.projectId);
+    const { capabilities } = await getProjectCapabilities(userUid, resolvedParams.projectId);
     const mergedCaps = [...new Set([...capabilities, ...sessionCaps])];
 
-    const projectCheck = await ProjectModel.findOne({ uid: params.projectId }).lean();
+    let projectCheck;
+    try { projectCheck = await ProjectModel.findOne({ uid: resolvedParams.projectId }).lean(); } catch(e) {}
+    
     const isCreator = projectCheck?.creatorUid === userUid;
-
-    const canUpdate = mergedCaps.includes(CAPABILITIES.SYSTEM.ALL) || 
-                      mergedCaps.includes(CAPABILITIES.PROJECT.UPDATE) || 
-                      mergedCaps.includes('*') ||
-                      isCreator;
+    const canUpdate = mergedCaps.includes(CAPABILITIES.SYSTEM.ALL) || mergedCaps.includes(CAPABILITIES.PROJECT.UPDATE) || mergedCaps.includes('*') || isCreator;
     
-    if (!canUpdate) {
-      return NextResponse.json({ error: "Tu n'as pas l'aura requise pour muter ce Chantier." }, { status: 403 });
+    if (!canUpdate) return NextResponse.json({ error: "Tu n'as pas l'aura requise pour muter ce Chantier." }, { status: 403 });
+
+    let body;
+    try { body = await req.json(); } catch (err) { return NextResponse.json({ error: "Corps invalide." }, { status: 400 }); }
+
+    const signature: ActionSignature = { actorUid: userUid, capabilities: mergedCaps };
+    let updatedProject;
+    try {
+      const projectOrch = new ProjectOrchestrator();
+      if (body.newFiles && Array.isArray(body.newFiles)) {
+        await projectOrch.appendFiles(resolvedParams.projectId, body.newFiles, signature);
+        delete body.newFiles; 
+      }
+      updatedProject = await projectOrch.mutateProject(resolvedParams.projectId, body, signature);
+    } catch (orchErr: any) {
+      return NextResponse.json({ error: orchErr.message || "Impossible de muter le projet." }, { status: orchErr.statusCode || 500 });
     }
 
-    const signature: ActionSignature = {
-        actorUid: userUid,
-        capabilities: mergedCaps
-    };
-
-    const body = await req.json();
-    const projectOrch = new ProjectOrchestrator();
-    
-    if (body.newFiles && Array.isArray(body.newFiles)) {
-      await projectOrch.appendFiles(params.projectId, body.newFiles, signature);
-      delete body.newFiles; 
-    }
-
-    const updatedProject = await projectOrch.mutateProject(params.projectId, body, signature);
-
-    return NextResponse.json(updatedProject);
-  } catch (error: any) {
-    const status = error.statusCode || 500;
-    console.error(`🔥 Erreur de mutation (PUT Project ${params.projectId}):`, error);
-    return NextResponse.json({ error: error.message || "Impossible de muter le projet." }, { status });
-  }
+    return NextResponse.json(updatedProject, { status: 200 });
+  } catch (error: any) { return NextResponse.json({ error: "Erreur globale." }, { status: 500 }); }
 }
 
-/**
- * 🛡️ DELETE : Dissolution totale (Le Deuil)
- */
-export async function DELETE(req: Request, { params }: { params: { projectId: string } }) {
+export async function DELETE(req: Request, { params }: RouteParams) {
   try {
-    await connectToDatabase(); // 🛡️ Réveil de la Silice
+    let resolvedParams;
+    try { resolvedParams = await params; } catch (err) { return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 }); }
+
+    try { await connectToDatabase(); } catch (dbErr) { return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 }); }
+
+    let session;
+    try { session = await getServerSession(authOptions); } catch (err) { return NextResponse.json({ error: "Erreur session." }, { status: 500 }); }
     
-    // 🪡 SUTURE : On passe authOptions pour redonner la vue à la session
-    const session = await getServerSession(authOptions);
     const userUid = (session?.user as any)?.uid;
     if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
 
     const sessionCaps = (session?.user as any)?.capabilities || [];
-    const { capabilities } = await getProjectCapabilities(userUid, params.projectId);
+    const { capabilities } = await getProjectCapabilities(userUid, resolvedParams.projectId);
     const mergedCaps = [...new Set([...capabilities, ...sessionCaps])];
 
-    const projectCheck = await ProjectModel.findOne({ uid: params.projectId }).lean();
-    const isCreator = projectCheck?.creatorUid === userUid;
-
-    const canDelete = mergedCaps.includes(CAPABILITIES.SYSTEM.ALL) || 
-                      mergedCaps.includes(CAPABILITIES.PROJECT.DELETE) || 
-                      mergedCaps.includes('*') ||
-                      isCreator;
-
-    if (!canDelete) {
-      return NextResponse.json({ error: "Seul l'Architecte de ce Chantier possède l'aura de dissolution." }, { status: 403 });
-    }
-
-    const signature: ActionSignature = {
-        actorUid: userUid,
-        capabilities: mergedCaps
-    };
-
-    const projectOrch = new ProjectOrchestrator();
-    await projectOrch.dissolveProject(params.projectId, signature);
+    let projectCheck;
+    try { projectCheck = await ProjectModel.findOne({ uid: resolvedParams.projectId }).lean(); } catch(e) {}
     
-    return NextResponse.json({ 
-      message: "L'œuvre est retournée au silence. Les nœuds dans le graphe ont été tranchés.",
-      status: "dissolved"
-    }, { status: 200 }); 
-  } catch (error: any) {
-    const status = error.statusCode || 500;
-    console.error(`🔥 Erreur de dissolution (DELETE Project ${params.projectId}):`, error);
-    return NextResponse.json({ error: error.message || "Le rituel de dissolution a échoué." }, { status });
-  }
+    const isCreator = projectCheck?.creatorUid === userUid;
+    const canDelete = mergedCaps.includes(CAPABILITIES.SYSTEM.ALL) || mergedCaps.includes(CAPABILITIES.PROJECT.DELETE) || mergedCaps.includes('*') || isCreator;
+
+    if (!canDelete) return NextResponse.json({ error: "Seul l'Architecte possède l'aura de dissolution." }, { status: 403 });
+
+    const signature: ActionSignature = { actorUid: userUid, capabilities: mergedCaps };
+
+    try {
+      const projectOrch = new ProjectOrchestrator();
+      await projectOrch.dissolveProject(resolvedParams.projectId, signature);
+    } catch (orchErr: any) {
+      return NextResponse.json({ error: orchErr.message || "Le rituel a échoué." }, { status: orchErr.statusCode || 500 });
+    }
+    
+    return NextResponse.json({ message: "L'œuvre est retournée au silence.", status: "dissolved" }, { status: 200 }); 
+  } catch (error: any) { return NextResponse.json({ error: "Erreur globale." }, { status: 500 }); }
 }

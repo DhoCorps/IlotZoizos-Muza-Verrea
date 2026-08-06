@@ -1,4 +1,3 @@
-// apps/hub-central/app/api/demopraxy/evaluate/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../../../../lib/auth";
@@ -8,9 +7,21 @@ import { ActionSignature } from '@ilot/types';
 
 export async function POST(req: Request) {
   try {
-    await connectToDatabase();
+    try {
+      await connectToDatabase();
+    } catch (dbError) {
+      console.error("❌ [DB ERROR DEMOPRAXY]", dbError);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
+    }
     
-    const session = await getServerSession(authOptions);
+    let session;
+    try {
+      session = await getServerSession(authOptions);
+    } catch (sessionError) {
+      console.error("🔥 [SESSION ERROR]", sessionError);
+      return NextResponse.json({ error: "Erreur lors de la vérification de la session." }, { status: 500 });
+    }
+
     const actorUid = (session?.user as any)?.uid;
     const capabilities = (session?.user as any)?.capabilities || [];
 
@@ -18,7 +29,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
     }
 
-    const body = await req.json();
+    let body;
+    try {
+      body = await req.json();
+    } catch (parseError) {
+      return NextResponse.json({ error: "Corps de requête illisible ou malformé." }, { status: 400 });
+    }
+
     const { userIdentifier, metrics } = body;
 
     if (!userIdentifier || !metrics) {

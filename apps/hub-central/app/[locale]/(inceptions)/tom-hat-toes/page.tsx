@@ -14,6 +14,7 @@ import { TeamForm } from '../../../../components/teams/TeamForm';
 import { TeamCard } from '../../../../components/teams/TeamCard'; 
 import KanbanDrawer from '../../../../components/kanban/KanbanDrawer'; 
 import CalendarView from '../../../../components/calendars/CalendarView';
+import ResonanceButton from '../../../../components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Le tisseur de liens
 
 import { PomodoroProvider } from '../../../../context/PomodoroContext'; 
 import PomodoroHUD from '../../../../components/hub/PomodoroHUD'; 
@@ -103,9 +104,9 @@ export default function TomHatToesHub() {
         {(nexus.selectedProjectUid || nexus.activeInceptionId) && (
           <div className="fixed inset-0 pointer-events-none z-0 opacity-40">
              <ContextualGraph 
-                rootUid={nexus.selectedProjectUid || nexus.activeInceptionId || ''} 
-                onNodeDoubleClick={(uid) => nexus.setActiveInceptionId(uid)}
-              />
+               rootUid={nexus.selectedProjectUid || nexus.activeInceptionId || ''} 
+               onNodeDoubleClick={(uid) => nexus.setActiveInceptionId(uid)}
+             />
           </div>
         )}
 
@@ -412,10 +413,28 @@ export default function TomHatToesHub() {
 
                     <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
                       {nexus.foundBirds.map(bird => (
-                        <button key={bird.uid} onClick={() => nexus.inviteBirdToTeam(nexus.activeInceptionId!, bird.uid)} disabled={nexus.isRecruiting} className="p-4 bg-white/5 hover:bg-emerald-500/20 rounded-xl flex justify-between items-center transition-all">
+                        <div key={bird.uid} className="p-4 bg-white/5 rounded-xl flex justify-between items-center transition-all">
                           <span className="font-bold text-slate-200">{bird.pseudo}</span>
-                          <Plus size={16} className="text-emerald-400" />
-                        </button>
+                          
+                          <div className="flex items-center gap-2">
+                            {/* 🕸️ Intégration du Bouton de Résonance global (Suivre l'Oiseau) */}
+                            <ResonanceButton 
+                              targetSlug={bird.uid} 
+                              type="FOLLOWS_GLOBAL" 
+                              variant="icon" 
+                            />
+
+                            {/* Bouton de recrutement / invitation au Nid */}
+                            <button 
+                              onClick={() => nexus.inviteBirdToTeam(nexus.activeInceptionId!, bird.uid)} 
+                              disabled={nexus.isRecruiting} 
+                              className="p-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/20 transition-all"
+                              title="Inviter au Nid"
+                            >
+                              <Plus size={16} />
+                            </button>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </div>

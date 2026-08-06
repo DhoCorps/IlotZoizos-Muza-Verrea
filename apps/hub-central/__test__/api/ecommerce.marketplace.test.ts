@@ -2,52 +2,70 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '../../app/api/ecommerce/marketPlace/route';
 
+// ==========================================
+// MOCKS DU SANCTUAIRE (Gérés via vi.hoisted)
+// ==========================================
+const { mockConnectToDatabase, mockLean } = vi.hoisted(() => ({
+  mockConnectToDatabase: vi.fn().mockResolvedValue(true),
+  mockLean: vi.fn()
+}));
+
 vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
+  connectToDatabase: mockConnectToDatabase,
   ProductModel: {
-    // 🪡 Simulation du chaînage .find(query).sort().lean() utilisé dans la route marketplace
-    find: vi.fn().mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([
-          { 
-            uid: 'prod_1', 
-            title: 'Artefact Cosmique', 
-            category: 'FONT_SPRITE', 
-            style: 'Cyberpunk', 
-            author: 'Albatros',
-            priceCents: 1500,
-            currency: 'EUR'
-          }
-        ])
-      })
-    })
+    find: vi.fn().mockImplementation(() => ({
+      sort: vi.fn().mockImplementation(() => ({
+        lean: mockLean
+      }))
+    }))
   }
 }));
 
-describe('🛍️ E-commerce Marketplace API (/api/ecommerce/marketPlace)', () => {
+describe('API Ecommerce - Marketplace (GET /api/ecommerce/marketPlace)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockConnectToDatabase.mockResolvedValue(true);
   });
 
-  it('🟢 doit recenser et filtrer les artefacts du marketplace avec succès (GET avec query params)', async () => {
-    const req = new Request('http://localhost/api/ecommerce/marketPlace?category=FONT_SPRITE&style=Cyberpunk&author=Albatros');
-    const res = await GET(req);
+  it('✅ doit recenser tous les produits si aucun filtre n’est appliqué', async () => {
+    mockLean.mockResolvedValueOnce([
+      { uid: 'prod_1', title: 'Police Cyberpunk', category: 'FONT_SPRITE', ownerUid: 'bird_1' },
+      { uid: 'prod_2', title: 'Partition Fretless', category: 'MUSIC', ownerUid: 'bird_2' }
+    ]);
+
+    const req = new Request('http://localhost:3000/api/ecommerce/marketPlace');
+    const res = await GET(req as any);
     const data = await res.json();
 
     expect(res.status).toBe(200);
     expect(data.success).toBe(true);
-    expect(Array.isArray(data.data)).toBe(true);
-    expect(data.data[0].title).toBe('Artefact Cosmique');
-    expect(data.data[0].style).toBe('Cyberpunk');
+    expect(data.data.length).toBe(2);
+    // Vérification que l'enrichissement authorSlug a bien fonctionné
+    expect(data.data[0].authorSlug).toBe('bird_1');
   });
 
-  it('🟢 doit gérer une requête sans filtre (valeur par défaut ALL)', async () => {
-    const req = new Request('http://localhost/api/ecommerce/marketPlace');
-    const res = await GET(req);
+  it('✅ doit filtrer les produits selon la catégorie demandée', async () => {
+    mockLean.mockResolvedValueOnce([
+      { uid: 'prod_1', title: 'Police Cyberpunk', category: 'FONT_SPRITE' }
+    ]);
+
+    const req = new Request('http://localhost:3000/api/ecommerce/marketPlace?category=FONT_SPRITE');
+    const res = await GET(req as any);
     const data = await res.json();
 
     expect(res.status).toBe(200);
     expect(data.success).toBe(true);
-    expect(data.data.length).toBeGreaterThan(0);
+    expect(data.data[0].category).toBe('FONT_SPRITE');
+  });
+
+  it('🔥 doit gérer une panne de la Silice avec élégance (500)', async () => {
+    mockConnectToDatabase.mockRejectedValueOnce(new Error('Erreur base de données'));
+
+    const req = new Request('http://localhost:3000/api/ecommerce/marketPlace');
+    const res = await GET(req as any);
+    const data = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(data.error).toBeDefined();
   });
 });

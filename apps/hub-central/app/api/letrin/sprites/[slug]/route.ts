@@ -1,69 +1,135 @@
 import { NextResponse } from 'next/server';
-import { connectToDatabase } from '@ilot/infrastructure';
-import { LetterSpriteModel } from '@ilot/infrastructure';
+import { connectToDatabase, LetterSpriteModel } from '@ilot/infrastructure';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../../lib/auth";
+import { authOptions } from "../../../../../lib/auth"; // 🪡 Ajuste la profondeur si nécessaire
 
-export async function GET(req: Request, { params }: { params: { slug: string } }) {
+interface RouteParams { params: Promise<{ slug: string }> }
+
+export async function GET(req: Request, { params }: RouteParams) {
   try {
-    await connectToDatabase();
-    // 🪡 On cherche maintenant via le slug !
-    const font = await LetterSpriteModel.findOne({ slug: params.slug });
-    if (!font) {
-      return NextResponse.json({ error: "Police introuvable dans la matrice." }, { status: 404 });
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR SPRITE GET]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
     }
+
+    let resolvedParams;
+    try {
+      resolvedParams = await params;
+    } catch (err) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
+
+    let font;
+    try {
+      font = await LetterSpriteModel.findOne({ slug: resolvedParams.slug }).lean();
+    } catch (queryErr) {
+      console.error("🔥 [SPRITE GET ERROR]", queryErr);
+      return NextResponse.json({ error: "Fracture lors de la lecture." }, { status: 500 });
+    }
+
+    if (!font) return NextResponse.json({ error: "Police introuvable." }, { status: 404 });
     return NextResponse.json(font, { status: 200 });
+
   } catch (error: any) {
-    console.error("🔥 Erreur lors de la lecture de la police :", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("🔥 Erreur globale GET Letr'In Sprite Slug :", error);
+    return NextResponse.json({ error: "Erreur globale." }, { status: 500 });
   }
 }
 
-export async function PUT(req: Request, { params }: { params: { slug: string } }) {
+export async function PUT(req: Request, { params }: RouteParams) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
+    let session;
+    try {
+      session = await getServerSession(authOptions);
+    } catch (sessionErr) {
+      console.error("🔥 [SESSION ERROR SPRITE PUT]", sessionErr);
+      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
+    }
+
+    if (!session || !session.user) {
       return NextResponse.json({ error: "Oiseau non identifié. Mutation refusée." }, { status: 401 });
     }
 
-    await connectToDatabase();
-    const body = await req.json();
-
-    // 🪡 Mise à jour ciblée via le slug
-    const updated = await LetterSpriteModel.findOneAndUpdate(
-      { slug: params.slug },
-      { $set: body },
-      { new: true }
-    );
-
-    if (!updated) {
-      return NextResponse.json({ error: "Police introuvable pour mutation." }, { status: 404 });
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR SPRITE PUT]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
     }
 
+    let resolvedParams;
+    let body;
+    try {
+      resolvedParams = await params;
+      body = await req.json();
+    } catch (err) {
+      return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
+    }
+
+    let updated;
+    try {
+      updated = await LetterSpriteModel.findOneAndUpdate(
+        { slug: resolvedParams.slug },
+        { $set: body },
+        { new: true }
+      ).lean();
+    } catch (updateErr) {
+      console.error("🔥 [SPRITE PUT ERROR]", updateErr);
+      return NextResponse.json({ error: "Fracture lors de la mutation." }, { status: 500 });
+    }
+
+    if (!updated) return NextResponse.json({ error: "Police introuvable." }, { status: 404 });
     return NextResponse.json({ success: true, data: updated }, { status: 200 });
+
   } catch (error: any) {
-    console.error("🔥 Fracture lors de la mutation de la police :", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("🔥 Erreur globale PUT Letr'In Sprite Slug :", error);
+    return NextResponse.json({ error: "Erreur globale." }, { status: 500 });
   }
 }
 
-export async function DELETE(req: Request, { params }: { params: { slug: string } }) {
+export async function DELETE(req: Request, { params }: RouteParams) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) {
+    let session;
+    try {
+      session = await getServerSession(authOptions);
+    } catch (sessionErr) {
+      console.error("🔥 [SESSION ERROR SPRITE DELETE]", sessionErr);
+      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
+    }
+
+    if (!session || !session.user) {
       return NextResponse.json({ error: "Oiseau non identifié. Dissolution refusée." }, { status: 401 });
     }
 
-    await connectToDatabase();
-    // 🪡 Suppression ciblée via le slug
-    const deleted = await LetterSpriteModel.findOneAndDelete({ slug: params.slug });
-    if (!deleted) {
-      return NextResponse.json({ error: "Police introuvable pour dissolution." }, { status: 404 });
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR SPRITE DELETE]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
     }
 
+    let resolvedParams;
+    try {
+      resolvedParams = await params;
+    } catch (err) {
+      return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
+    }
+
+    let deleted;
+    try {
+      deleted = await LetterSpriteModel.findOneAndDelete({ slug: resolvedParams.slug });
+    } catch (delErr) {
+      console.error("🔥 [SPRITE DELETE ERROR]", delErr);
+      return NextResponse.json({ error: "Erreur lors de la dissolution." }, { status: 500 });
+    }
+
+    if (!deleted) return NextResponse.json({ error: "Police introuvable." }, { status: 404 });
     return NextResponse.json({ success: true, message: "Police dissoute avec succès." }, { status: 200 });
+
   } catch (error: any) {
-    console.error("🔥 Erreur lors de la dissolution de la police :", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("🔥 Erreur globale DELETE Letr'In Sprite Slug :", error);
+    return NextResponse.json({ error: "Erreur globale." }, { status: 500 });
   }
 }

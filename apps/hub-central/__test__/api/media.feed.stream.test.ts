@@ -1,45 +1,46 @@
-// apps/hub-central/__test__/api/media.stream-feed.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '../../app/api/media/stream-feed/route';
 
+const mockFind = vi.fn();
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   ProductModel: {
-    // 🪡 Simulation du chaînage Mongoose .find().limit().lean() avec distinction visuels / pistes audio
-    find: vi.fn().mockImplementation((query) => ({
-      limit: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue(
-          query.category.$in.includes('MUSIC') 
-            ? [
-                { uid: 'track_1', title: 'Symphonie des Abysses', category: 'MUSIC', author: 'Albatros' }
-              ]
-            : [
-                { uid: 'vis_1', title: 'Fresque Stellaire', category: 'GRAPHIC', author: 'KâÔdz' }
-              ]
-        )
+    find: (...args: any[]) => ({
+      limit: () => ({
+        lean: () => mockFind(...args)
       })
-    }))
+    })
   }
 }));
 
-describe('📻 API Flux Média Agora (/api/media/stream-feed)', () => {
+describe('API Media - Stream Feed de l’Agora (GET /api/media/stream-feed)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('🟢 doit récupérer et renvoyer le flux combiné de visuels et de pistes audio avec succès', async () => {
+  it('✅ doit retourner les visuels et pistes audio mélangés', async () => {
+    mockFind
+      .mockResolvedValueOnce([{ _id: 'v1', title: 'Police Font', category: 'FONT_SPRITE' }])
+      .mockResolvedValueOnce([{ _id: 't1', title: 'Partition Jazz', category: 'MUSIC' }]);
+
     const res = await GET();
     const data = await res.json();
 
     expect(res.status).toBe(200);
     expect(data.success).toBe(true);
-    expect(data.data).toBeDefined();
-    
-    // Vérification des tableaux de visuels et de pistes
-    expect(Array.isArray(data.data.visuals)).toBe(true);
-    expect(Array.isArray(data.data.tracks)).toBe(true);
+    expect(data.data.visuals.length).toBe(1);
+    expect(data.data.tracks.length).toBe(1);
+    expect(data.data.visuals[0].title).toBe('Police Font');
+    expect(data.data.tracks[0].title).toBe('Partition Jazz');
+  });
 
-    expect(data.data.visuals[0].title).toBe('Fresque Stellaire');
-    expect(data.data.tracks[0].title).toBe('Symphonie des Abysses');
+  it('🔥 doit gérer une fracture de la base de données avec élégance (500)', async () => {
+    vi.mocked(mockFind).mockRejectedValueOnce(new Error('Erreur de la Silice'));
+
+    const res = await GET();
+    const data = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(data.error).toBeDefined();
   });
 });

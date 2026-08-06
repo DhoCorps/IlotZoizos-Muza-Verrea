@@ -8,6 +8,8 @@ export * from './database/models/nosql/task.model';
 
 export * from './database/models/nosql/sujet.model';
 
+export * from './database/models/nosql/cvTemplate.model';
+
 export * from './database/models/nosql/partita.model';
 
 export * from './database/models/nosql/letrinSprite.model';
@@ -30,6 +32,7 @@ export * from './database/models/nosql/gameHistory.model';
 export * from './database/services/mutation.service';
 export * from './database/services/sync.service';
 export * from './database/services/gameStats.service';
+export * from './database/services/resonance.service';
 
 export * from './database/models/graph/user.graph';
 export * from './database/models/graph/team.graph';

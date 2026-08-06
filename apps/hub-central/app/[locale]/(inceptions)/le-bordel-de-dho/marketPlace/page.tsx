@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import ResonanceButton from '../../../../../components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Import du tisseur
 
 interface Product {
   uid: string;
@@ -11,6 +12,7 @@ interface Product {
   category: string;
   style?: string;
   author?: string;
+  authorSlug?: string; // 🕸️ NOUVEAU : Nécessaire pour la Résonance
   currency?: string;
 }
 
@@ -149,43 +151,62 @@ export default function MarketPlacePage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {products.map((product) => (
-              <div 
-                key={product.uid}
-                className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between hover:border-emerald-500/50 transition-all shadow-lg"
-              >
-                <div>
-                  <div className="flex justify-between items-start gap-2 mb-3">
-                    <span className="text-xs font-mono uppercase bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-800/50">
-                      {product.category}
-                    </span>
-                    <span className="text-sm font-bold text-amber-400">
-                      {(product.priceCents / 100).toFixed(2)} {product.currency || 'EUR'}
-                    </span>
+            {products.map((product) => {
+              // Fallback : Si l'API ne renvoie pas encore authorSlug, on utilise le nom formaté en attendant.
+              // Il faudra t'assurer que ton endpoint /api/ecommerce/marketPlace peuple bien 'authorSlug' ou 'ownerUid'
+              const targetSlug = product.authorSlug || product.author?.toLowerCase().replace(/\s+/g, '-') || 'marchand-inconnu';
+
+              return (
+                <div 
+                  key={product.uid}
+                  className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between hover:border-emerald-500/50 transition-all shadow-lg group relative"
+                >
+                  <div>
+                    <div className="flex justify-between items-start gap-2 mb-3">
+                      <span className="text-xs font-mono uppercase bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-800/50">
+                        {product.category}
+                      </span>
+                      <span className="text-sm font-bold text-amber-400">
+                        {(product.priceCents / 100).toFixed(2)} {product.currency || 'EUR'}
+                      </span>
+                    </div>
+
+                    <h3 className="text-lg font-bold text-slate-100 mb-1 pr-8">{product.title}</h3>
+                    
+                    {product.author && (
+                      <div className="flex items-center gap-2 mb-3">
+                        <p className="text-xs text-slate-400">Par <span className="text-slate-300 font-medium">{product.author}</span></p>
+                        
+                        {/* 🕸️ NOUVEAU : Bouton de Résonance vers l'auteur */}
+                        <div className="scale-75 origin-left">
+                          <ResonanceButton 
+                            targetSlug={targetSlug}
+                            type="FOLLOWS_GLOBAL" 
+                            variant="icon"
+                          />
+                        </div>
+                      </div>
+                    )}
+                    
+                    <p className="text-sm text-slate-400 line-clamp-3 mb-4">
+                      {product.description || 'Artefact souverain sans description textuelle.'}
+                    </p>
                   </div>
 
-                  <h3 className="text-lg font-bold text-slate-100 mb-1">{product.title}</h3>
-                  {product.author && (
-                    <p className="text-xs text-slate-400 mb-3">Par <span className="text-slate-300 font-medium">{product.author}</span></p>
-                  )}
-                  <p className="text-sm text-slate-400 line-clamp-3 mb-4">
-                    {product.description || 'Artefact souverain sans description textuelle.'}
-                  </p>
+                  <div className="pt-4 border-t border-slate-800 flex justify-between items-center">
+                    {product.style && (
+                      <span className="text-xs text-slate-500 italic">Style : {product.style}</span>
+                    )}
+                    <button 
+                      onClick={() => alert(`Demande d'échange / acquisition initiée pour : ${product.title}`)}
+                      className="ml-auto bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold px-4 py-2 rounded-lg text-xs transition-colors shadow-sm"
+                    >
+                      Examiner l'Artefact
+                    </button>
+                  </div>
                 </div>
-
-                <div className="pt-4 border-t border-slate-800 flex justify-between items-center">
-                  {product.style && (
-                    <span className="text-xs text-slate-500 italic">Style : {product.style}</span>
-                  )}
-                  <button 
-                    onClick={() => alert(`Demande d'échange / acquisition initiée pour : ${product.title}`)}
-                    className="ml-auto bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold px-4 py-2 rounded-lg text-xs transition-colors shadow-sm"
-                  >
-                    Examiner l'Artefact
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

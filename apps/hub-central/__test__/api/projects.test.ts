@@ -1,56 +1,70 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getServerSession } from "next-auth/next";
-import { ProjectOrchestrator } from '@ilot/shared-core'; 
-import { POST } from '../../app/api/projects/route';
-import { CAPABILITIES } from '@ilot/types';
-import { IOiseau } from '@ilot/types';
+import { GET, POST } from '../../app/api/projects/route';
+import { getServerSession } from 'next-auth/next';
 
-// 🛡️ SUTURE OMEGA : vi.hoisted permet d'initialiser l'espion AVANT le hoisting des mocks
-const { mockNeo4jRun } = vi.hoisted(() => ({
-  mockNeo4jRun: vi.fn()
+vi.mock('next-auth/next', () => ({ getServerSession: vi.fn() }));
+
+const mockRun = vi.fn();
+const mockClose = vi.fn();
+vi.mock('@ilot/infrastructure', () => ({
+  connectToDatabase: vi.fn().mockResolvedValue(true),
+  getNeo4jSession: vi.fn().mockImplementation(() => ({
+    run: mockRun,
+    close: mockClose
+  })),
+  ProjectModel: {
+    find: vi.fn().mockImplementation(() => ({
+      select: vi.fn().mockImplementation(() => ({
+        sort: vi.fn().mockImplementation(() => ({
+          limit: vi.fn().mockImplementation(() => ({
+            lean: vi.fn().mockResolvedValue([{ uid: 'proj_1', name: 'Mon Chantier' }])
+          }))
+        }))
+      }))
+    }))
+  }
 }));
 
-vi.mock("next-auth/next", () => ({ getServerSession: vi.fn() }));
-
-// On mock le chemin exact utilisé par la route
-vi.mock('@ilot/infrastructure/src/database/neo4j', () => ({
-  getNeo4jSession: vi.fn().mockReturnValue({
-    run: mockNeo4jRun,
-    close: vi.fn().mockResolvedValue(undefined)
-  })
+const mockFosterProject = vi.fn();
+vi.mock('@ilot/shared-core', () => ({
+  ProjectOrchestrator: vi.fn().mockImplementation(() => ({
+    fosterProject: mockFosterProject
+  }))
 }));
 
-vi.mock("@ilot/infrastructure/src/database/mongoose", () => ({
-  connectToDatabase: vi.fn().mockResolvedValue({}),
-}));
+describe('API Projects - Collection (/api/projects)', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
 
-describe('API Projects - Routes de Fondation', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockNeo4jRun.mockResolvedValue({
-      records: [{ get: () => [CAPABILITIES.PROJECT.CREATE] }]
-    });
+  it('🟢 GET : doit lister les chantiers publics ou accessibles', async () => {
+    vi.mocked(getServerSession).mockResolvedValueOnce({ user: { uid: 'bird_1' } } as any);
+    mockRun.mockResolvedValueOnce({ records: [{ get: () => 'proj_1' }] });
+    
+    const req = new Request('http://localhost/api/projects');
+    const res = await GET(req);
+    const data = await res.json();
+    
+    expect(res.status).toBe(200);
+    expect(data[0].name).toBe('Mon Chantier');
+    expect(mockRun).toHaveBeenCalled();
   });
 
-  it('✅ POST /api/projects doit retourner 201', async () => {
-    // 🪡 SUTURE : On ajoute les capabilities à la session mockée pour passer la garde Auth
-    vi.mocked(getServerSession).mockResolvedValue({ 
-      user: { 
-        uid: 'bird-777',
-        capabilities: [CAPABILITIES.PROJECT.CREATE] 
-      } 
-    } as any);
+  it('🔴 POST : doit rejeter si capacités insuffisantes (403)', async () => {
+    vi.mocked(getServerSession).mockResolvedValueOnce({ user: { uid: 'bird_1', capabilities: [] } } as any);
+    
+    const req = new Request('http://localhost/api/projects', { method: 'POST', body: JSON.stringify({}) });
+    const res = await POST(req);
+    expect(res.status).toBe(403);
+  });
 
-    const fosterSpy = vi.spyOn(ProjectOrchestrator.prototype, 'fosterProject')
-      .mockResolvedValue({ success: true, status: 'success', mongo: { uid: 'p1' }, neo4j: {} } as any);
-
-    const req = new Request('http://localhost/api/projects', {
-      method: 'POST',
-      body: JSON.stringify({ name: 'Nouveau Monde' }) 
-    });
-
-    const response = await POST(req);
-    expect(response.status).toBe(201);
-    expect(fosterSpy).toHaveBeenCalled();
+  it('🟢 POST : doit fonder le chantier avec succès (201)', async () => {
+    vi.mocked(getServerSession).mockResolvedValueOnce({ user: { uid: 'bird_1', capabilities: ['*'] } } as any);
+    mockFosterProject.mockResolvedValueOnce({ uid: 'proj_new', name: 'New' });
+    
+    const req = new Request('http://localhost/api/projects', { method: 'POST', body: JSON.stringify({ name: 'New' }) });
+    const res = await POST(req);
+    const data = await res.json();
+    
+    expect(res.status).toBe(201);
+    expect(data.name).toBe('New');
   });
 });

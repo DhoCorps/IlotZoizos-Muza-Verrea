@@ -6,6 +6,7 @@ import {
   Heart, X, Sparkles, Shield, Zap, Skull, Award, Compass, 
   Cpu, Flame, Feather, Terminal, Star, ArrowRight, Briefcase 
 } from 'lucide-react';
+import ResonanceButton from '../resonance/ResonanceButton'; // 🕸️ NOUVEAU : Le tisseur de liens
 
 interface Profile {
   uid: string;
@@ -231,6 +232,18 @@ export default function KontaktSwipeDeck() {
         {/* Effet de lueur d'ambiance */}
         <div className="absolute -top-24 -right-24 w-48 h-48 bg-[#E5484D]/10 rounded-full blur-3xl pointer-events-none" />
 
+        {/* 🕸️ NOUVEAU : Bouton de Résonance (en absolute top-right) */}
+        {mode === 'recruiter' && (
+          <div className="absolute top-4 right-4 z-20">
+            <ResonanceButton 
+              targetSlug={currentItem.uid} // On utilise l'UID de l'Oiseau comme slug de contact
+              type="FOLLOWS_GLOBAL"
+              variant="icon"
+              initialIsFollowing={false} // Idéalement, récupéré depuis API: currentItem.isFollowedByMe
+            />
+          </div>
+        )}
+
         {/* MODE RECRUTEUR : Affichage du Profil Talent */}
         {mode === 'recruiter' && (
           <>
@@ -244,11 +257,11 @@ export default function KontaktSwipeDeck() {
                     {currentItem.alignment || 'CHAOTIC GOOD'}
                   </span>
                 </div>
-                <h2 className="text-2xl font-black uppercase tracking-tight text-white">{currentItem.name}</h2>
+                <h2 className="text-2xl font-black uppercase tracking-tight text-white pr-8">{currentItem.name}</h2>
                 <p className="text-xs font-mono text-[#E5484D] font-bold">{currentItem.professionalTitle}</p>
               </div>
               
-              <div className="w-14 h-14 rounded-2xl bg-[#E5484D]/10 border border-[#E5484D]/30 flex items-center justify-center text-[#E5484D] shadow-inner shrink-0">
+              <div className="w-14 h-14 rounded-2xl bg-[#E5484D]/10 border border-[#E5484D]/30 flex items-center justify-center text-[#E5484D] shadow-inner shrink-0 mt-8">
                 <Shield size={28} />
               </div>
             </div>

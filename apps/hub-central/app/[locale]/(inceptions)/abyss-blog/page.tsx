@@ -8,6 +8,7 @@ import {
   Layers, Filter, Sparkles, FolderPlus, Compass 
 } from 'lucide-react';
 import { SujetForm } from '../../../../components/abyss-blog/sujets/SujetForm';
+import ResonanceButton from '../../../../components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Import du Bouton de Résonance
 
 export default function AbyssBlogDashboard() {
   const [sujets, setSujets] = useState<any[]>([]);
@@ -155,6 +156,9 @@ export default function AbyssBlogDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredSujets.map((sujet: any) => {
             const sujetKey = sujet.uid || sujet._id;
+            // On récupère le slug de l'auteur s'il est peuplé par l'API, sinon on met un fallback
+            const targetSlug = sujet.authorSlug || sujet.authorUid || 'dho';
+
             return (
               <div 
                 key={sujetKey} 
@@ -203,6 +207,15 @@ export default function AbyssBlogDashboard() {
                     >
                       <BookOpen size={12} /> Lire
                     </Link>
+
+                    {/* 🕸️ INTÉGRATION DU BOUTON DE RÉSONANCE (Granulaire) */}
+                    <ResonanceButton 
+                      targetSlug={targetSlug}
+                      type="FOLLOWS_SPECIFIC"
+                      entityId={sujetKey}
+                      variant="icon"
+                      initialIsFollowing={sujet.isFollowedByMe} // Si géré plus tard par l'API
+                    />
 
                     <button 
                       onClick={() => handleOpenEdit(sujet)}

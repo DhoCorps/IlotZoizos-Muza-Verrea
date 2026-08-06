@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { lettrinSprites } from '../../../../lib/apiClient';
 import { LetrinEditor, PixelData } from '../../../../components/letrin/LetrinEditor';
+import ResonanceButton from '../../../../components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Import du tisseur
 
 type GlyphMatrix = (PixelData | null)[][];
 type MatricesRecord = Record<string, GlyphMatrix>;
@@ -196,48 +197,64 @@ export default function LetrInSpritePage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {fonts.map((font: any) => (
-            <div 
-              key={font.uid || font._id} 
-              className="p-6 bg-black/30 border border-white/5 rounded-3xl backdrop-blur-md flex flex-col justify-between space-y-6 hover:border-white/20 transition-all group"
-            >
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    {font.status || 'RELEASED'}
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-500">
-                    Grille {font.gridSize?.width || 16}x{font.gridSize?.height || 16}
-                  </span>
+          {fonts.map((font: any) => {
+            const fontId = font.uid || font._id;
+            const authorSlug = font.authorSlug || font.ownerUid || 'createur-inconnu';
+
+            return (
+              <div 
+                key={fontId} 
+                className="p-6 bg-black/30 border border-white/5 rounded-3xl backdrop-blur-md flex flex-col justify-between space-y-6 hover:border-white/20 transition-all group relative"
+              >
+                {/* 🕸️ Bouton de Résonance granulaire sur la police */}
+                <div className="absolute top-6 right-6 z-10">
+                  <ResonanceButton 
+                    targetSlug={authorSlug}
+                    type="FOLLOWS_SPECIFIC"
+                    entityId={fontId}
+                    variant="icon"
+                    initialIsFollowing={font.isFollowedByMe}
+                  />
                 </div>
 
-                <h3 className="text-lg font-black uppercase text-white group-hover:text-[#E5484D] transition-colors line-clamp-1">
-                  {font.name}
-                </h3>
+                <div className="space-y-4 pr-10">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      {font.status || 'RELEASED'}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      Grille {font.gridSize?.width || 16}x{font.gridSize?.height || 16}
+                    </span>
+                  </div>
 
-                <p className="text-xs text-slate-400 font-mono">
-                  Glyphes sédimentés : <span className="text-white font-bold">{font.glyphs?.length || 0}</span>
-                </p>
+                  <h3 className="text-lg font-black uppercase text-white group-hover:text-[#E5484D] transition-colors line-clamp-1">
+                    {font.name}
+                  </h3>
+
+                  <p className="text-xs text-slate-400 font-mono">
+                    Glyphes sédimentés : <span className="text-white font-bold">{font.glyphs?.length || 0}</span>
+                  </p>
+                </div>
+
+                <div className="space-y-4 pt-4 border-t border-white/5 flex items-center justify-between gap-2">
+                  <button 
+                    onClick={() => handleOpenEdit(font)}
+                    className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-white font-mono text-[10px] uppercase font-bold rounded-xl border border-white/10 text-center transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <Edit3 size={12} /> Éditer les Sprites
+                  </button>
+
+                  <button 
+                    onClick={() => handleDelete(fontId)}
+                    className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl border border-red-500/20 transition-all"
+                    title="Dissoudre"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
-
-              <div className="space-y-4 pt-4 border-t border-white/5 flex items-center justify-between gap-2">
-                <button 
-                  onClick={() => handleOpenEdit(font)}
-                  className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-white font-mono text-[10px] uppercase font-bold rounded-xl border border-white/10 text-center transition-all flex items-center justify-center gap-1.5"
-                >
-                  <Edit3 size={12} /> Éditer les Sprites
-                </button>
-
-                <button 
-                  onClick={() => handleDelete(font.uid)}
-                  className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl border border-red-500/20 transition-all"
-                  title="Dissoudre"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
           {fonts.length === 0 && (
             <div className="col-span-full py-20 text-center space-y-4 bg-black/20 border border-white/5 rounded-3xl">
