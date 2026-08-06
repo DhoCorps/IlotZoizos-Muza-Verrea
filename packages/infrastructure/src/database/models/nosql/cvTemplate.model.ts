@@ -1,7 +1,9 @@
+// apps/hub-central/models/cvTemplate.model.ts
 import mongoose, { Document, Model } from 'mongoose';
 
 export interface ICVTemplateDocument extends Document {
   uid: string;
+  slug: string; // 🌟 Ajout du slug
   authorUid: string;
   authorName: string;
   title: string;
@@ -13,9 +15,9 @@ export interface ICVTemplateDocument extends Document {
   createdAt: Date;
 }
 
-// 🪡 On retire le générique ici pour éviter que Mongoose n'impose des contraintes strictes sur les tableaux mixtes
 const CVTemplateSchema = new mongoose.Schema({
   uid: { type: String, required: true, unique: true },
+  slug: { type: String, required: true, unique: true, index: true }, // 🌟 Indexé pour la rapidité
   authorUid: { type: String, required: true },
   authorName: { type: String, required: true },
   title: { type: String, required: true },

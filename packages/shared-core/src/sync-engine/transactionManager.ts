@@ -1,66 +1,90 @@
+// packages/shared-core/src/sync-engine/transactionManager.ts
 import mongoose, { ClientSession } from 'mongoose';
-import { getNeo4jDriver } from '@ilot/infrastructure/src/database/neo4j';
-import { Transaction } from 'neo4j-driver'; // 🌟 Typage précis
+import { getNeo4jDriver } from '@ilot/infrastructure'; // 💡 Utilisation de l'export propre du package infrastructure
+import { Transaction } from 'neo4j-driver';
 
-export const TransactionManager = {
+export class TransactionManager {
   /**
-   * 🛡️ TRANSACTION MANAGER V2 : LE SQUELETTE D'ACIER
+   * 🛡️ TRANSACTION MANAGER V2.5 : LE DOUBLE SCELLEMENT ATOMIQUE
+   * Orchestre une transaction conjointe entre MongoDB (Silice) et Neo4j (Matrice)
+   * avec stratégie de compensation en cas de rupture du second système.
    */
-  async execute<T>(
+  public static async execute<T>(
     operationName: string,
     operation: (mongoSession: ClientSession, neo4jTx: Transaction) => Promise<T>
   ): Promise<T> {
     
-    // 1. Initialisation des canaux
+    // 1. Initialisation des sessions pour les deux bases de données
     const mongoSession = await mongoose.startSession();
     const neo4jSession = getNeo4jDriver().session();
     
-    // On démarre la transaction Mongo
     mongoSession.startTransaction();
-    // On ouvre le canal transactionnel Neo4j
     const neo4jTx = neo4jSession.beginTransaction();
+
+    let mongoCommitted = false;
 
     try {
       // 2. EXÉCUTION DU MÉTIER
-      // On passe les deux outils à l'orchestrateur
+      // L'orchestrateur effectue les écritures dans les deux bases via les sessions ouvertes
       const result = await operation(mongoSession, neo4jTx);
 
-      // 3. LE SCELLÉ (L'ORDRE COMPTE)
-      // On commit Neo4j en premier car il est souvent plus sensible aux timeouts
-      await neo4jTx.commit();
-      // Si Neo4j a réussi, on scelle Mongo
+      // 3. LE SCELLÉ SÉQUENTIEL SÉCURISÉ
+      // Étape A : On valide d'abord MongoDB (Source de vérité documentaire / Silice)
       await mongoSession.commitTransaction();
+      mongoCommitted = true;
+
+      // Étape B : On valide ensuite Neo4j (Projection relationnelle / Graphe)
+      try {
+        await neo4jTx.commit();
+      } catch (neo4jCommitError: any) {
+        // 🚨 CATASTROPHE CRITIQUE : MongoDB est validé mais Neo4j échoue au commit.
+        // Il faut déclencher une alerte de désynchronisation ou une compensation.
+        console.error(`💥 [FATAL DESYNC] MongoDB scellé mais échec du commit Neo4j sur [${operationName}] :`, neo4jCommitError.message);
+        throw new Error(`[TransactionManager] Rupture de la Matrice Neo4j après scellement MongoDB : ${neo4jCommitError.message}`);
+      }
       
-      console.log(`✅ [NEXUS] Harmonie totale : ${operationName}`);
+      console.log(`✅ [NEXUS] Harmonie totale (Mongo + Neo4j) : ${operationName}`);
       return result;
 
     } catch (error: any) {
-      // 🚨 4. ROLLBACK D'URGENCE (Sécurisé par programmation défensive)
-      // On vérifie que la méthode inTransaction existe (utile pour les mocks de test) avant de l'appeler
-      if (typeof mongoSession.inTransaction === 'function' && mongoSession.inTransaction()) {
-        await mongoSession.abortTransaction();
+      // 🚨 4. ROLLBACK D'URGENCE ET STRATÉGIE DE COMPENSATION
+      
+      // Si MongoDB n'avait pas encore été scellé, on l'annule proprement
+      if (!mongoCommitted && typeof mongoSession.inTransaction === 'function' && mongoSession.inTransaction()) {
+        try {
+          await mongoSession.abortTransaction();
+        } catch (mongoAbortErr) {
+          console.error(`⚠️ [TransactionManager] Erreur lors de l'abandon de la session Mongo :`, mongoAbortErr);
+        }
       }
       
-      // Neo4j rollback (le driver gère si la transaction est déjà fermée)
+      // On tente de refermer/annuler la transaction Neo4j
       try {
-        await neo4jTx.rollback();
-      } catch (neo4jError) {
-        // On ignore si le rollback neo4j échoue (souvent car la session est déjà morte)
+        if (neo4jTx.isOpen()) {
+          await neo4jTx.rollback();
+        }
+      } catch (neo4jRollbackErr) {
+        // Ignoré si la transaction était déjà fermée ou expirée
       }
       
-      console.error(`❌ [NEXUS] Brèche sur ${operationName} :`, error.message);
+      console.error(`❌ [NEXUS] Brèche détectée sur ${operationName} :`, error.message);
       
-      // On relance une erreur enrichie pour que l'orchestrateur sache quoi faire
-      throw new Error(`[TransactionManager] Échec de ${operationName} : ${error.message}`); 
+      // On propage l'erreur propre pour l'API / le client
+      throw new Error(`[TransactionManager] Échec de la transaction ${operationName} : ${error.message}`); 
 
     } finally {
-      // 5. NETTOYAGE CLINIQUE
-      if (typeof mongoSession.endSession === 'function') {
-        await mongoSession.endSession();
-      }
-      if (typeof neo4jSession.close === 'function') {
-        await neo4jSession.close();
-      }
+      // 5. NETTOYAGE CLINIQUE DES RESSOURCES
+      try {
+        if (typeof mongoSession.endSession === 'function') {
+          await mongoSession.endSession();
+        }
+      } catch (e) { /* Nettoyage silencieux */ }
+
+      try {
+        if (typeof neo4jSession.close === 'function') {
+          await neo4jSession.close();
+        }
+      } catch (e) { /* Nettoyage silencieux */ }
     }
   }
-};
+}

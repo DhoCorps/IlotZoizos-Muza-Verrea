@@ -8,6 +8,7 @@ export class KontaktOrchestrator {
   /**
    * 💘 GESTION D'UN SWIPE / MATCH (Le Tinder Pro & JDR)
    * Enregistre l'interaction et crée un lien de résonance dans le Graphe si c'est un Match.
+   * Supporte l'identification par uid ou slug pour plus de robustesse.
    */
   async registerSwipe(
     data: { swiperUid: string; targetUid: string; action: 'LIKE' | 'PASS' },
@@ -21,9 +22,11 @@ export class KontaktOrchestrator {
       let isMatch = false;
 
       if (data.action === 'LIKE') {
-        // Vérifier si la cible a aussi liké le swiper dans le graphe
+        // 1. Vérifier si la cible a aussi liké le swiper (support uid ou slug)
         const checkQuery = `
-          MATCH (target:User { uid: $targetUid })-[r:SWIPED { action: 'LIKE' }]->(swiper:User { uid: $swiperUid })
+          MATCH (target:User) WHERE target.uid = $targetUid OR target.slug = $targetUid
+          MATCH (swiper:User) WHERE swiper.uid = $swiperUid OR swiper.slug = $swiperUid
+          MATCH (target)-[r:SWIPED { action: 'LIKE' }]->(swiper)
           RETURN r
         `;
         const checkResult = await neo4jTx.run(checkQuery, {
@@ -33,10 +36,10 @@ export class KontaktOrchestrator {
 
         isMatch = checkResult.records.length > 0;
 
-        // Créer ou mettre à jour la relation de swipe
+        // 2. Créer la relation de swipe et le match éventuel en résolvant par uid ou slug
         const swipeQuery = `
-          MERGE (u1:User { uid: $swiperUid })
-          MERGE (u2:User { uid: $targetUid })
+          MATCH (u1:User) WHERE u1.uid = $swiperUid OR u1.slug = $swiperUid
+          MATCH (u2:User) WHERE u2.uid = $targetUid OR u2.slug = $targetUid
           CREATE (u1)-[s:SWIPED { action: $action, createdAt: datetime() }]->(u2)
           ${isMatch ? 'CREATE (u1)-[:MATCHED_WITH { createdAt: datetime() }]->(u2) CREATE (u2)-[:MATCHED_WITH { createdAt: datetime() }]->(u1)' : ''}
           RETURN $isMatch AS match
@@ -47,6 +50,18 @@ export class KontaktOrchestrator {
           targetUid: data.targetUid,
           action: data.action,
           isMatch
+        });
+      } else if (data.action === 'PASS') {
+        const passQuery = `
+          MATCH (u1:User) WHERE u1.uid = $swiperUid OR u1.slug = $swiperUid
+          MATCH (u2:User) WHERE u2.uid = $targetUid OR u2.slug = $targetUid
+          CREATE (u1)-[s:SWIPED { action: $action, createdAt: datetime() }]->(u2)
+          RETURN s
+        `;
+        await neo4jTx.run(passQuery, {
+          swiperUid: data.swiperUid,
+          targetUid: data.targetUid,
+          action: data.action
         });
       }
 

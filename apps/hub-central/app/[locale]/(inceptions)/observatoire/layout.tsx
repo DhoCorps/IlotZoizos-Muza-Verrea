@@ -1,20 +1,13 @@
-// apps/hub-central/app/[locale]/observatoire/layout.tsx
 import React from 'react';
-import type { Metadata } from 'next';
+import Sidebar from '../../../../components/navigation/Sidebar';
 
-export const metadata: Metadata = {
-    title: 'Observatoire des Fréquences | Îlot Zoizos',
-    description: 'Sanctuaire métaphysique et lecture vibratoire de la volière.',
-};
-
-export default function ObservatoireLayout({
-    children,
-}: {
-    children: React.ReactNode;
-}) {
-    return (
-        <div className="observatoire-sanctuary w-full min-h-screen bg-[#11161d] text-slate-100 selection:bg-[#3a4654] selection:text-slate-100">
-            {children}
-        </div>
-    );
+export default function ObservatoryLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex h-screen w-screen bg-black overflow-hidden">
+      <Sidebar />
+      <main className="flex-1 pl-20 md:pl-28 pr-4 py-8 h-full overflow-y-auto flex flex-col justify-center items-center">
+        {children}
+      </main>
+    </div>
+  );
 }

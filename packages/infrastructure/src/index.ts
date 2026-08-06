@@ -28,6 +28,7 @@ export * from './database/models/nosql/barterOffer.model';
 export * from './database/models/nosql/taxonomy.model';
 
 export * from './database/models/nosql/gameHistory.model';
+export * from './database/models/nosql/gameResult.model';
 
 export * from './database/models/nosql/message.model';
 

@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useSalonPrive } from '../hooks/useSalonPrive';
+import { useSalonPrive } from '../../hooks/useSalonPrive';
 import { EnactedThought } from '@ilot/shared-core';
 
 export const ConsciousnessSalonView: React.FC = () => {

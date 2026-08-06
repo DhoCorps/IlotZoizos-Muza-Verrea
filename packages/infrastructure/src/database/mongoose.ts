@@ -2,7 +2,8 @@
 import mongoose from 'mongoose';
 
 // 🎯 SUTURE : On simplifie le fallback pour éviter les erreurs de Replica Set en local
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://admin:password1234@127.0.0.1:27017/ilotzoizos';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/ilotzoizos?replicaSet=rs0';
+
 if (!MONGODB_URI) {
   throw new Error('⚠️ Signal perdu : MONGODB_URI est introuvable dans la matrice (.env.local)');
 }
@@ -20,8 +21,8 @@ export async function connectToDatabase() {
     const opts = {
       bufferCommands: true,
       maxPoolSize: 10,
-      // 🛡️ Ajout de sécurités pour l'authentification
-      authSource: "admin", 
+      // 🛡️ SUTURE : Désactivé en local pour éviter l'erreur "Authentication failed"
+      // authSource: "admin", 
       connectTimeoutMS: 5000,
     };
 

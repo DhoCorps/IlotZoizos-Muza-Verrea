@@ -29,7 +29,12 @@ export type EntityLabel =
   | 'Team' 
   | 'Product' 
   | 'Game' 
-  | 'Letter';
+  | 'Letter'
+  | 'Partita'
+  | 'Store'
+  | 'BarterOffer'
+  | 'Order'
+  | 'Tag';
 
 // Enum Zod correspondant aux labels d'entités pour les validations
 export const EntityLabelEnum = z.enum([
@@ -40,7 +45,12 @@ export const EntityLabelEnum = z.enum([
   'Team', 
   'Product', 
   'Game', 
-  'Letter'
+  'Letter',
+  'Partita',
+  'Store',
+  'BarterOffer',
+  'Order',
+  'Tag'
 ]);
 
 /**

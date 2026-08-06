@@ -103,7 +103,7 @@ export class DemopraxyOrchestrator {
             return {
                 success: true,
                 targetUid: user.uid,
-                targetSlug: user.slug,
+                targetSlug: (user as any).slug || null,
                 ...evaluation,
                 user: updatedUser
             };

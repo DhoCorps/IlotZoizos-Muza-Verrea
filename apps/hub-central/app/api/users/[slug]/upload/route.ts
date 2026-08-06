@@ -1,14 +1,12 @@
+// apps/hub-central/app/api/users/[slug]/upload/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { connectToDatabase, OiseauModel, getNeo4jSession } from '@ilot/infrastructure'; 
 import { storageService } from '../../../../../modules/storage/storage.service';
+import { checkRateLimit } from '../../../../../modules/security/rateLimiter';
 import { authOptions } from "../../../../../lib/auth"; 
 import { IOiseau } from '@ilot/types';
 
-/**
- * 🌿 INTERFACE DES PARAMÈTRES
- * Standard universel basé sur le [slug]
- */
 interface RouteParams {
   params: Promise<{ slug: string }>;
 }
@@ -21,6 +19,12 @@ interface OiseauUser {
 
 export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
+    const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
+    const { allowed } = await checkRateLimit(`upload-user-slug:${clientIp}`, 10, 60);
+    if (!allowed) {
+      return NextResponse.json({ success: false, message: "Trop de téléversements. Veuillez patienter." }, { status: 429 });
+    }
+
     try {
       await connectToDatabase();
     } catch (dbErr) {
@@ -90,9 +94,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
        return NextResponse.json({ success: false, message: `La brindille est trop lourde (Max 5 Mo).` }, { status: 400 });
     }
 
-    // --- L'ALCHIMIE DU STORAGE (Cloudflare R2) ---
+    // --- L'ALCHIMIE DU STORAGE VIA STORAGE SERVICE (Cloudflare R2) ---
     const customKey = storageService.generateStructuredKey({
-        inceptId: 'tom-hat-toes',
+        inceptId: 'ilot-zoizos',
         locale: 'fr',
         entityType: 'users',
         entityId: targetSlug, 
@@ -110,7 +114,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     // --- LA SUTURE BASE DE DONNÉES (MongoDB) ---
-    // Tolérance : mise à jour par slug ou par uid
     const updatedUser = (await OiseauModel.findOneAndUpdate(
         { $or: [{ slug: targetSlug }, { uid: targetSlug }] }, 
         { [imageType]: publicUrl }, 
@@ -152,7 +155,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ success: false, message: "Le chaos a frappé la matrice d'upload." }, { status: 500 });
   }
 }
-
 
 // --- 🧨 DELETE : DÉSINTÉGRATION PHYSIQUE ET SILICE ---
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
@@ -206,10 +208,9 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     const allowedTypes = ['avatarUrl', 'coverPicture'];
     if (!allowedTypes.includes(imageType)) return NextResponse.json({ message: "Type invalide" }, { status: 400 });
 
-    // 1. Désintégration Physique
-    let storageKey;
+    // 1. Désintégration Physique via storageService
     try {
-      storageKey = storageService.extractKeyFromUrl(url);
+      const storageKey = storageService.extractKeyFromUrl(url);
       await storageService.deleteFile(storageKey);
     } catch (storageErr) {
       console.error("🔥 [STORAGE DELETE ERROR]", storageErr);

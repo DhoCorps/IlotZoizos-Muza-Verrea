@@ -1,3 +1,4 @@
+// packages/shared-core/src/sync-engine/resonance.orchestrator.ts
 import { TransactionManager } from './transactionManager';
 import { getNeo4jSession } from '@ilot/infrastructure';
 import { ActionSignature, CAPABILITIES, EntityLabel, ResonanceType } from '@ilot/types';
@@ -15,7 +16,7 @@ export class ResonanceOrchestrator {
   
   /**
    * 🕸️ LE TISSERAND TRANSDISCIPLINAIRE
-   * Crée un pont direct entre deux modules distincts (ex: Blog -> Shop)
+   * Crée un pont direct entre deux modules distincts (ex: Blog -> Shop) avec support polymorphe (uid/slug).
    */
   public static async weaveCrossDomainLink(
     sourceUid: string,
@@ -32,8 +33,8 @@ export class ResonanceOrchestrator {
     return await TransactionManager.execute("Tissage Transdisciplinaire", async (mongoSession, neo4jTx) => {
       
       const cypher = `
-        MATCH (source:${sourceLabel} { uid: $sourceUid })
-        MATCH (target:${targetLabel} { uid: $targetUid })
+        MATCH (source:${sourceLabel}) WHERE source.uid = $sourceUid OR source.slug = $sourceUid
+        MATCH (target:${targetLabel}) WHERE target.uid = $targetUid OR target.slug = $targetUid
         MERGE (source)-[r:${relationType}]->(target)
         ON CREATE SET r.createdAt = datetime(), r.actorUid = $actorUid
         RETURN r
@@ -55,7 +56,7 @@ export class ResonanceOrchestrator {
 
   /**
    * 💬 L'ÉCHO SOCIAL (Commentaires & Emojis)
-   * Permet à un Oiseau de réagir à n'importe quelle entité de l'Îlot
+   * Permet à un Oiseau de réagir à n'importe quelle entité de l'Îlot (support uid ou slug).
    */
   public static async addSocialEcho(
     targetUid: string,
@@ -72,8 +73,8 @@ export class ResonanceOrchestrator {
       const relation = echoType === 'TEXT' ? 'ECHOES' : 'VIBRATES';
 
       const cypher = `
-        MATCH (u:User { uid: $actorUid })
-        MATCH (target:${targetLabel} { uid: $targetUid })
+        MATCH (u:User) WHERE u.uid = $actorUid OR u.slug = $actorUid
+        MATCH (target:${targetLabel}) WHERE target.uid = $targetUid OR target.slug = $targetUid
         
         CREATE (u)-[r:${relation} { 
           uid: $echoUid,
@@ -84,26 +85,31 @@ export class ResonanceOrchestrator {
         RETURN r
       `;
 
-      await neo4jTx.run(cypher, {
+      const res = await neo4jTx.run(cypher, {
         actorUid: signature.actorUid,
         targetUid,
         echoUid,
         content
       });
+
+      if (res.records.length === 0) {
+        throw new IlotError("Cible ou acteur introuvable pour l'écho.", "NOT_FOUND", 404);
+      }
       
       return { success: true, echoUid, content, type: echoType };
     });
   }
 
   /**
-   * 🔍 LE RADAR DE RÉSONANCE
-   * Va chercher toutes les entités connectées à un nœud spécifique
+   * 🔍 LE RADAR DE RÉSONANCE (Lecture seule)
+   * Va chercher toutes les entités connectées à un nœud spécifique (par uid ou slug).
    */
-  public static async getResonances(uid: string) {
+  public static async getResonances(identifier: string) {
     const session = getNeo4jSession();
     try {
       const cypher = `
-        MATCH (center { uid: $uid })-[r]-(neighbor)
+        MATCH (center) WHERE center.uid = $identifier OR center.slug = $identifier
+        MATCH (center)-[r]-(neighbor)
         RETURN 
           type(r) AS relationType, 
           labels(neighbor)[0] AS neighborType, 
@@ -112,7 +118,7 @@ export class ResonanceOrchestrator {
           neighbor.name AS neighborName
       `;
       
-      const result = await session.run(cypher, { uid });
+      const result = await session.run(cypher, { identifier });
       
       return result.records.map(rec => ({
         relation: rec.get('relationType'),
@@ -128,17 +134,18 @@ export class ResonanceOrchestrator {
   /**
    * Recherche les résonances transversales entre un oiseau et le reste de la volière
    */
-  public static async findTransversalResonances(userUid: string): Promise<{ peerUid: string; sharedTags: string[]; score: number }[]> {
+  public static async findTransversalResonances(userIdentifier: string): Promise<{ peerUid: string; sharedTags: string[]; score: number }[]> {
     return await TransactionManager.execute('findTransversalResonances', async (mongoSession, neo4jTx) => {
         const query = `
-            MATCH (target:User {uid: $userUid})-[:PARTAGE]->(tag:Tag)<-[:PARTAGE]-(peer:User)
+            MATCH (target:User) WHERE target.uid = $userIdentifier OR target.slug = $userIdentifier
+            MATCH (target)-[:PARTAGE]->(tag:Tag)<-[:PARTAGE]-(peer:User)
             WHERE target <> peer
             RETURN peer.uid AS peerUid, collect(tag.name) AS sharedTags, count(tag) AS commonCount
             ORDER BY commonCount DESC
             LIMIT 10
         `;
 
-        const result = await neo4jTx.run(query, { userUid });
+        const result = await neo4jTx.run(query, { userIdentifier });
         
         return result.records.map(record => ({
             peerUid: record.get('peerUid'),
@@ -149,17 +156,17 @@ export class ResonanceOrchestrator {
   }
 
   /**
-   * 🕸️ NOUVEAU : TISSER LA RÉSONANCE (Abonnements Granulaires)
+   * 🕸️ TISSER LA RÉSONANCE (Abonnements Granulaires)
    * Crée un lien d'abonnement et évalue la naissance d'une Harmonie (suivi mutuel).
    */
   public static async weaveResonance(payload: IResonancePayload): Promise<boolean> {
-    const session = getNeo4jSession();
-    try {
+    return await TransactionManager.execute("Tissage de Résonance", async (mongoSession, neo4jTx) => {
       const { sourceUid, targetUid, type, entityId } = payload;
 
       // 1. Tisser le lien spécifique (GLOBAL, SPECIFIC, ou ECLIPSE)
-      await session.run(
-        `MATCH (source:User {uid: $sourceUid}), (target:User {uid: $targetUid})
+      await neo4jTx.run(
+        `MATCH (source:User) WHERE source.uid = $sourceUid OR source.slug = $sourceUid
+         MATCH (target:User) WHERE target.uid = $targetUid OR target.slug = $targetUid
          MERGE (source)-[r:RESONATES_WITH { entityId: $entityId, type: $type }]->(target)
          ON CREATE SET r.createdAt = datetime()
          ON MATCH SET r.updatedAt = datetime()`,
@@ -169,49 +176,42 @@ export class ResonanceOrchestrator {
       // 2. Vérification de l'Harmonie (Si c'est un abonnement GLOBAL mutuel)
       let isHarmonic = false;
       if (type === 'FOLLOWS_GLOBAL') {
-        const harmonyCheck = await session.run(
-          `MATCH (a:User {uid: $sourceUid})-[r1:RESONATES_WITH {type: 'FOLLOWS_GLOBAL'}]->(b:User {uid: $targetUid})
+        const harmonyCheck = await neo4jTx.run(
+          `MATCH (a:User) WHERE a.uid = $sourceUid OR a.slug = $sourceUid
+           MATCH (b:User) WHERE b.uid = $targetUid OR b.slug = $targetUid
+           MATCH (a)-[r1:RESONATES_WITH {type: 'FOLLOWS_GLOBAL'}]->(b)
            MATCH (b)-[r2:RESONATES_WITH {type: 'FOLLOWS_GLOBAL'}]->(a)
            MERGE (a)-[h:HARMONY]-(b)
            ON CREATE SET h.establishedAt = datetime()
-           RETURN h`
+           RETURN h`,
+          { sourceUid, targetUid }
         );
         isHarmonic = harmonyCheck.records.length > 0;
       }
 
       return isHarmonic;
-    } catch (error) {
-      console.error("🌋 [NEO4J WEAVE FORGE ERROR] :", error);
-      throw new IlotError("Conflit dimensionnel lors du tissage.", "INTERNAL_ERROR", 500);
-    } finally {
-      await session.close();
-    }
+    });
   }
 
   /**
-   * ✂️ NOUVEAU : COUPER LE FIL (Désabonnement)
+   * ✂️ COUPER LE FIL (Désabonnement)
    * Détruit la résonance et brise l'Harmonie si elle existait.
    */
   public static async severResonance(payload: IResonancePayload): Promise<void> {
-    const session = getNeo4jSession();
-    try {
+    await TransactionManager.execute("Coupure de Résonance", async (mongoSession, neo4jTx) => {
       const { sourceUid, targetUid, type, entityId } = payload;
 
-      await session.run(
-        `MATCH (source:User {uid: $sourceUid})-[r:RESONATES_WITH { entityId: $entityId, type: $type }]->(target:User {uid: $targetUid})
+      await neo4jTx.run(
+        `MATCH (source:User) WHERE source.uid = $sourceUid OR source.slug = $sourceUid
+         MATCH (target:User) WHERE target.uid = $targetUid OR target.slug = $targetUid
+         MATCH (source)-[r:RESONATES_WITH { entityId: $entityId, type: $type }]->(target)
          DELETE r
          
-         // Rupture conditionnelle de l'Harmonie si on coupe un lien GLOBAL
          WITH source, target
          OPTIONAL MATCH (source)-[h:HARMONY]-(target)
          DELETE h`,
         { sourceUid, targetUid, type, entityId: entityId || 'ALL' }
       );
-    } catch (error) {
-      console.error("🌋 [NEO4J SEVER ERROR] :", error);
-      throw new IlotError("Impossible de briser le lien.", "INTERNAL_ERROR", 500);
-    } finally {
-      await session.close();
-    }
+    });
   }
 }

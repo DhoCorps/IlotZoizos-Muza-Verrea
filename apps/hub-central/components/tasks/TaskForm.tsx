@@ -31,7 +31,7 @@ export function TaskForm({
 }: TaskFormProps) {
   const isEdit = !!initialData;
   
-  const [localAttachments, setLocalAttachments] = useState<any[]>(initialData?.content?.attachments || initialData?.fileUploads || []);
+  const [localAttachments, setLocalAttachments] = useState<any[]>(initialData?.documents || initialData?.content?.attachments || initialData?.fileUploads || []);
   const [uploading, setUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
@@ -44,7 +44,12 @@ export function TaskForm({
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !initialData?.uid) return;
+    const taskIdentifier = initialData?.slug || initialData?.uid;
+    
+    if (!file || !taskIdentifier) {
+      alert("⚠️ L'atome doit d'abord être scellé avant de pouvoir y greffer des artefacts.");
+      return;
+    }
 
     setUploading(true);
     const formData = new FormData();
@@ -52,31 +57,40 @@ export function TaskForm({
     formData.append('label', file.name);
 
     try {
-      const res = await fetch(`/api/tasks/${initialData.uid}/upload`, {
+      const res = await fetch(`/api/tasks/${taskIdentifier}/upload`, {
         method: 'POST',
         body: formData
       });
-      if (!res.ok) throw new Error("Échec du scellage.");
+      
       const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Échec du scellage.");
+      
       setLocalAttachments((prev) => [...prev, data.attachment]);
     } catch (err: any) {
       alert(`🚨 Erreur d'alchimie : ${err.message}`);
     } finally {
       setUploading(false);
+      // Réinitialiser l'input file
+      e.target.value = '';
     }
   };
 
   const handleDeleteAttachment = async (doc: any) => {
-    if (!confirm("Anéantir définitivement cette pièce jointe ?")) return;
-    setIsDeleting(doc.uid);
+    const taskIdentifier = initialData?.slug || initialData?.uid;
+    if (!taskIdentifier || !confirm("Anéantir définitivement cette pièce jointe ?")) return;
+
+    setIsDeleting(doc.uid || doc.url);
     try {
-      const res = await fetch(`/api/tasks/${initialData.uid}/upload`, {
+      const res = await fetch(`/api/tasks/${taskIdentifier}/upload`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: doc.url })
       });
-      if (!res.ok) throw new Error("Échec de la purge.");
-      setLocalAttachments((prev) => prev.filter(d => d.uid !== doc.uid));
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Échec de la purge.");
+      
+      setLocalAttachments((prev) => prev.filter(d => (d.uid || d.url) !== (doc.uid || doc.url)));
     } catch (err: any) {
       alert(`🚨 Ineptie technique : ${err.message}`);
     } finally {
@@ -85,8 +99,10 @@ export function TaskForm({
   };
 
   const handleDragStart = (e: React.DragEvent) => {
-    e.dataTransfer.setData("taskUid", initialData?.uid);
-    e.dataTransfer.effectAllowed = "move";
+    if (initialData?.uid) {
+      e.dataTransfer.setData("taskUid", initialData.uid);
+      e.dataTransfer.effectAllowed = "move";
+    }
   };
 
   return (
@@ -119,16 +135,23 @@ export function TaskForm({
              <input type="file" className="hidden" onChange={handleFileUpload} disabled={uploading} />
            </label>
            <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
-             {localAttachments.map((doc: any) => (
-               <div key={doc.uid} className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02] border border-white/5 text-[10px] font-mono text-slate-400">
-                 <a href={doc.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 truncate hover:text-emerald-400">
-                   <FileText size={10} /> {doc.label || doc.name} <ExternalLink size={8} />
-                 </a>
-                 <button onClick={() => handleDeleteAttachment(doc)} disabled={isDeleting === doc.uid} className="hover:text-red-500">
-                   {isDeleting === doc.uid ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
-                 </button>
-               </div>
-             ))}
+             {localAttachments.map((doc: any, index: number) => {
+               const docKey = doc.uid || doc.url || index;
+               const isItemDeleting = isDeleting === (doc.uid || doc.url);
+               return (
+                 <div key={docKey} className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02] border border-white/5 text-[10px] font-mono text-slate-400">
+                   <a href={doc.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 truncate hover:text-emerald-400">
+                     <FileText size={10} /> {doc.label || doc.name || 'Document'} <ExternalLink size={8} />
+                   </a>
+                   <button type="button" onClick={() => handleDeleteAttachment(doc)} disabled={isItemDeleting} className="hover:text-red-500">
+                     {isItemDeleting ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                   </button>
+                 </div>
+               );
+             })}
+             {localAttachments.length === 0 && (
+               <p className="text-[9px] text-slate-600 italic text-center py-1">Aucun artefact greffé pour l'instant.</p>
+             )}
            </div>
         </div>
       )}
@@ -147,7 +170,7 @@ export function TaskForm({
           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Atome Parent</label>
           <select name="parentUid" defaultValue={initialData?.parentUid || ""} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]">
             <option value="">Tâche Racine (Indépendante)</option>
-            {existingTasks.filter(t => t.uid !== initialData?.uid).map((t: any) => <option key={t.uid} value={t.uid}>↳ {t.content.title}</option>)}
+            {existingTasks.filter(t => t.uid !== initialData?.uid).map((t: any) => <option key={t.uid} value={t.uid}>↳ {t.content?.title || t.title}</option>)}
           </select>
         </div>
       </div>

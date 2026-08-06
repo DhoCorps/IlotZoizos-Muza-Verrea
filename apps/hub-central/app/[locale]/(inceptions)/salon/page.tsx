@@ -1,5 +1,5 @@
 // apps/hub-central/app/salon/page.tsx
-import { ConsciousnessSalonView } from '../../../../components/consciousnessSalonView';
+import { ConsciousnessSalonView } from '../../../../components/salon/consciousnessSalonView';
 
 export default function SalonPrivéPage() {
     return (

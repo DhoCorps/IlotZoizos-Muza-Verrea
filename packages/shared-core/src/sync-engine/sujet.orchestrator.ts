@@ -1,3 +1,4 @@
+// packages/shared-core/src/sync-engine/sujet.orchestrator.ts
 import { SujetModel } from '../../../infrastructure/src/database/models/nosql/sujet.model';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
@@ -18,7 +19,7 @@ const generateSlug = (text: string) => {
 
 /**
  * SUJET ORCHESTRATOR
- * Gère la sédimentation d'une pensée dans la Silice et son tissage dans le Graphe (tom§hat§toes).
+ * Gère la sédimentation d'une pensée dans la Silice et son tissage dans le Graphe.
  */
 export class SujetOrchestrator {
   
@@ -36,10 +37,21 @@ export class SujetOrchestrator {
       const sujetUid = data.uid || `sujet_${randomUUID()}`;
       const title = data.title || "Monologue sans nom";
       
+      // Sécurisation de l'unicité du slug
+      let baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
+      let finalSlug = baseSlug;
+      let slugExists = await SujetModel.findOne({ slug: finalSlug }).session(mongoSession);
+      let counter = 1;
+      while (slugExists) {
+        finalSlug = `${baseSlug}-${counter}`;
+        slugExists = await SujetModel.findOne({ slug: finalSlug }).session(mongoSession);
+        counter++;
+      }
+
       const newSujetData = {
         uid: sujetUid,
         title: title,
-        slug: data.slug || generateSlug(title),
+        slug: finalSlug,
         content: data.content || "",
         lyrics: data.lyrics || null,
         copyright: data.copyright || null,
@@ -62,13 +74,13 @@ export class SujetOrchestrator {
         CREATE (s:Sujet { 
           uid: $sujetUid, 
           title: $title, 
+          slug: $slug,
           category: $category,
           status: $status,
           createdAt: datetime() 
         })
         CREATE (u)-[:WROTE]->(s)
 
-        // SUTURE tom§hat§toes : Tissage dynamique des liens
         WITH s
         UNWIND (CASE WHEN size($relatedProjects) = 0 THEN [null] ELSE $relatedProjects END) AS pUid
         FOREACH (_ IN CASE WHEN pUid IS NOT NULL THEN [1] ELSE [] END |
@@ -83,7 +95,6 @@ export class SujetOrchestrator {
           MERGE (s)-[:DETAILS]->(t)
         )
 
-        // 🛍️ SUTURE E-COMMERCE : Liaison graphe avec le produit si renseigné
         WITH s
         CALL {
           WITH s
@@ -100,6 +111,7 @@ export class SujetOrchestrator {
         actorUid: signature.actorUid,
         sujetUid: newSujet.uid,
         title: newSujet.title,
+        slug: newSujet.slug,
         category: newSujet.category,
         status: newSujet.status,
         relatedProjects: newSujet.connections?.relatedProjects || [],
@@ -117,20 +129,20 @@ export class SujetOrchestrator {
   }
 
   /**
-   * MUTATION : METTRE À JOUR UN SUJET
+   * MUTATION : METTRE À JOUR UN SUJET (Supporte uid ou slug)
    */
-  async updateSujet(sujetUid: string, updates: any, signature: ActionSignature): Promise<SujetSyncResult> {
-    const existing = await SujetModel.findOne({ uid: sujetUid });
+  async updateSujet(sujetIdentifier: string, updates: any, signature: ActionSignature): Promise<SujetSyncResult> {
+    const existing = await SujetModel.findOne({ $or: [{ uid: sujetIdentifier }, { slug: sujetIdentifier }] });
     if (!existing) throw new IlotError("Sujet introuvable dans la Silice.", "NOT_FOUND", 404);
 
     const isAuthor = existing.authorUid === signature.actorUid;
     if (!isAuthor && !signature.capabilities.includes('*')) {
-      throw new IlotError("Tu ne peux modifier que tes propres pensées.", "FORBIDDEN", 403);
+      throw new IlotError("Tu ne modifier que tes propres pensées.", "FORBIDDEN", 403);
     }
 
     return await TransactionManager.execute("Mutation de Sujet", async (mongoSession, neo4jTx) => {
       const updatedSujet = await SujetModel.findOneAndUpdate(
-        { uid: sujetUid },
+        { uid: existing.uid },
         { $set: updates },
         { new: true, session: mongoSession }
       ).lean();
@@ -144,7 +156,6 @@ export class SujetOrchestrator {
               s.category = coalesce($category, s.category),
               s.updatedAt = datetime()
           
-          // Mise à jour éventuelle de l'arrête e-commerce
           WITH s
           OPTIONAL MATCH (s)-[r:OFFERS_PRODUCT]->(oldProd:Product)
           FOREACH (_ IN CASE WHEN $productId IS NULL AND r IS NOT NULL THEN [1] ELSE [] END | DELETE r)
@@ -160,7 +171,7 @@ export class SujetOrchestrator {
 
           RETURN s
         `, { 
-          sujetUid, 
+          sujetUid: existing.uid, 
           title: updates.title || null,
           status: updates.status || null, 
           category: updates.category || null,
@@ -178,10 +189,10 @@ export class SujetOrchestrator {
   }
 
   /**
-   * DÉSINTÉGRATION : PURGER UN SUJET
+   * DÉSINTÉGRATION : PURGER UN SUJET (Supporte uid ou slug)
    */
-  async disintegrateSujet(sujetUid: string, signature: ActionSignature) {
-    const existing = await SujetModel.findOne({ uid: sujetUid });
+  async disintegrateSujet(sujetIdentifier: string, signature: ActionSignature) {
+    const existing = await SujetModel.findOne({ $or: [{ uid: sujetIdentifier }, { slug: sujetIdentifier }] });
     if (!existing) throw new IlotError("Sujet introuvable.", "NOT_FOUND", 404);
 
     const isAuthor = existing.authorUid === signature.actorUid;
@@ -197,8 +208,8 @@ export class SujetOrchestrator {
         try { await storageService.deleteFile(storageService.extractKeyFromUrl(existing.media.audioTrackUrl)); } catch {}
       }
 
-      await neo4jTx.run(`MATCH (s:Sujet { uid: $sujetUid }) DETACH DELETE s`, { sujetUid });
-      await SujetModel.deleteOne({ uid: sujetUid }, { session: mongoSession });
+      await neo4jTx.run(`MATCH (s:Sujet { uid: $sujetUid }) DETACH DELETE s`, { sujetUid: existing.uid });
+      await SujetModel.deleteOne({ uid: existing.uid }, { session: mongoSession });
 
       return { success: true, purgedCount: 1 };
     });

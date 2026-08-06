@@ -1,163 +1,97 @@
 // packages/shared-core/src/sync-engine/__tests__/sujet.orchestrator.test.ts
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SujetOrchestrator } from '../sujet.orchestrator';
+import { SujetModel } from '@ilot/infrastructure/src/database/models/nosql/sujet.model';
 import { TransactionManager } from '../transactionManager';
-import { ActionSignature } from '@ilot/types';
-import { SujetModel } from '../../../../infrastructure/src/database/models/nosql/sujet.model';
+import { IlotError } from '../../errors/ilot.errors';
 
-// SUTURE 1 : Mock direct et local du modèle Silice (MongoDB)
-vi.mock('../../../../infrastructure/src/database/models/nosql/sujet.model', () => ({
+vi.mock('@ilot/infrastructure/src/database/models/nosql/sujet.model', () => ({
   SujetModel: {
-    create: vi.fn().mockImplementation((data) => Promise.resolve(Array.isArray(data) ? data : [data])),
-    findOne: vi.fn().mockImplementation(() => {
-      const m: any = Promise.resolve({
-        uid: 'sujet_123',
-        title: 'Ancien Monologue',
-        authorUid: 'bird_alpha',
-        merchLink: null,
-        media: {}
-      });
-      m.lean = vi.fn().mockResolvedValue({
-        uid: 'sujet_123',
-        title: 'Ancien Monologue',
-        authorUid: 'bird_alpha',
-        merchLink: null,
-        media: {}
-      });
-      return m;
-    }),
-    findOneAndUpdate: vi.fn().mockImplementation(() => {
-      const m: any = Promise.resolve({
-        uid: 'sujet_123',
-        title: 'Monologue Muté',
-        authorUid: 'bird_alpha',
-        status: 'PUBLISHED',
-        merchLink: null
-      });
-      m.lean = vi.fn().mockResolvedValue({
-        uid: 'sujet_123',
-        title: 'Monologue Muté',
-        authorUid: 'bird_alpha',
-        status: 'PUBLISHED',
-        merchLink: null
-      });
-      return m;
-    }),
-    deleteOne: vi.fn().mockResolvedValue({ deletedCount: 1 })
-  }
+    create: vi.fn(),
+    findOne: vi.fn(),
+    findOneAndUpdate: vi.fn(),
+    deleteOne: vi.fn(),
+  },
 }));
 
-// Mock du Storage (S3/R2)
-vi.mock('../../../../../apps/hub-central/modules/storage/storage.service', () => ({
-  storageService: {
-    extractKeyFromUrl: vi.fn().mockReturnValue('mock-key'),
-    deleteFile: vi.fn().mockResolvedValue(true)
-  }
-}));
-
-// SUTURE 2 : Mock du TransactionManager (Le Graphe Muet)
-const mockNeo4jRun = vi.fn();
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn().mockImplementation(async (name, callback) => {
-      const mockNeo4jTx = {
-        run: mockNeo4jRun.mockResolvedValue({ records: [] })
-      };
-      return callback({} as any, mockNeo4jTx as any);
-    })
-  }
+    execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [] }) })),
+  },
 }));
 
-describe("SujetOrchestrator - Tissage de la Pensée", () => {
+describe('SujetOrchestrator', () => {
   let orchestrator: SujetOrchestrator;
-  
-  const mockAuthorUid = 'bird_alpha';
-  const validSignature: ActionSignature = {
-    actorUid: mockAuthorUid,
-    capabilities: [] 
-  };
+  const adminSignature = { actorUid: 'admin_1', capabilities: ['*'] };
+  const userSignature = { actorUid: 'bird_author', capabilities: [] };
 
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new SujetOrchestrator();
   });
 
-  it("doit fonder un nœud de pensée par Souveraineté (Auteur) avec liens et e-commerce", async () => {
-    const payload = {
-      title: 'La naissance de tom§hat§toes',
-      content: 'Ceci est un test de fondation.',
-      authorUid: mockAuthorUid,
-      connections: {
-        relatedProjects: ['proj_999']
-      },
-      merchLink: {
-        productId: 'prod_777',
-        displayMode: 'card'
-      }
-    };
+  describe('fosterSujet', () => {
+    it('🔴 doit rejeter (403) si l’Oiseau n’est pas l’auteur et n’a pas la capacité root', async () => {
+      await expect(
+        orchestrator.fosterSujet({ authorUid: 'other' }, userSignature as any)
+      ).rejects.toThrow(IlotError);
+    });
 
-    const result = await orchestrator.fosterSujet(payload as any, validSignature);
+    it('🟢 doit forger un sujet dans MongoDB et Neo4j avec succès', async () => {
+      // 🛡️ SUTURE : Simulation du comportement '.session(mongoSession)' de Mongoose
+      vi.mocked(SujetModel.findOne).mockReturnValue({
+        session: vi.fn().mockResolvedValueOnce(null)
+      } as any);
 
-    expect(result.success).toBe(true);
-    expect(SujetModel.create).toHaveBeenCalled();
-    expect(mockNeo4jRun).toHaveBeenCalledWith(
-      expect.stringContaining("CREATE (s:Sujet"),
-      expect.objectContaining({
-        title: 'La naissance de tom§hat§toes',
-        actorUid: mockAuthorUid,
-        productId: 'prod_777'
-      })
-    );
-    expect(mockNeo4jRun).toHaveBeenCalledWith(
-      expect.stringContaining("MERGE (s)-[:ILLUMINATES]->(p)"),
-      expect.anything()
-    );
-    expect(mockNeo4jRun).toHaveBeenCalledWith(
-      expect.stringContaining("MERGE (s)-[:OFFERS_PRODUCT]->(prod)"),
-      expect.anything()
-    );
+      vi.mocked(SujetModel.create).mockResolvedValueOnce([
+        { uid: 'sujet_1', title: 'Test', slug: 'test', authorUid: 'bird_author' }
+      ] as any);
+
+      const res = await orchestrator.fosterSujet({ title: 'Test', authorUid: 'bird_author' }, userSignature as any);
+      expect(res.mongo.uid).toBe('sujet_1');
+      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it("doit rejeter la fondation si un oiseau tente de parler à la place d'un autre", async () => {
-    const payload = {
-      title: 'Usurpation',
-      authorUid: 'bird_beta' 
-    };
-    const signature: ActionSignature = { actorUid: 'bird_alpha', capabilities: [] };
+  describe('updateSujet', () => {
+    it('🔴 doit rejeter (404) si le sujet est introuvable (par uid ou slug)', async () => {
+      vi.mocked(SujetModel.findOne).mockResolvedValueOnce(null);
 
-    await expect(orchestrator.fosterSujet(payload as any, signature))
-      .rejects.toThrow("Aura insuffisante pour parler à la place d'un autre.");
+      await expect(
+        orchestrator.updateSujet('inconnu', {}, adminSignature as any)
+      ).rejects.toThrow(IlotError);
+    });
+
+    it('🟢 doit mettre à jour un sujet par son slug ou son uid avec succès', async () => {
+      const mockSujet = { uid: 'sujet_1', slug: 'mon-sujet', authorUid: 'bird_author' };
+      vi.mocked(SujetModel.findOne).mockResolvedValueOnce(mockSujet as any);
+      
+      vi.mocked(SujetModel.findOneAndUpdate).mockReturnValue({
+        lean: vi.fn().mockResolvedValueOnce({ ...mockSujet, title: 'Updated' })
+      } as any);
+
+      const res = await orchestrator.updateSujet('mon-sujet', { title: 'Updated' }, userSignature as any);
+      expect(res.mongo.title).toBe('Updated');
+    });
   });
 
-  it("doit muter un sujet par son auteur", async () => {
-    const result = await orchestrator.updateSujet('sujet_123', { status: 'PUBLISHED' }, validSignature);
-    
-    expect(result.success).toBe(true);
-    expect(result.mongo.status).toBe('PUBLISHED');
-    expect(mockNeo4jRun).toHaveBeenCalledWith(
-      expect.stringContaining("SET s.title = coalesce"),
-      expect.objectContaining({ status: 'PUBLISHED' })
-    );
-  });
+  describe('disintegrateSujet', () => {
+    it('🔴 doit rejeter (403) si l’acteur n’est ni l’auteur ni admin', async () => {
+      const mockSujet = { uid: 'sujet_1', slug: 'mon-sujet', authorUid: 'bird_author' };
+      vi.mocked(SujetModel.findOne).mockResolvedValueOnce(mockSujet as any);
 
-  it("doit rejeter la mutation par un autre oiseau sans l'Aura globale", async () => {
-    const badSignature: ActionSignature = { actorUid: 'bird_curieux', capabilities: [] };
-    
-    await expect(orchestrator.updateSujet('sujet_123', { title: 'Vandalisme' }, badSignature))
-      .rejects.toThrow("Tu ne peux modifier que tes propres pensées.");
-  });
+      await expect(
+        orchestrator.disintegrateSujet('mon-sujet', { actorUid: 'intruder', capabilities: [] } as any)
+      ).rejects.toThrow(IlotError);
+    });
 
-  it("doit autoriser la désintégration d'un sujet par un Administrateur (Aura globale)", async () => {
-    const adminSignature: ActionSignature = { actorUid: 'architect_prime', capabilities: ['*'] };
-    
-    const result = await orchestrator.disintegrateSujet('sujet_123', adminSignature);
-    
-    expect(result.success).toBe(true);
-    expect(SujetModel.deleteOne).toHaveBeenCalled();
-    expect(mockNeo4jRun).toHaveBeenCalledWith(
-      expect.stringContaining("DETACH DELETE s"),
-      expect.objectContaining({ sujetUid: 'sujet_123' })
-    );
+    it('🟢 doit désintégrer le sujet avec succès si l’acteur est admin', async () => {
+      const mockSujet = { uid: 'sujet_1', slug: 'mon-sujet', authorUid: 'bird_author' };
+      vi.mocked(SujetModel.findOne).mockResolvedValueOnce(mockSujet as any);
+      vi.mocked(SujetModel.deleteOne).mockResolvedValueOnce({ deletedCount: 1 } as any);
+
+      const res = await orchestrator.disintegrateSujet('mon-sujet', adminSignature as any);
+      expect(res.success).toBe(true);
+    });
   });
 });

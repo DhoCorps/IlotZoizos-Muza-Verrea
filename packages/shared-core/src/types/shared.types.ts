@@ -1,15 +1,28 @@
-// packages/shared-core/src/types/shared.ts
 import { IUniversalAttachment, AttachmentSourceType } from '../../../types/src/models/message.types';
 import { IlotError } from '../errors/ilot.errors';
 import { CrazyMorpionSymbol, CrazyMorpionGrid } from '../games/crazymorpion/CrazyMorpionTypes';
-import {
+import type {
     KoOonTreezNbPlayer,
     KoOonTreezMode,
     KoOonTreezOption,
     KoOonTreezLevel,
     KoOonTreezSoloMode,
+    KoOonTreeZGameRoom,
+    KoOonTreeZPlayer,
     CurrentFlag
 } from '../games/kooontreez/KoOonTreeZTypes';
+
+export type {
+    KoOonTreezNbPlayer,
+    KoOonTreezMode,
+    KoOonTreezOption,
+    KoOonTreezLevel,
+    KoOonTreezSoloMode,
+    KoOonTreeZGameRoom,
+    KoOonTreeZPlayer,
+    CurrentFlag
+};
+
 import {
     AtomikDeck,
     AtomikKFardENbPlayer,
@@ -52,11 +65,29 @@ import {
     PlumZeeGameOptions,
     PlumZeeCombinationKey
 } from '../games/plumzee/PlumZeeTypes';
+// 🔮 Import et re-export des types WikiOracle
+import type {
+    WikiOracleChoicesMode,
+    WikiOracleTheme,
+    QuizQuestion as WikiQuizQuestion,
+    WikiOraclePlayer,
+    WikiOracleGameRoom,
+    WikiOracleArticle
+} from '../games/wikiOracle/WikiOracleTypes';
+
+export type {
+    WikiOracleChoicesMode,
+    WikiOracleTheme,
+    WikiQuizQuestion,
+    WikiOraclePlayer,
+    WikiOracleGameRoom,
+    WikiOracleArticle
+};
 
 export type PlayerStatus = 'connected' | 'disconnected' | 'disconnected_temp' | 'waiting' | 'playing' | 'gameOver' | 'waitingForPlayers' | 'readyToStart' | 'inGame' | 'empty' | 'paused' | 'scanning' | 'marking';
 
-// 🎬🎨🚀🎲 Ajout de PlumZee aux GameTypes
-export type GameType = 'CrazyMorpion' | 'KoOonTreeZ' | 'AtomikKFardE' | 'CineMax' | 'SoonArt' | 'GalakTK' | 'PlumZee';
+// 🎬🎨🚀🎲🔮 Ajout de WikiOracle aux GameTypes
+export type GameType = 'CrazyMorpion' | 'KoOonTreeZ' | 'AtomikKFardE' | 'CineMax' | 'SoonArt' | 'GalakTK' | 'PlumZee' | 'WikiOracle';
 
 type AttachmentResolver = (entityUid: string) => Promise<IUniversalAttachment | null>;
 
@@ -86,6 +117,7 @@ export interface PlayerInRoom extends BasePlayer {
 export type CrazyMorpionPlayerClient = PlayerInRoom & { symbol: string | null };
 export type KoOonTreeZPlayerClient = PlayerInRoom;
 export type AtomikKFardEPlayerClient = PlayerInRoom & { deck: AtomikDeck; hand: AtomikDeck; handSize?: number };
+export type WikiOraclePlayerClient = PlayerInRoom & { currentHintLevel: number };
 
 // 🎬 Interface Client pour le joueur CineMax
 export type CineMaxPlayerClient = PlayerInRoom & {
@@ -248,8 +280,17 @@ export interface PlumZeeRoomToSend extends BaseRoomData {
     currentRound: number;
 }
 
+export interface WikiOracleRoomToSend extends BaseRoomData {
+    gameType: 'WikiOracle';
+    players: WikiOraclePlayerClient[];
+    choicesMode?: WikiOracleChoicesMode;
+    theme?: WikiOracleTheme;
+    currentRoundTimeLeft?: number;
+    currentQuestion?: WikiQuizQuestion | null;
+}
+
 // 🎬🎨🚀🎲 Ajout à l'Union des Rooms
-export type RoomToSend = CrazyMorpionRoomToSend | KoOonTreeZRoomToSend | AtomikKFardERoomToSend | CineMaxRoomToSend | SoonArtRoomToSend | GalakTKRoomToSend | PlumZeeRoomToSend;
+export type RoomToSend = CrazyMorpionRoomToSend | KoOonTreeZRoomToSend | AtomikKFardERoomToSend | CineMaxRoomToSend | SoonArtRoomToSend | GalakTKRoomToSend | PlumZeeRoomToSend | WikiOracleRoomToSend;
 export type InitialGameData = RoomToSend;
 export type GameBoardUpdateData = RoomToSend;
 export type GameOverData = RoomToSend;
@@ -347,8 +388,17 @@ export interface PlumZeeClientState extends PlayerBaseClientState {
     currentTurnPlayerId: string | null;
 }
 
+export interface WikiOracleClientState extends PlayerBaseClientState {
+    gameType: 'WikiOracle';
+    players: WikiOraclePlayerClient[];
+    choicesMode?: WikiOracleChoicesMode;
+    theme?: WikiOracleTheme;
+    currentRoundTimeLeft?: number;
+    currentQuestion?: WikiQuizQuestion | null;
+}
+
 // 🎬🎨🚀🎲 Ajout à l'Union des États Clients Globaux
-export type ClientGlobalState = CrazyMorpionGameClientState | KoOonTreeZClientState | AtomikKFardEClientState | CineMaxClientState | SoonArtClientState | GalakTKClientState | PlumZeeClientState;
+export type ClientGlobalState = CrazyMorpionGameClientState | KoOonTreeZClientState | AtomikKFardEClientState | CineMaxClientState | SoonArtClientState | GalakTKClientState | PlumZeeClientState | WikiOracleClientState;
 
 export interface BaseMakeMoveRequest {
     roomId: string;
@@ -412,7 +462,12 @@ export interface PlumZeeMakeMoveRequest extends BaseMakeMoveRequest {
     };
 }
 
-// 🎬🎨🚀🎲 Mise à jour des options de création de salon pour inclure Plum'Zee
+export interface WikiOracleMakeMoveRequest extends BaseMakeMoveRequest {
+    gameType: 'WikiOracle';
+    answer: string;
+}
+
+// 🎬🎨🚀🎲 Mise à jour des options de création de salon pour inclure Plum'Zee et WikiOracle
 export interface CreateRoomRequest {
     username: string;
     gameType: GameType;
@@ -441,6 +496,8 @@ export interface CreateRoomRequest {
     galakTKMode?: 'global' | 'local';
     plumZeeMaxRounds?: number;
     plumZeeTurnTimeLimit?: number;
+    choicesMode?: WikiOracleChoicesMode;
+    theme?: WikiOracleTheme;
 }
 
 export interface JoinRoomRequest {

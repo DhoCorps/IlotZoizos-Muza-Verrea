@@ -1,66 +1,85 @@
-// packages/shared-core/src/sync-engine/__tests__/kanban.orchestrator.test.ts
+// packages/shared-core/src/sync-engine/__test__/kanban.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KanbanOrchestrator } from '../kanban.orchestrator';
+import { TaskModel } from '../../../../infrastructure/src/database/models/nosql/task.model';
 import { TransactionManager } from '../transactionManager';
-import { TaskStatus, CAPABILITIES, ActionSignature } from '@ilot/types'; // ✅ Import de la Signature Zéro-Identité
+import { IlotError } from '../../errors/ilot.errors';
+import { CAPABILITIES } from '@ilot/types';
 
-vi.mock('../transactionManager', () => ({
-  TransactionManager: { execute: vi.fn() }
+vi.mock('../../../../infrastructure/src/database/models/nosql/task.model', () => ({
+  TaskModel: {
+    findOneAndUpdate: vi.fn(),
+    findOne: vi.fn(),
+    bulkWrite: vi.fn(),
+  },
 }));
 
-describe('KanbanOrchestrator - Intégrité du Flux', () => {
-  const mockTaskUid = 'task_123';
-  const mockActorUid = 'bird_alpha'; // Celui qui agit
+vi.mock('../transactionManager', () => ({
+  TransactionManager: {
+    execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue(true) })),
+  },
+}));
+
+describe('KanbanOrchestrator', () => {
   let orchestrator: KanbanOrchestrator;
-  
-  // 🛡️ Création d'une Signature valide pour les tests
-  const validSignature: ActionSignature = {
-    actorUid: mockActorUid,
-    capabilities: [CAPABILITIES.TASK.UPDATE] // Le droit de bouger une tâche
-  };
+  const adminSignature = { uid: 'u1', role: 'architect', capabilities: [CAPABILITIES.TASK.UPDATE] };
+  const restrictedSignature = { uid: 'u2', role: 'visitor', capabilities: [] };
 
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new KanbanOrchestrator();
-    
-    // Mock de la transaction binaire
-    vi.spyOn(TransactionManager, 'execute').mockImplementation(async (name, callback) => {
-      // Pour ce test, on se moque de la réponse exacte, on veut juste que le flux passe
-      const mockMongo = { uid: mockTaskUid, status: 'DONE' };
-      const mockNeo = { 
-        records: [{ 
-          get: () => ({ properties: { status: 'DONE' } }) 
-        }] 
-      };
-      // On exécute le callback (qui représente la logique interne de l'orchestrateur)
-      return {
-          success: true,
-          mongo: mockMongo,
-          neo4j: mockNeo
-      };
+  });
+
+  describe('updateTask', () => {
+    it('🔴 doit rejeter (403) si l’Oiseau n’a pas la capacité de mettre à jour', async () => {
+      await expect(
+        orchestrator.updateTask('task-1', { status: 'DONE' }, restrictedSignature as any)
+      ).rejects.toThrow(IlotError);
+    });
+
+    it('🔴 doit lever une erreur 404 si l’atome est introuvable', async () => {
+      vi.mocked(TaskModel.findOneAndUpdate).mockReturnValue({
+        lean: vi.fn().mockResolvedValueOnce(null),
+      } as any);
+
+      await expect(
+        orchestrator.updateTask('inconnu', { status: 'DONE' }, adminSignature as any)
+      ).rejects.toThrow(IlotError);
+    });
+
+    it('🟢 doit mettre à jour l’atome (par slug ou uid) et synchroniser Neo4j', async () => {
+      const mockTask = { uid: 'task-uid-123', slug: 'atome-alpha', status: 'DONE' };
+      vi.mocked(TaskModel.findOneAndUpdate).mockReturnValue({
+        lean: vi.fn().mockResolvedValueOnce(mockTask),
+      } as any);
+
+      const res = await orchestrator.updateTask('atome-alpha', { status: 'DONE' }, adminSignature as any);
+
+      expect(res.success).toBe(true);
+      expect(res.mongo.uid).toBe('task-uid-123');
+      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });
 
-  it('✅ doit valider la mutation de statut et les métriques temporelles', async () => {
-    // 🩸 SUTURE : On passe la Signature au 3ème argument !
-    const result = await orchestrator.updateTask(
-      mockTaskUid, 
-      { status: TaskStatus.DONE }, 
-      validSignature
-    );
+  describe('reorderTasks', () => {
+    it('🟢 doit réordonner les tâches via bulkWrite', async () => {
+      vi.mocked(TaskModel.bulkWrite).mockResolvedValueOnce({} as any);
 
-    const mongoData = result.mongo as any;
-    const neoData = result.neo4j as any;
-
-    expect(result.success).toBe(true);
-    expect(mongoData.status).toBe('DONE');
-    expect(neoData.records[0].get().properties.status).toBe('DONE');
+      const res = await orchestrator.reorderTasks(['t1', 't2'], adminSignature as any);
+      expect(res.success).toBe(true);
+      expect(res.count).toBe(2);
+    });
   });
 
-  it('🤝 doit valider l\'assignation d\'un Oiseau à un Atome', async () => {
-    // 🩸 SUTURE : On passe la Signature au 3ème argument !
-    const result = await orchestrator.assignMember(mockTaskUid, 'bird_999', validSignature);
-    
-    expect(result.success).toBe(true);
+  describe('assignMember', () => {
+    it('🟢 doit assigner un membre à une tâche et lier dans le graphe', async () => {
+      vi.mocked(TaskModel.findOne).mockReturnValue({
+        session: vi.fn().mockResolvedValueOnce({ uid: 'task-1' }),
+      } as any);
+
+      const res = await orchestrator.assignMember('task-1', 'bird-1', adminSignature as any);
+      expect(res.success).toBe(true);
+      expect(TaskModel.findOne).toHaveBeenCalledTimes(1);
+    });
   });
 });

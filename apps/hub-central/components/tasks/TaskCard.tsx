@@ -1,4 +1,3 @@
-// apps/hub-central/components/tasks/TaskCard.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -33,8 +32,6 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
   const isActive = activeTaskUid === task.uid;
   const isWorking = isActive && status === 'WORK';
 
-  
-
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("taskUid", task.uid);
     e.dataTransfer.effectAllowed = "move";
@@ -67,7 +64,6 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
     }
   };
 
-  // 🧨 SUTURE : Logique de désintégration d'un fichier
   const handleDeleteAttachment = async (doc: any) => {
     if (!confirm("Anéantir cette pièce jointe ?")) return;
 
@@ -131,33 +127,43 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
           </div>
         </div>
 
-        <div className="space-y-2 mb-4">
-          <div className="flex justify-between items-center text-[9px] font-mono text-slate-500 uppercase">
-            <div className="flex items-center gap-2">
-              <span className="flex items-center gap-1"><Clock size={10} /> Cycles</span>
-              <span className="text-slate-400">{completedPomos} / {estimatedPomos}</span>
+        {/* 🍅 VISUALISATION GRAPHIQUE DES POMODOROS (TOMATES) */}
+        <div className="space-y-3 mb-4">
+          <div className="flex justify-between items-center text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+            <div className="flex flex-col gap-1">
+              <span className="flex items-center gap-1 text-slate-500"><Clock size={10} /> Sédimentation</span>
+              <div className="flex items-center flex-wrap gap-0.5 mt-1 min-h-[20px]">
+                {Array.from({ length: estimatedPomos }).map((_, i) => (
+                  <span 
+                    key={i} 
+                    className={`text-sm transition-all duration-300 ${i < completedPomos ? 'opacity-100 drop-shadow-[0_0_5px_rgba(229,72,77,0.5)]' : 'opacity-20 grayscale'}`}
+                  >
+                    🍅
+                  </span>
+                ))}
+              </div>
             </div>
             
             {isWorking ? (
               <button 
                 onClick={(e) => { e.stopPropagation(); stopFocus(); }}
-                className="text-[#E5484D] flex items-center gap-1 animate-pulse bg-white/5 hover:bg-[#E5484D]/20 px-2 py-1 rounded transition-all z-10"
+                className="text-[#E5484D] flex items-center gap-1.5 animate-pulse bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 px-3 py-1.5 rounded-lg transition-all z-10 font-bold"
               >
-                <Loader2 size={10} className="animate-spin" /> Focus
+                <Loader2 size={12} className="animate-spin" /> En Récolte...
               </button>
             ) : (
               <button 
                 onClick={(e) => { e.stopPropagation(); startFocus(task.uid); }}
-                className="flex items-center gap-1 text-slate-400 hover:text-[#E5484D] transition-colors bg-white/5 hover:bg-[#E5484D]/10 px-2 py-1 rounded z-10"
+                className="flex items-center gap-1.5 text-slate-300 hover:text-white transition-colors bg-slate-800 border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded-lg z-10 shadow-lg font-bold"
               >
-                <Play size={10} fill="currentColor" /> 30mn
+                <Play size={10} fill="currentColor" className="text-emerald-400" /> Démarrer
               </button>
             )}
           </div>
           
-          <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+          <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
             <div 
-              className="h-full bg-[#E5484D] shadow-[0_0_8px_#E5484D] transition-all duration-500" 
+              className="h-full bg-gradient-to-r from-amber-500 to-[#E5484D] transition-all duration-700 ease-out" 
               style={{ width: `${Math.min(pomoPercent, 100)}%` }}
             />
           </div>

@@ -3,8 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { Type, FileAudio, LayoutGrid, Upload, Music, ShieldCheck, ShoppingBag, Loader2, Sparkles } from 'lucide-react';
-import { storage } from '../../../lib/apiClient';
-import { RequireCapability } from '../../auth/RequireCapability'; // 🪡 Chemin corrigé pour remonter de abyss-blog/sujets/ vers components/auth/
+import { RequireCapability } from '../../auth/RequireCapability'; 
 import { CAPABILITIES } from '@ilot/types';
 
 interface SujetFormProps {
@@ -25,7 +24,7 @@ export function SujetForm({
   
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [alchemicalWarning, setAlchemicalWarning] = useState<any>(null); // 🌀 État de la licence poétique
+  const [alchemicalWarning, setAlchemicalWarning] = useState<any>(null); 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const isEdit = !!initialData;
@@ -48,6 +47,16 @@ export function SujetForm({
       .catch(() => {});
   }, []);
 
+  // Générateur de slug automatique basé sur le titre
+  const generateSlug = (text: string) => {
+    return text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  };
+
   const executeSubmit = async (overrideContent?: string) => {
     setLoading(true);
     setErrorMsg(null);
@@ -60,20 +69,36 @@ export function SujetForm({
     }
     const formData = new FormData(formElement);
     const selectedProjects = Array.from(formData.getAll('relatedProjects'));
+    const titleValue = formData.get('title')?.toString() || '';
+    const slug = initialData?.slug || generateSlug(titleValue) || `sujet-${Date.now()}`;
 
     try {
       let audioTrackUrl = formData.get('audioTrackUrl')?.toString() || initialData?.media?.audioTrackUrl || null;
 
+      // 🌟 Upload direct optimisé via notre route API sécurisée basée sur le slug
       if (selectedFile) {
         setUploadingFile(true);
-        const uploadResult = await storage.upload(selectedFile, 'sujet', initialData?.uid || 'nouveau-sujet');
-        audioTrackUrl = uploadResult.url;
+        const uploadFormData = new FormData();
+        uploadFormData.append('file', selectedFile);
+
+        const uploadRes = await fetch(`/api/abyss/sujets/${slug}/upload`, {
+          method: 'POST',
+          body: uploadFormData,
+        });
+
+        const uploadResult = await uploadRes.json();
+        if (!uploadRes.ok) {
+          throw new Error(uploadResult.error || "Échec de la sédimentation du média sur Cloudflare R2.");
+        }
+
+        audioTrackUrl = uploadResult.data.url;
         setUploadingFile(false);
       }
 
       const productId = formData.get('productId')?.toString();
       const payload = {
-        title: formData.get('title')?.toString(),
+        title: titleValue,
+        slug: slug,
         content: overrideContent !== undefined ? overrideContent : formData.get('content')?.toString(),
         lyrics: formData.get('lyrics')?.toString() || null,
         copyright: formData.get('copyright')?.toString() || null,

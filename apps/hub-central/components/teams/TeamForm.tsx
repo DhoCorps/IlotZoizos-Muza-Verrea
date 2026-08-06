@@ -43,7 +43,7 @@ export function TeamForm({
     };
 
     try {
-      const url = isEdit ? `/api/teams/${initialData.uid}` : '/api/teams';
+      const url = isEdit ? `/api/teams/${initialData.slug || initialData.uid}` : '/api/teams';
       const method = isEdit ? 'PUT' : 'POST';
 
       const response = await fetch(url, {
@@ -67,7 +67,12 @@ export function TeamForm({
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !initialData?.uid) return;
+    const teamIdentifier = initialData?.slug || initialData?.uid;
+
+    if (!file || !teamIdentifier) {
+      alert("⚠️ Le Nid doit d'abord être fondé avant d'y greffer des artefacts.");
+      return;
+    }
 
     setUploading(true);
     const formData = new FormData();
@@ -75,31 +80,39 @@ export function TeamForm({
     formData.append('label', file.name);
 
     try {
-      const res = await fetch(`/api/teams/${initialData.uid}/upload`, {
+      const res = await fetch(`/api/teams/${teamIdentifier}/upload`, {
         method: 'POST',
         body: formData
       });
-      if (!res.ok) throw new Error("Échec du scellage.");
+      
       const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Échec du scellage.");
+      
       setLocalDocuments((prev) => [...prev, { uid: data.key, name: file.name, url: data.publicUrl }]);
     } catch (err: any) {
       alert(`🚨 Erreur d'alchimie : ${err.message}`);
     } finally {
       setUploading(false);
+      e.target.value = '';
     }
   };
 
   const handleDeleteDoc = async (doc: { uid: string, url: string }) => {
-    if (!confirm("Anéantir définitivement cet artefact ?")) return;
-    setIsDeleting(doc.uid);
+    const teamIdentifier = initialData?.slug || initialData?.uid;
+    if (!teamIdentifier || !confirm("Anéantir définitivement cet artefact ?")) return;
+
+    setIsDeleting(doc.uid || doc.url);
     try {
-      const res = await fetch(`/api/teams/${initialData.uid}/upload`, {
+      const res = await fetch(`/api/teams/${teamIdentifier}/upload`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: doc.url })
       });
-      if (!res.ok) throw new Error("Échec de la désintégration.");
-      setLocalDocuments((prev) => prev.filter(d => d.uid !== doc.uid));
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Échec de la désintégration.");
+      
+      setLocalDocuments((prev) => prev.filter(d => (d.uid || d.url) !== (doc.uid || doc.url)));
     } catch (err: any) {
       alert(`🚨 Ineptie : ${err.message}`);
     } finally {
@@ -145,16 +158,23 @@ export function TeamForm({
           </label>
           
           <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
-            {localDocuments.map((doc: any) => (
-              <div key={doc.uid} className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02] border border-white/5 text-[10px] font-mono text-slate-400">
-                <a href={doc.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 truncate hover:text-emerald-400">
-                  <FileText size={10} /> {doc.label || doc.name} <ExternalLink size={8} />
-                </a>
-                <button onClick={() => handleDeleteDoc(doc)} disabled={isDeleting === doc.uid} className="hover:text-red-500">
-                  {isDeleting === doc.uid ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
-                </button>
-              </div>
-            ))}
+            {localDocuments.map((doc: any, index: number) => {
+              const docKey = doc.uid || doc.url || index;
+              const isItemDeleting = isDeleting === (doc.uid || doc.url);
+              return (
+                <div key={docKey} className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02] border border-white/5 text-[10px] font-mono text-slate-400">
+                  <a href={doc.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 truncate hover:text-emerald-400">
+                    <FileText size={10} /> {doc.label || doc.name || 'Document'} <ExternalLink size={8} />
+                  </a>
+                  <button type="button" onClick={() => handleDeleteDoc(doc)} disabled={isItemDeleting} className="hover:text-red-500">
+                    {isItemDeleting ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                  </button>
+                </div>
+              );
+            })}
+            {localDocuments.length === 0 && (
+              <p className="text-[9px] text-slate-600 italic text-center py-1">Aucun artefact greffé au Nid.</p>
+            )}
           </div>
         </div>
       )}

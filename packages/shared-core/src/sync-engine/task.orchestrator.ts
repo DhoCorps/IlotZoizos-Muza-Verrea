@@ -6,7 +6,6 @@ import { ITask, TaskStatus, CAPABILITIES, ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors'; 
 import { randomUUID } from 'crypto';
 import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
-import { connectToDatabase } from '@ilot/infrastructure';
 
 export interface TaskSyncResult {
   success: boolean;
@@ -46,7 +45,7 @@ export class TaskOrchestrator {
       if (!isCreator && !isArchitect) {
         // 🪡 SUTURE : On vérifie l'Aura territoriale (Directe ou via l'escouade/Team)
         const checkCypher = `
-          MATCH (u:User {uid: $actorUid})
+          MATCH (u:User) WHERE u.uid = $actorUid OR u.slug = $actorUid
           OPTIONAL MATCH (u)-[r:CONTRIBUTES_TO|OWNER_OF|CREATED]->(p:Project {uid: $pUid})
           OPTIONAL MATCH (u)-[:MEMBER_OF]->(t:Team)-[:HAS_PROJECT]->(p)
           RETURN collect(r.capabilities) + collect(t.defaultProjectCapabilities) AS allCaps
@@ -104,7 +103,7 @@ export class TaskOrchestrator {
       // 🕸️ 3. TISSAGE DANS LE GRAPHE (Neo4j)
       const cypher = `
         MATCH (p:Project { uid: $projectUid })
-        MATCH (creator:User { uid: $actorUid })
+        MATCH (creator:User) WHERE creator.uid = $actorUid OR creator.slug = $actorUid
         
         CREATE (t:Task { 
           uid: $taskUid, 
@@ -118,11 +117,11 @@ export class TaskOrchestrator {
         CREATE (t)-[:TASK_OF]->(p)
         CREATE (creator)-[:CREATED]->(t)
         
-        // 🎯 SUTURE : Gestion des assignés
+        // 🎯 SUTURE : Gestion des assignés (Correction syntaxique Cypher)
         WITH t, $assigneeUids AS birdUids
         UNWIND (CASE WHEN size(birdUids) = 0 THEN [null] ELSE birdUids END) AS birdUid
         FOREACH (_ IN CASE WHEN birdUid IS NOT NULL THEN [1] ELSE [] END |
-          MERGE (bird:User { uid: birdUid })
+          MERGE (bird:User {uid: birdUid})
           MERGE (bird)-[:ASSIGNED_TO]->(t)
         )
 
@@ -152,10 +151,8 @@ export class TaskOrchestrator {
   
   /**
    * 🎭 MUTATION INTÉGRALE : FAIRE ÉVOLUER UN ATOME
-   * Synchronisation totale entre la Silice (Mongo) et le Graphe (Neo4j)
    */
   async updateTask(taskIdentifier: string, updates: any, signature: ActionSignature) {
-    // Résolution universelle par slug ou uid
     const task = await TaskModel.findOne({ $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] });
     if (!task) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
 
@@ -163,7 +160,6 @@ export class TaskOrchestrator {
 
     return await TransactionManager.execute("Mutation Atome (Atomique)", async (mongoSession, neo4jTx) => {
       
-      // 🐘 1. SILICE (Mongo) : Mise à jour sécurisée
       const mongoUpdate: any = { $set: { ...updates, "dates.updatedAt": new Date() } };
       
       if (updates.dates) {
@@ -181,7 +177,6 @@ export class TaskOrchestrator {
 
       if (!updatedTask) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
 
-      // 🕸️ 2. GRAPHE (Neo4j) : Propriétés de nœud synchronisées
       let cypherQuery = `MATCH (t:Task { uid: $taskUid }) SET t.updatedAt = datetime()`;
       let cypherParams: any = { taskUid };
 
@@ -205,7 +200,6 @@ export class TaskOrchestrator {
 
       await neo4jTx.run(cypherQuery, cypherParams);
 
-      // 🕸️ 3. RE-CÂBLAGE HIERARCHIQUE (Parent)
       if ('parentUid' in updates) {
         await neo4jTx.run(`MATCH (t:Task {uid: $taskUid})-[r:CHILD_OF]->() DELETE r`, { taskUid });
         if (updates.parentUid && updates.parentUid !== "null") {
@@ -216,7 +210,6 @@ export class TaskOrchestrator {
         }
       }
 
-      // 🕸️ 4. RE-CÂBLAGE DES OISEAUX (Assignés)
       if ('assigneeUids' in updates) {
          await neo4jTx.run(
            `MATCH (u:User)-[r:ASSIGNED_TO]->(t:Task {uid: $taskUid}) DELETE r`,
@@ -304,7 +297,7 @@ export class TaskOrchestrator {
       if (!updatedTask) throw new IlotError("Atome introuvable ou évaporé.", "NOT_FOUND", 404);
 
       const cypher = `
-        MATCH (u:User {uid: $actorUid})
+        MATCH (u:User) WHERE u.uid = $actorUid OR u.slug = $actorUid
         MATCH (t:Task {uid: $taskUid})
         MERGE (u)-[r:FOCUSED_ON]->(t)
         ON CREATE SET r.cycles = 1, r.lastFocus = datetime()

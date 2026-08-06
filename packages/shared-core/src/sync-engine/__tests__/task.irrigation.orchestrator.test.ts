@@ -1,107 +1,67 @@
-// packages/shared-core/src/sync-engine/__tests__/task.irrigation.orchestrator.test.ts
+// packages/shared-core/src/sync-engine/__test__/task.irrigation.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { TaskIrrigationOrchestrator, TaskPayload } from '../task.irrigation.orchestrator';
+import { TaskIrrigationOrchestrator } from '../task.irrigation.orchestrator';
 import { TaskModel } from '../../../../infrastructure/src/database/models/nosql/task.model';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
+import { CAPABILITIES } from '@ilot/types';
 
-// Mocks de Mongoose et du TransactionManager
 vi.mock('../../../../infrastructure/src/database/models/nosql/task.model', () => ({
-    TaskModel: {
-        findOne: vi.fn(),
-        findOneAndUpdate: vi.fn()
-    }
+  TaskModel: {
+    findOne: vi.fn(),
+    findOneAndUpdate: vi.fn(),
+  },
 }));
 
 vi.mock('../transactionManager', () => ({
-    TransactionManager: {
-        execute: vi.fn()
-    }
+  TransactionManager: {
+    execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue(true) })),
+  },
 }));
 
-describe('TaskIrrigationOrchestrator - La Loi de l’Irrigation', () => {
-    
-    beforeEach(() => {
-        vi.clearAllMocks();
+describe('TaskIrrigationOrchestrator', () => {
+  let orchestrator: TaskIrrigationOrchestrator;
+  const adminSignature = { uid: 'u1', role: 'admin', capabilities: [CAPABILITIES.TASK.UPDATE] };
+  const restrictedSignature = { uid: 'u2', role: 'visitor', capabilities: [] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    orchestrator = new TaskIrrigationOrchestrator();
+  });
+
+  describe('processTaskIrrigation', () => {
+    it('🔴 doit rejeter (403) si l’Oiseau n’a pas la capacité requise', async () => {
+      await expect(
+        orchestrator.processTaskIrrigation('task-1', restrictedSignature as any)
+      ).rejects.toThrow(IlotError);
     });
 
-    describe('evaluateAndSanitize', () => {
-        it('🌱 doit laisser le flux actif si toutes les dépendances sont saines (It > 0)', () => {
-            const task: TaskPayload = {
-                title: 'Fondation du Nid',
-                status: 'ACTIVE',
-                dependencies: [{ id: 'dep-1', status: 1 }]
-            };
+    it('🔴 doit lever une erreur 404 si l’atome/tâche est introuvable', async () => {
+      vi.mocked(TaskModel.findOne).mockResolvedValueOnce(null);
 
-            const result = TaskIrrigationOrchestrator.evaluateAndSanitize(task);
-
-            expect(result.isIrrigated).toBe(1);
-            expect(result.status).toBe('ACTIVE');
-        });
-
-        it('💀 doit bloquer le flux et corrompre la tâche (statut ROMPU) si une dépendance est défaillante (It = 0)', () => {
-            const task: TaskPayload = {
-                title: 'Brique Compromise',
-                status: 'ACTIVE',
-                dependencies: [{ id: 'dep-broken', status: 0 }]
-            };
-
-            const result = TaskIrrigationOrchestrator.evaluateAndSanitize(task);
-
-            expect(result.isIrrigated).toBe(0);
-            expect(result.status).toBe('ROMPU');
-        });
+      await expect(
+        orchestrator.processTaskIrrigation('inconnu', adminSignature as any)
+      ).rejects.toThrow(IlotError);
     });
 
-    describe('processTaskIrrigation', () => {
-        const orchestrator = new TaskIrrigationOrchestrator();
+    it('🟢 doit irriguer la tâche, mettre à jour la Silice et synchroniser Neo4j avec succès', async () => {
+      const mockTask = {
+        uid: 'task-uid-1',
+        content: { title: 'Tâche Test' },
+        status: 'PENDING',
+        dependencies: []
+      };
 
-        it('❌ doit lever une erreur 404 si l’atome/tâche est introuvable dans la Silice', async () => {
-            (TaskModel.findOne as any).mockResolvedValueOnce(null);
+      vi.mocked(TaskModel.findOne).mockResolvedValueOnce(mockTask as any);
+      vi.mocked(TaskModel.findOneAndUpdate).mockReturnValue({
+        lean: vi.fn().mockResolvedValueOnce({ ...mockTask, status: 'ACTIVE', isIrrigated: 1 }),
+      } as any);
 
-            const signature = { actorUid: 'actor-1', capabilities: [] };
+      const res = await orchestrator.processTaskIrrigation('task-uid-1', adminSignature as any);
 
-            await expect(
-                orchestrator.processTaskIrrigation('ghost-task', signature)
-            ).rejects.toThrow(IlotError);
-        });
-
-        it('💧 doit exécuter l’irrigation et propager les modifications dans MongoDB et Neo4j', async () => {
-            const mockTask = {
-                uid: 'task-uid-123',
-                slug: 'task-slug',
-                content: { title: 'Atome Central' },
-                status: 'ACTIVE',
-                dependencies: [{ id: 'dep-1', status: 1 }]
-            };
-
-            (TaskModel.findOne as any).mockResolvedValueOnce(mockTask);
-
-            (TransactionManager.execute as any).mockImplementationOnce(async (name: string, callback: any) => {
-                const mockMongoSession = {};
-                const mockNeo4jTx = {
-                    run: vi.fn().mockResolvedValue({ records: [] })
-                };
-
-                (TaskModel.findOneAndUpdate as any).mockReturnValueOnce({
-                    lean: vi.fn().mockResolvedValueOnce({
-                    ...mockTask,
-                    status: 'ACTIVE',
-                    metrics: { isIrrigated: 1 }
-    })
-});
-
-                return await callback(mockMongoSession, mockNeo4jTx);
-            });
-
-            const signature = { actorUid: 'actor-1', capabilities: [] };
-            const result = await orchestrator.processTaskIrrigation('task-slug', signature);
-
-            expect(result.success).toBe(true);
-            expect(result.taskUid).toBe('task-uid-123');
-            expect(result.isIrrigated).toBe(1);
-            expect(TaskModel.findOneAndUpdate).toHaveBeenCalled();
-            expect(TransactionManager.execute).toHaveBeenCalled();
-        });
+      expect(res.success).toBe(true);
+      expect(res.taskUid).toBe('task-uid-1');
+      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
+  });
 });

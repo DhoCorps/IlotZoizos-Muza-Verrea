@@ -1,57 +1,36 @@
+// apps/hub-central/app/api/tasks/[slug]/upload/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getServerSession } from 'next-auth/next';
-import { authOptions } from "../../../../../lib/auth"; // 🛡️ IMPORT DE LA DOUANE CENTRALISÉE
+import { authOptions } from '../../../../../lib/auth'; 
 import { storageService } from '../../../../../modules/storage/storage.service';
+import { checkRateLimit } from '../../../../../modules/security/rateLimiter';
 import { connectToDatabase, TaskModel, getNeo4jSession } from '@ilot/infrastructure';
-import { CAPABILITIES } from '@ilot/types';
+import { CAPABILITIES, ITask } from '@ilot/types';
 
-/**
- * 🦅 INTERFACE LOCALE POUR LE TYPAGE SOUVERAIN DE LA SESSION
- */
 interface OiseauUser {
   id: string;
   uid: string;
   capabilities: string[];
 }
 
-/**
- * 🌿 INTERFACE DES PARAMÈTRES DE ROUTE (Next.js 15+ Asynchrone)
- */
 interface RouteParams {
-  params: Promise<{ taskId: string }>;
+  params: Promise<{ slug: string }>;
 }
 
-/**
- * ☁️ INITIALISATION DU CLIENT S3 POUR CLOUDFLARE R2
- */
-const s3Client = new S3Client({
-  region: 'auto',
-  endpoint: process.env.R2_ENDPOINT!,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
-  },
-  forcePathStyle: true,
-});
-
-/**
- * 🪡 SUTURE DE VÉRIFICATION D'AURA TERRITORIALE (ATOME)
- * Vérifie si l'oiseau a le droit de modifier cette tâche spécifique via Neo4j.
- */
-async function canUpdateTask(userUid: string, taskUid: string): Promise<boolean> {
+async function canUpdateTaskBySlug(userUid: string, taskSlug: string): Promise<boolean> {
   let session;
   try {
     session = getNeo4jSession();
+    // On cherche l'atome par son slug ou son uid équivalent dans le graphe
     const cypher = `
-      MATCH (t:Task { uid: $taskUid })-[:TASK_OF]->(p:Project)
+      MATCH (t:Task { uid: $taskSlug })-[:TASK_OF]->(p:Project)
       MATCH (u:User { uid: $userUid })
       OPTIONAL MATCH (u)-[r:CONTRIBUTES_TO|OWNER_OF|CREATED]->(p)
       OPTIONAL MATCH (u)-[:MEMBER_OF]->(team:Team)-[:HAS_PROJECT]->(p)
       RETURN p.creatorUid AS projectCreatorUid, 
              collect(r.capabilities) + collect(team.defaultProjectCapabilities) AS allCaps
     `;
-    const result = await session.run(cypher, { userUid, taskUid });
+    const result = await session.run(cypher, { userUid, taskSlug });
     if (result.records.length === 0) return false;
 
     const record = result.records[0];
@@ -67,79 +46,63 @@ async function canUpdateTask(userUid: string, taskUid: string): Promise<boolean>
     return false;
   } finally {
     if (session) {
-      try {
-        await session.close();
-      } catch (closeErr) {
-        console.error("⚠️ Erreur lors de la fermeture de la session Neo4j :", closeErr);
-      }
+      try { await session.close(); } catch (closeErr) {}
     }
   }
 }
 
 // ==========================================
-// POST : Greffer un artefact sur un Atome
+// POST : Greffer un artefact sur un Atome via son slug
 // ==========================================
 export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
-    // -------------------------------------------------------------------------
-    // 1. ÉVEIL DE LA SILICE ET RÉSOLUTION DES PARAMÈTRES
-    // -------------------------------------------------------------------------
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR TASK UPLOAD POST]", dbErr);
+    const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
+    const { allowed } = await checkRateLimit(`upload-task-slug:${clientIp}`, 10, 60);
+    if (!allowed) {
+      return NextResponse.json({ success: false, message: "Trop de téléversements. Veuillez patienter." }, { status: 429 });
+    }
+
+    try { await connectToDatabase(); } catch (dbErr) {
       return NextResponse.json({ success: false, message: "La Silice est injoignable." }, { status: 500 });
     }
 
     let resolvedParams;
-    try {
-      resolvedParams = await params;
-    } catch (paramErr) {
+    try { resolvedParams = await params; } catch (paramErr) {
       return NextResponse.json({ success: false, message: "Identifiant d'atome invalide." }, { status: 400 });
     }
-    const taskUid = resolvedParams.taskId;
+    const taskSlug = resolvedParams.slug;
 
-    // -------------------------------------------------------------------------
-    // 2. DOUBLE VERROU DE SÉCURITÉ (DOUANE & AURA)
-    // -------------------------------------------------------------------------
     let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR TASK UPLOAD POST]", sessionErr);
+    try { session = await getServerSession(authOptions); } catch (sessionErr) {
       return NextResponse.json({ success: false, message: "Erreur de lecture d'Aura." }, { status: 500 });
     }
 
     const user = session?.user as OiseauUser | undefined;
     if (!user || !user.uid) {
-      return NextResponse.json(
-        { success: false, message: "Oiseau non identifié dans la canopée." },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false, message: "Oiseau non identifié dans la canopée." }, { status: 401 });
     }
 
-    let isAuthorized = false;
+    // Récupération de l'atome par son UID/Slug dans MongoDB
+    let task: ITask | null = null;
     try {
-      isAuthorized = await canUpdateTask(user.uid, taskUid);
-    } catch (auraErr) {
-      console.error("🔥 [AURA CHECK ERROR]", auraErr);
+      task = await TaskModel.findOne({ uid: taskSlug }).lean<ITask>();
+    } catch (dbQueryErr) {
+      return NextResponse.json({ success: false, message: "Erreur de lecture Silice." }, { status: 500 });
     }
+
+    if (!task) {
+      return NextResponse.json({ success: false, message: "Atome introuvable dans la Silice." }, { status: 404 });
+    }
+
+    const isAuthorized = await canUpdateTaskBySlug(user.uid, task.uid);
     const isArchitect = user.capabilities.includes('*');
 
     if (!isAuthorized && !isArchitect) {
-      return NextResponse.json(
-        { success: false, message: "Ton Aura ne résonne pas assez fort pour y greffer un document." },
-        { status: 403 }
-      );
+      return NextResponse.json({ success: false, message: "Ton Aura ne résonne pas assez fort pour y greffer un document." }, { status: 403 });
     }
 
-    // -------------------------------------------------------------------------
-    // 3. EXTRACTION ET VALIDATION DU FORMULAIRE (FICHIER)
-    // -------------------------------------------------------------------------
     let formData;
-    try {
-      formData = await req.formData();
-    } catch (formErr) {
+    try { formData = await req.formData(); } catch (formErr) {
       return NextResponse.json({ success: false, message: "Formulaire multipart illisible." }, { status: 400 });
     }
 
@@ -147,13 +110,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const label = (formData.get('label') as string) || 'Pièce jointe';
 
     if (!file) {
-      return NextResponse.json(
-        { success: false, message: "Aucune matière brute (fichier) reçue." },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, message: "Aucune matière brute (fichier) reçue." }, { status: 400 });
     }
 
-    // Bouclier des formats acceptés pour les atomes
     const allowedTypes = [
       'image/jpeg', 'image/png', 'image/webp', 'image/gif',
       'audio/mpeg', 'audio/mp3', 'audio/ogg', 'audio/webm',
@@ -161,54 +120,34 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     ];
 
     if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json(
-        { success: false, message: `La Silice de l'Atome rejette le format ${file.type}.` },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, message: `La Silice de l'Atome rejette le format ${file.type}.` }, { status: 400 });
     }
-
-    // -------------------------------------------------------------------------
-    // 4. ALCHIMIE ET TRANSMISSION VERS CLOUDFLARE R2 (S3)
-    // -------------------------------------------------------------------------
-    let buffer;
-    try {
-      buffer = Buffer.from(await file.arrayBuffer());
-    } catch (bufErr) {
-      return NextResponse.json({ success: false, message: "Échec de conversion du flux fichier." }, { status: 400 });
+    if (file.size > 25 * 1024 * 1024) {
+      return NextResponse.json({ success: false, message: "Max 25 Mo." }, { status: 400 });
     }
 
     const customKey = storageService.generateStructuredKey({
       inceptId: 'ilot-zoizos',
       locale: 'fr',
       entityType: 'tasks',
-      entityId: taskUid,
+      entityId: task.uid,
       imageType: 'attachments',
       filename: file.name
     });
 
+    let uploadResult;
     try {
-      const command = new PutObjectCommand({
-        Bucket: process.env.R2_BUCKET_NAME!,
-        Key: customKey,
-        Body: buffer,
-        ContentType: file.type,
-      });
-      await s3Client.send(command);
+      uploadResult = await storageService.uploadFile(file, customKey);
     } catch (s3Err) {
-      console.error("🔥 [S3 UPLOAD ERROR TASK]", s3Err);
+      console.error("🔥 [Storage UPLOAD ERROR TASK]", s3Err);
       return NextResponse.json({ success: false, message: "Échec du téléversement vers le Cloud." }, { status: 500 });
     }
 
-    const publicUrl = `${process.env.R2_PUBLIC_URL}/${customKey}`;
-
-    // -------------------------------------------------------------------------
-    // 5. SÉDIMENTATION PÉRENNE DANS LA SILICE (MONGODB)
-    // -------------------------------------------------------------------------
     const attachmentPayload = {
       uid: customKey,
       name: file.name,
       label: label,
-      url: publicUrl,
+      url: uploadResult.publicUrl,
       mimeType: file.type,
       createdAt: new Date()
     };
@@ -216,7 +155,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     let updatedTask;
     try {
       updatedTask = await TaskModel.findOneAndUpdate(
-        { uid: taskUid },
+        { uid: task.uid },
         { 
           $push: { documents: attachmentPayload },
           $set: { "dates.updatedAt": new Date() }
@@ -229,54 +168,38 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     if (!updatedTask) {
-      return NextResponse.json(
-        { success: false, message: "Atome introuvable dans la Silice." },
-        { status: 404 }
-      );
+      return NextResponse.json({ success: false, message: "Atome introuvable dans la Silice." }, { status: 404 });
     }
 
-    return NextResponse.json(
-      {
-        success: true,
-        message: "Matière scellée et liée avec succès à l'Atome.",
-        attachment: attachmentPayload
-      },
-      { status: 201 }
-    );
+    return NextResponse.json({
+      success: true,
+      message: "Matière scellée et liée avec succès à l'Atome.",
+      attachment: attachmentPayload
+    }, { status: 201 });
 
   } catch (error: any) {
     console.error("🔥 Fracture globale lors du téléversement sur l'Atome :", error);
-    return NextResponse.json(
-      { success: false, message: error.message || "L'upload d'Atome a échoué." },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, message: error.message || "L'upload d'Atome a échoué." }, { status: 500 });
   }
 }
 
 // ==========================================
-// DELETE : Dissoudre un artefact d'un Atome
+// DELETE : Dissoudre un artefact d'un Atome via son slug
 // ==========================================
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR TASK UPLOAD DELETE]", dbErr);
+    try { await connectToDatabase(); } catch (dbErr) {
       return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
     }
 
     let resolvedParams;
-    try {
-      resolvedParams = await params;
-    } catch (paramErr) {
+    try { resolvedParams = await params; } catch (paramErr) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
-    const taskUid = resolvedParams.taskId;
+    const taskSlug = resolvedParams.slug;
 
     let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
+    try { session = await getServerSession(authOptions); } catch (sessionErr) {
       return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
     }
 
@@ -285,9 +208,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     let body;
-    try {
-      body = await req.json();
-    } catch (parseErr) {
+    try { body = await req.json(); } catch (parseErr) {
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
@@ -296,23 +217,30 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Clé d'artefact manquante." }, { status: 400 });
     }
 
-    // 1. Désintégration Physique dans le stockage Cloud
+    let task: ITask | null = null;
+    try {
+      task = await TaskModel.findOne({ uid: taskSlug }).lean<ITask>();
+    } catch (err) {
+      return NextResponse.json({ error: "Erreur Silice." }, { status: 500 });
+    }
+
+    if (!task) {
+      return NextResponse.json({ success: false, message: "Atome introuvable." }, { status: 404 });
+    }
+
     try {
       const storageKey = storageService.extractKeyFromUrl(key);
       await storageService.deleteFile(storageKey);
     } catch (s3DelErr) {
-      console.error("❌ [S3 DELETE ERROR] Avertissement de purge physique :", s3DelErr);
-      // On continue pour nettoyer Mongo même si le cloud grince
+      console.error("❌ [Storage DELETE ERROR] :", s3DelErr);
     }
 
-    // 2. Mise à jour de la Silice (MongoDB) : retrait de la référence
     try {
       await TaskModel.updateOne(
-        { uid: taskUid },
+        { uid: task.uid },
         { $pull: { documents: { url: key } } }
       );
     } catch (dbPullErr) {
-      console.error("🔥 [MONGO PULL ERROR]", dbPullErr);
       return NextResponse.json({ error: "Échec du nettoyage dans la Silice." }, { status: 500 });
     }
 

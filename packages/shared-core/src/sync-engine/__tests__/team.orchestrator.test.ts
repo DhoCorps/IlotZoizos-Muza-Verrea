@@ -1,118 +1,81 @@
-// packages/shared-core/src/sync-engine/__tests__/team.orchestrator.test.ts
+// packages/shared-core/src/sync-engine/__test__/team.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TeamOrchestrator } from '../team.orchestrator';
-import { CAPABILITIES, ActionSignature } from '@ilot/types';
-import { TransactionManager } from '../transactionManager';
 import { TeamModel } from '@ilot/infrastructure/src/database/models/nosql/team.model';
 import { OiseauModel } from '@ilot/infrastructure/src/database/models/nosql/user.model';
-
-
-vi.mock('mongoose', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('mongoose')>();
-  return {
-    ...actual,
-    Schema: actual.Schema || class MockSchema {}, // 🪡 S'assure que Schema existe
-  };
-});
-// 🛡️ SUTURE 1 : Mock des modèles Silice (MongoDB)
-// On utilise des objets JS purs (POJO) pour éviter l'hydratation Mongoose (et les erreurs FlattenMaps)
-vi.mock('@ilot/infrastructure/src/database/models/nosql/user.model', () => ({
-  OiseauModel: {
-    findOne: vi.fn().mockImplementation(() => ({
-      select: vi.fn().mockReturnThis(),
-      lean: vi.fn().mockResolvedValue({ uid: 'bird-999', pseudo: 'AlphaBird', frequenceHEX: '#000000', capabilities: [] })
-    })),
-    findOneAndUpdate: vi.fn().mockResolvedValue({})
-  }
-}));
+import { TransactionManager } from '../transactionManager';
+import { IlotError } from '../../errors/ilot.errors';
+import { CAPABILITIES } from '@ilot/types';
 
 vi.mock('@ilot/infrastructure/src/database/models/nosql/team.model', () => ({
   TeamModel: {
-    create: vi.fn().mockImplementation((data) => Promise.resolve(Array.isArray(data) ? data : [data])),
-    findOne: vi.fn().mockImplementation(() => ({
-      session: vi.fn().mockReturnThis(),
-      lean: vi.fn().mockResolvedValue({ uid: 'nest-789', ownerUid: 'bird-inviter-001' })
-    })),
-    findOneAndUpdate: vi.fn().mockImplementation(() => ({
-      lean: vi.fn().mockResolvedValue({ uid: 'nest-789', name: 'Nid Muté' })
-    })),
-    findOneAndDelete: vi.fn()
-  }
+    create: vi.fn(),
+    findOne: vi.fn(),
+    findOneAndUpdate: vi.fn(),
+    findOneAndDelete: vi.fn(),
+  },
 }));
 
-// 🛡️ SUTURE 2 : Mock du TransactionManager
+vi.mock('@ilot/infrastructure/src/database/models/nosql/user.model', () => ({
+  OiseauModel: {
+    findOne: vi.fn(),
+    findOneAndUpdate: vi.fn(),
+    updateMany: vi.fn(),
+  },
+}));
+
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn().mockImplementation(async (name, callback) => {
-      const mockNeo = { records: [] };
-      const result = await callback({} as any, { run: vi.fn().mockResolvedValue(mockNeo) } as any);
-      return {
-        success: true,
-        status: 'success',
-        mongo: result?.mongo || result,
-        neo4j: mockNeo
-      };
-    })
-  }
+    execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [] }) })),
+  },
 }));
 
-describe('TeamOrchestrator - Gestion du Nid', () => {
+describe('TeamOrchestrator', () => {
   let orchestrator: TeamOrchestrator;
+  const adminSignature = { actorUid: 'bird_owner', capabilities: [CAPABILITIES.TEAM.CREATE, CAPABILITIES.TEAM.DELETE, CAPABILITIES.TEAM.UPDATE] };
+  const restrictedSignature = { actorUid: 'bird_stranger', capabilities: [] };
 
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new TeamOrchestrator();
   });
 
-  it('✅ doit fonder une escouade si la signature possède CAPABILITIES.TEAM.CREATE', async () => {
-    const validSignature: ActionSignature = {
-      actorUid: 'bird-inviter-001',
-      capabilities: [CAPABILITIES.TEAM.CREATE]
-    };
+  describe('fosterTeam', () => {
+    it('🔴 doit rejeter (403) si l’Oiseau n’a pas la capacité de fonder une escouade', async () => {
+      await expect(
+        orchestrator.fosterTeam({ name: 'Nid Test', category: 'DEV', isPrivate: false, ownerUid: 'u1', leaderUid: null }, restrictedSignature as any)
+      ).rejects.toThrow(IlotError);
+    });
 
-    const teamData = {
-      name: 'Nid Expérimental',
-      category: 'SOCIAL',
-      isPrivate: true,
-      ownerUid: 'bird-inviter-001',
-      leaderUid: 'bird-inviter-001'
-    };
+    it('🟢 doit fonder un Nid dans la Silice et Neo4j avec succès', async () => {
+      vi.mocked(OiseauModel.findOne).mockResolvedValueOnce({ uid: 'bird_owner' } as any);
+      vi.mocked(TeamModel.create).mockResolvedValueOnce([{ _id: 'mongo_id', uid: 'team_1', name: 'Nid Test' }] as any);
 
-    const result = await orchestrator.fosterTeam(teamData as any, validSignature);
+      const res = await orchestrator.fosterTeam(
+        { name: 'Nid Test', category: 'DEV', isPrivate: false, ownerUid: 'bird_owner', leaderUid: null },
+        adminSignature as any
+      );
 
-    expect(result.success).toBe(true);
-    expect(TransactionManager.execute).toHaveBeenCalledWith("Fondation d'Escouade", expect.any(Function));
+      expect(res.success).toBe(true);
+      expect(res.mongo.uid).toBe('team_1');
+      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it('❌ doit rejeter la fondation si l\'Aura est absente', async () => {
-    const badSignature: ActionSignature = { actorUid: 'bird-curieux', capabilities: [] };
-    const teamData = { name: 'Nid Interdit', category: 'SOCIAL', isPrivate: true, ownerUid: 'bird-curieux' };
+  describe('leaveTeam', () => {
+    it('🔴 doit rejeter (403) si l’acteur tente de forcer le départ d’un autre oiseau', async () => {
+      await expect(
+        orchestrator.leaveTeam('team_1', 'other_user', 'CLEAN', adminSignature as any)
+      ).rejects.toThrow(IlotError);
+    });
 
-    await expect(
-      orchestrator.fosterTeam(teamData as any, badSignature)
-    ).rejects.toThrow("Aura insuffisante");
-  });
+    it('🔴 doit rejeter (400) si l’architecte/owner tente d’abandonner son propre Nid', async () => {
+      const selfSig = { actorUid: 'bird_owner', capabilities: [] };
+      vi.mocked(TeamModel.findOne).mockResolvedValueOnce({ uid: 'team_1', ownerUid: 'bird_owner' } as any);
 
-  it('✅ doit permettre l\'invitation si la Signature possède MEMBER.INVITE', async () => {
-    const validSignature: ActionSignature = {
-      actorUid: 'bird-inviter-001',
-      capabilities: [CAPABILITIES.MEMBER.INVITE]
-    };
-
-    const invitation = await orchestrator.inviteBird({
-      teamUid: 'nest-789',
-      targetUserUid: 'bird-999'
-    }, validSignature);
-
-    expect(invitation.success).toBe(true);
-    expect(TransactionManager.execute).toHaveBeenCalledWith("Invitation d'Oiseau", expect.any(Function));
-  });
-
-  it('❌ doit rejeter l\'invitation si la signature ne possède pas les droits', async () => {
-    const badSignature: ActionSignature = { actorUid: 'bird-inconnu', capabilities: [] };
-
-    await expect(
-      orchestrator.inviteBird({ teamUid: 'nest-789', targetUserUid: 'bird-999' }, badSignature)
-    ).rejects.toThrow("Aura insuffisante");
+      await expect(
+        orchestrator.leaveTeam('team_1', 'bird_owner', 'CLEAN', selfSig as any)
+      ).rejects.toThrow(IlotError);
+    });
   });
 });

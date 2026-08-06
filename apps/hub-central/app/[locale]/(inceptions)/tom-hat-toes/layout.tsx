@@ -1,31 +1,17 @@
-'use client';
+import React from 'react';
+import Sidebar from '../../../../components/navigation/Sidebar';
 
-import Sidebar from "../../../../components/navigation/Sidebar";
-// 🍅 Importation des organes temporels
-import { PomodoroProvider } from "../../../../context/PomodoroContext";
-import PomodoroHUD from "../../../../components/hub/PomodoroHUD";
-
-export default function InceptionLayout({
+export default function TomHatToesLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    // 🛡️ L'enveloppe protectrice du temps
-    <PomodoroProvider>
-      <div className="relative min-h-screen">
-        {/* 🦅 Ta Boussole Flottante à gauche */}
-        <Sidebar />
-
-        {/* 🌍 Le reste de l'Îlot (Tes pages comme tom-hat-toes) */}
-        <main className="pl-40 pr-8 py-8"> 
-          {/* On ajoute du padding à gauche (pl-40) pour l'équilibre visuel */}
-          {children}
-        </main>
-
-        {/* 🛸 Le HUD surgit ici, au-dessus de la matrice */}
-        <PomodoroHUD />
-      </div>
-    </PomodoroProvider>
+    <div className="flex h-screen w-screen bg-[#05070A] overflow-hidden">
+      <Sidebar />
+      <main className="flex-1 pl-20 md:pl-28 h-full overflow-y-auto custom-scrollbar">
+        {children}
+      </main>
+    </div>
   );
 }

@@ -1,4 +1,3 @@
-// apps/game-server/src/games/kooontreez/KoOonTreeZManager.ts
 import { Server } from 'socket.io';
 import { RoomToSend } from '@ilot/shared-core';
 
@@ -24,7 +23,7 @@ export class KoOonTreeZManager {
         this.io = ioInstance;
         KoOonTreezLogic.fetchCountries().then(() => { 
             console.log('[KoOonTreeZManager] Données des pays préchargées avec succès.'); 
-        }).catch(err => {
+        }).catch((err: unknown) => {
             console.error('[KoOonTreeZManager] Erreur lors du préchargement des données des pays:', err); 
         });
     }
@@ -107,7 +106,7 @@ export class KoOonTreeZManager {
         const room = koOonTreeZRooms.get(roomId);
         if (!room) return undefined;
 
-        let playerEntry = room.players.find(p => p.username === username);
+        let playerEntry = room.players.find((p: KoOonTreeZPlayer) => p.username === username);
 
         if (playerEntry) {
             if (playerEntry.id !== newSocketId) {
@@ -120,7 +119,7 @@ export class KoOonTreeZManager {
             }
             playerEntry.status = 'connected';
         } else {
-            const connectedPlayersCount = room.players.filter(p => p.status === 'connected').length;
+            const connectedPlayersCount = room.players.filter((p: KoOonTreeZPlayer) => p.status === 'connected').length;
             if (connectedPlayersCount < room.maxPlayers) {
                 playerEntry = {
                     id: newSocketId,
@@ -138,7 +137,7 @@ export class KoOonTreeZManager {
         }
 
         const consolidatedPlayersMap = new Map<string, KoOonTreeZPlayer>();
-        room.players.forEach(p => {
+        room.players.forEach((p: KoOonTreeZPlayer) => {
             const existing = consolidatedPlayersMap.get(p.username);
             if (!existing || p.status === 'connected' || p.id === newSocketId) {
                 consolidatedPlayersMap.set(p.username, p);
@@ -146,7 +145,7 @@ export class KoOonTreeZManager {
         });
         room.players = Array.from(consolidatedPlayersMap.values());
 
-        const currentConnectedPlayers = room.players.filter(p => p.status === 'connected');
+        const currentConnectedPlayers = room.players.filter((p: KoOonTreeZPlayer) => p.status === 'connected');
 
         if (room.state === 'waiting') {
             if (room.kooonTreezNbPlayer === 'solo' && currentConnectedPlayers.length === 1) {
@@ -169,7 +168,7 @@ export class KoOonTreeZManager {
         const room = koOonTreeZRooms.get(roomId);
         if (!room || room.state === 'playing') return;
         
-        const connectedPlayers = room.players.filter(p => p.status === 'connected');
+        const connectedPlayers = room.players.filter((p: KoOonTreeZPlayer) => p.status === 'connected');
         if (connectedPlayers.length < room.maxPlayers) {
             this.io.to(room.id).emit('error:message', `Pas assez de joueurs.`);
             return;
@@ -181,7 +180,7 @@ export class KoOonTreeZManager {
         room.round = 0;
         room.totalFlagsRecognized = 0;
         room.usedCountryIds.clear();
-        room.players.forEach(p => room.scores[p.id] = 0);
+        room.players.forEach((p: KoOonTreeZPlayer) => room.scores[p.id] = 0);
 
         this.startRound(roomId); 
         this.io.to(roomId).emit('game:init', this.roomToRoomToSend(room));
@@ -265,7 +264,7 @@ export class KoOonTreeZManager {
             return;
         }
 
-        const connectedPlayers = room.players.filter(p => p.status === 'connected');
+        const connectedPlayers = room.players.filter((p: KoOonTreeZPlayer) => p.status === 'connected');
         if (room.kooonTreezNbPlayer !== 'solo' && connectedPlayers.length <= 1) {
             if (connectedPlayers.length === 1) this.endGame(roomId, connectedPlayers[0].id, 'last_player_standing');
             else this.endGame(roomId, null, 'interrupted');
@@ -281,7 +280,7 @@ export class KoOonTreeZManager {
         let maxScore = -1;
         let tiedPlayers: string[] = [];
 
-        room.players.forEach(player => {
+        room.players.forEach((player: KoOonTreeZPlayer) => {
             const score = room.scores[player.id] || 0;
             if (score > maxScore) {
                 maxScore = score;
@@ -294,7 +293,7 @@ export class KoOonTreeZManager {
         return tiedPlayers.length === 1 ? winnerId : null;
     }
 
-    private endGame(roomId: string, winnerId: string | null, reason: 'target_reached' | 'last_player_standing' | 'interrupted' | 'error' | 'abandon'): void {
+    private endGame(roomId: string, winnerId: string | null, reason: string): void {
         const room = koOonTreeZRooms.get(roomId);
         if (!room) return;
 
@@ -319,7 +318,7 @@ export class KoOonTreeZManager {
         const room = koOonTreeZRooms.get(roomId);
         if (!room) return undefined;
 
-        const requestingPlayer = room.players.find(p => p.id === requestingPlayerId && p.status === 'connected');
+        const requestingPlayer = room.players.find((p: KoOonTreeZPlayer) => p.id === requestingPlayerId && p.status === 'connected');
         if (!requestingPlayer) return undefined;
 
         if (room.roundTimerInterval) {
@@ -327,7 +326,7 @@ export class KoOonTreeZManager {
             room.roundTimerInterval = null;
         }
 
-        room.players.forEach(p => room.scores[p.id] = 0);
+        room.players.forEach((p: KoOonTreeZPlayer) => room.scores[p.id] = 0);
         room.round = 0;
         room.winnerId = null;
         room.state = 'playing';
@@ -351,7 +350,7 @@ export class KoOonTreeZManager {
         const room = koOonTreeZRooms.get(roomId);
         if (!room) return;
 
-        const playerToDisconnect = room.players.find(p => p.id === socketId);
+        const playerToDisconnect = room.players.find((p: KoOonTreeZPlayer) => p.id === socketId);
         if (!playerToDisconnect) return;
 
         playerToDisconnect.status = 'disconnected_temp';
@@ -377,8 +376,8 @@ export class KoOonTreeZManager {
         const room = koOonTreeZRooms.get(roomId);
         if (!room || room.state === 'gameOver') return;
 
-        const connectedPlayers = room.players.filter(p => p.status === 'connected');
-        const activePlayers = room.players.filter(p => p.status === 'connected' || p.status === 'disconnected_temp');
+        const connectedPlayers = room.players.filter((p: KoOonTreeZPlayer) => p.status === 'connected');
+        const activePlayers = room.players.filter((p: KoOonTreeZPlayer) => p.status === 'connected' || p.status === 'disconnected_temp');
 
         if (room.kooonTreezNbPlayer !== 'solo') {
             if (connectedPlayers.length <= 1 && activePlayers.length <= 1) {
@@ -397,7 +396,7 @@ export class KoOonTreeZManager {
                 clearInterval(room.roundTimerInterval);
                 room.roundTimerInterval = null;
             }
-            room.playerDisconnectTimers.forEach(timer => clearTimeout(timer));
+            room.playerDisconnectTimers.forEach((timer: NodeJS.Timeout) => clearTimeout(timer));
             room.playerDisconnectTimers.clear();
 
             koOonTreeZRooms.delete(roomId);
@@ -439,7 +438,7 @@ export class KoOonTreeZManager {
             totalFlagsRecognized: room.totalFlagsRecognized,
             targetFlagsCount: room.targetFlagsCount,
             currentFlag: room.currentFlag,
-        } as RoomToSend;
+        } as unknown as RoomToSend;
     }
 
     public handleSubmitAnswer(roomId: string, playerId: string, answer: string): void {
@@ -449,7 +448,7 @@ export class KoOonTreeZManager {
             return;
         }
 
-        const player = room.players.find(p => p.id === playerId);
+        const player = room.players.find((p: KoOonTreeZPlayer) => p.id === playerId);
         if (!player) return;
 
         if (room.playersAnsweredThisRound.has(playerId)) return;
@@ -481,7 +480,7 @@ export class KoOonTreeZManager {
         this.io.to(roomId).emit('game:update', this.roomToRoomToSend(room));
         this.io.emit('room:list', Array.from(koOonTreeZRooms.values()).map(this.roomToRoomToSend));
 
-        const connectedPlayersCount = room.players.filter(p => p.status === 'connected').length;
+        const connectedPlayersCount = room.players.filter((p: KoOonTreeZPlayer) => p.status === 'connected').length;
         if (connectedPlayersCount > 0 && room.playersAnsweredThisRound.size === connectedPlayersCount) {
             this.endRound(roomId);
         } else if (isCorrect && typeof room.targetFlagsCount === 'number' && room.totalFlagsRecognized >= room.targetFlagsCount) {

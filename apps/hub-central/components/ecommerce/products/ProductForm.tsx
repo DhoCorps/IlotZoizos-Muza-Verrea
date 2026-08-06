@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, Upload, CheckCircle2, Loader2 } from 'lucide-react';
 import { ecommerce } from '../../../lib/apiClient';
 
 export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onSuccess: () => void; onClose: () => void }) {
@@ -12,6 +12,9 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
   const [priceCents, setPriceCents] = useState('');
   const [category, setCategory] = useState('FONT_SPRITE');
   const [visibility, setVisibility] = useState('PUBLIC');
+  const [file, setFile] = useState<File | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   
   const [categories, setCategories] = useState<{ value: string; label: string }[]>([
     { value: 'FONT_SPRITE', label: 'Police / Sprite' },
@@ -31,9 +34,28 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
       .catch(() => {});
   }, []);
 
+  // Générateur de slug automatique basé sur le titre
+  const generateSlug = (text: string) => {
+    return text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitting(true);
+    setErrorMessage('');
+
     try {
+      const slug = generateSlug(title);
+      if (!slug) {
+        throw new Error('Le titre de l’artefact doit générer un slug valide.');
+      }
+
+      // 1. Création de l'artefact de base (Produit)
       await ecommerce.createProduct({
         storeUid,
         title,
@@ -42,10 +64,31 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
         category,
         visibility
       });
+
+      // 2. Si une brindille (fichier) est jointe, on l'envoie sur notre route d'upload par slug (Cloudflare R2)
+      if (file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const uploadRes = await fetch(`/api/ecommerce/products/${slug}/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        const uploadResult = await uploadRes.json();
+        if (!uploadRes.ok) {
+          throw new Error(uploadResult.error || 'Échec du téléversement de l’illustration de l’artefact.');
+        }
+        console.log('🖼️ [ProductForm] Illustration ancrée avec succès :', uploadResult.data.url);
+      }
+
       onSuccess();
       onClose();
-    } catch (error) {
-      console.error("🔥 Échec de la création de l'artefact :", error);
+    } catch (error: any) {
+      console.error("🔥 Échec du dépôt de l'artefact :", error);
+      setErrorMessage(error.message || 'Une erreur inattendue est survenue.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -57,6 +100,12 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
         </h2>
         <button type="button" onClick={onClose} className="text-xs font-mono text-slate-500 hover:text-white uppercase">[ Fermer ]</button>
       </div>
+
+      {errorMessage && (
+        <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-400 font-mono">
+          ⚠️ {errorMessage}
+        </div>
+      )}
 
       <div className="space-y-2">
         <label className="text-[10px] font-mono uppercase tracking-widest text-slate-400">Boutique de Rattachement</label>
@@ -93,6 +142,22 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
           required
           className="w-full bg-black/60 border border-white/10 p-4 rounded-xl text-xs text-white font-mono outline-none focus:border-[#E5484D]" 
         />
+      </div>
+
+      {/* 🌟 NOUVEAU CHAMP : Upload de l'artefact / image */}
+      <div className="space-y-2">
+        <label className="text-[10px] font-mono uppercase tracking-widest text-slate-400">Illustration / Fichier (Brindille)</label>
+        <label className="flex items-center justify-between w-full bg-black/60 border border-dashed border-white/20 hover:border-[#E5484D] px-4 py-3 rounded-xl cursor-pointer transition-all">
+          <span className="text-xs text-slate-400 font-mono truncate max-w-[240px]">
+            {file ? file.name : 'Sélectionner un fichier (Max 10Mo)...'}
+          </span>
+          <Upload size={16} className="text-[#E5484D]" />
+          <input 
+            type="file" 
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            className="hidden" 
+          />
+        </label>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -137,8 +202,18 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
         </select>
       </div>
 
-      <button type="submit" className="w-full py-4 bg-[#E5484D] hover:bg-[#d43b40] text-white font-black uppercase text-xs rounded-2xl shadow-lg transition-all">
-        Ajouter au Catalogue
+      <button 
+        type="submit" 
+        disabled={isSubmitting}
+        className="w-full py-4 bg-[#E5484D] hover:bg-[#d43b40] disabled:opacity-50 text-white font-black uppercase text-xs rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2"
+      >
+        {isSubmitting ? (
+          <>
+            <Loader2 size={16} className="animate-spin" /> Enracinement en cours...
+          </>
+        ) : (
+          'Ajouter au Catalogue'
+        )}
       </button>
     </form>
   );

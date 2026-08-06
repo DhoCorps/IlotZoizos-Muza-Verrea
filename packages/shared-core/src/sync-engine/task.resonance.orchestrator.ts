@@ -33,7 +33,7 @@ export class TaskResonanceOrchestrator {
 
     /**
      * 🎶 CALCUL CONNECTÉ DE LA RÉSONANCE D'UN OISEAU
-     * Récupère les tâches terminées d'un utilisateur, calcule leur résonance globale et met à jour la Silice et le Graphe.
+     * Vérifie l'aura, récupère les tâches terminées, calcule la résonance et met à jour Mongo et Neo4j.
      */
     public async processUserTaskResonance(userIdentifier: string, signature: ActionSignature) {
         const user = await OiseauModel.findOne({ 
@@ -41,6 +41,14 @@ export class TaskResonanceOrchestrator {
         });
 
         if (!user) throw new IlotError("Oiseau introuvable dans la Silice.", "NOT_FOUND", 404);
+
+        // 🛡️ Barrière de sécurité : Vérification de l'aura (soi-même ou admin root)
+        const isSelf = signature.actorUid === user.uid || signature.actorUid === user.slug || signature.actorUid === user.pseudo;
+        const isArchitect = signature.capabilities.includes('*');
+
+        if (!isSelf && !isArchitect) {
+            throw new IlotError("Aura insuffisante pour calculer la résonance de cet Oiseau.", "FORBIDDEN", 403);
+        }
 
         // Récupération des tâches complétées assignées ou créées par l'oiseau
         const completedTasks = await TaskModel.find({
@@ -69,9 +77,9 @@ export class TaskResonanceOrchestrator {
                 { new: true, session: mongoSession }
             ).lean();
 
-            // 2. Propagation dans Neo4j
+            // 2. Propagation dans Neo4j (support uid ou slug)
             const cypher = `
-                MATCH (u:User { uid: $userUid })
+                MATCH (u:User) WHERE u.uid = $userUid OR u.slug = $userUid
                 SET u.totalResonance = $totalResonance,
                     u.updatedAt = datetime()
                 RETURN u

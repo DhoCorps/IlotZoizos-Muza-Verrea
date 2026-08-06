@@ -1,27 +1,23 @@
+// apps/hub-central/app/[locale]/wikioracle/page.tsx
 import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
-// On importe le composant Nexus que l'on a créé précédemment.
-// Assure-toi que le chemin correspond bien à l'emplacement de ton dossier components.
-import GameNexus from '../../../../components/games/GameNexus'; 
+import WikiOracleGameClient from '../../../../components/games/wikioracle/WikiOracleGameClient';
 
-export default async function GamesNexusPage({
-  params: { locale }
+export default async function WikiOraclePage({
+  params,
 }: {
-  params: { locale: string }
+  params: Promise<{ locale: string }>;
 }) {
-  // 1. Récupération de l'Aura (Session) de l'Oiseau
   const session = await getServerSession();
+  const { locale } = await params;
 
-  // 2. Sécurité : Si un oiseau fantôme arrive ici (bien que le middleware veille), on le renvoie
   if (!session || !session.user) {
     redirect(`/${locale}/auth/login`);
   }
 
-  // 3. Extraction du nom d'utilisateur (fallback de sécurité au cas où)
-  const username = session.user.name || 'Explorateur Anonyme';
+  const username = session.user.name || 'Oracle Anonyme';
 
-  // 4. Invocation du Nexus Client
   return (
-    <GameNexus username={username} />
+    <WikiOracleGameClient username={username} />
   );
 }

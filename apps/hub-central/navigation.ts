@@ -1,4 +1,3 @@
-// apps/hub-central/navigation.ts
 import { defineRouting } from 'next-intl/routing';
 import { createNavigation } from 'next-intl/navigation';
 
@@ -37,6 +36,7 @@ export const routing = defineRouting({
     '/dashboard/wellbeing': '/dashboard/wellbeing',
     '/dashboard/moderation': '/dashboard/moderation',
     '/dashboard/settings': '/dashboard/settings',
+    // 🪶 Profil de l'Oiseau
     '/profile': '/profile',
     '/settings': '/settings',
     '/auth/login': '/auth/login',
@@ -59,7 +59,10 @@ export const routing = defineRouting({
     '/games/galak-t-k/[slug]': '/games/galak-t-k/[slug]',
     // 🎲 ROUTES DE PLUM'ZEE
     '/games/plumzee': '/games/plumzee',
-    '/games/plumzee/[slug]': '/games/plumzee/[slug]'
+    '/games/plumzee/[slug]': '/games/plumzee/[slug]',
+    // 🔮 ROUTES DE L'ORACLE DE WIKIPÉDIA
+    '/games/wikioracle': '/games/wikioracle',
+    '/games/wikioracle/[slug]': '/games/wikioracle/[slug]'
   }
 });
 

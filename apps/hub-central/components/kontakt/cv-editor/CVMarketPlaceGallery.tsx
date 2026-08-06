@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Sparkles, ArrowRight, Download, Shield, Coins } from 'lucide-react';
+import { Sparkles, ArrowRight, Download, Shield, Coins, Image as ImageIcon } from 'lucide-react';
 
 export function CVMarketplaceGallery({ onSelectTemplate }: { onSelectTemplate: (template: any) => void }) {
   const [templates, setTemplates] = useState<any[]>([]);
@@ -25,11 +25,18 @@ export function CVMarketplaceGallery({ onSelectTemplate }: { onSelectTemplate: (
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {templates.map((tmpl) => (
-        <div key={tmpl.uid} className="p-6 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl flex flex-col justify-between space-y-4 hover:border-[#E5484D]/40 transition-all">
-          <div className="space-y-2">
+        <div key={tmpl.uid || tmpl.slug} className="p-6 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl flex flex-col justify-between space-y-4 hover:border-[#E5484D]/40 transition-all">
+          <div className="space-y-3">
+            {/* Aperçu visuel R2 si disponible */}
+            {tmpl.previewUrl && (
+              <div className="w-full h-32 rounded-2xl overflow-hidden bg-white/5 border border-white/10 relative">
+                <img src={tmpl.previewUrl} alt={tmpl.title} className="w-full h-full object-cover" />
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-[#E5484D]/10 text-[#E5484D] border border-[#E5484D]/30 uppercase font-bold">
-                Font: {tmpl.letrinFontFamily}
+                Font: {tmpl.letrinFontFamily || 'Standard'}
               </span>
               <span className="text-[10px] font-mono text-amber-400 flex items-center gap-1">
                 <Coins size={12} /> {tmpl.priceShards === 0 ? 'Gratuit / Troc' : `${tmpl.priceShards} Éclats`}
@@ -37,7 +44,7 @@ export function CVMarketplaceGallery({ onSelectTemplate }: { onSelectTemplate: (
             </div>
             <h3 className="text-lg font-black uppercase text-white">{tmpl.title}</h3>
             <p className="text-xs font-sans text-slate-400 leading-relaxed">{tmpl.description}</p>
-            <p className="text-[10px] font-mono text-slate-500">Forgé par : <span className="text-white">{tmpl.authorName}</span></p>
+            <p className="text-[10px] font-mono text-slate-500">Forgé par : <span className="text-white">{tmpl.authorName || 'Inconnu'}</span></p>
           </div>
 
           <button

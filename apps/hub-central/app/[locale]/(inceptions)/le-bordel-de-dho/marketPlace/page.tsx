@@ -2,7 +2,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import ResonanceButton from '../../../../../components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Import du tisseur
+import ResonanceButton from '../../../../../components/resonance/ResonanceButton'; 
+import { Scale } from 'lucide-react'; // ⚖️ NOUVEAU : Icône du comparateur
+import { ProductComparator } from '../../../../../components/ecommerce/comparator/ProductComparator'; // ⚖️ NOUVEAU : Composant comparateur
 
 interface Product {
   uid: string;
@@ -12,7 +14,7 @@ interface Product {
   category: string;
   style?: string;
   author?: string;
-  authorSlug?: string; // 🕸️ NOUVEAU : Nécessaire pour la Résonance
+  authorSlug?: string; 
   currency?: string;
 }
 
@@ -29,6 +31,10 @@ export default function MarketPlacePage() {
   const [categories, setCategories] = useState<string[]>([]);
   const [styles, setStyles] = useState<string[]>([]);
   const [authors, setAuthors] = useState<string[]>([]);
+
+  // ⚖️ NOUVEAU : États du Comparateur Quantique
+  const [compareList, setCompareList] = useState<Product[]>([]);
+  const [isComparatorOpen, setIsComparatorOpen] = useState(false);
 
   useEffect(() => {
     fetchMarketplaceData();
@@ -70,8 +76,23 @@ export default function MarketPlacePage() {
     }
   };
 
+  // ⚖️ NOUVEAU : Fonction de bascule pour la comparaison
+  const toggleCompare = (product: Product) => {
+    setCompareList(prev => {
+      const isAlreadyIn = prev.some(p => p.uid === product.uid);
+      if (isAlreadyIn) {
+        return prev.filter(p => p.uid !== product.uid);
+      }
+      if (prev.length >= 3) {
+        alert("Vous ne pouvez comparer que 3 artefacts maximum simultanément.");
+        return prev;
+      }
+      return [...prev, product];
+    });
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-6 md:p-12">
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-6 md:p-12 relative pb-32">
       <div className="max-w-7xl mx-auto space-y-8">
         
         {/* En-tête */}
@@ -80,7 +101,7 @@ export default function MarketPlacePage() {
             🕊️ Le Grand Marché des Artefacts (Marketplace)
           </h1>
           <p className="text-slate-400 mt-2">
-            Explorez, filtrez et échangez les créations souveraines de la volière.
+            Explorez, filtrez et comparez les créations souveraines de la volière.
           </p>
         </div>
 
@@ -152,14 +173,13 @@ export default function MarketPlacePage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {products.map((product) => {
-              // Fallback : Si l'API ne renvoie pas encore authorSlug, on utilise le nom formaté en attendant.
-              // Il faudra t'assurer que ton endpoint /api/ecommerce/marketPlace peuple bien 'authorSlug' ou 'ownerUid'
               const targetSlug = product.authorSlug || product.author?.toLowerCase().replace(/\s+/g, '-') || 'marchand-inconnu';
+              const isComparing = compareList.some(p => p.uid === product.uid);
 
               return (
                 <div 
                   key={product.uid}
-                  className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between hover:border-emerald-500/50 transition-all shadow-lg group relative"
+                  className={`bg-slate-900 border rounded-xl p-5 flex flex-col justify-between transition-all shadow-lg group relative ${isComparing ? 'border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'border-slate-800 hover:border-emerald-500/50'}`}
                 >
                   <div>
                     <div className="flex justify-between items-start gap-2 mb-3">
@@ -177,7 +197,6 @@ export default function MarketPlacePage() {
                       <div className="flex items-center gap-2 mb-3">
                         <p className="text-xs text-slate-400">Par <span className="text-slate-300 font-medium">{product.author}</span></p>
                         
-                        {/* 🕸️ NOUVEAU : Bouton de Résonance vers l'auteur */}
                         <div className="scale-75 origin-left">
                           <ResonanceButton 
                             targetSlug={targetSlug}
@@ -193,13 +212,19 @@ export default function MarketPlacePage() {
                     </p>
                   </div>
 
-                  <div className="pt-4 border-t border-slate-800 flex justify-between items-center">
-                    {product.style && (
-                      <span className="text-xs text-slate-500 italic">Style : {product.style}</span>
-                    )}
+                  <div className="pt-4 border-t border-slate-800 flex justify-between items-center gap-2">
+                    {/* ⚖️ NOUVEAU : Bouton de Comparaison */}
+                    <button 
+                      onClick={() => toggleCompare(product)}
+                      className={`p-2.5 rounded-lg transition-colors border ${isComparing ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:border-slate-500'}`}
+                      title="Ajouter au comparateur"
+                    >
+                      <Scale size={16} />
+                    </button>
+                    
                     <button 
                       onClick={() => alert(`Demande d'échange / acquisition initiée pour : ${product.title}`)}
-                      className="ml-auto bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold px-4 py-2 rounded-lg text-xs transition-colors shadow-sm"
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold px-4 py-2.5 rounded-lg text-xs transition-colors shadow-sm text-center"
                     >
                       Examiner l'Artefact
                     </button>
@@ -211,6 +236,42 @@ export default function MarketPlacePage() {
         )}
 
       </div>
+
+      {/* ⚖️ NOUVEAU : Dock Flottant du Comparateur */}
+      {compareList.length > 0 && !isComparatorOpen && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 border border-emerald-500/50 p-3 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.8)] flex items-center gap-6 animate-in slide-in-from-bottom-10">
+          <div className="flex items-center gap-3">
+            <Scale className="text-emerald-400" size={20} />
+            <span className="text-xs font-bold text-white uppercase tracking-widest">
+              {compareList.length} Artefact(s) prêt(s)
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setIsComparatorOpen(true)}
+              className="px-4 py-2 bg-emerald-600 text-slate-950 text-xs font-black uppercase rounded-xl hover:bg-emerald-500 transition-colors"
+            >
+              Comparer
+            </button>
+            <button 
+              onClick={() => setCompareList([])}
+              className="px-3 py-2 text-[10px] text-slate-400 hover:text-white uppercase font-mono transition-colors"
+            >
+              Vider
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ⚖️ NOUVEAU : La Modale du Comparateur */}
+      {isComparatorOpen && (
+        <ProductComparator 
+          products={compareList} 
+          onClose={() => setIsComparatorOpen(false)} 
+          onRemove={(uid) => setCompareList(prev => prev.filter(p => p.uid !== uid))}
+        />
+      )}
+
     </div>
   );
 }

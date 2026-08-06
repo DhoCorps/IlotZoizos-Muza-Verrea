@@ -1,108 +1,124 @@
-// packages/shared-core/src/sync-engine/__tests__/market.regulation.orchestrator.test.ts
+// packages/shared-core/src/sync-engine/__test__/market.regulation.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MarketRegulationOrchestrator, MarketEntityContext } from '../market.regulation.orchestrator';
 import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
 import { IlotError } from '../../errors/ilot.errors';
 
-// Mock de Mongoose
+// 1. Mock de la Silice (MongoDB)
 vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
-    OiseauModel: {
-        findOne: vi.fn(),
-        findOneAndUpdate: vi.fn(),
-    }
+  OiseauModel: {
+    findOne: vi.fn(),
+    findOneAndUpdate: vi.fn(),
+  },
 }));
 
-describe('MarketRegulationOrchestrator - Régulation de la Marketplace et du Troc', () => {
-    
-    beforeEach(() => {
-        vi.clearAllMocks();
+describe('MarketRegulationOrchestrator', () => {
+  let orchestrator: MarketRegulationOrchestrator;
+  const dummySignature = { actorUid: 'bird_admin', capabilities: [] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    orchestrator = new MarketRegulationOrchestrator();
+  });
+
+  describe('evaluateMarketAccess (Règles d’échange)', () => {
+    it('🟢 doit autoriser l’accès sous latence si l’Oiseau est en déficit énergétique (Lambda < 0)', () => {
+      const context: MarketEntityContext = {
+        uid: 'bird_taker',
+        exchanges: [
+          { type: 'TAKE', value: 50 },
+          { type: 'GIFT', value: 10 }
+        ], // Balance vitale = 10 - 50 = -40 (Déficit)
+        currentNeeds: 5,
+        creationFactor: 1.0
+      };
+
+      const result = MarketRegulationOrchestrator.evaluateMarketAccess(context, 1.0);
+
+      expect(result.isAuthorized).toBe(true);
+      expect(result.vitalBalance).toBe(-40);
+      expect(result.latencyMs).toBeGreaterThan(0);
+      expect(result.message).toContain("déficit énergétique");
     });
 
-    it('⚖️ doit imposer une latence et autoriser l’accès si l’oiseau est en déficit énergétique (Lambda < 0)', () => {
-        const context: MarketEntityContext = {
-            uid: 'bird-taker-01',
-            exchanges: [
-                { type: 'TAKE', value: 40 },
-                { type: 'GIFT', value: 10 }
-            ], // Balance vitale = 10 - 40 = -30
-            currentNeeds: 5,
-            creationFactor: 1.0
-        };
+    it('🔴 doit rejeter l’accès si l’échange est stérile (aucune contribution de dons)', () => {
+      const context: MarketEntityContext = {
+        uid: 'bird_sterile',
+        exchanges: [
+          { type: 'TAKE', value: 20 }
+        ], // 0 cadeaux, que des prises -> Juste Prise stérile
+        currentNeeds: 10,
+        creationFactor: 0.1
+      };
 
-        const result = MarketRegulationOrchestrator.evaluateMarketAccess(context, 5);
+      const result = MarketRegulationOrchestrator.evaluateMarketAccess(context, 1.0);
 
-        expect(result.isAuthorized).toBe(true);
-        expect(result.vitalBalance).toBe(-30);
-        expect(result.latencyMs).toBeGreaterThan(0);
-        expect(result.message).toContain("déficit");
+      expect(result.isAuthorized).toBe(false);
+      expect(result.vitalBalance).toBe(-20);
+      expect(result.latencyMs).toBe(0);
+      expect(result.message).toContain("Prise rejetée");
     });
 
-    it('🌑 doit rejeter l’accès si la prise est stérile (Juste Prise en dessous du seuil critique)', () => {
-        const context: MarketEntityContext = {
-            uid: 'bird-sterile-02',
-            exchanges: [
-                { type: 'GIFT', value: 0 }
-            ], // Total des dons = 0 -> Juste Prise = 0 < 1.0
-            currentNeeds: 10,
-            creationFactor: 0.1
-        };
+    it('🟢 doit autoriser l’accès sans latence si l’échange est équilibré ou en excédent (Lambda >= 0)', () => {
+      const context: MarketEntityContext = {
+        uid: 'bird_giver',
+        exchanges: [
+          { type: 'GIFT', value: 40 },
+          { type: 'TAKE', value: 10 }
+        ], // Balance vitale = 40 - 10 = +30 (Excédent)
+        currentNeeds: 5,
+        creationFactor: 1.5
+      };
 
-        const result = MarketRegulationOrchestrator.evaluateMarketAccess(context, 5);
+      const result = MarketRegulationOrchestrator.evaluateMarketAccess(context, 1.0);
 
-        expect(result.isAuthorized).toBe(false);
-        expect(result.latencyMs).toBe(0);
-        expect(result.message).toContain("Prise rejetée");
+      expect(result.isAuthorized).toBe(true);
+      expect(result.vitalBalance).toBe(30);
+      expect(result.latencyMs).toBe(0);
+      expect(result.message).toContain("Échange équilibré");
+    });
+  });
+
+  describe('processConnectedRegulation (Flux connecté et persistance)', () => {
+    it('🔴 doit lever une erreur 404 si l’Oiseau est introuvable dans la Silice', async () => {
+      vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(null);
+
+      await expect(
+        orchestrator.processConnectedRegulation('oiseau-fantome', 5, 1.0, 1.0, dummySignature as any)
+      ).rejects.toThrow(IlotError);
     });
 
-    it('🌱 doit autoriser l’accès sans latence si l’échange est parfaitement équilibré', () => {
-        const context: MarketEntityContext = {
-            uid: 'bird-pure-03',
-            exchanges: [
-                { type: 'GIFT', value: 50 },
-                { type: 'TAKE', value: 20 }
-            ], // Balance vitale = 30 >= 0
-            currentNeeds: 2,
-            creationFactor: 2.0
-        };
+    it('🟢 doit évaluer, persister dans la Silice et retourner l’état de régulation avec succès', async () => {
+      const mockUser = {
+        uid: 'bird_uuid_123',
+        slug: 'oiseau-equilibriste',
+        pseudo: 'Equilibriste',
+        exchanges: [
+          { type: 'GIFT', value: 25 },
+          { type: 'TAKE', value: 5 }
+        ]
+      };
 
-        const result = MarketRegulationOrchestrator.evaluateMarketAccess(context, 5);
+      vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockUser as any);
+      vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
+        lean: vi.fn().mockResolvedValueOnce({ ...mockUser, marketRegulationState: { isAuthorized: true } }),
+      } as any);
 
-        expect(result.isAuthorized).toBe(true);
-        expect(result.vitalBalance).toBe(30);
-        expect(result.latencyMs).toBe(0);
-        expect(result.message).toContain("Échange équilibré");
+      const res = await orchestrator.processConnectedRegulation(
+        'oiseau-equilibriste', 
+        5, 
+        1.0, 
+        1.0, 
+        dummySignature as any
+      );
+
+      expect(res.success).toBe(true);
+      expect(res.targetUid).toBe('bird_uuid_123');
+      expect(res.targetSlug).toBe('oiseau-equilibriste');
+      expect(res.vitalBalance).toBe(20);
+      expect(res.isAuthorized).toBe(true);
+      expect(OiseauModel.findOne).toHaveBeenCalledTimes(1);
+      expect(OiseauModel.findOneAndUpdate).toHaveBeenCalledTimes(1);
     });
-
-    describe('processConnectedRegulation', () => {
-        const orchestrator = new MarketRegulationOrchestrator();
-
-        it('❌ doit lever une erreur 404 si l’oiseau est introuvable dans la Silice', async () => {
-            (OiseauModel.findOne as any).mockResolvedValueOnce(null);
-
-            const signature = { actorUid: 'actor-1', capabilities: [] };
-
-            await expect(
-                orchestrator.processConnectedRegulation('ghost-bird', 5, 2, 1, signature)
-            ).rejects.toThrow(IlotError);
-        });
-
-        it('⚖️ doit évaluer et persister l’état de régulation si l’oiseau est trouvé', async () => {
-            const mockUser = {
-                uid: 'bird-uid-99',
-                slug: 'bird-slug',
-                exchanges: [{ type: 'TAKE', value: 20 }, { type: 'GIFT', value: 5 }]
-            };
-            (OiseauModel.findOne as any).mockResolvedValueOnce(mockUser);
-            (OiseauModel.findOneAndUpdate as any).mockResolvedValueOnce(mockUser);
-
-            const signature = { actorUid: 'actor-1', capabilities: [] };
-            const result = await orchestrator.processConnectedRegulation('bird-slug', 5, 2, 1, signature);
-
-            expect(result.targetUid).toBe('bird-uid-99');
-            expect(result.isAuthorized).toBe(true);
-            expect(result.vitalBalance).toBe(-15);
-            expect(result.latencyMs).toBe(3000); // Plafonné ou calculé (15 * 200 = 3000)
-            expect(OiseauModel.findOneAndUpdate).toHaveBeenCalled();
-        });
-    });
+  });
 });

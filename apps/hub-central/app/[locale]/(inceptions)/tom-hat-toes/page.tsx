@@ -15,6 +15,7 @@ import { TeamCard } from '../../../../components/teams/TeamCard';
 import KanbanDrawer from '../../../../components/kanban/KanbanDrawer'; 
 import CalendarView from '../../../../components/calendars/CalendarView';
 import ResonanceButton from '../../../../components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Le tisseur de liens
+import { PomodoroWarehouse } from '../../../../components/pomodoro/PomodoroWareHouse';
 
 import { PomodoroProvider } from '../../../../context/PomodoroContext'; 
 import PomodoroHUD from '../../../../components/hub/PomodoroHUD'; 
@@ -313,25 +314,31 @@ export default function TomHatToesHub() {
               )}
             </div>
           ) : (
-            <CalendarView 
-              tasks={nexus.projectTasks} 
-              onEmptySlotClick={(date) => {
-                nexus.setSelectedSlotDate(date);
-                if (!nexus.isInviteeMode) {
-                  nexus.setActiveInceptionId('task_new');
-                }
-              }} 
-              onDelete={nexus.handleDeleteTask} 
-              onEdit={(t) => {
-                if (!nexus.isInviteeMode) {
-                  nexus.setSelectedTaskUid(t.uid);
-                  nexus.setActiveInceptionId('task_edit');
-                }
-              }}
-              onTaskDrop={() => {
-                if (nexus.selectedProjectUid) nexus.fetchTasks(nexus.selectedProjectUid);
-              }}
-            />
+            /* 🍅 ONGLET HORIZON : Entrepôt global + Calendrier temporel */
+            <div className="space-y-8 animate-in fade-in duration-500">
+              <PomodoroWarehouse 
+                totalPomos={nexus.projectTasks.reduce((acc, t) => acc + (t.pomodoros?.completed || 0), 0)} 
+              />
+              <CalendarView 
+                tasks={nexus.projectTasks} 
+                onEmptySlotClick={(date) => {
+                  nexus.setSelectedSlotDate(date);
+                  if (!nexus.isInviteeMode) {
+                    nexus.setActiveInceptionId('task_new');
+                  }
+                }} 
+                onDelete={nexus.handleDeleteTask} 
+                onEdit={(t) => {
+                  if (!nexus.isInviteeMode) {
+                    nexus.setSelectedTaskUid(t.uid);
+                    nexus.setActiveInceptionId('task_edit');
+                  }
+                }}
+                onTaskDrop={() => {
+                  if (nexus.selectedProjectUid) nexus.fetchTasks(nexus.selectedProjectUid);
+                }}
+              />
+            </div>
           )}
         </main>
 

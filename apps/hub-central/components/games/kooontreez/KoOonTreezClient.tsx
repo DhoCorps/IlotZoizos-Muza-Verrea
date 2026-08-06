@@ -8,7 +8,7 @@ import {
     KoOonTreeZRoomToSend 
 } from '@ilot/shared-core';
 import { 
-    QuizQuestion, 
+    KoOonTreezQuizQuestion, 
     KoOonTreezMode 
 } from '@ilot/shared-core';
 import { KoOonTreezLogic } from '@ilot/shared-core';
@@ -30,7 +30,7 @@ export default function KoOonTreeZClient({
     username 
 }: KoOonTreeZClientProps) {
     const [gameState, setGameState] = useState<KoOonTreeZRoomToSend | null>(null);
-    const [currentQuestion, setCurrentQuestion] = useState<QuizQuestion | null>(null);
+    const [currentQuestion, setCurrentQuestion] = useState<KoOonTreezQuizQuestion | null>(null);
     const [timeLeft, setTimeLeft] = useState<number>(0);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<{ message: string, type: 'success'|'error'|'info' } | null>(null);
@@ -64,7 +64,7 @@ export default function KoOonTreeZClient({
         socket.on('game:init', handleStateUpdate);
         socket.on('game:update', handleStateUpdate);
         
-        socket.on('game:new-question', (data: QuizQuestion) => {
+        socket.on('game:new-question', (data: KoOonTreezQuizQuestion) => {
             setCurrentQuestion(data);
             setHasAnswered(false);
             setHint(null);

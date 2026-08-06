@@ -30,22 +30,26 @@ export interface CurrentFlag {
 }
 
 export interface FullCountryData {
-    name: {
-        common: string; 
-        official: string; 
-        nativeName?: { [key: string]: { official: string; common: string; } }; 
+  cca2: string;
+  name: {
+    common: string;
+    official?: string;
+  };
+  capital?: string[];
+  flags: {
+    png?: string;
+    svg?: string;
+    alt?: string;
+  };
+  region?: string;
+  population?: number;
+  continents?: string[];
+  currencies?: {
+    [key: string]: {
+      name: string;
+      symbol?: string;
     };
-    flags: {
-        png?: string; 
-        svg?: string; 
-        alt?: string; 
-    };
-    capital?: string[]; 
-    region?: string; 
-    population?: number; 
-    currencies?: { [key: string]: { name: string; symbol: string; } }; 
-    continents?: string[]; 
-    cca2: string; 
+  };
 }
 
 export interface QuizQuestion {

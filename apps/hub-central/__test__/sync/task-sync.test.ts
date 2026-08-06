@@ -69,10 +69,8 @@ describe('Moteur de Synchronisation (Integration)', () => {
       await session.close();
     }
 
-    // Déconnexion de la Silice
-    if (mongoose.connection.readyState !== 0) {
-      await mongoose.disconnect();
-    }
+    // 🪡 SUTURE DE CONCURRENCE : On ne déconnecte PAS Mongoose ici 
+    // pour préserver la connexion partagée des autres tests en parallèle.
     console.log("🧹 Vallée des ombres nettoyée.");
   }, 30000);
 

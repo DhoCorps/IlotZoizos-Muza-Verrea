@@ -1,57 +1,75 @@
-// packages/shared-core/src/sync-engine/__tests__/kontakt.orchestrator.test.ts
+// packages/shared-core/src/sync-engine/__test__/kontakt.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KontaktOrchestrator } from '../kontakt.orchestrator';
+import { TransactionManager } from '../transactionManager';
+import { IlotError } from '../../errors/ilot.errors';
 
-
-vi.mock('mongoose', () => ({
-  default: {
-    startSession: vi.fn().mockResolvedValue({
-      startTransaction: vi.fn(),
-      commitTransaction: vi.fn(),
-      abortTransaction: vi.fn(),
-      endSession: vi.fn(),
-    }),
+vi.mock('../transactionManager', () => ({
+  TransactionManager: {
+    execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [] }) })),
   },
 }));
-// Mock du TransactionManager pour isoler le test d'intégration du graphe
-vi.mock('../../transactionManager', () => ({
-  TransactionManager: {
-    execute: vi.fn().mockImplementation(async (name, callback) => {
-      const mockMongoSession = {};
-      const mockNeo4jTx = {
-        run: vi.fn().mockResolvedValue({ records: [] }) // Pas de match par défaut
-      };
-      return await callback(mockMongoSession as any, mockNeo4jTx as any);
-    })
-  }
-}));
 
-describe('KontaktOrchestrator - Moteur de Swipe & Match', () => {
+describe('KontaktOrchestrator', () => {
   let orchestrator: KontaktOrchestrator;
-  const mockActorUid = 'bird-alpha';
+  const validSignature = { actorUid: 'bird_alpha', capabilities: [] };
+  const invalidSignature = { capabilities: [] }; // Sans actorUid
 
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new KontaktOrchestrator();
   });
 
-  it('🟢 doit enregistrer un swipe LIKE sans match si la cible n\'a pas liké en retour', async () => {
-    const result = await orchestrator.registerSwipe(
-      { swiperUid: 'bird-alpha', targetUid: 'bird-beta', action: 'LIKE' },
-      { actorUid: mockActorUid, capabilities: ['*'], issuedAt: new Date() }
-    );
+  describe('registerSwipe', () => {
+    it('🔴 doit rejeter (401) si l’Oiseau n’est pas authentifié', async () => {
+      await expect(
+        orchestrator.registerSwipe({ swiperUid: 'b1', targetUid: 'b2', action: 'LIKE' }, invalidSignature as any)
+      ).rejects.toThrow(IlotError);
+    });
 
-    expect(result.success).toBe(true);
-    expect(result.action).toBe('LIKE');
-    expect(result.match).toBe(false);
-  });
+    it('🟢 doit enregistrer un swipe LIKE sans match si la cible n’a pas liké', async () => {
+      const res = await orchestrator.registerSwipe(
+        { swiperUid: 'bird_alpha', targetUid: 'bird_beta', action: 'LIKE' },
+        validSignature as any
+      );
 
-  it('🔴 doit rejeter le swipe si l\'Oiseau n\'est pas authentifié (401)', async () => {
-    await expect(
-      orchestrator.registerSwipe(
-        { swiperUid: '', targetUid: 'bird-beta', action: 'LIKE' },
-        { actorUid: '', capabilities: [], issuedAt: new Date() }
-      )
-    ).rejects.toThrow();
+      expect(res.success).toBe(true);
+      expect(res.action).toBe('LIKE');
+      expect(res.match).toBe(false);
+      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('🟢 doit enregistrer un swipe LIKE et détecter un MATCH si la cible a déjà liké', async () => {
+      const mockNeo4jTx = {
+        run: vi.fn()
+          .mockResolvedValueOnce({ records: [{ get: () => ({}) }] }) // Simulation du check match réussi
+          .mockResolvedValueOnce({ records: [] }) // Simulation de l'écriture du swipe/match
+      };
+
+      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (name, cb) => {
+        // Remplacement de 'mock-mongo' par un objet mocké compatible ClientSession
+        return await cb({} as any, mockNeo4jTx as any);
+      });
+
+      const res = await orchestrator.registerSwipe(
+        { swiperUid: 'bird_alpha', targetUid: 'bird_beta', action: 'LIKE' },
+        validSignature as any
+      );
+
+      expect(res.success).toBe(true);
+      expect(res.match).toBe(true);
+      expect(mockNeo4jTx.run).toHaveBeenCalledTimes(2);
+    });
+
+    it('🟢 doit enregistrer un swipe PASS avec succès', async () => {
+      const res = await orchestrator.registerSwipe(
+        { swiperUid: 'bird_alpha', targetUid: 'bird_beta', action: 'PASS' },
+        validSignature as any
+      );
+
+      expect(res.success).toBe(true);
+      expect(res.action).toBe('PASS');
+      expect(res.match).toBe(false);
+    });
   });
 });

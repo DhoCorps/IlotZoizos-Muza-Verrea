@@ -1,6 +1,6 @@
 // packages/shared-core/src/sync-engine/market.regulation.orchestrator.ts
-import { SeveEngine, ExchangeItem } from '../utils/seve.engine';
 import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
+import { SeveEngine, ExchangeItem } from '../utils/seve.engine';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
 
@@ -8,114 +8,110 @@ export interface MarketEntityContext {
     uid: string;
     exchanges: ExchangeItem[];
     currentNeeds: number;
-    creationFactor: number; // Omega
+    creationFactor: number;
 }
 
-export interface MarketRegulationResult {
+export interface MarketEvaluationResult {
     isAuthorized: boolean;
     vitalBalance: number;
-    latencyMs: number; // Temps de latence appliqué pour ralentir l'impulsion de consommation
+    latencyMs: number;
     message: string;
 }
 
+export interface ConnectedRegulationResult extends MarketEvaluationResult {
+    success: boolean;
+    targetUid: string;
+    targetSlug: string | null;
+    user: any;
+}
+
 export class MarketRegulationOrchestrator {
-    private static readonly THRESHOLD_JP = 1.0;
-
+    
     /**
-     * Évalue si une transaction de prise/achat est juste et régule le flux par la latence (statique, pure)
+     * ⚖️ ÉVALUATION DE L'ACCÈS AU MARCHÉ ET AU TROC
+     * Calcule la balance vitale (Lambda) et la juste prise (Jp) pour moduler l'accès (latence ou rejet).
      */
-    public static evaluateMarketAccess(context: MarketEntityContext, takeValue: number): MarketRegulationResult {
-        // 1. Calcul de la Balance Vitale (Lambda)
+    public static evaluateMarketAccess(context: MarketEntityContext, minJustTakeThreshold: number = 1.0): MarketEvaluationResult {
         const vitalBalance = SeveEngine.calculateVitalBalance(context.exchanges);
+        
+        const gifts = context.exchanges.filter(e => e.type === 'GIFT').reduce((s, e) => s + e.value, 0);
+        const justTake = SeveEngine.calculateJustTake(gifts, context.currentNeeds, context.creationFactor);
 
-        // Total des dons de l'entité
-        const totalGifts = context.exchanges
-            .filter(e => e.type === 'GIFT')
-            .reduce((s, e) => s + e.value, 0);
-
-        // 2. Calcul de la Juste Prise (Jp)
-        const justTake = SeveEngine.calculateJustTake(totalGifts, context.currentNeeds, context.creationFactor);
-
-        // 3. Logique de régulation et de latence
-        if (vitalBalance < 0) {
-            // Déficit énergétique : application d'un coefficient de latence proportionnel au creux
-            const deficitPenalty = Math.abs(vitalBalance);
-            const latencyMs = Math.min(5000, deficitPenalty * 200); // Plafonné à 5 secondes
-
-            console.warn(`⚖️ [Market] Déficit détecté (Lambda = ${vitalBalance}). Latence de ${latencyMs}ms imposée à l'Oiseau ${context.uid}.`);
-
-            return {
-                isAuthorized: true, // Autorisé mais ralenti pour inviter à la conscience
-                vitalBalance,
-                latencyMs,
-                message: `L'Îlot ralentit ton impulsion. Ton équilibre accuse un déficit (Lambda = ${vitalBalance}). Pense à offrir avant de prendre.`
-            };
-        }
-
-        // Si la prise est stérile (Jp en dessous du seuil critique)
-        if (justTake < this.THRESHOLD_JP) {
+        // Rejet si la juste prise est stérile (ex: pas de dons du tout face à des prises excessives)
+        if (justTake < minJustTakeThreshold && gifts === 0) {
             return {
                 isAuthorized: false,
                 vitalBalance,
                 latencyMs: 0,
-                message: `🌑 [Market] Prise rejetée. Le coefficient de création (Jp = ${justTake}) est insuffisant pour justifier ce prélèvement.`
+                message: "Prise rejetée : l'échange est stérile ou déséquilibré par rapport aux besoins."
             };
+        }
+
+        // Gestion de la latence en cas de déficit énergétique (Lambda < 0)
+        let latencyMs = 0;
+        let message = "Échange équilibré. Accès fluide au marché.";
+
+        if (vitalBalance < 0) {
+            // Latence proportionnelle au déficit (ex: 200ms par point de déficit, plafonnée à 5000ms)
+            latencyMs = Math.min(5000, Math.abs(vitalBalance) * 200);
+            message = `Accès autorisé sous latence : l'Oiseau est en déficit énergétique (Lambda = ${vitalBalance}).`;
         }
 
         return {
             isAuthorized: true,
             vitalBalance,
-            latencyMs: 0,
-            message: `🌱 [Market] Échange équilibré. Bonne circulation de la sève.`
+            latencyMs,
+            message
         };
     }
 
     /**
-     * ⚖️ ÉVALUATION CONNECTÉE À LA SILICE
-     * Récupère le contexte réel de l'oiseau en base et persiste son état de régulation.
+     * 🔄 TRAITEMENT DE LA RÉGULATION CONNECTÉE
+     * Résout l'Oiseau dans la Silice (via slug ou uid), évalue son accès et persiste son état.
      */
     public async processConnectedRegulation(
         userIdentifier: string,
-        takeValue: number,
         currentNeeds: number,
         creationFactor: number,
+        minJustTakeThreshold: number,
         signature: ActionSignature
-    ): Promise<MarketRegulationResult & { targetUid: string }> {
-        const user = await OiseauModel.findOne({ 
-            $or: [{ slug: userIdentifier }, { uid: userIdentifier }, { pseudo: userIdentifier }] 
+    ): Promise<ConnectedRegulationResult> {
+        const user = await OiseauModel.findOne({
+            $or: [{ slug: userIdentifier }, { uid: userIdentifier }, { pseudo: userIdentifier }]
         });
 
-        if (!user) throw new IlotError("Oiseau introuvable dans la Silice.", "NOT_FOUND", 404);
-
-        const exchanges: ExchangeItem[] = user.exchanges || [];
+        if (!user) {
+            throw new IlotError("Oiseau introuvable dans la Silice pour régulation.", "NOT_FOUND", 404);
+        }
 
         const context: MarketEntityContext = {
             uid: user.uid,
-            exchanges,
+            exchanges: (user as any).exchanges || [],
             currentNeeds,
             creationFactor
         };
 
-        const regulation = MarketRegulationOrchestrator.evaluateMarketAccess(context, takeValue);
+        const evaluation = MarketRegulationOrchestrator.evaluateMarketAccess(context, minJustTakeThreshold);
 
-        // Persistance de l'état de régulation dans MongoDB
-        await OiseauModel.findOneAndUpdate(
+        const updatedUser = await OiseauModel.findOneAndUpdate(
             { uid: user.uid },
-            { 
-                $set: { 
+            {
+                $set: {
                     'marketRegulationState': {
-                        lastVitalBalance: regulation.vitalBalance,
-                        lastLatencyMs: regulation.latencyMs,
-                        isAuthorized: regulation.isAuthorized,
+                        ...evaluation,
                         evaluatedAt: new Date()
                     }
-                } 
-            }
-        );
+                }
+            },
+            { new: true }
+        ).lean();
 
         return {
+            success: true,
             targetUid: user.uid,
-            ...regulation
+            targetSlug: (user as any).slug || null,
+            ...evaluation,
+            user: updatedUser
         };
     }
 }

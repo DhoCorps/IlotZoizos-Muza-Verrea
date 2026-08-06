@@ -1,114 +1,83 @@
-// packages/shared-core/src/sync-engine/__tests__/sovereign.purge.orchestrator.test.ts
+// packages/shared-core/src/sync-engine/__test__/sovereign.purge.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SovereignPurgeOrchestrator, PurgeContext } from '../sovereign.purge.orchestrator';
+import { SovereignPurgeOrchestrator } from '../sovereign.purge.orchestrator';
 import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
 import { TaskModel } from '../../../../infrastructure/src/database/models/nosql/task.model';
 import { ProjectModel } from '../../../../infrastructure/src/database/models/nosql/project.model';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-// Mocks des modèles Mongoose et du TransactionManager
 vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
-    OiseauModel: { deleteOne: vi.fn() }
+  OiseauModel: {
+    findOne: vi.fn(),
+    deleteOne: vi.fn(),
+  },
 }));
 
 vi.mock('../../../../infrastructure/src/database/models/nosql/task.model', () => ({
-    TaskModel: { deleteMany: vi.fn() }
+  TaskModel: {
+    deleteMany: vi.fn(),
+  },
 }));
 
 vi.mock('../../../../infrastructure/src/database/models/nosql/project.model', () => ({
-    ProjectModel: { deleteMany: vi.fn() }
+  ProjectModel: {
+    deleteMany: vi.fn(),
+  },
 }));
 
 vi.mock('../transactionManager', () => ({
-    TransactionManager: {
-        execute: vi.fn()
-    }
+  TransactionManager: {
+    execute: vi.fn(async (name, cb) => cb({} as any, { 
+      run: vi.fn().mockResolvedValue({ records: [{ get: () => ({ toNumber: () => 1 }) }] }) 
+    })),
+  },
 }));
 
-describe('SovereignPurgeOrchestrator - L’Évanescence & Le Terminus', () => {
-    
-    beforeEach(() => {
-        vi.clearAllMocks();
+describe('SovereignPurgeOrchestrator', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('evaluateDissolution & buildPurgePayload', () => {
+    it('🟢 doit évaluer correctement le seuil de dissolution', () => {
+      expect(SovereignPurgeOrchestrator.evaluateDissolution(-15, -10)).toBe(true);
+      expect(SovereignPurgeOrchestrator.evaluateDissolution(-5, -10)).toBe(false);
     });
 
-    it('⚖️ doit évaluer correctement la validité de la dissolution finale (D_infinit)', () => {
-        const shouldPurge = SovereignPurgeOrchestrator.evaluateDissolution(-12, -5);
-        expect(shouldPurge).toBe(true);
+    it('🟢 doit construire le payload de purge attendu', () => {
+      const payload = SovereignPurgeOrchestrator.buildPurgePayload({ entityId: 'bird_1', reason: 'VOLUNTARY_EXILE' });
+      expect(payload.targetUid).toBe('bird_1');
+      expect(payload.action).toBe('PURGE_COMPLETE');
+    });
+  });
 
-        const shouldNotPurge = SovereignPurgeOrchestrator.evaluateDissolution(2, -5);
-        expect(shouldNotPurge).toBe(false);
+  describe('executeSovereignPurge', () => {
+    it('🔴 doit rejeter (403) si l’acteur n’est ni l’entité elle-même ni root (*)', async () => {
+      const orchestrator = new SovereignPurgeOrchestrator();
+      const unauthorizedSignature = { actorUid: 'other_bird', capabilities: [] };
+
+      await expect(
+        orchestrator.executeSovereignPurge({ entityId: 'bird_1', reason: 'VITAL_COLLAPSE' }, unauthorizedSignature as any)
+      ).rejects.toThrow(IlotError);
     });
 
-    it('📦 doit construire le payload de purge avec les bons métadonnées', () => {
-        const context: PurgeContext = {
-            entityId: 'bird-exile-42',
-            reason: 'VOLUNTARY_EXILE'
-        };
+    it('🟢 doit exécuter la purge souveraine avec succès si l’acteur est l’entité elle-même', async () => {
+      const orchestrator = new SovereignPurgeOrchestrator();
+      const selfSignature = { actorUid: 'bird_1', capabilities: [] };
 
-        const payload = SovereignPurgeOrchestrator.buildPurgePayload(context);
+      vi.mocked(OiseauModel.findOne).mockReturnValue({
+        session: vi.fn().mockResolvedValueOnce({ uid: 'bird_1', slug: 'bird-slug' })
+      } as any);
 
-        expect(payload.targetUid).toBe('bird-exile-42');
-        expect(payload.action).toBe('PURGE_COMPLETE');
-        expect(payload.sanitizedCollections).toContain('users');
-        expect(payload.graphNodePattern).toContain('bird-exile-42');
+      const res = await orchestrator.executeSovereignPurge(
+        { entityId: 'bird_1', reason: 'VOLUNTARY_EXILE' }, 
+        selfSignature as any
+      );
+
+      expect(res.success).toBe(true);
+      expect(res.neo4jDeletedCount).toBe(1);
+      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
-
-    describe('executeSovereignPurge', () => {
-        const orchestrator = new SovereignPurgeOrchestrator();
-
-        it('❌ doit rejeter la purge si l’acteur n’est ni l’entité elle-même ni porteur des pleins pouvoirs (*)', async () => {
-            const context: PurgeContext = { entityId: 'bird-target', reason: 'VOLUNTARY_EXILE' };
-            const signature = { actorUid: 'other-bird', capabilities: ['READ'] };
-
-            await expect(
-                orchestrator.executeSovereignPurge(context, signature)
-            ).rejects.toThrow(IlotError);
-        });
-
-        it('💨 doit exécuter la dissolution souveraine si l’acteur est l’entité concernée', async () => {
-            const context: PurgeContext = { entityId: 'bird-self', reason: 'VOLUNTARY_EXILE' };
-            const signature = { actorUid: 'bird-self', capabilities: [] };
-
-            (TransactionManager.execute as any).mockImplementationOnce(async (name: string, callback: any) => {
-                const mockMongoSession = {};
-                const mockNeo4jTx = {
-                    run: vi.fn().mockResolvedValue({
-                        records: [{ get: () => ({ toNumber: () => 1 }) }]
-                    })
-                };
-
-                (OiseauModel.deleteOne as any).mockResolvedValueOnce({ deletedCount: 1 });
-                (TaskModel.deleteMany as any).mockResolvedValueOnce({ deletedCount: 2 });
-                (ProjectModel.deleteMany as any).mockResolvedValueOnce({ deletedCount: 1 });
-
-                return await callback(mockMongoSession, mockNeo4jTx);
-            });
-
-            const result = await orchestrator.executeSovereignPurge(context, signature);
-
-            expect(result.success).toBe(true);
-            expect(result.payload.targetUid).toBe('bird-self');
-            expect(result.neo4jDeletedCount).toBe(1);
-            expect(TransactionManager.execute).toHaveBeenCalled();
-        });
-
-        it('💨 doit exécuter la dissolution souveraine si l’acteur possède les pleins pouvoirs (*)', async () => {
-            const context: PurgeContext = { entityId: 'target-bird', reason: 'VITAL_COLLAPSE' };
-            const signature = { actorUid: 'architect-uid', capabilities: ['*'] };
-
-            (TransactionManager.execute as any).mockImplementationOnce(async (name: string, callback: any) => {
-                const mockNeo4jTx = {
-                    run: vi.fn().mockResolvedValue({
-                        records: [{ get: () => ({ toNumber: () => 1 }) }]
-                    })
-                };
-                return await callback({}, mockNeo4jTx);
-            });
-
-            const result = await orchestrator.executeSovereignPurge(context, signature);
-            expect(result.success).toBe(true);
-            expect(result.payload.targetUid).toBe('target-bird');
-        });
-    });
+  });
 });

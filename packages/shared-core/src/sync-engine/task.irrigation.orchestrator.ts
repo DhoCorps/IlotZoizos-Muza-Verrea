@@ -3,7 +3,7 @@ import { SeveEngine, Dependency } from '../utils/seve.engine';
 import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
-import { ActionSignature } from '@ilot/types';
+import { ActionSignature, CAPABILITIES } from '@ilot/types';
 
 export interface TaskPayload {
     title: string;
@@ -18,12 +18,10 @@ export class TaskIrrigationOrchestrator {
      * Si l'irrigation chute à 0, le flux est coupé en cascade dans MongoDB.
      */
     public static evaluateAndSanitize(taskData: TaskPayload): TaskPayload {
-        // Calcul via le SeveEngine (It = prod(sigma(di)))
         const irrigationFlow = SeveEngine.calculateIrrigation(taskData.dependencies);
 
         taskData.isIrrigated = irrigationFlow;
 
-        // Si une seule racine est à 0, la sève s'arrête : la tâche est étouffée (ROMPU)
         if (irrigationFlow === 0) {
             taskData.status = 'ROMPU';
             console.warn(`💀 [Sève] Irrigation rompue pour la tâche "${taskData.title}". Flux stoppé dans MongoDB.`);
@@ -36,17 +34,20 @@ export class TaskIrrigationOrchestrator {
 
     /**
      * 💧 TRAITEMENT CONNECTÉ DE L'IRRIGATION D'UNE TÂCHE
-     * Récupère la tâche dans la Silice, évalue son irrigation et met à jour Mongo et Neo4j.
+     * Vérifie les capacités de l'acteur, récupère la tâche, évalue son irrigation et met à jour Mongo et Neo4j.
      */
     public async processTaskIrrigation(taskIdentifier: string, signature: ActionSignature) {
-        const task = await TaskModel.findOne({ 
-            $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] 
-        });
+        // 🛡️ Barrière de sécurité : Vérification des capacités de l'Oiseau
+        if (!signature.capabilities.includes(CAPABILITIES.TASK.UPDATE) && !signature.capabilities.includes('*')) {
+            throw new IlotError("Aura insuffisante pour irriguer cet Atome.", "FORBIDDEN", 403);
+        }
+
+        const task = await TaskModel.findOne({ uid: taskIdentifier });
 
         if (!task) throw new IlotError("Atome introuvable dans la Silice.", "NOT_FOUND", 404);
 
         const payload: TaskPayload = {
-            title: task.content?.title || task.name || "Tâche sans nom",
+            title: task.content?.title || "Tâche sans nom",
             status: task.status as any,
             dependencies: task.dependencies || []
         };
@@ -59,7 +60,7 @@ export class TaskIrrigationOrchestrator {
                 { 
                     $set: { 
                         status: evaluated.status,
-                        'metrics.isIrrigated': evaluated.isIrrigated,
+                        isIrrigated: evaluated.isIrrigated,
                         'dates.updatedAt': new Date()
                     } 
                 },

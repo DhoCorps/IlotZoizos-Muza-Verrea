@@ -52,6 +52,7 @@ export const user = {
     apiFetch<any>('/auth/user/update', { method: 'PUT', body: JSON.stringify(data) }),
   getLineage: () => apiFetch<any>('/user/lineage'),
   getObservatory: (userSlug: string) => apiFetch<any>(`/users/${userSlug}/observatory`),
+  getRecruitable: () => apiFetch<any[]>('/users/recruitable'),
 };
 
 export const projects = {
@@ -71,6 +72,7 @@ export const tasks = {
   create: (data: Partial<ITask>) => apiFetch<ITask>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
   update: (taskSlug: string, data: Partial<ITask>) => apiFetch<ITask>(`/tasks/${taskSlug}`, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (taskSlug: string) => apiFetch<void>(`/tasks/${taskSlug}`, { method: 'DELETE' }),
+  irrigate: (taskSlug: string) => apiFetch<any>(`/tasks/${taskSlug}/irrigate`, { method: 'POST' }),
 };
 
 export const teams = {
@@ -146,6 +148,7 @@ export const kontakt = {
 };
 
 export const ecommerce = {
+  getMarketplace: () => apiFetch<any>('/ecommerce/marketPlace'),
   getStores: () => apiFetch<any[]>('/ecommerce/stores'),
   getStoreBySlug: (storeSlug: string) => apiFetch<any>(`/ecommerce/stores/${storeSlug}`),
   createStore: (data: { storeName: string; description?: string; stripeAccountId?: string }) => 
@@ -196,4 +199,46 @@ export const salon = {
       method: 'POST',
       body: JSON.stringify({ action: 'UNSEAL', enactedThought, sharedSecretKey })
     }),
+};
+
+// ==========================================
+// 🆕 NOUVELLES ROUTES (Canopée, Graphe & Évanescence)
+// ==========================================
+
+export const messages = {
+  getHistory: (conversationSlug: string, limit?: number, before?: string) => {
+    const params = new URLSearchParams();
+    params.append('conversationSlug', conversationSlug);
+    if (limit) params.append('limit', limit.toString());
+    if (before) params.append('before', before);
+    return apiFetch<any[]>(`/messages?${params.toString()}`);
+  },
+  send: (data: { conversationSlug: string; content: string; rawAttachments?: any[]; replyToSlug?: string }) =>
+    apiFetch<any>('/messages', { method: 'POST', body: JSON.stringify(data) }),
+  getUnreadCount: () => apiFetch<{ unreadCount: number }>('/messages/unread'),
+};
+
+export const sovereign = {
+  purge: (reason: string, archiveData: boolean = false) =>
+    apiFetch<any>('/sovereign/purge', { method: 'POST', body: JSON.stringify({ reason, archiveData }) }),
+};
+
+export const resonance = {
+  weaveLink: (sourceSlug: string, targetSlug: string, resonanceType: string) =>
+    apiFetch<any>('/resonance/links', { method: 'POST', body: JSON.stringify({ sourceSlug, targetSlug, resonanceType }) }),
+  getEchoes: (entitySlug: string) => 
+    apiFetch<any[]>(`/resonance/echoes?slug=${entitySlug}`),
+};
+
+export const graph = {
+  getContext: (entitySlug: string, depth?: number) =>
+    apiFetch<any>(`/graph/context?entitySlug=${entitySlug}${depth ? `&depth=${depth}` : ''}`),
+};
+
+export const media = {
+  getStreamFeed: () => apiFetch<any[]>('/media/stream-feed'),
+};
+
+export const taxonomy = {
+  getAll: () => apiFetch<any>('/taxonomy'),
 };

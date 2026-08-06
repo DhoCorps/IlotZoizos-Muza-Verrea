@@ -1,3 +1,4 @@
+export * from './core/storage.types';
 export * from './core/permission.types';
 export * from './core/user.types';
 export * from './core/auth.schema';
@@ -16,6 +17,7 @@ export * from './core/kontakt.types';
 export * from './core/ecommerce.types';
 export * from './core/gameHistory.types';
 export * from './models/message.types';
+export * from './models/quizz.types';
 
 export interface ActionSignature {
   actorUid: string;       

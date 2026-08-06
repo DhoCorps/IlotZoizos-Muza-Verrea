@@ -18,7 +18,7 @@ export interface OiseauSyncResult {
 }
 
 export interface ActionSignature {
-  actorUid: string;         
+  actorUid: string;            
   capabilities: string[]; 
 }
 
@@ -50,7 +50,6 @@ export class OiseauOrchestrator {
         entropieActive: 100 
       };
 
-      // 🛡️ Gravure des capacités dans le Graphe (Neo4j)
       const cypher = `
         MERGE (u:User {uid: $uid})
         ON CREATE SET 
@@ -103,7 +102,6 @@ export class OiseauOrchestrator {
       const updatePayload: any = {};
       if (oiseauData.pseudo) updatePayload.pseudo = oiseauData.pseudo;
       if (oiseauData.frequenceHEX) updatePayload.frequenceHEX = oiseauData.frequenceHEX;
-      // 🛡️ Correction : on accepte le tableau vide comme mise à jour valide
       if (oiseauData.capabilities !== undefined) updatePayload.capabilities = oiseauData.capabilities;
 
       const updatedMongo = await OiseauModel.findOneAndUpdate(
@@ -116,12 +114,11 @@ export class OiseauOrchestrator {
         throw new IlotError("Oiseau introuvable dans la Silice", "NOT_FOUND", 404);
       }
 
-      // 🕸️ Propagation Neo4j corrigée
       const cypher = `
-        MATCH (u:User {uid: $uid})
+        MATCH (u:User) WHERE u.uid = $uid OR u.slug = $uid
         SET u.pseudo = coalesce($pseudo, u.pseudo), 
             u.frequenceHEX = coalesce($frequenceHEX, u.frequenceHEX),
-            u.capabilities = $capabilities, 
+            u.capabilities = coalesce($capabilities, u.capabilities), 
             u.updatedAt = datetime()
         RETURN u
       `;
@@ -178,7 +175,7 @@ export class OiseauOrchestrator {
       }
 
       const cypher = `
-        MATCH (u:User {uid: $uid})
+        MATCH (u:User) WHERE u.uid = $uid OR u.slug = $uid
         OPTIONAL MATCH (u)-[:FOUNDED]->(t:Team)
         OPTIONAL MATCH (t)-[:HAS_PROJECT]->(p:Project)
         OPTIONAL MATCH (tk:Task)-[:TASK_OF]->(p)
@@ -230,7 +227,7 @@ export class OiseauOrchestrator {
 
     return await TransactionManager.execute("Purge Activités Projet", async (mongoSession, neo4jTx) => {
       await neo4jTx.run(`
-        MATCH (u:User {uid: $userUid})
+        MATCH (u:User) WHERE u.uid = $userUid OR u.slug = $userUid
         MATCH (p:Project {uid: $projectUid})
         OPTIONAL MATCH (tk:Task)-[:TASK_OF]->(p) WHERE tk.creatorUid = $userUid
         OPTIONAL MATCH (u)-[rAssign:ASSIGNED_TO]->(tkAll:Task)-[:TASK_OF]->(p)
@@ -264,7 +261,7 @@ export class OiseauOrchestrator {
       if (!updatedMongo) throw new IlotError("Oiseau introuvable.", "NOT_FOUND", 404);
 
       if (frequenceHEX) {
-        await neo4jTx.run(`MATCH (u:User {uid: $uid}) SET u.frequenceHEX = $hex, u.updatedAt = datetime()`, { uid: oiseauUid, hex: frequenceHEX });
+        await neo4jTx.run(`MATCH (u:User) WHERE u.uid = $uid OR u.slug = $uid SET u.frequenceHEX = $hex, u.updatedAt = datetime()`, { uid: oiseauUid, hex: frequenceHEX });
       }
 
       return { success: true, status: 'success', mongo: updatedMongo, neo4j: null };

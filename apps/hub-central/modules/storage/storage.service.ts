@@ -1,9 +1,12 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { IlotError } from '../../../../packages/shared-core';
+// 🪡 SUTURE : On importe ton type fraîchement créé au lieu de le hardcoder ici
+import { StorageEntityType } from '@ilot/types'; 
 
 /**
- * L'ALCHIMIE DU VOLUME - NEXT.JS STORAGE SERVICE
- * Ce service utilitaire gère l'upload et la purge vers Cloudflare R2 via l'API S3.
+ * L'ALCHIMIE DU VOLUME - NEXT.JS STORAGE SERVICE (VERSION LAMBORGHINI)
+ * Ce service utilitaire gère l'upload, la purge et le cache Edge vers Cloudflare R2 via l'API S3.
  * TouâH et Mouâh, jusqu'au néant créatif. `<(:<` >:)>
  */
 class StorageService {
@@ -41,7 +44,7 @@ class StorageService {
   }
 
   /**
-   * Upload une brindille (fichier natif Web) vers le Nexus R2.
+   * Upload une brindille (fichier natif Web) vers le Nexus R2 avec Cache Edge Immutable.
    */
   async uploadFile(file: any, customKey: string) {
     if (!file) {
@@ -77,6 +80,8 @@ class StorageService {
           Key: customKey,
           Body: buffer, 
           ContentType: file.type || 'application/octet-stream', 
+          // 🌟 L'OPTIMISATION MAJEURE : Cache Edge Cloudflare de 1 an (Immutable)
+          CacheControl: 'public, max-age=31536000, immutable',
         });
 
         await this.s3Client.send(command);
@@ -94,6 +99,22 @@ class StorageService {
       console.error(`❌ [Storage] Ineptitude technique fatale lors de l'upload : ${error.message}`);
       throw new IlotError(`Technical Blunder : L'upload de "${file.name || 'fichier'}" a échoué.`, 'INTERNAL_SERVER_ERROR', 500);
     }
+  }
+
+  /**
+   * 🎟️ Génère un laissez-passer (Pre-signed URL) pour un upload direct Client -> R2 (Zéro charge serveur)
+   */
+  async getPresignedUploadUrl(customKey: string, contentType: string, expiresInSeconds = 60): Promise<string> {
+    if (!this.s3Client) {
+      throw new IlotError('Matrice de stockage non initialisée.', 'INTERNAL_SERVER_ERROR', 500);
+    }
+    const command = new PutObjectCommand({
+      Bucket: this.bucketName,
+      Key: customKey,
+      ContentType: contentType || 'application/octet-stream',
+      CacheControl: 'public, max-age=31536000, immutable',
+    });
+    return await getSignedUrl(this.s3Client, command, { expiresIn: expiresInSeconds });
   }
 
   /**
@@ -135,7 +156,7 @@ class StorageService {
   generateStructuredKey(params: { 
     inceptId: string, 
     locale: string, 
-    entityType: 'teams' | 'users' | 'projects' | 'tasks', 
+    entityType: StorageEntityType, // 🪡 SUTURE : Typage strict appliqué
     entityId: string, 
     imageType: string, 
     filename: string 

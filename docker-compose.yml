@@ -1,29 +1,30 @@
 services:
-  # --- MONGODB (Version Forteresse Autonome) ---
+  # --- MONGODB (Version Autonome & Stable pour les Tests) ---
   mongo_db:
     image: mongo:7.0
     container_name: ilot_mongo
     restart: always
-    # 🛡️ Cette commande génère la clé dans le container SI elle n'existe pas
     command: >
       bash -c "
-      if [ ! -f /data/configdb/mongodb.key ]; then
-        echo '🔑 Génération d une nouvelle clé de sécurité interne...'
-        openssl rand -base64 756 > /data/configdb/mongodb.key
-      fi;
-      chmod 400 /data/configdb/mongodb.key &&
-      chown 999:999 /data/configdb/mongodb.key &&
-      exec mongod --replSet rs0 --bind_ip_all --keyFile /data/configdb/mongodb.key
+        mongod --bind_ip_all --replSet rs0 &
+        MONGO_PID=$$!
+        echo '⏳ En attente de l éveil de MongoDB...'
+        until mongosh --eval 'db.adminCommand(\"ping\")' > /dev/null 2>&1; do
+          sleep 1
+        done
+        echo '🔗 Initialisation du Replica Set rs0...'
+        mongosh --eval 'try { rs.initiate({ _id: \"rs0\", members: [{ _id: 0, host: \"127.0.0.1:27017\" }] }) } catch(e) { print(e) }'
+        wait $$MONGO_PID
       "
     ports:
       - "27017:27017"
-    environment:
-      # 🛡️ NETTOYAGE : J'ai supprimé la variable NEO4J_* parasite ici.
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=password1234
     volumes:
       - mongo_data:/data/db
-      - mongo_config:/data/configdb # 👈 Volume Docker interne (plus de bug de chemin Windows)
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   # --- NEO4J (Gare Centrale optimisée) ---
   neo4j_db:
@@ -37,20 +38,32 @@ services:
       - NEO4J_AUTH=neo4j/password777
       - NEO4J_PLUGINS=["apoc"]
       - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
-      # 🛡️ VALIDATION : Tes ajouts sont corrects ici (Gare Centrale).
-      # ✅ Correction syntaxe : J'ai mis des '=' partout pour la cohérence.
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*
       - NEO4J_dbms_security_procedures_allowlist=apoc.*
     volumes:
       - neo4j_data:/data
-    # 🪡 SUTURE DE SÉCURITÉ : Outil léger pour tester l'état du serveur et briser la boucle infinie d'initialisation
     healthcheck:
       test: ["CMD", "neo4j-admin", "server", "status"]
       interval: 15s
       timeout: 10s
       retries: 3
-      
+
+  # --- ⚡ REDIS (Le Gardien du Cache & Rate Limiter) ---
+  redis:
+    image: redis:alpine
+    container_name: ilot_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
 volumes:
   mongo_data:
   neo4j_data:
-  mongo_config: # 👈 On déclare le nouveau volume de sécurité
+  redis_data:
