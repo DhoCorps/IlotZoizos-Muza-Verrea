@@ -8,6 +8,8 @@ export const routing = defineRouting({
   localePrefix: 'always',
   pathnames: {
     '/': '/',
+    // 💬 Messagerie Universelle de la Canopée
+    '/message': '/message',
     '/le-bordel-de-dho': '/le-bordel-de-dho',
     '/abyss-blog': '/abyss-blog',
     '/abyss-blog/editor': '/abyss-blog/editor',
@@ -45,7 +47,7 @@ export const routing = defineRouting({
     '/games/crazymorpion': '/games/crazymorpion',
     '/games/kooontreez': '/games/kooontreez',
     '/games/atomik-k-far': '/games/atomik-k-far',
-    '/games/atomik-k-far/[slug]': '/games/atomik-k-far/[slug]', // Ajout de la route slugged si besoin
+    '/games/atomik-k-far/[slug]': '/games/atomik-k-far/[slug]',
     // 🎬 ROUTES DE CINÉ-MAX
     '/games/cinemax': '/games/cinemax',
     '/games/cinemax/[slug]': '/games/cinemax/[slug]',

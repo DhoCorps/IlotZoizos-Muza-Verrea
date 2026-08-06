@@ -29,6 +29,8 @@ export * from './database/models/nosql/taxonomy.model';
 
 export * from './database/models/nosql/gameHistory.model';
 
+export * from './database/models/nosql/message.model';
+
 export * from './database/services/mutation.service';
 export * from './database/services/sync.service';
 export * from './database/services/gameStats.service';

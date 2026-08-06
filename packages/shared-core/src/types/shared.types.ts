@@ -1,4 +1,6 @@
 // packages/shared-core/src/types/shared.ts
+import { IUniversalAttachment, AttachmentSourceType } from '../../../types/src/models/message.types';
+import { IlotError } from '../errors/ilot.errors';
 import { CrazyMorpionSymbol, CrazyMorpionGrid } from '../games/crazymorpion/CrazyMorpionTypes';
 import {
     KoOonTreezNbPlayer,
@@ -55,6 +57,8 @@ export type PlayerStatus = 'connected' | 'disconnected' | 'disconnected_temp' | 
 
 // 🎬🎨🚀🎲 Ajout de PlumZee aux GameTypes
 export type GameType = 'CrazyMorpion' | 'KoOonTreeZ' | 'AtomikKFardE' | 'CineMax' | 'SoonArt' | 'GalakTK' | 'PlumZee';
+
+type AttachmentResolver = (entityUid: string) => Promise<IUniversalAttachment | null>;
 
 export interface BasePlayer {
     id: string;
@@ -443,3 +447,33 @@ export interface JoinRoomRequest {
     roomId: string;
     username: string;
 }
+
+class AttachmentRegistry {
+  private resolvers = new Map<AttachmentSourceType, AttachmentResolver>();
+
+  /**
+   * Enregistre un module pour qu'il devienne attachable dans les messages
+   */
+  public register(sourceType: AttachmentSourceType, resolver: AttachmentResolver) {
+    this.resolvers.set(sourceType, resolver);
+  }
+
+  /**
+   * Résout et récupère les métadonnées universelles d'une entité à partir de son UID
+   */
+  public async resolve(sourceType: AttachmentSourceType, entityUid: string): Promise<IUniversalAttachment> {
+    const resolver = this.resolvers.get(sourceType);
+    if (!resolver) {
+      throw new IlotError(`Aucun résolveur enregistré pour la source d'attachement : ${sourceType}`, "NOT_FOUND", 404);
+    }
+    
+    const attachment = await resolver(entityUid);
+    if (!attachment) {
+      throw new IlotError(`L'entité ${entityUid} de type ${sourceType} est introuvable.`, "NOT_FOUND", 404);
+    }
+    
+    return attachment;
+  }
+}
+
+export const attachmentRegistry = new AttachmentRegistry();
