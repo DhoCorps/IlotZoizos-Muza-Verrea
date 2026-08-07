@@ -8,6 +8,8 @@ import { fileURLToPath } from 'url';
 import cors from 'cors';
 import { createClient } from 'redis';
 import { createAdapter } from '@socket.io/redis-adapter';
+import * as Sentry from "@sentry/node";
+import { nodeProfilingIntegration } from "@sentry/profiling-node";
 
 import { 
     CrazyMorpionSymbol, 
@@ -46,6 +48,17 @@ import { SoonArtManager } from '../games/soonart/SoonArtManager';
 import { GalakTKManager } from '../games/galak-t-k/GalakTKManager'; 
 import { PlumZeeManager } from '../games/plumzee/PlumZeeManager'; 
 import { WikiOracleManager } from '../games/wikioracle/WikiOracleManager'; 
+
+// Initialisation Sentry
+
+Sentry.init({
+  dsn: "TON_DSN_SENTRY", // À récupérer sur ton dashboard Sentry
+  integrations: [
+    nodeProfilingIntegration(),
+  ],
+  tracesSampleRate: 1.0, // Pour capturer 100% des erreurs pendant la bêta
+});
+
 
 // --- Configuration de base du serveur ---
 const PORT = process.env.PORT || 3002;
