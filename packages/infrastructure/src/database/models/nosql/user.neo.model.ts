@@ -1,5 +1,8 @@
 // apps/infrastructure/src/database/models/nosql/user.model.neo.ts
-import mongoose, { Schema, Model } from 'mongoose';
+import mongoose, { Model } from 'mongoose';
+
+const { Schema } = mongoose;
+
 import { v4 as uuidv4 } from 'uuid';
 import { IOiseau } from "@ilot/types"; 
 import { connectToDatabase } from '../../mongoose';

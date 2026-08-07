@@ -1,4 +1,7 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Document } from 'mongoose';
+
+const { Schema } = mongoose;
+
 
 export interface IStoreDocument extends Document {
   uid: string;

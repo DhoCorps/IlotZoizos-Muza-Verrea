@@ -1,39 +1,42 @@
-import mongoose, { Schema, Document, Model } from 'mongoose';
-import { connectToDatabase } from '../../mongoose';
+// apps/hub-central/models/cvTemplate.model.ts
+import mongoose, { Document, Model } from 'mongoose';
+
+const { Schema } = mongoose;
+
+import { connectToDatabase } from '@ilot/infrastructure'; // Ajuste le chemin si nécessaire
 
 // ⚡ FORCE L'INITIALISATION DE LA CONNEXION
-// Cela garantit que dès que le modèle est importé, Mongoose tente de se brancher
-connectToDatabase().catch((err: any) => console.error("Erreur d'auto-connexion Mongoose:", err));
+connectToDatabase().catch((err: any) => console.error("Erreur d'auto-connexion Mongoose (CVTemplate):", err));
 
-export type ModerationStatus = 'pending' | 'reviewed' | 'resolved' | 'dismissed';
-export type TargetType = 'User' | 'Project' | 'Task';
-
-export interface IModeration extends Document {
-  targetId: mongoose.Types.ObjectId; // L'ID de ce qui est signalé
-  targetType: TargetType;             // Le type (Utilisateur, Projet, Tâche...)
-  reporterId: mongoose.Types.ObjectId; // Qui a fait le signalement
-  reason: string;                     // Motif du signalement
-  details?: string;                   // Précisions supplémentaires
-  status: ModerationStatus;           // État du ticket
-  moderatorId?: mongoose.Types.ObjectId; // L'admin/modérateur qui traite le cas
-  actionTaken?: string;               // Action effectuée (ex: "Bannissement", "Avertissement")
+export interface ICVTemplateDocument extends Document {
+  uid: string;
+  slug: string;
+  authorUid: string;
+  authorName: string;
+  title: string;
+  description: string;
+  priceShards: number;
+  barterAccepted: boolean;
+  letrinFontFamily: string;
+  blocks: any[];
   createdAt: Date;
   updatedAt: Date;
 }
 
-const ModerationSchema: Schema<IModeration> = new Schema({
-  targetId: { type: Schema.Types.ObjectId as any, required: true, refPath: 'targetType' },
-  targetType: { type: String, required: true, enum: ['User', 'Project', 'Task'] },
-  reporterId: { type: Schema.Types.ObjectId as any, required: true, ref: 'User' },
-  reason: { type: String, required: true },
-  details: { type: String },
-  status: { 
-    type: String, 
-    enum: ['pending', 'reviewed', 'resolved', 'dismissed'], 
-    default: 'pending' 
-  },
-  moderatorId: { type: Schema.Types.ObjectId as any, ref: 'User' },
-  actionTaken: { type: String }
+// Plus de typage explicite `: Schema<...>`, TypeScript l'infère tout seul à partir de l'objet
+const CVTemplateSchema = new Schema({
+  uid: { type: String, required: true, unique: true },
+  slug: { type: String, required: true, unique: true, index: true },
+  authorUid: { type: String, required: true },
+  authorName: { type: String, required: true },
+  title: { type: String, required: true },
+  description: { type: String, required: true },
+  priceShards: { type: Number, default: 0 },
+  barterAccepted: { type: Boolean, default: true },
+  letrinFontFamily: { type: String, default: 'sans' },
+  blocks: { type: Array, required: true },
+  createdAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 
-export const ModerationModel: Model<IModeration> = mongoose.models.Moderation || mongoose.model<IModeration>('Moderation', ModerationSchema);
+export const CVTemplateModel: Model<ICVTemplateDocument> = 
+  mongoose.models.CVTemplate || mongoose.model<ICVTemplateDocument>('CVTemplate', CVTemplateSchema);

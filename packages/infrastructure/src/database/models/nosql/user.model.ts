@@ -1,10 +1,13 @@
 // Fichier : packages/infrastructure/src/database/models/nosql/user.model.ts
-import mongoose, { Schema, Document } from "mongoose";
+import mongoose, { Document, Types } from 'mongoose';
+
+const { Schema } = mongoose;
+
 import { v4 as uuidv4 } from 'uuid';
 import { IOiseau } from "@ilot/types";
 
 export interface OiseauDocument extends IOiseau, Document { 
-  _id: mongoose.Types.ObjectId; 
+  _id: Types.ObjectId; 
   sanctuaireVerrouille: boolean;
   createdAt: Date;
   // 🔑 Déclaration TS pour éviter les erreurs lors de la mutation du chant

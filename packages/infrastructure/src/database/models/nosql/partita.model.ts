@@ -1,4 +1,7 @@
-import mongoose, { Schema, Document, Model, Types } from 'mongoose';
+import mongoose, { Document, Model, Types } from 'mongoose';
+
+const { Schema } = mongoose;
+
 import { v4 as uuidv4 } from 'uuid';
 import { IPartita, InstrumentCategorySchema, ScoreFormatSchema } from '@ilot/types';
 

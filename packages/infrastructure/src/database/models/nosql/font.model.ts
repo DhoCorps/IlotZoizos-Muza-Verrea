@@ -1,6 +1,7 @@
 // packages/infrastructure/src/database/models/nosql/font.model.ts
-import { Schema, model, models, Document } from 'mongoose';
+import mongoose, { Document } from 'mongoose';
 
+const { Schema, model, models } = mongoose;
 export interface IGlyph {
   char: string;
   matrix: number[][];

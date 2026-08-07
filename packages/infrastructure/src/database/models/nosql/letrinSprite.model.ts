@@ -1,4 +1,6 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Document } from 'mongoose';
+
+const { Schema } = mongoose;
 
 export interface ILetterSpriteDocument extends Document {
   uid: string;

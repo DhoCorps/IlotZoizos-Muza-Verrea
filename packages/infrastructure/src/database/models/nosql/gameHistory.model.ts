@@ -1,6 +1,9 @@
 // packages/infrastructure/src/database/models/nosql/gameHistory.model.ts
-import mongoose, { Schema, Document, Model } from 'mongoose';
-import { GameMatchLog } from '../../../../../types/src/core/gameHistory.types';
+import mongoose, { Document, Model } from 'mongoose';
+
+const { Schema } = mongoose;
+
+import { GameMatchLog } from '@ilot/types';
 
 export interface GameHistoryDocument extends GameMatchLog, Document {}
 

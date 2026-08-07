@@ -1,5 +1,7 @@
 // apps/hub-central/modules/taxonomy/taxonomy.model.ts (ou dans ton package d'infrastructure)
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Document } from 'mongoose';
+
+const { Schema } = mongoose;
 
 export interface ITaxonomy extends Document {
   uid: string;

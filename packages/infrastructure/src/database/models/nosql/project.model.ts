@@ -1,5 +1,8 @@
 // packages/infrastructure/src/database/models/nosql/project.model.ts
-import mongoose, { Schema, Document, Model, Types } from 'mongoose';
+import mongoose, { Document, Model, Types} from 'mongoose';
+
+const { Schema } = mongoose;
+
 import { v4 as uuidv4 } from 'uuid';
 import { IProject } from '@ilot/types'; // 🛡️ Utilisation de l'interface purifiée
 
