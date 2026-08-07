@@ -4,8 +4,8 @@ import mongoose, { Document } from 'mongoose';
 const { Schema } = mongoose;
 
 import { ITask, TaskStatus, TaskPriority } from '@ilot/types';
-import { SeveEngine } from '@ilot/shared-core';
-import { TaskIrrigationOrchestrator } from '@ilot/shared-core';
+import { SeveEngine } from '../../../../../shared-core/src/utils/seve.engine';
+import { TaskIrrigationOrchestrator } from '../../../../../shared-core/src/sync-engine/task.irrigation.orchestrator';
 import { OiseauModel } from './user.model';
 
 export type TaskDocument = ITask & Document;
