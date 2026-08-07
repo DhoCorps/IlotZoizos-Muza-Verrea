@@ -1,5 +1,6 @@
 // packages/shared-core/src/sync-engine/transactionManager.ts
-import mongoose, { ClientSession } from 'mongoose';
+import type { ClientSession } from 'mongoose';
+import mongoose from 'mongoose';
 import { getNeo4jDriver } from '@ilot/infrastructure'; // 💡 Utilisation de l'export propre du package infrastructure
 import { Transaction } from 'neo4j-driver';
 

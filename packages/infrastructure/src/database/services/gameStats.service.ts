@@ -2,7 +2,7 @@
 import { GameMatchLog } from '../../../../types/src/core/gameHistory.types';
 import { GameHistoryModel } from '../models/nosql/gameHistory.model';
 import { TransactionManager } from '../../../../shared-core/src/sync-engine/transactionManager';
-import { ClientSession } from 'mongoose';
+import type { ClientSession } from 'mongoose';
 import { Transaction } from 'neo4j-driver';
 
 export class GameStatsService {
