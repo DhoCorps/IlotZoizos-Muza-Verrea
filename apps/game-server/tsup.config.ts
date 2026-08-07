@@ -4,5 +4,14 @@ export default defineConfig({
   entry: ['src/server/server.ts'],
   format: ['esm'],
   clean: true,
-  external: ['cors', 'redis', '@sentry/node', '@socket.io/redis-adapter', 'socket.io', 'mongoose'],
+  // 🛡️ INDISPENSABLE : On dit à tsup de ne pas essayer d'inclure ces modules dans le fichier unique
+  external: [
+    'cors',
+    'redis',
+    '@sentry/node',
+    '@sentry/node-cpu-profiler',
+    '@socket.io/redis-adapter',
+    'socket.io',
+    'mongoose'
+  ],
 });
