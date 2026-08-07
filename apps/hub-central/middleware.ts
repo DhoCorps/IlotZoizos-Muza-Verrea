@@ -1,4 +1,5 @@
 // apps/hub-central/middleware.ts
+// Buld Force
 import createMiddleware from 'next-intl/middleware';
 import { routing } from './navigation';
 import { withAuth } from "next-auth/middleware";
