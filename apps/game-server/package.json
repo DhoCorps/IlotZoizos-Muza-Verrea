@@ -16,6 +16,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.4.0",
     "express": "^5.2.1",
+    "ioredis": "^6.0.0",
     "mongoose": "^8.23.0",
     "neo4j-driver": "^5.0.0",
     "redis": "^4.6.0",

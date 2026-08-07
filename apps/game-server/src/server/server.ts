@@ -10,6 +10,7 @@ import { createClient } from 'redis';
 import { createAdapter } from '@socket.io/redis-adapter';
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
+import Redis from 'ioredis';
 
 import { 
     CrazyMorpionSymbol, 
@@ -62,7 +63,10 @@ Sentry.init({
 
 // --- Configuration de base du serveur ---
 const PORT = process.env.PORT || 3002;
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const REDIS_URI = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL || 'redis://localhost:6379';
+
+const redisPub = new Redis(REDIS_URI);
+const redisSub = new Redis(REDIS_URI);
 
 const app = express();
 const httpServer = createServer(app);
@@ -211,7 +215,7 @@ function deleteRoomFromManager(gameType: GameType, roomId: string) {
 // --- Logique d'initialisation asynchrone (Redis + Bootstrap Socket.IO) ---
 async function bootstrapServer() {
     try {
-        const pubClient = createClient({ url: REDIS_URL });
+        const pubClient = createClient({ url: REDIS_URI });
         const subClient = pubClient.duplicate();
 
         pubClient.on('error', (err) => console.error('[Redis Pub Error]', err));
