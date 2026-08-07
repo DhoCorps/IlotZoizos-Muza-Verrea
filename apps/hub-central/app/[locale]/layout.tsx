@@ -1,49 +1,46 @@
-// apps/hub-central/app/[locale]/layout.tsx
-import { ReactNode } from 'react';
-import { NextIntlClientProvider } from 'next-intl';
-import { getMessages } from 'next-intl/server';
-import { AuthProvider } from '../AuthProvider'; 
+import React from 'react';
+import { getTranslations } from 'next-intl/server';
+import * as Sentry from '@sentry/nextjs';
+import type { Metadata } from 'next';
+import { CSPostHogProvider } from '../../components/providers/PostHogProvider';
 
-// 💬 IMPORTS DES COMMUNICATIONS
-import { ChatProvider } from '../../context/ChatContext'; 
-import { GlobalChatWidget } from '../../components/chat/GlobalChatWidget'; 
+export async function generateMetadata({ params: { locale } }: { params: { locale: string } }): Promise<Metadata> {
+  const t = await getTranslations({ locale, namespace: 'metadata' });
+  
+  return {
+    title: 'Le Nexus des Jeux | L\'Îlot Zoizos',
+    description: 'Rejoignez les instances et affrontez d\'autres oiseaux dans la Matrice.',
+    // Sentry injecte ses données de traçage ici
+    other: {
+      ...Sentry.getTraceData(),
+    }
+  };
+}
 
-import '../globals.css';
-
-export default async function LocaleLayout({
+export default function GamesLayout({
   children,
-  params
+  params: { locale }
 }: {
-  children: ReactNode;
-  params: Promise<{ locale: string }>;
+  children: React.ReactNode;
+  params: { locale: string };
 }) {
-  const { locale } = await params;
-  const messages = await getMessages();
-
   return (
     <html lang={locale}>
-      <body className="bg-[#05070A] text-slate-200 antialiased min-h-screen flex flex-col selection:bg-[#E5484D]/30 selection:text-white">
-        
-        {/* 🛰️ LE CŒUR DU NEXUS : Maintient la session active */}
-        <AuthProvider>
-          
-          {/* 🌐 LA MATRICE LINGUISTIQUE : Assure la traduction */}
-          <NextIntlClientProvider locale={locale} messages={messages}>
-            
-            {/* 💬 GESTIONNAIRE DE COMMUNICATIONS : Le contexte global du chat */}
-            <ChatProvider>
-              
-              {/* Le contenu de la page s'affiche ici, sans interférences lourdes */}
+      <body>
+        <CSPostHogProvider>
+          <div className="relative min-h-screen bg-[#05070A] overflow-hidden">
+            {/* Effet visuel de fond : Nébuleuse subtile pour l'immersion (tons gris bleuté et violet) */}
+            <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
+              <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-slate-900/10 blur-[120px]"></div>
+              <div className="absolute top-[60%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-900/10 blur-[120px]"></div>
+            </div>
+
+            {/* Conteneur principal qui accueille le Nexus */}
+            <main className="relative z-10 w-full h-full">
               {children}
-
-              {/* 📡 LE TERMINAL : Le widget de chat qui flotte au-dessus de tout */}
-              <GlobalChatWidget />
-
-            </ChatProvider>
-
-          </NextIntlClientProvider>
-          
-        </AuthProvider>
+            </main>
+          </div>
+        </CSPostHogProvider>
       </body>
     </html>
   );
