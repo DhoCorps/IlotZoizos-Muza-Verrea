@@ -12,7 +12,6 @@ export default defineConfig({
     '@sentry/node-cpu-profiler',
     '@sentry/profiling-node',
     '@socket.io/redis-adapter',
-    'socket.io',
-    'mongoose'
+    'socket.io'
   ],
 });
