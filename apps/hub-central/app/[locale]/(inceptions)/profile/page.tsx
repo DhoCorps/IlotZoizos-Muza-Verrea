@@ -1,7 +1,7 @@
 import { getServerSession } from 'next-auth/next';
-import { authOptions } from '../../../../lib/auth';
+import { authOptions } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { BirdProfile } from '../../../../components/profile/BirdProfile';
+import { BirdProfile } from '@/components/profile/BirdProfile';
 
 export default async function ProfilePage() {
     const session = await getServerSession(authOptions);

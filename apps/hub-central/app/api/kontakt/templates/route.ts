@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { connectToDatabase, CVTemplateModel } from '@ilot/infrastructure';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../lib/auth"; // Ajusté selon l'arborescence exacte
+import { authOptions } from "@/lib/auth"; // Ajusté selon l'arborescence exacte
 import { v4 as uuidv4 } from 'uuid';
 
 export async function GET(req: Request) {

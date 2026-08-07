@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
-import SoonArtLobbyOrRoom from '../../../../../components/games/soonart/SoonArtLobbyOrRoom';
+import SoonArtLobbyOrRoom from '@/components/games/soonart/SoonArtLobbyOrRoom';
 
 export default async function SoonArtPage({
   params,

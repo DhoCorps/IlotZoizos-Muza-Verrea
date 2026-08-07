@@ -1,7 +1,7 @@
 // apps/hub-central/app/[locale]/kooontreez/page.tsx
 import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
-import KoOonTreezGameClient from '../../../../../components/games/kooontreez/KoOonTreeZGameClient';
+import KoOonTreezGameClient from '@/components/games/kooontreez/KoOonTreeZGameClient';
 
 export default async function KoOonTreeZPage({
   params,

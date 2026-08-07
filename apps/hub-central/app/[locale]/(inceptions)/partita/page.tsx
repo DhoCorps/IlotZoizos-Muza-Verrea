@@ -3,9 +3,9 @@
 
 import { useState, useEffect } from 'react';
 import { Music, Plus, Loader2, Sparkles, Compass } from 'lucide-react';
-import { PartitaCard } from '../../../../components/partita/PartitaCard';
-import { PartitaForm } from '../../../../components/partita/PartitaForm';
-import ResonanceButton from '../../../../components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Le tisseur de liens
+import { PartitaCard } from '@/components/partita/PartitaCard';
+import { PartitaForm } from '@/components/partita/PartitaForm';
+import ResonanceButton from '@/components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Le tisseur de liens
 
 export default function PartitaDashboard() {
   const [partitions, setPartitions] = useState<any[]>([]);

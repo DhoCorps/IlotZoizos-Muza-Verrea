@@ -1,11 +1,11 @@
 // packages/shared-core/src/sync-engine/__tests__/sujet.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SujetOrchestrator } from '../sujet.orchestrator';
-import { SujetModel } from '@ilot/infrastructure/src/database/models/nosql/sujet.model';
+import { SujetModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('@ilot/infrastructure/src/database/models/nosql/sujet.model', () => ({
+vi.mock('@ilot/infrastructure', () => ({
   SujetModel: {
     create: vi.fn(),
     findOne: vi.fn(),

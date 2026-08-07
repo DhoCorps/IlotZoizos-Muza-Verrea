@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
-import CineMaxRoomClient from '../../../../../../components/games/cinemax/CineMaxRoomClient';
+import CineMaxRoomClient from '@/components/games/cinemax/CineMaxRoomClient';
 
 export default async function CineMaxRoomPage({
   params

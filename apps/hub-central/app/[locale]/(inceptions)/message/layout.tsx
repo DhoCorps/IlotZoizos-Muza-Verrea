@@ -1,6 +1,6 @@
 // apps/hub-central/app/[locale]/(inceptions)/message/layout.tsx
 import React from 'react';
-import Sidebar from '../../../../components/navigation/Sidebar';
+import Sidebar from '@/components/navigation/Sidebar';
 
 export default function MessageLayout({
   children,

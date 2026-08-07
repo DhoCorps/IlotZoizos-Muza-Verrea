@@ -2,7 +2,7 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../../../../../lib/auth';
 import { redirect } from 'next/navigation';
-import { WellbeingSanctuary } from '../../../../../components/dashboard/WellBeingSanctuary';
+import { WellbeingSanctuary } from '@/components/dashboard/WellBeingSanctuary';
 
 export default async function WellbeingPage() {
     const session = await getServerSession(authOptions);

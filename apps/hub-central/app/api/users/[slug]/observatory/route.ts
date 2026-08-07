@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { connectToDatabase, OiseauModel } from '@ilot/infrastructure';
-import { authOptions } from "../../../../../lib/auth"; 
+import { authOptions } from "@/lib/auth"; 
 import { ObservatoryEngine } from '@ilot/shared-core';
+import { slugify } from '@/lib/slugify';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,9 +23,7 @@ interface OiseauUser {
 
 export async function GET(req: Request, { params }: RouteParams) {
   try {
-    // -------------------------------------------------------------------------
     // 1. ÉVEIL DE LA SILICE
-    // -------------------------------------------------------------------------
     try {
       await connectToDatabase();
     } catch (dbErr) {
@@ -32,20 +31,17 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ success: false, error: "La Silice est injoignable." }, { status: 500 });
     }
 
-    // -------------------------------------------------------------------------
-    // 2. RÉSOLUTION DES PARAMÈTRES (Next.js 15+)
-    // -------------------------------------------------------------------------
-    let resolvedParams;
+    // 2. RÉSOLUTION ET SLUGIFICATION DES PARAMÈTRES
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ success: false, error: "Paramètres de route invalides." }, { status: 400 });
     }
-    const targetSlug = resolvedParams.slug;
+    const targetSlug = slugify(rawSlug || '');
 
-    // -------------------------------------------------------------------------
     // 3. CONTRÔLE D'AURA ET DE SOUVERAINETÉ
-    // -------------------------------------------------------------------------
     let session;
     try {
       session = await getServerSession(authOptions);
@@ -61,7 +57,8 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     // Seul le propriétaire ou un Administrateur (*) peut ausculter ces données intimes
-    const isSelf = visitorUid === targetSlug;
+    // Comparaison avec slugification pour robustesse
+    const isSelf = visitorUid === targetSlug || slugify(visitorUid) === targetSlug;
     const isAdmin = visitorCaps.includes('*');
 
     if (!isSelf && !isAdmin) {
@@ -71,9 +68,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       }, { status: 403 });
     }
 
-    // -------------------------------------------------------------------------
     // 4. RÉCUPÉRATION DANS LA MATRICE
-    // -------------------------------------------------------------------------
     let userProfile;
     try {
       userProfile = await OiseauModel.findOne({ 
@@ -88,9 +83,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ success: false, error: "Cet Oiseau est introuvable dans la volière." }, { status: 404 });
     }
 
-    // -------------------------------------------------------------------------
     // 5. SYNTHÈSE DE LA SÈVE ET AUSCULTATION VIBRATOIRE
-    // -------------------------------------------------------------------------
     const observatoryData = {
       dependencies: [
         { id: 'dep-1', status: 1 },
@@ -105,7 +98,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         { type: 'TAKE' as const, value: 15 }
       ],
       emotionalIntensity: (userProfile as any).emotionalIntensity || (userProfile as any).entropieActive || 45, 
-      currentAcceptance: (userProfile as any).currentAcceptance || 3       
+      currentAcceptance: (userProfile as any).currentAcceptance || 3        
     };
 
     let report;

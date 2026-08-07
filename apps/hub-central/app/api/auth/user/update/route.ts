@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { OiseauModel } from '@ilot/infrastructure';
 import { OiseauOrchestrator } from '@ilot/shared-core';
-import { authOptions } from '../../../../../lib/auth';
+import { authOptions } from '@/lib/auth';
 
 export async function PUT(req: Request) {
   try {

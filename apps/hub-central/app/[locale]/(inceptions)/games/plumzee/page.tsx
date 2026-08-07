@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
-import PlumZeeLobbyOrRoom from '../../../../../components/games/plumzee/PlumZeeLobbyOrRoom';
+import PlumZeeLobbyOrRoom from '@/components/games/plumzee/PlumZeeLobbyOrRoom';
 
 export default async function PlumZeePage({
   params,

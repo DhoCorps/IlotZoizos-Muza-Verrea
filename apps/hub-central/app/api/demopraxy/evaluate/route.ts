@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../lib/auth";
+import { authOptions } from "@/lib/auth";
 import { connectToDatabase } from '@ilot/infrastructure';
 import { DemopraxyOrchestrator, NuisanceMetrics } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';

@@ -1,4 +1,3 @@
-// packages/shared-core/src/games/engine/QuizScoringEngine.ts
 import { PlayerGameStats, QuizTrophy } from '@ilot/types';
 
 export interface ScoreCalculationResult {
@@ -71,6 +70,7 @@ export class QuizScoringEngine {
 
     if (avgResponseTime > 0 && avgResponseTime < 4000) {
       trophies.push({
+        id: `trophy-lightning-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`, // 🪡 Ajout de l'ID unique requis par QuizTrophy
         type: 'LIGHTNING',
         title: 'L’Éclair du Ciel',
         description: 'Une vitesse de réflexion fulgurante !',
@@ -80,6 +80,7 @@ export class QuizScoringEngine {
 
     if (player.maxStreak >= 5) {
       trophies.push({
+        id: `trophy-phoenix-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`, // 🪡 Idem
         type: 'PHOENIX',
         title: 'Le Phénix',
         description: `Une série impressionnante de ${player.maxStreak} bonnes réponses.`,
@@ -89,6 +90,7 @@ export class QuizScoringEngine {
 
     if (player.questionsAnswered > 0 && player.correctAnswers === player.questionsAnswered) {
       trophies.push({
+        id: `trophy-hawkeye-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`, // 🪡 Idem
         type: 'HAWK_EYE',
         title: 'L’Œil de Faucon',
         description: 'Zéro erreur du début à la fin.',

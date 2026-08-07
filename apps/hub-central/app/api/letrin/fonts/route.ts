@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { connectToDatabase, FontProject } from '@ilot/infrastructure';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../lib/auth"; // 🪡 Ajuste la profondeur si nécessaire
+import { authOptions } from "@/lib/auth"; // 🪡 Ajuste la profondeur si nécessaire
 
 export async function GET() {
   try {

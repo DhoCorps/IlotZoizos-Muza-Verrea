@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../lib/auth"; 
+import { authOptions } from "@/lib/auth"; 
 import { ProjectOrchestrator } from '@ilot/shared-core'; 
 import { ProjectModel, getNeo4jSession, connectToDatabase } from '@ilot/infrastructure'; 
 import { CAPABILITIES, ActionSignature } from '@ilot/types';

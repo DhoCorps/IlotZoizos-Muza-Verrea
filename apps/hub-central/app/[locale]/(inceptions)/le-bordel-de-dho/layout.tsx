@@ -1,7 +1,7 @@
 // apps/hub-central/app/[locale]/(inceptions)/marchand/layout.tsx
 'use client';
 
-import Sidebar from "../../../../components/navigation/Sidebar";
+import Sidebar from "@/components/navigation/Sidebar";
 
 export default function MarchandLayout({ children }: { children: React.ReactNode }) {
   return (

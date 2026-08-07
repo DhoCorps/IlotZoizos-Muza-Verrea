@@ -1,29 +1,15 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../../lib/auth";
+import { authOptions } from "@/lib/auth";
 import { connectToDatabase, WishlistModel } from '@ilot/infrastructure';
+import { slugify } from '@/lib/slugify';
 
 interface RouteParams {
-  params: Promise<{ itemId: string }>;
+  params: Promise<{ slug: string }>;
 }
 
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR WISHLIST DELETE]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let itemId;
-    try {
-      const resolvedParams = await params;
-      itemId = resolvedParams.itemId;
-    } catch (paramErr) {
-      return NextResponse.json({ error: "Identifiant d'élément invalide." }, { status: 400 });
-    }
-    
     let session;
     try {
       session = await getServerSession(authOptions);
@@ -38,11 +24,29 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
     }
 
-    // Tentative 1 : Supprimer toute la wishlist si l'ID correspond à une liste
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR WISHLIST DELETE]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
+    }
+
+    let rawSlug;
+    try {
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
+    } catch (paramErr) {
+      console.error("🔥 [PARAMS ERROR WISHLIST DELETE]", paramErr);
+      return NextResponse.json({ error: "Identifiant de slug invalide." }, { status: 400 });
+    }
+    
+    const slug = slugify(rawSlug || '');
+
+    // Tentative 1 : Supprimer toute la wishlist si le slug correspond à une liste
     let deletedList;
     try {
       deletedList = await WishlistModel.findOneAndDelete({ 
-        uid: itemId, 
+        uid: slug, 
         userUid: userUid 
       });
     } catch (delErr) {
@@ -58,7 +62,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     try {
       updated = await WishlistModel.updateMany(
         { userUid: userUid },
-        { $pull: { productUids: itemId } }
+        { $pull: { productUids: slug } }
       );
     } catch (updateErr) {
       console.error("🔥 [WISHLIST ITEM PULL ERROR]", updateErr);
@@ -72,7 +76,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true, message: "Artefact retiré de la liste de souhaits." }, { status: 200 });
 
   } catch (error: any) {
-    console.error("🔥 Erreur DELETE Wishlist :", error);
+    console.error("🔥 Erreur fatale DELETE Wishlist :", error);
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
 }

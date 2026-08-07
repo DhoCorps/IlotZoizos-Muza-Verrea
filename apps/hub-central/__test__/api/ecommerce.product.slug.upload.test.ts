@@ -1,146 +1,143 @@
-// apps/hub-central/__test__/api/ecommerce.product.slug.upload.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST, DELETE } from '../../app/api/ecommerce/products/[slug]/upload/route';
-import { storageService } from '../../modules/storage/storage.service';
-import { checkRateLimit } from '../../modules/security/rateLimiter';
+import { POST, DELETE } from '@/app/api/ecommerce/products/[slug]/upload/route'; // Ajuste le chemin selon ton arborescence
+import { getServerSession } from 'next-auth';
+import { storageService } from '@/modules/storage/storage.service';
+import { checkRateLimit } from '@/modules/security/rateLimiter';
 
-// 🛡️ SUTURE : Mock propre et partagé de NextAuth
-const mockGetServerSession = vi.fn();
-vi.mock('next-auth', () => ({ getServerSession: (...args: any[]) => mockGetServerSession(...args) }));
-vi.mock('next-auth/next', () => ({ getServerSession: (...args: any[]) => mockGetServerSession(...args) }));
-
-vi.mock('../../modules/security/rateLimiter', () => ({
-  checkRateLimit: vi.fn(),
+// --- MOCKS DES DÉPENDANCES ---
+vi.mock('next-auth', () => ({
+  getServerSession: vi.fn(),
 }));
 
-vi.mock('../../modules/storage/storage.service', () => ({
+vi.mock('@/modules/storage/storage.service', () => ({
   storageService: {
-    generateStructuredKey: vi.fn().mockReturnValue('mocked/products/key.png'),
+    generateStructuredKey: vi.fn().mockReturnValue('hub-central/fr/projects/mon-produit/product_image_test.png'),
     uploadFile: vi.fn().mockResolvedValue({
-      success: true,
-      publicUrl: 'https://cdn.ilot.com/mocked/products/key.png',
-      key: 'mocked/products/key.png',
+      publicUrl: 'https://nexus.ilot.local/storage/product_image_test.png',
+      key: 'hub-central/fr/projects/mon-produit/product_image_test.png',
     }),
-    deleteFile: vi.fn().mockResolvedValue({ success: true }),
-    extractKeyFromUrl: vi.fn().mockReturnValue('mocked/products/key.png'),
+    extractKeyFromUrl: vi.fn().mockReturnValue('hub-central/fr/projects/mon-produit/product_image_test.png'),
+    deleteFile: vi.fn().mockResolvedValue(true),
   },
 }));
 
-describe('API Ecommerce - Product Upload par Slug (/api/ecommerce/products/[slug]/upload)', () => {
-  // 🛡️ SUTURE : Paramètres synchrones pour coller à la signature de la route
-  const mockParams = { params: { slug: 'produit-cyber' } };
+vi.mock('@/modules/security/rateLimiter', () => ({
+  checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
+}));
 
+describe('Product Slug Upload & Delete API [slug]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe('Téléversement (POST)', () => {
-    it('🔴 doit rejeter les requêtes non authentifiées (401)', async () => {
-      mockGetServerSession.mockResolvedValueOnce(null);
+  describe('POST /api/products/[slug]/upload', () => {
+    it('devrait refuser l\'accès (401) si non authentifié', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce(null);
 
-      const req = new Request('http://localhost/api/ecommerce/products/produit-cyber/upload', {
-        method: 'POST',
-      });
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn(),
+      } as unknown as Request;
 
-      const res = await POST(req, mockParams);
-      expect(res.status).toBe(401);
+      const res = await POST(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
       const data = await res.json();
-      expect(data.error).toBeDefined();
+
+      expect(res.status).toBe(401);
+      expect(data.error).toBe('Accès non autorisé.');
     });
 
-    it('🔴 doit rejeter si le rate limit est dépassé (429)', async () => {
-      mockGetServerSession.mockResolvedValueOnce({ user: { name: 'Marchand' } });
+    it('devrait bloquer la requête (429) en cas de dépassement du rate limit', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
       vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0 });
 
-      const req = new Request('http://localhost/api/ecommerce/products/produit-cyber/upload', {
-        method: 'POST',
-      });
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn(),
+      } as unknown as Request;
 
-      const res = await POST(req, mockParams);
-      expect(res.status).toBe(429);
+      const res = await POST(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
       const data = await res.json();
+
+      expect(res.status).toBe(429);
       expect(data.error).toContain('Trop de téléversements');
     });
 
-    it('🔴 doit rejeter si aucun fichier n’est fourni (400)', async () => {
-      mockGetServerSession.mockResolvedValueOnce({ user: { name: 'Marchand' } });
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
+    it('devrait rejeter (400) si aucune brindille (fichier) n\'est fournie', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
 
       const formData = new FormData();
-      const req = new Request('http://localhost/api/ecommerce/products/produit-cyber/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      (req as any).formData = () => Promise.resolve(formData);
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn().mockResolvedValue(formData),
+      } as unknown as Request;
 
-      const res = await POST(req, mockParams);
-      expect(res.status).toBe(400);
+      const res = await POST(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
       const data = await res.json();
-      expect(data.error).toBeDefined();
+
+      expect(res.status).toBe(400);
+      expect(data.error).toBe('Aucune brindille (fichier) fournie.');
     });
 
-    it('🟢 doit téléverser le fichier avec succès et retourner l’URL (201)', async () => {
-      mockGetServerSession.mockResolvedValueOnce({ user: { name: 'Marchand' } });
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
+    it('devrait réussir (201) et sceller l\'image si tout est valide', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
 
       const formData = new FormData();
-      const blob = new Blob(['fake-image'], { type: 'image/png' });
-      formData.append('file', blob, 'produit.png');
+      const file = new File(['dummy content'], 'product.png', { type: 'image/png' });
+      formData.append('file', file);
 
-      const req = new Request('http://localhost/api/ecommerce/products/produit-cyber/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      (req as any).formData = () => Promise.resolve(formData);
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn().mockResolvedValue(formData),
+      } as unknown as Request;
 
-      const res = await POST(req, mockParams);
-      expect(res.status).toBe(201);
-      
+      const res = await POST(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
       const data = await res.json();
+
+      expect(res.status).toBe(201);
       expect(data.success).toBe(true);
-      expect(data.data.url).toBe('https://cdn.ilot.com/mocked/products/key.png');
-      expect(storageService.uploadFile).toHaveBeenCalledTimes(1);
+      expect(data.data.url).toBe('https://nexus.ilot.local/storage/product_image_test.png');
     });
   });
 
-  describe('Désintégration de l’illustration (DELETE)', () => {
-    it('🔴 doit rejeter si non authentifié (401)', async () => {
-      mockGetServerSession.mockResolvedValueOnce(null);
+  describe('DELETE /api/products/[slug]/upload', () => {
+    it('devrait refuser l\'accès (401) si non authentifié lors de la suppression', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce(null);
 
-      const req = new Request('http://localhost/api/ecommerce/products/produit-cyber/upload?url=https://cdn.ilot.com/img.png', {
+      const req = new Request('http://localhost/api/products/mon-produit/upload?url=https://nexus.ilot.local/file.png', {
         method: 'DELETE',
       });
+      const res = await DELETE(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
+      const data = await res.json();
 
-      const res = await DELETE(req, mockParams);
       expect(res.status).toBe(401);
+      expect(data.error).toBe('Accès non autorisé.');
     });
 
-    it('🔴 doit rejeter si l’URL du fichier est manquante (400)', async () => {
-      mockGetServerSession.mockResolvedValueOnce({ user: { name: 'Marchand' } });
+    it('devrait rejeter (400) si l\'URL de l\'artefact à purger est manquante', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
 
-      const req = new Request('http://localhost/api/ecommerce/products/produit-cyber/upload', {
+      const req = new Request('http://localhost/api/products/mon-produit/upload', {
         method: 'DELETE',
       });
+      const res = await DELETE(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
+      const data = await res.json();
 
-      const res = await DELETE(req, mockParams);
       expect(res.status).toBe(400);
-      const data = await res.json();
-      expect(data.error).toBeDefined();
+      expect(data.error).toContain('manquante');
     });
 
-    it('🟢 doit désintégrer l’illustration physiquement avec succès (200)', async () => {
-      mockGetServerSession.mockResolvedValueOnce({ user: { name: 'Marchand' } });
+    it('devrait réussir (200) et désintégrer l\'artefact du Nexus', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
 
-      const req = new Request('http://localhost/api/ecommerce/products/produit-cyber/upload?url=https://cdn.ilot.com/mocked/products/key.png', {
+      const req = new Request('http://localhost/api/products/mon-produit/upload?url=https://nexus.ilot.local/file.png', {
         method: 'DELETE',
       });
-
-      const res = await DELETE(req, mockParams);
-      expect(res.status).toBe(200);
-      
+      const res = await DELETE(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
       const data = await res.json();
+
+      expect(res.status).toBe(200);
       expect(data.success).toBe(true);
-      expect(storageService.deleteFile).toHaveBeenCalledWith('mocked/products/key.png');
+      expect(storageService.deleteFile).toHaveBeenCalledWith('hub-central/fr/projects/mon-produit/product_image_test.png');
     });
   });
 });

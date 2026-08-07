@@ -1,12 +1,11 @@
 // packages/shared-core/src/sync-engine/__tests__/task.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TaskOrchestrator } from '../task.orchestrator';
-import { TaskModel } from '@ilot/infrastructure/src/database/models/nosql/task.model';
-import { ProjectModel } from '@ilot/infrastructure/src/database/models/nosql/project.model';
+import { TaskModel, ProjectModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('@ilot/infrastructure/src/database/models/nosql/task.model', () => ({
+vi.mock('@ilot/infrastructure', () => ({
   TaskModel: {
     create: vi.fn(),
     findOne: vi.fn(),
@@ -15,7 +14,7 @@ vi.mock('@ilot/infrastructure/src/database/models/nosql/task.model', () => ({
   },
 }));
 
-vi.mock('@ilot/infrastructure/src/database/models/nosql/project.model', () => ({
+vi.mock('@ilot/infrastructure', () => ({
   ProjectModel: {
     findOne: vi.fn(),
   },

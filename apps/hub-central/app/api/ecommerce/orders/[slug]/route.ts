@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../../lib/auth";
+import { authOptions } from "@/lib/auth";
 import { connectToDatabase, OrderModel } from '@ilot/infrastructure';
 import mongoose from 'mongoose';
+import { slugify } from '@/lib/slugify';
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -25,6 +26,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       const resolvedParams = await params;
       slug = resolvedParams.slug;
     } catch (paramErr) {
+      console.error("🔥 [PARAMS ERROR ORDER GET]", paramErr);
       return NextResponse.json({ error: "Identifiant de commande invalide." }, { status: 400 });
     }
     
@@ -64,7 +66,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     return NextResponse.json(order, { status: 200 });
 
   } catch (error: any) {
-    console.error("🔥 Erreur GET Order Details :", error);
+    console.error("🔥 Erreur fatale GET Order Details :", error);
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
 }
@@ -74,28 +76,6 @@ export async function GET(req: Request, { params }: RouteParams) {
 // ==========================================
 export async function PATCH(req: Request, { params }: RouteParams) {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR ORDER PATCH]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let slug;
-    try {
-      const resolvedParams = await params;
-      slug = resolvedParams.slug;
-    } catch (paramErr) {
-      return NextResponse.json({ error: "Identifiant de commande invalide." }, { status: 400 });
-    }
-
-    let body;
-    try {
-      body = await req.json();
-    } catch (parseErr) {
-      return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
-    }
-    
     let session;
     try {
       session = await getServerSession(authOptions);
@@ -110,6 +90,30 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
     }
 
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR ORDER PATCH]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
+    }
+
+    let slug;
+    try {
+      const resolvedParams = await params;
+      slug = resolvedParams.slug;
+    } catch (paramErr) {
+      console.error("🔥 [PARAMS ERROR ORDER PATCH]", paramErr);
+      return NextResponse.json({ error: "Identifiant de commande invalide." }, { status: 400 });
+    }
+
+    let body;
+    try {
+      body = await req.json();
+    } catch (parseErr) {
+      console.error("🔥 [PARSE ERROR ORDER PATCH]", parseErr);
+      return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
+    }
+    
     let order;
     try {
       order = await OrderModel.findOne({ 
@@ -146,7 +150,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     }, { status: 200 });
 
   } catch (error: any) {
-    console.error("🔥 Erreur PATCH Order :", error);
+    console.error("🔥 Erreur fatale PATCH Order :", error);
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
 }

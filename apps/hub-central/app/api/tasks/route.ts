@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../lib/auth"; // 🪡 SUTURE : Approvisionnement direct au sanctuaire unique
+import { authOptions } from "@/lib/auth"; // 🪡 SUTURE : Approvisionnement direct au sanctuaire unique
 import { connectToDatabase, getNeo4jSession } from '@ilot/infrastructure'; // 🪡 SUTURE DE CONNEXION : Import unifié pour préserver le Singleton Neo4j
 import { TaskOrchestrator } from '@ilot/shared-core';
 import { TaskModel, ProjectModel } from '@ilot/infrastructure';

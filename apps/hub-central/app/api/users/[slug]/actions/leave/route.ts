@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { connectToDatabase, OiseauModel } from '@ilot/infrastructure';
-import { authOptions } from "../../../../../../lib/auth"; 
+import { authOptions } from "@/lib/auth"; 
 import { TeamOrchestrator } from '@ilot/shared-core'; 
 import { IOiseau, ActionSignature } from '@ilot/types';
+import { slugify } from '@/lib/slugify';
 
 /**
  * 🌿 INTERFACE DES PARAMÈTRES
@@ -34,14 +35,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
     }
 
-    // 🛡️ Résolution asynchrone des paramètres (Standard Next 15+)
-    let resolvedParams;
+    // 🛡️ Résolution et slugification asynchrone des paramètres
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ error: "Paramètres de route invalides." }, { status: 400 });
     }
-    const targetSlug = resolvedParams.slug;
+    const targetSlug = slugify(rawSlug || '');
     
     let session;
     try {
@@ -57,9 +59,8 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
     }
     
-    // On vérifie si l'utilisateur courant est bien celui ciblé par le slug
-    // (Tolérance : le slug de la route correspond souvent à l'uid de l'Oiseau pour cette action intime)
-    if (userUid !== targetSlug) {
+    // On vérifie si l'utilisateur courant correspond bien au slug normalisé (ou son uid d'origine)
+    if (userUid !== targetSlug && slugify(userUid) !== targetSlug) {
       return NextResponse.json({ error: "Souveraineté violée : vous ne pouvez forcer l'exil d'un autre." }, { status: 403 });
     }
 
@@ -113,13 +114,14 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ message: "La Silice est injoignable." }, { status: 500 });
     }
 
-    let resolvedParams;
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ message: "Paramètres invalides." }, { status: 400 });
     }
-    const targetSlug = resolvedParams.slug;
+    const targetSlug = slugify(rawSlug || '');
     
     let session;
     try {
@@ -130,11 +132,11 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     const user = session?.user as OiseauUser | undefined;
     const visitorUid = user?.uid;
-    const isSelf = visitorUid === targetSlug;
+    const isSelf = visitorUid === targetSlug || (visitorUid ? slugify(visitorUid) === targetSlug : false);
 
     let oiseau;
     try {
-      // Tolérance pour la recherche : par slug explicite ou par uid
+      // Recherche par slug normalisé ou par uid
       oiseau = await OiseauModel.findOne({ 
         $or: [{ slug: targetSlug }, { uid: targetSlug }] 
       }).lean() as IOiseau | null;

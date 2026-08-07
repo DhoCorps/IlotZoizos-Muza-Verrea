@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../../lib/auth";
+import { authOptions } from "@/lib/auth";
 import { connectToDatabase } from '@ilot/infrastructure';
 import { TaskIrrigationOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
+import { slugify } from '@/lib/slugify';
 
 /**
  * 🌿 INTERFACE DES PARAMÈTRES DE ROUTE
@@ -58,11 +59,12 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // -------------------------------------------------------------------------
-    // 3. RÉSOLUTION DES PARAMÈTRES DYNAMIQUES DE L'URL
+    // 3. RÉSOLUTION ET SLUGIFICATION DES PARAMÈTRES DYNAMIQUES DE L'URL
     // -------------------------------------------------------------------------
-    let resolvedParams;
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       console.error("🔥 [PARAM ERROR TASK IRRIGATE] : Paramètres de route illisibles", paramErr);
       return NextResponse.json(
@@ -70,6 +72,8 @@ export async function POST(req: Request, { params }: RouteParams) {
         { status: 400 }
       );
     }
+
+    const slug = slugify(rawSlug || '');
 
     // -------------------------------------------------------------------------
     // 4. FORGE DE LA SIGNATURE ET EXÉCUTION DE L'ORCHESTRATEUR
@@ -82,7 +86,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     let result;
     try {
       const orchestrator = new TaskIrrigationOrchestrator();
-      result = await orchestrator.processTaskIrrigation(resolvedParams.slug, signature);
+      result = await orchestrator.processTaskIrrigation(slug, signature);
     } catch (orchErr: any) {
       console.error("🌋 [TASK ORCHESTRATOR IRRIGATION ERROR] : Échec de l'orchestration de la sève", orchErr);
       const status = orchErr.status || orchErr.statusCode || 500;

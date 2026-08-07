@@ -1,6 +1,6 @@
 // packages/shared-core/src/sync-engine/task.irrigation.orchestrator.ts
 import { SeveEngine, Dependency } from '../utils/seve.engine';
-import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model';
+import { TaskModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature, CAPABILITIES } from '@ilot/types';

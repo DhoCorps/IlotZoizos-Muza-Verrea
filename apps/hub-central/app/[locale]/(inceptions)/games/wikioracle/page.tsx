@@ -1,7 +1,7 @@
 // apps/hub-central/app/[locale]/games/wikioracle/page.tsx
 import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
-import WikiOracleLobbyOrRoom from '../../../../components/games/wikioracle/WikiOracleLobbyOrRoom';
+import WikiOracleLobbyOrRoom from '@/components/games/wikioracle/WikiOracleLobbyOrRoom';
 
 export default async function WikiOraclePage({
   params,

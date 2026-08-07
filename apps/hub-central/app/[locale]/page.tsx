@@ -2,7 +2,7 @@
 'use client';
 
 // 🌟 LA SOUDURE : Utilisation du Link qui connaît les langues
-import { Link } from "../../navigation"; 
+import { Link } from "@/navigation"; 
 import { 
   Users, Target, LogIn, ShoppingBag, Store, Pencil, 
   BookOpen, Layers, Type, Gamepad2, Settings, Shield,

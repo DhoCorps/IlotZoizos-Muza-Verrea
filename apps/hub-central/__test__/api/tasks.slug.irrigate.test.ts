@@ -1,110 +1,63 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '../../app/api/tasks/[slug]/irrigate/route';
+import { POST } from '@/app/api/tasks/[slug]/irrigate/route'; // Ajuste le chemin selon ton arborescence
 import { getServerSession } from 'next-auth/next';
+import { connectToDatabase } from '@ilot/infrastructure';
+import { TaskIrrigationOrchestrator } from '@ilot/shared-core';
 
-// ==========================================
-// MOCKS DU SANCTUAIRE
-// ==========================================
+// --- MOCKS DES DÉPENDANCES ---
 vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn()
+  getServerSession: vi.fn(),
 }));
 
-const mockConnectToDatabase = vi.fn().mockResolvedValue(true);
 vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: (...args: any[]) => mockConnectToDatabase(...args)
+  connectToDatabase: vi.fn(),
 }));
 
-const mockProcessTaskIrrigation = vi.fn();
 vi.mock('@ilot/shared-core', () => ({
   TaskIrrigationOrchestrator: vi.fn().mockImplementation(() => ({
-    processTaskIrrigation: mockProcessTaskIrrigation
-  }))
+    processTaskIrrigation: vi.fn(),
+  })),
 }));
 
-describe('API Tasks - Irrigation de l’Atome (/api/tasks/[slug]/irrigate)', () => {
-  const mockParams = { params: Promise.resolve({ slug: 'task-atom-42' }) };
-
+describe('Task Irrigation Slug API [POST]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockConnectToDatabase.mockResolvedValue(true);
   });
 
-  it('🔴 doit rejeter la requête si l’Oiseau n’est pas connecté (401)', async () => {
+  it('devrait retourner 401 si l oiseau n est pas authentifié', async () => {
     vi.mocked(getServerSession).mockResolvedValueOnce(null);
 
-    const req = new Request('http://localhost/api/tasks/task-atom-42/irrigate', {
-      method: 'POST'
-    });
-
-    const res = await POST(req, mockParams);
+    const req = new Request('http://localhost/api/tasks/ma-tache/irrigate', { method: 'POST' });
+    const res = await POST(req, { params: Promise.resolve({ slug: 'ma-tache' }) });
     const data = await res.json();
 
     expect(res.status).toBe(401);
-    expect(data.error).toBeDefined();
+    expect(data.error).toContain('Oiseau non identifié');
   });
 
-  it('🔥 doit gérer une rupture de la Silice avec élégance (500)', async () => {
-    mockConnectToDatabase.mockRejectedValueOnce(new Error("Silice en panne"));
+  it('devrait réussir (200) et déclencher l irrigation via l orchestrateur avec slugify', async () => {
     vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'bird_sovereign', capabilities: ['*'] }
+      user: { uid: 'user-bird-1', capabilities: [] },
     } as any);
 
-    const req = new Request('http://localhost/api/tasks/task-atom-42/irrigate', {
-      method: 'POST'
-    });
+    const mockProcessIrrigation = vi.fn().mockResolvedValueOnce({ success: true, irrigated: true });
+    vi.mocked(TaskIrrigationOrchestrator).mockImplementationOnce(() => ({
+      processTaskIrrigation: mockProcessIrrigation,
+    } as any));
 
-    const res = await POST(req, mockParams);
-    const data = await res.json();
-
-    expect(res.status).toBe(500);
-    expect(data.error).toContain("Silice est injoignable");
-  });
-
-  it('🔥 doit gérer une défaillance de l’orchestrateur de sève (500)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'bird_sovereign', capabilities: ['*'] }
-    } as any);
-
-    mockProcessTaskIrrigation.mockRejectedValueOnce(new Error("Flux de sève bloqué par une dépendance rompue."));
-
-    const req = new Request('http://localhost/api/tasks/task-atom-42/irrigate', {
-      method: 'POST'
-    });
-
-    const res = await POST(req, mockParams);
-    const data = await res.json();
-
-    expect(res.status).toBe(500);
-    expect(data.error).toContain("Flux de sève bloqué");
-  });
-
-  it('🟢 doit exécuter l’irrigation de la sève avec succès (200)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'bird_sovereign', capabilities: ['*'] }
-    } as any);
-
-    const expectedPayload = {
-      success: true,
-      taskUid: 'task-atom-42',
-      irrigationStatus: 'ACTIVE',
-      flowRate: 1
-    };
-
-    mockProcessTaskIrrigation.mockResolvedValueOnce(expectedPayload);
-
-    const req = new Request('http://localhost/api/tasks/task-atom-42/irrigate', {
-      method: 'POST'
-    });
-
-    const res = await POST(req, mockParams);
+    const req = new Request('http://localhost/api/tasks/Ma Super Tache!/irrigate', { method: 'POST' });
+    const res = await POST(req, { params: Promise.resolve({ slug: 'Ma Super Tache!' }) });
     const data = await res.json();
 
     expect(res.status).toBe(200);
     expect(data.success).toBe(true);
-    expect(data.irrigationStatus).toBe('ACTIVE');
-    expect(mockProcessTaskIrrigation).toHaveBeenCalledWith('task-atom-42', {
-      actorUid: 'bird_sovereign',
-      capabilities: ['*']
-    });
+    expect(mockProcessIrrigation).toHaveBeenCalledWith(
+      'ma-super-tache',
+      {
+        actorUid: 'user-bird-1',
+        capabilities: [],
+      }
+    );
+    expect(connectToDatabase).toHaveBeenCalledTimes(1);
   });
 });

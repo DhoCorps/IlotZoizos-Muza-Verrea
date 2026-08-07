@@ -1,7 +1,7 @@
 import { getServerSession } from 'next-auth/next';
-import { authOptions } from '../../../../lib/auth';
+import { authOptions } from '@/lib/auth';
 import { redirect } from 'next/navigation';
-import { ObservatoryContainer } from '../../../../components/observatory/ObservatoryContainer';
+import { ObservatoryContainer } from '@/components/observatory/ObservatoryContainer';
 
 export default async function ObservatoryPage() {
     // Récupérer la session pour identifier l'oiseau

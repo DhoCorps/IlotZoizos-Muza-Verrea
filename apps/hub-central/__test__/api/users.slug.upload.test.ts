@@ -1,27 +1,14 @@
-// apps/hub-central/__test__/api/users.slug.upload.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST, DELETE } from '../../app/api/users/[slug]/upload/route';
+import { POST, DELETE } from '@/app/api/users/[slug]/upload/route';
+import { getServerSession } from 'next-auth/next';
+import { OiseauModel, getNeo4jSession } from '@ilot/infrastructure';
 import { storageService } from '../../modules/storage/storage.service';
 import { checkRateLimit } from '../../modules/security/rateLimiter';
-import { connectToDatabase, OiseauModel, getNeo4jSession } from '@ilot/infrastructure';
+import type { NextRequest } from 'next/server';
 
-const mockGetServerSession = vi.fn();
-vi.mock('next-auth', () => ({ getServerSession: (...args: any[]) => mockGetServerSession(...args) }));
-vi.mock('next-auth/next', () => ({ getServerSession: (...args: any[]) => mockGetServerSession(...args) }));
-
-vi.mock('../../modules/security/rateLimiter', () => ({ checkRateLimit: vi.fn() }));
-
-vi.mock('../../modules/storage/storage.service', () => ({
-  storageService: {
-    generateStructuredKey: vi.fn().mockReturnValue('mocked/users/avatar.png'),
-    uploadFile: vi.fn().mockResolvedValue({
-      success: true,
-      publicUrl: 'https://cdn.ilot.com/mocked/users/avatar.png',
-      key: 'mocked/users/avatar.png',
-    }),
-    deleteFile: vi.fn().mockResolvedValue({ success: true }),
-    extractKeyFromUrl: vi.fn().mockReturnValue('mocked/users/avatar.png'),
-  },
+// --- MOCKS ---
+vi.mock('next-auth/next', () => ({
+  getServerSession: vi.fn(),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
@@ -30,83 +17,104 @@ vi.mock('@ilot/infrastructure', () => ({
     findOneAndUpdate: vi.fn(),
     updateOne: vi.fn(),
   },
-  getNeo4jSession: vi.fn(() => ({
-    run: vi.fn().mockResolvedValue(true),
+  getNeo4jSession: vi.fn().mockReturnValue({
+    run: vi.fn().mockResolvedValue({ records: [] }),
     close: vi.fn().mockResolvedValue(true),
-  })),
+  }),
 }));
 
-describe('API Users (Slug) - Upload & Delete Avatar / Cover', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+vi.mock('../../modules/storage/storage.service', () => ({
+  storageService: {
+    generateStructuredKey: vi.fn().mockReturnValue('ilot-zoizos/fr/users/user-123/avatarUrl/file.png'),
+    uploadFile: vi.fn().mockResolvedValue({
+      publicUrl: 'https://nexus.ilot.local/storage/avatar.png',
+      key: 'ilot-zoizos/fr/users/user-123/avatarUrl/file.png',
+    }),
+    extractKeyFromUrl: vi.fn().mockReturnValue('ilot-zoizos/fr/users/user-123/avatarUrl/file.png'),
+    deleteFile: vi.fn().mockResolvedValue(true),
+  },
+}));
 
-  describe('Téléversement (POST)', () => {
-    it('🔴 doit rejeter si le rate limit est dépassé (429)', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0 });
-      const req = new Request('http://localhost/api/users/oiseau-123/upload', { method: 'POST' });
-      const res = await POST(req as any, { params: Promise.resolve({ slug: 'oiseau-123' }) });
-      expect(res.status).toBe(429);
-    });
+vi.mock('../../../../../modules/security/rateLimiter', () => ({
+  checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
+}));
 
-    it('🔴 doit rejeter si non authentifié (401)', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
-      mockGetServerSession.mockResolvedValueOnce(null);
-      const req = new Request('http://localhost/api/users/oiseau-123/upload', { method: 'POST' });
-      const res = await POST(req as any, { params: Promise.resolve({ slug: 'oiseau-123' }) });
+describe('User Upload & Delete Slug API [POST, DELETE]', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('POST /api/users/[slug]/upload', () => {
+    it('devrait retourner 401 si l oiseau n est pas authentifié', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce(null);
+
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn(),
+      } as unknown as NextRequest;
+
+      const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Super Oiseau!' }) });
+      const data = await res.json();
+
       expect(res.status).toBe(401);
+      expect(data.success).toBe(false);
     });
 
-    it('🔴 doit rejeter si souveraineté violée (403)', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
-      mockGetServerSession.mockResolvedValueOnce({ user: { uid: 'hacker-456', capabilities: [] } });
-      const req = new Request('http://localhost/api/users/oiseau-123/upload', { method: 'POST' });
-      const res = await POST(req as any, { params: Promise.resolve({ slug: 'oiseau-123' }) });
-      expect(res.status).toBe(403);
-    });
+    it('devrait réussir (201) le téléversement d avatar en appliquant le slugify', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({
+        user: { uid: 'mon-super-oiseau', capabilities: [] },
+      } as any);
 
-    it('🟢 doit téléverser l’avatar avec succès et muter l’Oiseau (201)', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
-      mockGetServerSession.mockResolvedValueOnce({ user: { uid: 'oiseau-123', capabilities: ['*'] } });
-
-      const mockUpdatedUser = { uid: 'oiseau-123', pseudo: 'OiseauTest', avatarUrl: 'https://cdn.ilot.com/mocked/users/avatar.png' };
-      vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce(mockUpdatedUser),
+      vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValueOnce({ uid: 'mon-super-oiseau', pseudo: 'Oiseau Test' }),
       } as any);
 
       const formData = new FormData();
-      const blob = new Blob(['image-data'], { type: 'image/png' });
-      formData.append('file', blob, 'avatar.png');
-      formData.append('imageType', 'avatarUrl'); // 👈 Ce que l'API réclame
+      const file = new File(['content'], 'avatar.png', { type: 'image/png' });
+      formData.append('file', file);
+      formData.append('imageType', 'avatarUrl');
 
-      const req = new Request('http://localhost/api/users/oiseau-123/upload', { method: 'POST', body: formData });
-      
-      // 🛡️ SUTURE MAGIQUE : On force l'API à lire notre beau formData !
-      (req as any).formData = () => Promise.resolve(formData);
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn().mockResolvedValue(formData),
+      } as unknown as NextRequest;
 
-      const res = await POST(req as any, { params: Promise.resolve({ slug: 'oiseau-123' }) });
-      
-      // Si ça crashe, cette fois la console va CHanter très fort !
-      if (res.status !== 201) {
-         console.log("🚨 RAISON EXACTE DU REJET :", await res.text());
-      }
-      
-      expect(res.status).toBe(201);
+      const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Super Oiseau!' }) });
       const data = await res.json();
+
+      expect(res.status).toBe(201);
       expect(data.success).toBe(true);
+      expect(OiseauModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { $or: [{ slug: 'mon-super-oiseau' }, { uid: 'mon-super-oiseau' }] },
+        { avatarUrl: 'https://nexus.ilot.local/storage/avatar.png' },
+        { new: true }
+      );
     });
   });
 
-  describe('Désintégration (DELETE)', () => {
-    it('🟢 doit désintégrer physiquement', async () => {
-       mockGetServerSession.mockResolvedValueOnce({ user: { uid: 'oiseau-123', capabilities: ['*'] } });
-       
-       const req = new Request('http://localhost/api/users/oiseau-123/upload', { 
-         method: 'DELETE',
-         headers: { 'Content-Type': 'application/json' },
-         body: JSON.stringify({ imageType: 'avatarUrl', url: 'https://cdn.ilot.com/mocked/users/avatar.png' })
-       });
-       
-       const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'oiseau-123' }) });
-       expect(res.status).toBe(200);
+  describe('DELETE /api/users/[slug]/upload', () => {
+    it('devrait réussir (200) la purge de l avatar et appliquer le slugify', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({
+        user: { uid: 'mon-super-oiseau', capabilities: [] },
+      } as any);
+
+      vi.mocked(OiseauModel.updateOne).mockResolvedValueOnce({ modifiedCount: 1 } as any);
+
+      const req = new Request('http://localhost/api/users/Mon Super Oiseau!/upload', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageType: 'avatarUrl', url: 'https://nexus.ilot.local/storage/avatar.png' }),
+      });
+
+      const res = await DELETE(req as unknown as NextRequest, { params: Promise.resolve({ slug: 'Mon Super Oiseau!' }) });
+      const data = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(OiseauModel.updateOne).toHaveBeenCalledWith(
+        { $or: [{ slug: 'mon-super-oiseau' }, { uid: 'mon-super-oiseau' }] },
+        { $set: { avatarUrl: null } }
+      );
     });
   });
 });

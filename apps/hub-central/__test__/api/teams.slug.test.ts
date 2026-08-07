@@ -1,240 +1,151 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, PUT, DELETE } from '../../app/api/teams/[slug]/route';
+import { GET, PUT, DELETE } from '@/app/api/teams/[slug]/route';
 import { getServerSession } from 'next-auth/next';
+import { TeamModel, getNeo4jSession } from '@ilot/infrastructure';
+import { TeamOrchestrator } from '@ilot/shared-core';
 
-// ==========================================
-// MOCKS DU SANCTUAIRE (Gérés via vi.hoisted)
-// ==========================================
-const mocks = vi.hoisted(() => {
-  const mockFindOneLeanFn = vi.fn();
-  return {
-    mockNeo4jRun: vi.fn().mockResolvedValue({
-      records: [{ get: (field: string) => (field === 'caps' ? ['team:read', 'team:update', 'team:delete'] : 'MEMBER_OF') }]
-    }),
-    mockClose: vi.fn(),
-    mockFindOneLean: mockFindOneLeanFn,
-    mockConnectToDatabase: vi.fn().mockResolvedValue(true),
-    mockMutateTeam: vi.fn(),
-    mockDissolveTeam: vi.fn(),
-    TeamModel: {
-      findOne: vi.fn().mockImplementation(() => ({
-        lean: mockFindOneLeanFn
-      }))
-    }
-  };
-});
-
-const { 
-  mockNeo4jRun, 
-  mockClose, 
-  mockFindOneLean, 
-  mockConnectToDatabase, 
-  mockMutateTeam, 
-  mockDissolveTeam 
-} = mocks;
-
+// --- MOCKS DES DÉPENDANCES ---
 vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn()
+  getServerSession: vi.fn(),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: (...args: any[]) => mocks.mockConnectToDatabase(...args),
-  getNeo4jSession: vi.fn().mockImplementation(() => ({
-    run: mocks.mockNeo4jRun,
-    close: mocks.mockClose
-  })),
-  TeamModel: mocks.TeamModel
+  connectToDatabase: vi.fn().mockResolvedValue(true),
+  TeamModel: {
+    findOne: vi.fn(),
+  },
+  getNeo4jSession: vi.fn().mockReturnValue({
+    run: vi.fn().mockResolvedValue({
+      records: [{
+        get: (key: string) => {
+          if (key === 'caps') return ['*'];
+          if (key === 'relType') return 'MEMBER_OF';
+          return null;
+        }
+      }]
+    }),
+    close: vi.fn().mockResolvedValue(true),
+  }),
 }));
 
 vi.mock('@ilot/shared-core', () => ({
   TeamOrchestrator: vi.fn().mockImplementation(() => ({
-    mutateTeam: mocks.mockMutateTeam,
-    dissolveTeam: mocks.mockDissolveTeam
-  }))
+    mutateTeam: vi.fn(),
+    dissolveTeam: vi.fn(),
+  })),
 }));
 
-describe('API Teams - Par Slug / Nid (/api/teams/[slug])', () => {
-  const mockParams = { params: Promise.resolve({ slug: 'team_slug_1' }) };
-
+describe('Team Slug API [GET, PUT, DELETE]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockConnectToDatabase.mockResolvedValue(true);
-    mockNeo4jRun.mockResolvedValue({
-      records: [{ get: (field: string) => (field === 'caps' ? ['team:read', 'team:update', 'team:delete'] : 'MEMBER_OF') }]
-    });
   });
 
-  // ==========================================
-  // TESTS POUR LE GET
-  // ==========================================
-  describe('Consultation (GET)', () => {
-    it('🔴 doit rejeter si l’Oiseau n’est pas connecté (401)', async () => {
+  describe('GET /api/teams/[slug]', () => {
+    it('devrait retourner 401 si l oiseau n est pas authentifié', async () => {
       vi.mocked(getServerSession).mockResolvedValueOnce(null);
 
-      const req = new Request('http://localhost/api');
-      const res = await GET(req as any, mockParams);
+      const req = new Request('http://localhost/api/teams/mon-nid');
+      const res = await GET(req, { params: Promise.resolve({ slug: 'mon-nid' }) });
+      const data = await res.json();
+
       expect(res.status).toBe(401);
+      expect(data.error).toBe('Oiseau non identifié');
     });
 
-    it('🟢 doit ausculter le Nid avec succès et renvoyer ses capacités (200)', async () => {
+    it('devrait réussir (200) et ausculter le nid en appliquant le slugify', async () => {
       vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'bird_1' }
+        user: { uid: 'user-bird-1' },
       } as any);
 
-      mockFindOneLean.mockResolvedValueOnce({ uid: 'team_1', slug: 'team_slug_1', name: 'Nid Central' });
+      const mockTeam = { uid: 'team-123', name: 'Nid Secret', slug: 'mon-super-nid' };
+      vi.mocked(TeamModel.findOne).mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValueOnce(mockTeam),
+      } as any);
 
-      const req = new Request('http://localhost/api');
-      const res = await GET(req as any, mockParams);
+      const req = new Request('http://localhost/api/teams/Mon Super Nid!');
+      const res = await GET(req, { params: Promise.resolve({ slug: 'Mon Super Nid!' }) });
       const data = await res.json();
 
       expect(res.status).toBe(200);
-      expect(data.name).toBe('Nid Central');
-      expect(data.myCapabilities).toBeDefined();
-      expect(data.invitations).toBeDefined();
+      expect(data.uid).toBe('team-123');
+      expect(TeamModel.findOne).toHaveBeenCalledWith({
+        $or: [{ slug: 'mon-super-nid' }, { uid: 'mon-super-nid' }]
+      });
     });
   });
 
-  // ==========================================
-  // TESTS POUR LE PUT
-  // ==========================================
-  describe('Mutation (PUT)', () => {
-    it('🟢 doit faire muter le Nid avec succès (200)', async () => {
+  describe('PUT /api/teams/[slug]', () => {
+    it('devrait réussir (200) et muter le nid avec le slugify', async () => {
       vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'bird_1' }
+        user: { uid: 'user-bird-1' },
       } as any);
 
-      mockFindOneLean.mockResolvedValueOnce({ uid: 'team_1', slug: 'team_slug_1' });
-      mockMutateTeam.mockResolvedValueOnce({ uid: 'team_1', name: 'Nid Muté' });
+      const mockTeam = { uid: 'team-123', name: 'Nid Secret', slug: 'mon-super-nid' };
+      vi.mocked(TeamModel.findOne).mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValueOnce(mockTeam),
+      } as any);
 
-      const req = new Request('http://localhost/api', {
+      const mockMutateTeam = vi.fn().mockResolvedValueOnce({ ...mockTeam, name: 'Nid Muté' });
+      vi.mocked(TeamOrchestrator).mockImplementationOnce(() => ({
+        mutateTeam: mockMutateTeam,
+        dissolveTeam: vi.fn(),
+      } as any));
+
+      const req = new Request('http://localhost/api/teams/Mon Super Nid!', {
         method: 'PUT',
-        body: JSON.stringify({ name: 'Nid Muté' })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Nid Muté' }),
       });
 
-      const res = await PUT(req as any, mockParams);
+      const res = await PUT(req, { params: Promise.resolve({ slug: 'Mon Super Nid!' }) });
       const data = await res.json();
 
       expect(res.status).toBe(200);
       expect(data.name).toBe('Nid Muté');
-      expect(mockMutateTeam).toHaveBeenCalledWith('team_1', { name: 'Nid Muté' }, expect.any(Object));
+      expect(mockMutateTeam).toHaveBeenCalledWith(
+        'team-123',
+        { name: 'Nid Muté' },
+        expect.any(Object)
+      );
+      expect(TeamModel.findOne).toHaveBeenCalledWith({
+        $or: [{ slug: 'mon-super-nid' }, { uid: 'mon-super-nid' }]
+      });
     });
   });
 
-  // ==========================================
-  // TESTS POUR LE DELETE
-  // ==========================================
-  describe('Dissolution (DELETE)', () => {
-    it('🟢 doit dissoudre le Nid avec succès (200)', async () => {
+  describe('DELETE /api/teams/[slug]', () => {
+    it('devrait réussir (200) et dissoudre le nid avec le slugify', async () => {
       vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'bird_1' }
+        user: { uid: 'user-bird-1' },
       } as any);
 
-      mockFindOneLean.mockResolvedValueOnce({ uid: 'team_1', slug: 'team_slug_1' });
-      mockDissolveTeam.mockResolvedValueOnce(true);
+      const mockTeam = { uid: 'team-123', name: 'Nid Secret', slug: 'mon-super-nid' };
+      vi.mocked(TeamModel.findOne).mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValueOnce(mockTeam),
+      } as any);
 
-      const req = new Request('http://localhost/api', {
-        method: 'DELETE'
+      const mockDissolveTeam = vi.fn().mockResolvedValueOnce(true);
+      vi.mocked(TeamOrchestrator).mockImplementationOnce(() => ({
+        mutateTeam: vi.fn(),
+        dissolveTeam: mockDissolveTeam,
+      } as any));
+
+      const req = new Request('http://localhost/api/teams/Mon Super Nid!', {
+        method: 'DELETE',
       });
 
-      const res = await DELETE(req as any, mockParams);
+      const res = await DELETE(req, { params: Promise.resolve({ slug: 'Mon Super Nid!' }) });
       const data = await res.json();
 
       expect(res.status).toBe(200);
       expect(data.message).toContain('dissous');
-      expect(mockDissolveTeam).toHaveBeenCalledWith('team_1', expect.any(Object));
-    });
-  });
-});
-
-describe('API Teams - Par Slug / Nid (/api/teams/[slug])', () => {
-  const mockParams = { params: Promise.resolve({ slug: 'team_slug_1' }) };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockConnectToDatabase.mockResolvedValue(true);
-    mockNeo4jRun.mockResolvedValue({
-      records: [{ get: (field: string) => (field === 'caps' ? ['team:read', 'team:update', 'team:delete'] : 'MEMBER_OF') }]
-    });
-  });
-
-  // ==========================================
-  // TESTS POUR LE GET
-  // ==========================================
-  describe('Consultation (GET)', () => {
-    it('🔴 doit rejeter si l’Oiseau n’est pas connecté (401)', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce(null);
-
-      const req = new Request('http://localhost/api');
-      const res = await GET(req as any, mockParams);
-      expect(res.status).toBe(401);
-    });
-
-    it('🟢 doit ausculter le Nid avec succès et renvoyer ses capacités (200)', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'bird_1' }
-      } as any);
-
-      mockFindOneLean.mockResolvedValueOnce({ uid: 'team_1', slug: 'team_slug_1', name: 'Nid Central' });
-
-      const req = new Request('http://localhost/api');
-      const res = await GET(req as any, mockParams);
-      const data = await res.json();
-
-      expect(res.status).toBe(200);
-      expect(data.name).toBe('Nid Central');
-      expect(data.myCapabilities).toBeDefined();
-      expect(data.invitations).toBeDefined();
-    });
-  });
-
-  // ==========================================
-  // TESTS POUR LE PUT
-  // ==========================================
-  describe('Mutation (PUT)', () => {
-    it('🟢 doit faire muter le Nid avec succès (200)', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'bird_1' }
-      } as any);
-
-      mockFindOneLean.mockResolvedValueOnce({ uid: 'team_1', slug: 'team_slug_1' });
-      mockMutateTeam.mockResolvedValueOnce({ uid: 'team_1', name: 'Nid Muté' });
-
-      const req = new Request('http://localhost/api', {
-        method: 'PUT',
-        body: JSON.stringify({ name: 'Nid Muté' })
+      expect(mockDissolveTeam).toHaveBeenCalledWith(
+        'team-123',
+        expect.any(Object)
+      );
+      expect(TeamModel.findOne).toHaveBeenCalledWith({
+        $or: [{ slug: 'mon-super-nid' }, { uid: 'mon-super-nid' }]
       });
-
-      const res = await PUT(req as any, mockParams);
-      const data = await res.json();
-
-      expect(res.status).toBe(200);
-      expect(data.name).toBe('Nid Muté');
-      expect(mockMutateTeam).toHaveBeenCalledWith('team_1', { name: 'Nid Muté' }, expect.any(Object));
-    });
-  });
-
-  // ==========================================
-  // TESTS POUR LE DELETE
-  // ==========================================
-  describe('Dissolution (DELETE)', () => {
-    it('🟢 doit dissoudre le Nid avec succès (200)', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'bird_1' }
-      } as any);
-
-      mockFindOneLean.mockResolvedValueOnce({ uid: 'team_1', slug: 'team_slug_1' });
-      mockDissolveTeam.mockResolvedValueOnce(true);
-
-      const req = new Request('http://localhost/api', {
-        method: 'DELETE'
-      });
-
-      const res = await DELETE(req as any, mockParams);
-      const data = await res.json();
-
-      expect(res.status).toBe(200);
-      expect(data.message).toContain('dissous');
-      expect(mockDissolveTeam).toHaveBeenCalledWith('team_1', expect.any(Object));
     });
   });
 });

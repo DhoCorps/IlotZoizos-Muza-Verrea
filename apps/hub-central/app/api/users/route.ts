@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { connectToDatabase, OiseauModel } from "@ilot/infrastructure"; // 🪡 Import propre, sans chemin profond
 import { OiseauOrchestrator } from "@ilot/shared-core"; 
-import { authOptions } from "../../../lib/auth"; // Ajuste le chemin relatif si besoin
+import { authOptions } from "@/lib/auth"; // Ajuste le chemin relatif si besoin
 
 export const dynamic = 'force-dynamic';
 

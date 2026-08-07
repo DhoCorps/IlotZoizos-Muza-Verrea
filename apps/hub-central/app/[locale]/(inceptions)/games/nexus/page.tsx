@@ -1,7 +1,7 @@
 // apps/hub-central/app/[locale]/(inceptions)/games/nexus/page.tsx
 import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
-import GameNexus from '../../../../../components/games/GameNexus';
+import GameNexus from '@/components/games/GameNexus';
 
 export default async function GameNexusPage({
   params,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Link } from '../../../../navigation';
+import { Link } from '@/navigation';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');

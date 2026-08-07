@@ -1,153 +1,143 @@
-// apps/hub-central/__test__/api/abyss.sujets.slug.upload.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST, DELETE } from '../../app/api/sujets/[slug]/upload/route';
-import { storageService } from '../../modules/storage/storage.service';
-import { checkRateLimit } from '../../modules/security/rateLimiter';
+import { POST, DELETE } from '@/app/api/sujets/[slug]/upload/route';
+import { getServerSession } from 'next-auth';
+import { storageService } from '@/modules/storage/storage.service';
+import { checkRateLimit } from '@/modules/security/rateLimiter';
 
-// 🛡️ SUTURE : Mock propre et partagé de session NextAuth
-const mockGetServerSession = vi.fn();
+// --- MOCKS DES DÉPENDANCES ---
 vi.mock('next-auth', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
-}));
-vi.mock('next-auth/next', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+  getServerSession: vi.fn(),
 }));
 
-vi.mock('../../modules/security/rateLimiter', () => ({
-  checkRateLimit: vi.fn(),
-}));
-
-vi.mock('../../modules/storage/storage.service', () => ({
+vi.mock('@/modules/storage/storage.service', () => ({
   storageService: {
-    generateStructuredKey: vi.fn().mockReturnValue('mocked/abyss/key.mp3'),
+    generateStructuredKey: vi.fn().mockReturnValue('hub-central/fr/projects/mon-sujet/sujet_media_test.png'),
     uploadFile: vi.fn().mockResolvedValue({
-      success: true,
-      publicUrl: 'https://cdn.ilot.com/mocked/abyss/key.mp3',
-      key: 'mocked/abyss/key.mp3',
+      publicUrl: 'https://nexus.ilot.local/storage/sujet_media_test.png',
+      key: 'hub-central/fr/projects/mon-sujet/sujet_media_test.png',
     }),
-    deleteFile: vi.fn().mockResolvedValue({ success: true }),
-    extractKeyFromUrl: vi.fn().mockReturnValue('mocked/abyss/key.mp3'),
+    extractKeyFromUrl: vi.fn().mockReturnValue('hub-central/fr/projects/mon-sujet/sujet_media_test.png'),
+    deleteFile: vi.fn().mockResolvedValue(true),
   },
 }));
 
-describe('API Abyss - Sujet Upload par Slug (/api/abyss/sujets/[slug]/upload)', () => {
-  const mockParams = { params: { slug: 'mon-monologue' } };
+vi.mock('@/modules/security/rateLimiter', () => ({
+  checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
+}));
 
+describe('Abyss Sujet Slug Upload & Delete API [slug]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe('Téléversement (POST)', () => {
-    it('🔴 doit rejeter les requêtes non authentifiées (401)', async () => {
-      mockGetServerSession.mockResolvedValueOnce(null);
+  describe('POST /api/abyss/sujets/[slug]/upload', () => {
+    it('devrait refuser l\'accès (401) si non authentifié', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce(null);
 
-      const req = new Request('http://localhost/api/abyss/sujets/mon-monologue/upload', {
-        method: 'POST',
-      });
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn(),
+      } as unknown as Request;
 
-      const res = await POST(req as any, mockParams);
-      expect(res.status).toBe(401);
+      const res = await POST(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
       const data = await res.json();
-      expect(data.error).toBeDefined();
+
+      expect(res.status).toBe(401);
+      expect(data.error).toBe('Accès non autorisé.');
     });
 
-    it('🔴 doit rejeter si le rate limit est dépassé (429)', async () => {
-      mockGetServerSession.mockResolvedValueOnce({ user: { name: 'Alchimiste' } });
+    it('devrait bloquer la requête (429) en cas de dépassement du rate limit', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
       vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0 });
 
-      const req = new Request('http://localhost/api/abyss/sujets/mon-monologue/upload', {
-        method: 'POST',
-      });
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn(),
+      } as unknown as Request;
 
-      const res = await POST(req as any, mockParams);
-      expect(res.status).toBe(429);
+      const res = await POST(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
       const data = await res.json();
+
+      expect(res.status).toBe(429);
       expect(data.error).toContain('Trop de téléversements');
     });
 
-    it('🔴 doit rejeter si aucun média n’est fourni (400)', async () => {
-      mockGetServerSession.mockResolvedValueOnce({ user: { name: 'Alchimiste' } });
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
+    it('devrait rejeter (400) si aucun média n\'est fourni', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
 
       const formData = new FormData();
-      const req = new Request('http://localhost/api/abyss/sujets/mon-monologue/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      // 🛡️ SUTURE : Simulation du parsing multipart pour Node/Undici
-      (req as any).formData = () => Promise.resolve(formData);
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn().mockResolvedValue(formData),
+      } as unknown as Request;
 
-      const res = await POST(req as any, mockParams);
-      expect(res.status).toBe(400);
+      const res = await POST(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
       const data = await res.json();
-      expect(data.error).toBeDefined();
+
+      expect(res.status).toBe(400);
+      expect(data.error).toBe('Aucun média fourni.');
     });
 
-    it('🟢 doit téléverser le média avec succès et retourner l’URL (201)', async () => {
-      mockGetServerSession.mockResolvedValueOnce({ user: { name: 'Alchimiste' } });
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
+    it('devrait réussir (201) et sceller le média en appliquant le slugify', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
 
       const formData = new FormData();
-      const blob = new Blob(['fake-audio-content'], { type: 'audio/mpeg' });
-      formData.append('file', blob, 'piste.mp3');
+      const file = new File(['dummy content'], 'media.png', { type: 'image/png' });
+      formData.append('file', file);
 
-      const req = new Request('http://localhost/api/abyss/sujets/mon-monologue/upload', {
-        method: 'POST',
-        body: formData,
-      });
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn().mockResolvedValue(formData),
+      } as unknown as Request;
 
-      // 🛡️ SUTURE : Simulation du parsing multipart pour Node/Undici
-      (req as any).formData = () => Promise.resolve(formData);
-
-      const res = await POST(req as any, mockParams);
-      expect(res.status).toBe(201);
-      
+      const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Super Sujet!' }) });
       const data = await res.json();
+
+      expect(res.status).toBe(201);
       expect(data.success).toBe(true);
-      expect(data.data.url).toBe('https://cdn.ilot.com/mocked/abyss/key.mp3');
-      expect(storageService.uploadFile).toHaveBeenCalledTimes(1);
+      expect(data.data.url).toBe('https://nexus.ilot.local/storage/sujet_media_test.png');
     });
   });
 
-  describe('Désintégration de média (DELETE)', () => {
-    it('🔴 doit rejeter si non authentifié (401)', async () => {
-      mockGetServerSession.mockResolvedValueOnce(null);
+  describe('DELETE /api/abyss/sujets/[slug]/upload', () => {
+    it('devrait refuser l\'accès (401) si non authentifié lors de la suppression', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce(null);
 
-      const req = new Request('http://localhost/api/abyss/sujets/mon-monologue/upload?url=https://cdn.ilot.com/media.mp3', {
+      const req = new Request('http://localhost/api/abyss/sujets/mon-sujet/upload?url=https://nexus.ilot.local/file.png', {
         method: 'DELETE',
       });
+      const res = await DELETE(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
+      const data = await res.json();
 
-      const res = await DELETE(req as any, mockParams);
       expect(res.status).toBe(401);
+      expect(data.error).toBe('Accès non autorisé.');
     });
 
-    it('🔴 doit rejeter si l’URL du fichier est manquante (400)', async () => {
-      mockGetServerSession.mockResolvedValueOnce({ user: { name: 'Alchimiste' } });
+    it('devrait rejeter (400) si l\'URL de l\'artefact à purger est manquante', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
 
-      const req = new Request('http://localhost/api/abyss/sujets/mon-monologue/upload', {
+      const req = new Request('http://localhost/api/abyss/sujets/mon-sujet/upload', {
         method: 'DELETE',
       });
+      const res = await DELETE(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
+      const data = await res.json();
 
-      const res = await DELETE(req as any, mockParams);
       expect(res.status).toBe(400);
-      const data = await res.json();
-      expect(data.error).toBeDefined();
+      expect(data.error).toContain('manquante');
     });
 
-    it('🟢 doit désintégrer le média physiquement avec succès (200)', async () => {
-      mockGetServerSession.mockResolvedValueOnce({ user: { name: 'Alchimiste' } });
+    it('devrait réussir (200) et désintégrer l\'artefact du Nexus avec slugify', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
 
-      const req = new Request('http://localhost/api/abyss/sujets/mon-monologue/upload?url=https://cdn.ilot.com/mocked/abyss/key.mp3', {
+      const req = new Request('http://localhost/api/abyss/sujets/Mon Super Sujet!/upload?url=https://nexus.ilot.local/file.png', {
         method: 'DELETE',
       });
-
-      const res = await DELETE(req as any, mockParams);
-      expect(res.status).toBe(200);
-      
+      const res = await DELETE(req, { params: Promise.resolve({ slug: 'Mon Super Sujet!' }) });
       const data = await res.json();
+
+      expect(res.status).toBe(200);
       expect(data.success).toBe(true);
-      expect(storageService.deleteFile).toHaveBeenCalledWith('mocked/abyss/key.mp3');
+      expect(storageService.deleteFile).toHaveBeenCalledWith('hub-central/fr/projects/mon-sujet/sujet_media_test.png');
     });
   });
 });

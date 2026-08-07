@@ -1,11 +1,9 @@
 // packages/shared-core/src/sync-engine/project.orchestrator.ts
-import { TeamModel } from '../../../infrastructure/src/database/models/nosql/team.model';
-import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
-import { ProjectModel } from '../../../infrastructure/src/database/models/nosql/project.model';
-import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model';
+
+import { ProjectModel } from '@ilot/infrastructure';
 import { TaskOrchestrator } from './task.orchestrator';
-import { getNeo4jSession } from '../../../infrastructure/src/database/neo4j';
-import { IProject } from '../../../types/src/models/project.types';
+import { getNeo4jSession } from '@ilot/infrastructure';
+import { IProject } from '@ilot/types';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 import { MoralChecker } from '../integrity/moral.checker';
 import { TransactionManager } from './transactionManager';

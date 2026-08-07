@@ -1,5 +1,5 @@
 // packages/shared-core/src/sync-engine/sujet.orchestrator.ts
-import { SujetModel } from '../../../infrastructure/src/database/models/nosql/sujet.model';
+import { SujetModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';

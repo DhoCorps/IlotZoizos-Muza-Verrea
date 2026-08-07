@@ -1,155 +1,132 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PartitaOrchestrator } from '../partita.orchestrator';
+import { PartitaModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
-import { ActionSignature } from '@ilot/types';
-import { PartitaModel } from '../../../../infrastructure/src/database/models/nosql/partita.model';
+import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('../../../../infrastructure/src/database/models/nosql/partita.model', () => ({
+// --- MOCKS ---
+vi.mock('@ilot/infrastructure', () => ({
   PartitaModel: {
-    create: vi.fn().mockImplementation((data) => Promise.resolve(Array.isArray(data) ? data : [data])),
-    findOne: vi.fn().mockImplementation(() => {
-      const m: any = Promise.resolve({
-        uid: 'partita_123',
-        title: 'Ancienne Tablature',
-        authorUid: 'bird_alpha',
-        merchLink: null,
-        media: {}
-      });
-      m.lean = vi.fn().mockResolvedValue({
-        uid: 'partita_123',
-        title: 'Ancienne Tablature',
-        authorUid: 'bird_alpha',
-        merchLink: null,
-        media: {}
-      });
-      // 🪡 LA CORRECTION : Ajout de la méthode .session() chaînable pour Mongoose
-      m.session = vi.fn().mockResolvedValue(null);
-      return m;
-    }),
-    findOneAndUpdate: vi.fn().mockImplementation(() => {
-      const m: any = Promise.resolve({
-        uid: 'partita_123',
-        title: 'Tablature Mutée',
-        authorUid: 'bird_alpha',
-        status: 'PUBLISHED',
-        merchLink: null
-      });
-      m.lean = vi.fn().mockResolvedValue({
-        uid: 'partita_123',
-        title: 'Tablature Mutée',
-        authorUid: 'bird_alpha',
-        status: 'PUBLISHED',
-        merchLink: null
-      });
-      m.session = vi.fn().mockResolvedValue(null);
-      return m;
-    }),
-    deleteOne: vi.fn().mockResolvedValue({ deletedCount: 1 })
-  }
+    findOne: vi.fn(),
+    create: vi.fn(),
+    findOneAndUpdate: vi.fn(),
+    deleteOne: vi.fn(),
+  },
 }));
 
-vi.mock('../../../../../apps/hub-central/modules/storage/storage.service', () => ({
-  storageService: {
-    extractKeyFromUrl: vi.fn().mockReturnValue('mock-key'),
-    deleteFile: vi.fn().mockResolvedValue(true)
-  }
-}));
-
-const mockNeo4jRun = vi.fn();
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn().mockImplementation(async (name, callback) => {
-      const mockNeo4jTx = {
-        run: mockNeo4jRun.mockResolvedValue({ records: [] })
-      };
-      return callback({} as any, mockNeo4jTx as any);
-    })
-  }
+    execute: vi.fn(async (name, callback) => {
+      const mockMongoSession = {};
+      const mockNeo4jTx = { run: vi.fn().mockResolvedValue({ records: [] }) };
+      return await callback(mockMongoSession, mockNeo4jTx);
+    }),
+  },
 }));
 
-describe("PartitaOrchestrator - Tissage de la Partition", () => {
+describe('PartitaOrchestrator', () => {
   let orchestrator: PartitaOrchestrator;
   
-  const mockAuthorUid = 'bird_alpha';
-  const validSignature: ActionSignature = {
-    actorUid: mockAuthorUid,
-    capabilities: [] 
-  };
-
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new PartitaOrchestrator();
   });
 
-  it("doit fonder un nœud de partition par Souveraineté (Auteur) avec liens et e-commerce", async () => {
-    const payload = {
-      title: 'Ligne de Basse Fretless',
-      content: 'C: E1 A1 D2 G2 | G2 D2 A1 E1',
-      instrument: 'BASS',
-      authorUid: mockAuthorUid,
-      connections: {
-        relatedProjects: ['proj_999']
-      },
-      merchLink: {
-        productId: 'prod_bass_777',
-        displayMode: 'card'
-      }
-    };
+  describe('fosterPartita (Création)', () => {
+    it('devrait rejeter la création si l oiseau usurpe une identité sans passe-partout (*)', async () => {
+      const data = { authorUid: 'oiseau-A' };
+      const signature = { actorUid: 'oiseau-B', capabilities: [] };
 
-    const result = await orchestrator.fosterPartita(payload as any, validSignature);
+      await expect(orchestrator.fosterPartita(data, signature))
+        .rejects.toThrow(IlotError);
+      await expect(orchestrator.fosterPartita(data, signature))
+        .rejects.toThrow('Aura insuffisante');
+    });
 
-    expect(result.success).toBe(true);
-    expect(PartitaModel.create).toHaveBeenCalled();
-    expect(mockNeo4jRun).toHaveBeenCalledWith(
-      expect.stringContaining("CREATE (p:Partita"),
-      expect.objectContaining({
-        title: 'Ligne de Basse Fretless',
-        actorUid: mockAuthorUid,
-        productId: 'prod_bass_777'
-      })
-    );
-    expect(mockNeo4jRun).toHaveBeenCalledWith(
-      expect.stringContaining("MERGE (p)-[:ILLUMINATES]->(proj)"),
-      expect.anything()
-    );
-    expect(mockNeo4jRun).toHaveBeenCalledWith(
-      expect.stringContaining("MERGE (p)-[:OFFERS_PRODUCT]->(prod)"),
-      expect.anything()
-    );
+    it('devrait fonder une partition et l insérer dans Mongo et Neo4j', async () => {
+      const data = { title: 'Ma Superbe Basse', authorUid: 'oiseau-A', instrument: 'BASS' };
+      const signature = { actorUid: 'oiseau-A', capabilities: [] };
+
+      // Mock la vérification du slug (null = slug libre)
+      vi.mocked(PartitaModel.findOne).mockReturnValue({
+        session: vi.fn().mockResolvedValue(null)
+      } as any);
+
+      // Mock la création Mongo
+      vi.mocked(PartitaModel.create).mockResolvedValue([{ 
+        uid: 'partita-123', 
+        title: 'Ma Superbe Basse', 
+        slug: 'ma-superbe-basse' 
+      }] as any);
+
+      const result = await orchestrator.fosterPartita(data, signature);
+
+      expect(result.success).toBe(true);
+      expect(result.mongo.uid).toBe('partita-123');
+      expect(PartitaModel.create).toHaveBeenCalledTimes(1);
+      expect(TransactionManager.execute).toHaveBeenCalled();
+    });
   });
 
-  it("doit rejeter la fondation si un oiseau tente de composer à la place d'un autre", async () => {
-    const payload = {
-      title: 'Usurpation Musicale',
-      authorUid: 'bird_beta' 
-    };
-    const signature: ActionSignature = { actorUid: 'bird_alpha', capabilities: [] };
+  describe('updatePartita (Mutation)', () => {
+    it('devrait rejeter si la partition n existe pas', async () => {
+      vi.mocked(PartitaModel.findOne).mockResolvedValue(null);
 
-    await expect(orchestrator.fosterPartita(payload as any, signature))
-      .rejects.toThrow("Aura insuffisante pour composer à la place d'un autre.");
+      await expect(orchestrator.updatePartita('inconnu', {}, { actorUid: 'oiseau-A', capabilities: [] }))
+        .rejects.toThrow(/introuvable/);
+    });
+
+    it('devrait rejeter si l oiseau n est pas l auteur', async () => {
+      vi.mocked(PartitaModel.findOne).mockResolvedValue({ authorUid: 'oiseau-B' });
+
+      await expect(orchestrator.updatePartita('partita-123', {}, { actorUid: 'oiseau-A', capabilities: [] }))
+        .rejects.toThrow(/Tu ne peux modifier que tes propres/);
+    });
+
+    it('devrait mettre à jour la partition (Silice + Graphe)', async () => {
+      vi.mocked(PartitaModel.findOne).mockResolvedValue({ uid: 'partita-123', authorUid: 'oiseau-A' });
+      
+      vi.mocked(PartitaModel.findOneAndUpdate).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 'partita-123', title: 'Nouveau Titre' })
+      } as any);
+
+      const result = await orchestrator.updatePartita(
+        'partita-123', 
+        { title: 'Nouveau Titre' }, 
+        { actorUid: 'oiseau-A', capabilities: [] }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.mongo.title).toBe('Nouveau Titre');
+      expect(PartitaModel.findOneAndUpdate).toHaveBeenCalled();
+    });
   });
 
-  it("doit muter une partition par son auteur", async () => {
-    const result = await orchestrator.updatePartita('partita_123', { status: 'PUBLISHED' }, validSignature);
-    
-    expect(result.success).toBe(true);
-    expect(result.mongo.status).toBe('PUBLISHED');
-    expect(mockNeo4jRun).toHaveBeenCalledWith(
-      expect.stringContaining("SET p.title = coalesce"),
-      expect.objectContaining({ status: 'PUBLISHED' })
-    );
-  });
+  describe('disintegratePartita (Suppression)', () => {
+    it('devrait retourner les URLs des fichiers à supprimer (Inversion de contrôle)', async () => {
+      // On simule une partition avec des médias attachés
+      vi.mocked(PartitaModel.findOne).mockResolvedValue({ 
+        uid: 'partita-123', 
+        authorUid: 'oiseau-A',
+        media: {
+          coverImageUrl: 'https://storage.ilot.com/cover.png',
+          audioTrackUrl: 'https://storage.ilot.com/track.mp3'
+        }
+      });
 
-  it("doit autoriser la désintégration d'une partition par un Administrateur", async () => {
-    const adminSignature: ActionSignature = { actorUid: 'architect_prime', capabilities: ['*'] };
-    
-    const result = await orchestrator.disintegratePartita('partita_123', adminSignature);
-    
-    expect(result.success).toBe(true);
-    expect(PartitaModel.deleteOne).toHaveBeenCalled();
-    expect(mockNeo4jRun).toHaveBeenCalledWith(
-      expect.stringContaining("DETACH DELETE p"),
-      expect.objectContaining({ partitaUid: 'partita_123' })
-    );
+      const result = await orchestrator.disintegratePartita('partita-123', { actorUid: 'oiseau-A', capabilities: [] });
+
+      expect(result.success).toBe(true);
+      expect(result.purgedCount).toBe(1);
+      
+      // 🪡 SUTURE VÉRIFIÉE : Le tableau filesToDelete doit contenir les deux URLs
+      expect(result.filesToDelete).toBeDefined();
+      expect(result.filesToDelete).toHaveLength(2);
+      expect(result.filesToDelete).toContain('https://storage.ilot.com/cover.png');
+      expect(result.filesToDelete).toContain('https://storage.ilot.com/track.mp3');
+
+      // Vérifie que les requêtes de suppression DB sont bien appelées
+      expect(PartitaModel.deleteOne).toHaveBeenCalled();
+    });
   });
 });

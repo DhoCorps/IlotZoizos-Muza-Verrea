@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { connectToDatabase, WishlistModel } from '@ilot/infrastructure';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../lib/auth";
+import { authOptions } from "@/lib/auth";
 import { v4 as uuidv4 } from 'uuid';
 
 export async function GET(req: Request) {

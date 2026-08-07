@@ -1,4 +1,3 @@
-// apps/hub-central/app/api/tasks/[slug]/upload/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../../../../../lib/auth'; 
@@ -6,6 +5,7 @@ import { storageService } from '../../../../../modules/storage/storage.service';
 import { checkRateLimit } from '../../../../../modules/security/rateLimiter';
 import { connectToDatabase, TaskModel, getNeo4jSession } from '@ilot/infrastructure';
 import { CAPABILITIES, ITask } from '@ilot/types';
+import { slugify } from '../../../../../lib/slugify';
 
 interface OiseauUser {
   id: string;
@@ -21,7 +21,6 @@ async function canUpdateTaskBySlug(userUid: string, taskSlug: string): Promise<b
   let session;
   try {
     session = getNeo4jSession();
-    // On cherche l'atome par son slug ou son uid équivalent dans le graphe
     const cypher = `
       MATCH (t:Task { uid: $taskSlug })-[:TASK_OF]->(p:Project)
       MATCH (u:User { uid: $userUid })
@@ -70,7 +69,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     try { resolvedParams = await params; } catch (paramErr) {
       return NextResponse.json({ success: false, message: "Identifiant d'atome invalide." }, { status: 400 });
     }
-    const taskSlug = resolvedParams.slug;
+    const taskSlug = slugify(resolvedParams.slug || '');
 
     let session;
     try { session = await getServerSession(authOptions); } catch (sessionErr) {
@@ -196,7 +195,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     try { resolvedParams = await params; } catch (paramErr) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
-    const taskSlug = resolvedParams.slug;
+    const taskSlug = slugify(resolvedParams.slug || '');
 
     let session;
     try { session = await getServerSession(authOptions); } catch (sessionErr) {

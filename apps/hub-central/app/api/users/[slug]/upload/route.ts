@@ -1,4 +1,3 @@
-// apps/hub-central/app/api/users/[slug]/upload/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { connectToDatabase, OiseauModel, getNeo4jSession } from '@ilot/infrastructure'; 
@@ -6,6 +5,7 @@ import { storageService } from '../../../../../modules/storage/storage.service';
 import { checkRateLimit } from '../../../../../modules/security/rateLimiter';
 import { authOptions } from "../../../../../lib/auth"; 
 import { IOiseau } from '@ilot/types';
+import { slugify } from '@/lib/slugify';
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -32,13 +32,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ success: false, message: "La Silice est injoignable." }, { status: 500 });
     }
 
-    let resolvedParams;
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ success: false, message: "Paramètres de route invalides." }, { status: 400 });
     }
-    const targetSlug = resolvedParams.slug;
+    const targetSlug = slugify(rawSlug || '');
 
     // 🛡️ DOUANE DE SOUVERAINETÉ ET DE CONNEXION
     let session;
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     // Le visiteur est-il propriétaire du profil ou a-t-il les pleins pouvoirs ?
-    const isSelf = visitorUid === targetSlug;
+    const isSelf = visitorUid === targetSlug || slugify(visitorUid) === targetSlug;
     const isAdmin = visitorCaps.includes('*');
 
     if (!isSelf && !isAdmin) {
@@ -165,13 +166,14 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ message: "La Silice est injoignable." }, { status: 500 });
     }
 
-    let resolvedParams;
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ message: "Paramètres de route invalides." }, { status: 400 });
     }
-    const targetSlug = resolvedParams.slug;
+    const targetSlug = slugify(rawSlug || '');
     
     let session;
     try {
@@ -187,7 +189,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
     }
 
-    const isSelf = visitorUid === targetSlug;
+    const isSelf = visitorUid === targetSlug || slugify(visitorUid) === targetSlug;
     const isAdmin = visitorCaps.includes('*');
 
     if (!isSelf && !isAdmin) {

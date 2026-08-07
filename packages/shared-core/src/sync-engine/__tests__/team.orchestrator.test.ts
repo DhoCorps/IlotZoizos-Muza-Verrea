@@ -1,13 +1,12 @@
 // packages/shared-core/src/sync-engine/__test__/team.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TeamOrchestrator } from '../team.orchestrator';
-import { TeamModel } from '@ilot/infrastructure/src/database/models/nosql/team.model';
-import { OiseauModel } from '@ilot/infrastructure/src/database/models/nosql/user.model';
+import { TeamModel, OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 import { CAPABILITIES } from '@ilot/types';
 
-vi.mock('@ilot/infrastructure/src/database/models/nosql/team.model', () => ({
+vi.mock('@ilot/infrastructure', () => ({
   TeamModel: {
     create: vi.fn(),
     findOne: vi.fn(),

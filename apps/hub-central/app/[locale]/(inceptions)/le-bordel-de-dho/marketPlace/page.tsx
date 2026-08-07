@@ -2,9 +2,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import ResonanceButton from '../../../../../components/resonance/ResonanceButton'; 
+import ResonanceButton from '@/components/resonance/ResonanceButton'; 
 import { Scale } from 'lucide-react'; // ⚖️ NOUVEAU : Icône du comparateur
-import { ProductComparator } from '../../../../../components/ecommerce/comparator/ProductComparator'; // ⚖️ NOUVEAU : Composant comparateur
+import { ProductComparator } from '@/components/ecommerce/comparator/ProductComparator'; // ⚖️ NOUVEAU : Composant comparateur
 
 interface Product {
   uid: string;

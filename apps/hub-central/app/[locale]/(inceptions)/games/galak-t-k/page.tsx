@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
-import GalakTKLobbyOrRoom from '../../../../../components/games/galak-t-k/GalakTKLobbyOrRoom';
+import GalakTKLobbyOrRoom from '@/components/games/galak-t-k/GalakTKLobbyOrRoom';
 
 export default async function GalakTKPage({
   params,

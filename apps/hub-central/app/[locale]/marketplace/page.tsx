@@ -1,6 +1,6 @@
 // apps/hub-central/app/[locale]/marketplace/page.tsx
-import { BarterMatchmakerCard } from '../../../components/ecommerce/barter/BarterMatchModelCard';
-import { BarterList } from '../../../components/ecommerce/barter/BarterList';
+import { BarterMatchmakerCard } from '@/components/ecommerce/barter/BarterMatchModelCard';
+import { BarterList } from '@/components/ecommerce/barter/BarterList';
 import { Sparkles, ShoppingBag, Compass } from 'lucide-react';
 
 export default async function MarketplacePage() {

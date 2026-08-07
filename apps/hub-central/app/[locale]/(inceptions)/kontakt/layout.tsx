@@ -1,6 +1,6 @@
 // apps/hub-central/app/[locale]/(inceptions)/kontakt/layout.tsx
 'use client';
-import Sidebar from "../../../../components/navigation/Sidebar";
+import Sidebar from "@/components/navigation/Sidebar";
 
 export default function KontaktLayout({ children }: { children: React.ReactNode }) {
   return (

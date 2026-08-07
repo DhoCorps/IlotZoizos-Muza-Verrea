@@ -1,7 +1,6 @@
 // packages/shared-core/src/sync-engine/task.resonance.orchestrator.ts
 import { TaskResonanceInput } from './../utils/seve.engine';
-import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model';
-import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
+import { TaskModel, OiseauModel } from '../../../infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';

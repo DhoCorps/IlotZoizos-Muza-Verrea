@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth/next";
 import { ProjectOrchestrator } from '@ilot/shared-core';
 import { ProjectModel, getNeo4jSession, connectToDatabase } from '@ilot/infrastructure';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
-import { authOptions } from "../../../../lib/auth"; 
+import { authOptions } from "@/lib/auth"; 
 
 interface RouteParams { params: Promise<{ projectId: string }> }
 

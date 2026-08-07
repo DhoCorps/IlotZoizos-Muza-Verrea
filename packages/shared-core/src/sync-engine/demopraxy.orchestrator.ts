@@ -1,7 +1,6 @@
 // packages/shared-core/src/sync-engine/demopraxy.orchestrator.ts
 import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
 import { TransactionManager } from './transactionManager';
-import { getNeo4jSession } from '../../../infrastructure/src/database/neo4j';
 import { IlotError } from '../errors/ilot.errors';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 

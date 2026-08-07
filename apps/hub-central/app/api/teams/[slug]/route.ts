@@ -3,7 +3,8 @@ import { getServerSession } from 'next-auth/next';
 import { TeamOrchestrator } from "@ilot/shared-core";
 import { getNeo4jSession, connectToDatabase, TeamModel } from '@ilot/infrastructure';
 import { CAPABILITIES, ActionSignature } from '@ilot/types'; 
-import { authOptions } from "../../../../lib/auth";
+import { authOptions } from "@/lib/auth";
+import { slugify } from '@/lib/slugify';
 
 /**
  * 🌿 INTERFACE DES PARAMÈTRES DE ROUTE ([slug])
@@ -86,14 +87,15 @@ export async function GET(req: Request, { params }: RouteParams) {
     const userUid = (session?.user as any)?.uid;
     if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
 
-    let resolvedParams;
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ error: "Identifiant de nid invalide." }, { status: 400 });
     }
 
-    const teamIdentifier = resolvedParams.slug;
+    const teamIdentifier = slugify(rawSlug || '');
 
     let team;
     try {
@@ -177,14 +179,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const userUid = (session?.user as any)?.uid;
     if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
 
-    let resolvedParams;
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ error: "Identifiant de nid invalide." }, { status: 400 });
     }
 
-    const teamIdentifier = resolvedParams.slug;
+    const teamIdentifier = slugify(rawSlug || '');
 
     let team;
     try {
@@ -262,14 +265,15 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     const userUid = (session?.user as any)?.uid;
     if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
 
-    let resolvedParams;
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ error: "Identifiant de nid invalide." }, { status: 400 });
     }
 
-    const teamIdentifier = resolvedParams.slug;
+    const teamIdentifier = slugify(rawSlug || '');
 
     let team;
     try {

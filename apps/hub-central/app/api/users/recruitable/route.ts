@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { connectToDatabase, OiseauModel, getNeo4jSession } from "@ilot/infrastructure"; 
-import { authOptions } from "../../../../lib/auth"; // Ajuste le chemin selon ton arborescence
+import { authOptions } from "@/lib/auth"; // Ajuste le chemin selon ton arborescence
 
 export const dynamic = 'force-dynamic';
 

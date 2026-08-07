@@ -3,10 +3,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { Heart, Loader2, PackageX, ArrowLeft } from 'lucide-react';
-import { Link } from '../../../../../navigation';
-import { ProductCard } from '../../../../../components/ecommerce/products/ProductCard'; // Assure-toi que ce chemin correspond
+import { Link } from '@/navigation';
+import { ProductCard } from '@/components/ecommerce/products/ProductCard'; // Assure-toi que ce chemin correspond
 import { useWishlistStore } from '@ilot/shared-core';
-import { ecommerce } from '../../../../../lib/apiClient';
+import { ecommerce } from '@/lib/apiClient';
 
 export default function WishlistPage() {
   const [products, setProducts] = useState<any[]>([]);

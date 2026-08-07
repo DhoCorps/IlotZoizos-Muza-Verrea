@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { connectToDatabase, FontProject } from '@ilot/infrastructure';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../../lib/auth"; // 🪡 Ajuste la profondeur si nécessaire
+import { authOptions } from "@/lib/auth";
+import { slugify } from '@/lib/slugify';
 
-// 🪡 Next.js impose que `params` soit traité comme une Promise
 interface RouteParams {
   params: Promise<{ slug: string }>;
 }
@@ -38,10 +38,11 @@ export async function PUT(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Requête ou paramètres invalides." }, { status: 400 });
     }
 
+    const slug = slugify(resolvedParams.slug || '');
+
     let updated;
     try {
-      // 🪡 On utilise le slug comme ID
-      updated = await FontProject.findByIdAndUpdate(resolvedParams.slug, body, { new: true }).lean();
+      updated = await FontProject.findOneAndUpdate({ slug }, body, { new: true }).lean();
     } catch (updateErr) {
       console.error("🔥 [FONTS PUT UPDATE ERROR]", updateErr);
       return NextResponse.json({ error: "Échec de la mutation du projet." }, { status: 500 });
@@ -87,9 +88,11 @@ export async function DELETE(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
     }
 
+    const slug = slugify(resolvedParams.slug || '');
+
     let deleted;
     try {
-      deleted = await FontProject.findByIdAndDelete(resolvedParams.slug);
+      deleted = await FontProject.findOneAndDelete({ slug });
     } catch (delErr) {
       console.error("🔥 [FONTS DELETE ERROR]", delErr);
       return NextResponse.json({ error: "Échec de la dissolution du projet." }, { status: 500 });

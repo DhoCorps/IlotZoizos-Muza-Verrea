@@ -1,6 +1,5 @@
 // packages/shared-core/src/sync-engine/task.orchestrator.ts
-import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model';
-import { ProjectModel } from '../../../infrastructure/src/database/models/nosql/project.model';
+import { TaskModel, ProjectModel } from '../../../infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ITask, TaskStatus, CAPABILITIES, ActionSignature } from '@ilot/types'; 
 import { IlotError } from '../errors/ilot.errors'; 

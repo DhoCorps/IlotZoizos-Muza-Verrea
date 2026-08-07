@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { Sparkles, Compass, Flame, Shield, Briefcase, Plus, User, Terminal } from 'lucide-react';
 import { useKontakt } from './useKontakt';
-import KontaktSwipeDeck from '../../../../components/kontakt/KontaktSwipeDeck';
+import KontaktSwipeDeck from '@/components/kontakt/KontaktSwipeDeck';
 
 // 🕸️ Le Tisseur est importé et sera passé aux cartes enfants (ex: KontaktSwipeDeck) 
 // ou utilisé directement quand on affichera le profil d'un autre oiseau.

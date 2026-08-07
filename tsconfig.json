@@ -15,10 +15,9 @@
     "jsx": "preserve",
     "incremental": true,
     
-    /* 🛡️ SUTURE FINALE : Pas de baseUrl, pas de ignoreDeprecations. 
-       On utilise uniquement des chemins relatifs commençant par ./ 
-    */
+    /* 🛡️ SUTURE MODERNE : Pas de baseUrl, résolution directe des chemins */
     "paths": {
+      "@/*": ["./apps/hub-central/*"],
       "@ilot/*": ["./packages/*/src", "./apps/*/src"]
     },
     
@@ -32,12 +31,12 @@
   },
   "include": [
     "next-env.d.ts",
-    "next-env.d.ts",
     "declaration.d.ts",
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    "packages/infrastructure/src/scripts/seed/seed-script.cjs"
+    "packages/infrastructure/src/scripts/seed/seed-script.cjs",
+    "vitest.config.mts"
   ],
   "exclude": ["node_modules", "dist", ".next"]
 }

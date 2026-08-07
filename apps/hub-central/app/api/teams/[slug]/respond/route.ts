@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { TeamModel, OiseauModel, ProjectModel, TaskModel, connectToDatabase, getNeo4jSession } from '@ilot/infrastructure'; 
-import { authOptions } from "../../../../../lib/auth"; 
+import { authOptions } from "@/lib/auth"; 
 import { TransactionManager } from '@ilot/shared-core';
+import { slugify } from '@/lib/slugify';
 
 /**
  * 🌿 INTERFACE DES PARAMÈTRES DE ROUTE ([slug])
@@ -41,16 +42,17 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // -------------------------------------------------------------------------
-    // 3. RÉSOLUTION DES PARAMÈTRES DYNAMIQUES DE L'URL ([slug])
+    // 3. RÉSOLUTION ET SLUGIFICATION DES PARAMÈTRES DYNAMIQUES DE L'URL ([slug])
     // -------------------------------------------------------------------------
-    let resolvedParams;
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ error: "Identifiant de nid (slug) invalide." }, { status: 400 });
     }
 
-    const teamIdentifier = resolvedParams.slug;
+    const teamIdentifier = slugify(rawSlug || '');
 
     // -------------------------------------------------------------------------
     // 4. DÉCODAGE SÉCURISÉ DU CORPS DE REQUÊTE (JSON)
@@ -69,7 +71,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // -------------------------------------------------------------------------
-    // 5. RÉCUPÉRATION DU NID DANS LA SILICE (Supporte slug ou uid)
+    // 5. RÉCUPÉRATION DU NID DANS LA SILICE (Supporte slug normalisé ou uid)
     // -------------------------------------------------------------------------
     let team;
     try {

@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../lib/auth";
+import { authOptions } from "@/lib/auth";
 import { connectToDatabase, SujetModel } from '@ilot/infrastructure';
 import { SujetOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
+import { slugify } from '@/lib/slugify';
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -21,15 +22,17 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
     }
 
-    let slug;
+    let rawSlug;
     try {
       const resolvedParams = await params;
-      slug = resolvedParams.slug;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       console.error("🔥 [PARAM ERROR SUJET GET]", paramErr);
       return NextResponse.json({ error: "Identifiant de sujet invalide." }, { status: 400 });
     }
     
+    const slug = slugify(rawSlug || '');
+
     let session;
     try {
       session = await getServerSession(authOptions);
@@ -76,22 +79,6 @@ export async function GET(req: Request, { params }: RouteParams) {
 // ==========================================
 export async function PUT(req: Request, { params }: RouteParams) {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR SUJET PUT]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let slug;
-    try {
-      const resolvedParams = await params;
-      slug = resolvedParams.slug;
-    } catch (paramErr) {
-      console.error("🔥 [PARAM ERROR SUJET PUT]", paramErr);
-      return NextResponse.json({ error: "Identifiant de sujet invalide." }, { status: 400 });
-    }
-    
     let session;
     try {
       session = await getServerSession(authOptions);
@@ -106,6 +93,24 @@ export async function PUT(req: Request, { params }: RouteParams) {
     if (!userUid) {
       return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
     }
+
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR SUJET PUT]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
+    }
+
+    let rawSlug;
+    try {
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
+    } catch (paramErr) {
+      console.error("🔥 [PARAM ERROR SUJET PUT]", paramErr);
+      return NextResponse.json({ error: "Identifiant de sujet invalide." }, { status: 400 });
+    }
+    
+    const slug = slugify(rawSlug || '');
 
     let sujet;
     try {
@@ -161,22 +166,6 @@ export async function PUT(req: Request, { params }: RouteParams) {
 // ==========================================
 export async function DELETE(req: Request, { params }: RouteParams) {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR SUJET DELETE]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let slug;
-    try {
-      const resolvedParams = await params;
-      slug = resolvedParams.slug;
-    } catch (paramErr) {
-      console.error("🔥 [PARAM ERROR SUJET DELETE]", paramErr);
-      return NextResponse.json({ error: "Identifiant de sujet invalide." }, { status: 400 });
-    }
-    
     let session;
     try {
       session = await getServerSession(authOptions);
@@ -191,6 +180,24 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     if (!userUid) {
       return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
     }
+
+    try {
+      await connectToDatabase();
+    } catch (dbErr) {
+      console.error("❌ [DB ERROR SUJET DELETE]", dbErr);
+      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
+    }
+
+    let rawSlug;
+    try {
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
+    } catch (paramErr) {
+      console.error("🔥 [PARAM ERROR SUJET DELETE]", paramErr);
+      return NextResponse.json({ error: "Identifiant de sujet invalide." }, { status: 400 });
+    }
+    
+    const slug = slugify(rawSlug || '');
 
     let sujet;
     try {

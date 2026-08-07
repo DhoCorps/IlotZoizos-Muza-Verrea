@@ -1,6 +1,6 @@
 // apps/hub-central/app/[locale]/(inceptions)/dashboard/layout.tsx
 import React from 'react';
-import Sidebar from '../../../../components/navigation/Sidebar';
+import Sidebar from '@/components/navigation/Sidebar';
 
 export default function DashboardLayout({
   children,

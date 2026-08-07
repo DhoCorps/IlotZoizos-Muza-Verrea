@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { TeamOrchestrator } from "@ilot/shared-core";
 import { ActionSignature } from "@ilot/types";
-import { authOptions } from "../../../../../lib/auth"; 
+import { authOptions } from "@/lib/auth"; 
 import { connectToDatabase } from '@ilot/infrastructure';
+import { slugify } from '@/lib/slugify';
 
 /**
  * 🌿 INTERFACE DES PARAMÈTRES DE ROUTE ([slug])
@@ -45,17 +46,18 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     // -------------------------------------------------------------------------
-    // 3. RÉSOLUTION DES PARAMÈTRES DYNAMIQUES DE L'URL ([slug])
+    // 3. RÉSOLUTION ET SLUGIFICATION DES PARAMÈTRES DYNAMIQUES DE L'URL ([slug])
     // -------------------------------------------------------------------------
-    let resolvedParams;
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       console.error("🔥 [PARAM ERROR TEAM MEMBERS POST]", paramErr);
       return NextResponse.json({ error: "Identifiant de nid invalide." }, { status: 400 });
     }
 
-    const teamIdentifier = resolvedParams.slug;
+    const teamIdentifier = slugify(rawSlug || '');
 
     // -------------------------------------------------------------------------
     // 4. DÉCODAGE SÉCURISÉ DU MOUVEMENT (CORPS DE REQUÊTE JSON)

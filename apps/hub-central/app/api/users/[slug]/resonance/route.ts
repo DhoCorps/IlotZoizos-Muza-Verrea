@@ -1,12 +1,12 @@
-// apps/hub-central/app/api/users/[slug]/resonance/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../../lib/auth"; // Ajuste le chemin si besoin
+import { authOptions } from "@/lib/auth"; 
 import { connectToDatabase, OiseauModel } from '@ilot/infrastructure';
 import { TaskResonanceOrchestrator, ResonanceOrchestrator } from '@ilot/shared-core';
 import { ActionSignature, ResonanceType, IResonancePayload } from '@ilot/types';
+import { slugify } from '@/lib/slugify';
 
 /**
  * 🌿 INTERFACE DES PARAMÈTRES
@@ -24,9 +24,7 @@ interface OiseauUser {
 
 export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
-    // -------------------------------------------------------------------------
     // 1. ÉVEIL DE LA SILICE
-    // -------------------------------------------------------------------------
     try {
       await connectToDatabase();
     } catch (dbErr) {
@@ -34,20 +32,17 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
     }
 
-    // -------------------------------------------------------------------------
-    // 2. RÉSOLUTION DES PARAMÈTRES
-    // -------------------------------------------------------------------------
-    let resolvedParams;
+    // 2. RÉSOLUTION ET SLUGIFICATION DES PARAMÈTRES
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ error: "Paramètres de route invalides." }, { status: 400 });
     }
-    const targetSlug = resolvedParams.slug;
+    const targetSlug = slugify(rawSlug || '');
 
-    // -------------------------------------------------------------------------
     // 3. IDENTIFICATION DE L'OISEAU (L'AURA)
-    // -------------------------------------------------------------------------
     let session;
     try {
       session = await getServerSession(authOptions);
@@ -64,24 +59,19 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     const signature: ActionSignature = { actorUid, capabilities };
 
-    // -------------------------------------------------------------------------
-    // 4. PARSAGE DU CORPS DE REQUÊTE (Aiguillage)
-    // -------------------------------------------------------------------------
+    // 4. PARSAGE DU CORPS DE REQUÊTE
     let body: any = {};
     try {
       const text = await req.text();
       if (text) body = JSON.parse(text);
-    } catch (e) {
-      // Body optionnel, on ignore l'erreur de parsage
-    }
+    } catch (e) {}
 
     const { action, type, entityId } = body;
 
-    // -------------------------------------------------------------------------
     // 5A. MODE ABONNEMENT (WEAVE / SEVER)
-    // -------------------------------------------------------------------------
     if (action === 'WEAVE' || action === 'SEVER') {
-      if (actorUid === targetSlug) {
+      // Comparaison robuste (slugifiée) pour éviter de résonner avec soi-même
+      if (actorUid === targetSlug || slugify(actorUid) === targetSlug) {
         return NextResponse.json({ error: "On ne peut résonner avec soi-même." }, { status: 400 });
       }
 
@@ -105,7 +95,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       };
 
       if (action === 'WEAVE') {
-        // 🕸️ Appel statique
         const isHarmonic = await ResonanceOrchestrator.weaveResonance(payload);
         
         if (type === 'FOLLOWS_GLOBAL') {
@@ -116,7 +105,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         return NextResponse.json({ success: true, message: "Les fils sont liés.", isHarmonic }, { status: 200 });
 
       } else { // SEVER
-        // ✂️ Appel statique
         await ResonanceOrchestrator.severResonance(payload);
 
         if (type === 'FOLLOWS_GLOBAL') {
@@ -128,12 +116,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // -------------------------------------------------------------------------
     // 5B. MODE CALCUL (COMPORTEMENT HISTORIQUE PAR DÉFAUT)
-    // -------------------------------------------------------------------------
     let result;
     try {
       const taskOrchestrator = new TaskResonanceOrchestrator();
+      // On passe targetSlug (normalisé)
       result = await taskOrchestrator.processUserTaskResonance(targetSlug, signature);
     } catch (orchErr: any) {
       console.error("🌋 [ORCHESTRATOR RESONANCE ERROR]", orchErr);

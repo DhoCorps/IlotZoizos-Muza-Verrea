@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ecommerce } from '../../../../lib/apiClient';
+import { ecommerce } from '@/lib/apiClient';
 
 export function useEcommerce() {
   const [products, setProducts] = useState<any[]>([]);

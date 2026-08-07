@@ -3,8 +3,8 @@
 
 import React, { useState } from 'react';
 import { useBlockEngine, UniversalGridCanvas, } from '@ilot/shared-core';
-import { cvRegistry } from '../../../../../components/kontakt/cv-editor/cvRegistry';
-import { CVSidebarPanel } from '../../../../../components/kontakt/cv-editor/CVSideBarPanel';
+import { cvRegistry } from '@/components/kontakt/cv-editor/cvRegistry';
+import { CVSidebarPanel } from '@/components/kontakt/cv-editor/CVSideBarPanel';
 import { Sparkles, Save, ArrowLeft, Plus, Loader2, Share2, Type } from 'lucide-react';
 import Link from 'next/link';
 

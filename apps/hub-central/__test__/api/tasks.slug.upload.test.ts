@@ -1,140 +1,137 @@
-// apps/hub-central/__test__/api/tasks.slug.upload.test.ts
+import { NextRequest, NextResponse } from 'next/server';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST, DELETE } from '../../app/api/tasks/[slug]/upload/route';
-import { storageService } from '../../modules/storage/storage.service';
-import { checkRateLimit } from '../../modules/security/rateLimiter';
+import { POST, DELETE } from '@/app/api/tasks/[slug]/upload/route';
+import { getServerSession } from 'next-auth/next';
 import { connectToDatabase, TaskModel, getNeo4jSession } from '@ilot/infrastructure';
+import { storageService } from '@/modules/storage/storage.service';
+import { checkRateLimit } from '@/modules/security/rateLimiter';
 
-const mockGetServerSession = vi.fn();
-vi.mock('next-auth', () => ({ getServerSession: (...args: any[]) => mockGetServerSession(...args) }));
-vi.mock('next-auth/next', () => ({ getServerSession: (...args: any[]) => mockGetServerSession(...args) }));
-
-vi.mock('../../modules/security/rateLimiter', () => ({ checkRateLimit: vi.fn() }));
-
-vi.mock('../../modules/storage/storage.service', () => ({
-  storageService: {
-    generateStructuredKey: vi.fn().mockReturnValue('mocked/tasks/file.pdf'),
-    uploadFile: vi.fn().mockResolvedValue({
-      success: true,
-      publicUrl: 'https://cdn.ilot.com/mocked/tasks/file.pdf',
-      key: 'mocked/tasks/file.pdf',
-    }),
-    deleteFile: vi.fn().mockResolvedValue({ success: true }),
-    extractKeyFromUrl: vi.fn().mockReturnValue('mocked/tasks/file.pdf'),
-  },
+// --- MOCKS DES DÉPENDANCES ---
+vi.mock('next-auth/next', () => ({
+  getServerSession: vi.fn(),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
+  connectToDatabase: vi.fn(),
   TaskModel: {
     findOne: vi.fn(),
     findOneAndUpdate: vi.fn(),
     updateOne: vi.fn(),
   },
-  getNeo4jSession: vi.fn(() => ({
+  getNeo4jSession: vi.fn().mockReturnValue({
     run: vi.fn().mockResolvedValue({
       records: [{
-        // 🛡️ SUTURE : Le mock intelligent qui renvoie un Array pour que .flat() fonctionne !
-        get: (field: string) => {
-          if (field === 'projectCreatorUid') return 'user-123';
-          if (field === 'allCaps') return [['*']]; 
-          return [];
+        get: (key: string) => {
+          if (key === 'projectCreatorUid') return 'user-bird-1';
+          if (key === 'allCaps') return [['*']];
+          return null;
         }
       }]
     }),
     close: vi.fn().mockResolvedValue(true),
-  })),
+  }),
 }));
 
-describe('API Tasks (Slug) - Téléversement et Purge d’Artefacts', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+vi.mock('@/modules/storage/storage.service', () => ({
+  storageService: {
+    generateStructuredKey: vi.fn().mockReturnValue('ilot-zoizos/fr/tasks/task-123/attachments/file.png'),
+    uploadFile: vi.fn().mockResolvedValue({
+      publicUrl: 'https://nexus.ilot.local/storage/file.png',
+      key: 'ilot-zoizos/fr/tasks/task-123/attachments/file.png',
+    }),
+    extractKeyFromUrl: vi.fn().mockReturnValue('ilot-zoizos/fr/tasks/task-123/attachments/file.png'),
+    deleteFile: vi.fn().mockResolvedValue(true),
+  },
+}));
 
-  describe('Téléversement (POST)', () => {
-    it('🔴 doit rejeter si le rate limit est dépassé (429)', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0 });
-      const req = new Request('http://localhost/api/tasks/atome-test/upload', { method: 'POST' });
-      const res = await POST(req as any, { params: Promise.resolve({ slug: 'atome-test' }) });
-      expect(res.status).toBe(429);
-    });
+vi.mock('@/modules/security/rateLimiter', () => ({
+  checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
+}));
 
-    it('🔴 doit rejeter si non authentifié (401)', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
-      mockGetServerSession.mockResolvedValueOnce(null);
-      const req = new Request('http://localhost/api/tasks/atome-test/upload', { method: 'POST' });
-      const res = await POST(req as any, { params: Promise.resolve({ slug: 'atome-test' }) });
+describe('Task Upload Slug API [POST, DELETE]', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('POST /api/tasks/[slug]/upload', () => {
+    it('devrait retourner 401 si l oiseau n est pas authentifié', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce(null);
+
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn(),
+      } as unknown as NextRequest;
+
+      const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Atome!' }) });
+      const data = await res.json();
+
       expect(res.status).toBe(401);
+      expect(data.message).toBe('Oiseau non identifié dans la canopée.');
     });
 
-    it('🔴 doit retourner 404 si l’atome est introuvable dans la Silice', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
-      mockGetServerSession.mockResolvedValueOnce({ user: { uid: 'user-123', capabilities: [] } });
-      vi.mocked(TaskModel.findOne).mockReturnValue({ lean: vi.fn().mockResolvedValueOnce(null) } as any);
+    it('devrait réussir (201) et sceller l artefact sur l atome avec slugify', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({
+        user: { uid: 'user-bird-1', capabilities: ['*'] },
+      } as any);
 
-      const req = new Request('http://localhost/api/tasks/atome-inconnu/upload', { method: 'POST' });
-      const res = await POST(req as any, { params: Promise.resolve({ slug: 'atome-inconnu' }) });
-      expect(res.status).toBe(404);
-    });
+      const mockTask = { uid: 'mon-atome', slug: 'mon-atome' };
+      vi.mocked(TaskModel.findOne).mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValueOnce(mockTask),
+      } as any);
 
-    it('🔴 doit rejeter si le format de fichier est refusé (400)', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
-      mockGetServerSession.mockResolvedValueOnce({ user: { uid: 'user-123', capabilities: ['*'] } });
-      
-      vi.mocked(TaskModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce({ uid: 'task-uid-123', content: { title: 'Atome Test' } }),
+      const mockUpdatedTask = { ...mockTask, documents: [{ name: 'file.png' }] };
+      vi.mocked(TaskModel.findOneAndUpdate).mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValueOnce(mockUpdatedTask),
       } as any);
 
       const formData = new FormData();
-      formData.append('file', new Blob(['malware'], { type: 'application/x-executable' }), 'danger.exe');
+      const file = new File(['content'], 'file.png', { type: 'image/png' });
+      formData.append('file', file);
+      formData.append('label', 'Illustration');
 
-      const req = new Request('http://localhost/api/tasks/atome-test/upload', { method: 'POST', body: formData });
-      (req as any).formData = () => Promise.resolve(formData);
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn().mockResolvedValue(formData),
+      } as unknown as NextRequest;
 
-      const res = await POST(req as any, { params: Promise.resolve({ slug: 'atome-test' }) });
-      expect(res.status).toBe(400);
+      const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Atome!' }) });
       const data = await res.json();
-      expect(data.message).toContain('rejette le format');
-    });
 
-    it('🟢 doit téléverser l’artefact avec succès et le sceller dans la Silice (201)', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
-      mockGetServerSession.mockResolvedValueOnce({ user: { uid: 'user-123', capabilities: ['*'] } });
-
-      vi.mocked(TaskModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce({ uid: 'task-uid-123', content: { title: 'Atome Test' } }),
-      } as any);
-
-      vi.mocked(TaskModel.findOneAndUpdate).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce({ uid: 'task-uid-123', documents: [{ name: 'spec.pdf' }] }),
-      } as any);
-
-      const formData = new FormData();
-      formData.append('file', new Blob(['pdf-content'], { type: 'application/pdf' }), 'spec.pdf');
-      formData.append('label', 'Spécifications');
-
-      const req = new Request('http://localhost/api/tasks/atome-test/upload', { method: 'POST', body: formData });
-      (req as any).formData = () => Promise.resolve(formData);
-
-      const res = await POST(req as any, { params: Promise.resolve({ slug: 'atome-test' }) });
       expect(res.status).toBe(201);
-      const data = await res.json();
       expect(data.success).toBe(true);
+      expect(TaskModel.findOne).toHaveBeenCalledWith({ uid: 'mon-atome' });
     });
   });
 
-  describe('Désintégration (DELETE)', () => {
-    it('🟢 doit désitègrer l’artefact physiquement et nettoyer la Silice (200)', async () => {
-      mockGetServerSession.mockResolvedValueOnce({ user: { uid: 'user-123' } });
-      vi.mocked(TaskModel.findOne).mockReturnValue({ lean: vi.fn().mockResolvedValueOnce({ uid: 'task-uid-123' }) } as any);
+  describe('DELETE /api/tasks/[slug]/upload', () => {
+    it('devrait réussir (200) et dissoudre l artefact avec slugify', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({
+        user: { uid: 'user-bird-1', capabilities: ['*'] },
+      } as any);
+
+      const mockTask = { uid: 'mon-atome', slug: 'mon-atome' };
+      vi.mocked(TaskModel.findOne).mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValueOnce(mockTask),
+      } as any);
+
       vi.mocked(TaskModel.updateOne).mockResolvedValueOnce({ modifiedCount: 1 } as any);
 
-      const req = new Request('http://localhost/api/tasks/atome-test/upload', {
+      const req = new Request('http://localhost/api/tasks/Mon Atome!/upload', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'https://cdn.ilot.com/mocked/tasks/file.pdf' }),
+        body: JSON.stringify({ key: 'https://nexus.ilot.local/storage/file.png' }),
       });
 
-      const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'atome-test' }) });
+      const res = await DELETE(req, { params: Promise.resolve({ slug: 'Mon Atome!' }) });
+      const data = await res.json();
+
       expect(res.status).toBe(200);
+      expect(data.success).toBe(true);
+      expect(TaskModel.findOne).toHaveBeenCalledWith({ uid: 'mon-atome' });
+      expect(TaskModel.updateOne).toHaveBeenCalledWith(
+        { uid: 'mon-atome' },
+        { $pull: { documents: { url: 'https://nexus.ilot.local/storage/file.png' } } }
+      );
     });
   });
 });

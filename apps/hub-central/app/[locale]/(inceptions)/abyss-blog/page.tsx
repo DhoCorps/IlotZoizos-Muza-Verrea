@@ -7,8 +7,8 @@ import {
   Type, Plus, Trash2, Edit3, BookOpen, Loader2, 
   Layers, Filter, Sparkles, FolderPlus, Compass 
 } from 'lucide-react';
-import { SujetForm } from '../../../../components/abyss-blog/sujets/SujetForm';
-import ResonanceButton from '../../../../components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Import du Bouton de Résonance
+import { SujetForm } from '@/components/abyss-blog/sujets/SujetForm';
+import ResonanceButton from '@/components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Import du Bouton de Résonance
 
 export default function AbyssBlogDashboard() {
   const [sujets, setSujets] = useState<any[]>([]);

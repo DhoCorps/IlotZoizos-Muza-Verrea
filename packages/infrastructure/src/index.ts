@@ -14,6 +14,7 @@ export * from './database/models/nosql/partita.model';
 
 export * from './database/models/nosql/letrinSprite.model';
 export * from './database/models/nosql/fontProject.model';
+export * from './database/models/nosql/font.model'
 
 
 export * from './database/models/nosql/kontaktProfile.model';

@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { connectToDatabase, PartitaModel } from '@ilot/infrastructure';
 import { PartitaOrchestrator } from '@ilot/shared-core';
-import { authOptions } from "../../../../lib/auth"; // 🪡 Ajuste si besoin
+import { authOptions } from "@/lib/auth";
 import { ActionSignature, CAPABILITIES } from '@ilot/types';
+import { slugify } from '@/lib/slugify';
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -24,6 +25,8 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Paramètres de route invalides." }, { status: 400 });
     }
 
+    const slug = slugify(resolvedParams.slug || '');
+
     let session;
     try {
       session = await getServerSession(authOptions);
@@ -37,7 +40,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     let partition;
     try {
       partition = await PartitaModel.findOne({ 
-        $or: [{ slug: resolvedParams.slug }, { uid: resolvedParams.slug }] 
+        $or: [{ slug: slug }, { uid: slug }] 
       }).lean();
     } catch (queryErr) {
       console.error("🔥 [PARTITA SLUG GET ERROR]", queryErr);
@@ -94,6 +97,8 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Corps de requête ou paramètres illisibles." }, { status: 400 });
     }
 
+    const slug = slugify(resolvedParams.slug || '');
+
     const signature: ActionSignature = {
         actorUid: userUid,
         capabilities: sessionCaps
@@ -102,7 +107,7 @@ export async function PUT(req: Request, { params }: RouteParams) {
     let updatedPartition;
     try {
       const partitaOrch = new PartitaOrchestrator();
-      updatedPartition = await partitaOrch.updatePartita(resolvedParams.slug, body, signature);
+      updatedPartition = await partitaOrch.updatePartita(slug, body, signature);
     } catch (orchErr: any) {
       console.error("🔥 [PARTITA ORCHESTRATOR PUT ERROR]", orchErr);
       const status = orchErr.statusCode || 500;
@@ -144,6 +149,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
     }
 
+    const slug = slugify(resolvedParams.slug || '');
+
     const signature: ActionSignature = {
         actorUid: userUid,
         capabilities: sessionCaps
@@ -151,7 +158,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     try {
       const partitaOrch = new PartitaOrchestrator();
-      await partitaOrch.disintegratePartita(resolvedParams.slug, signature);
+      await partitaOrch.disintegratePartita(slug, signature);
     } catch (orchErr: any) {
       console.error("🔥 [PARTITA ORCHESTRATOR DELETE ERROR]", orchErr);
       const status = orchErr.statusCode || 500;

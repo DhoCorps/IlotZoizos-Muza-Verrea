@@ -1,8 +1,8 @@
 // apps/hub-central/__test__/component/pomodoro.test.tsx
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { PomodoroProvider, usePomodoro } from '../../context/PomodoroContext';
-import * as actions from '../../app/actions/kanban.actions';
+import { PomodoroProvider, usePomodoro } from '@/context/PomodoroContext';
+import * as actions from '@/app/actions/kanban.actions';
 
 Object.defineProperty(window.HTMLMediaElement.prototype, 'play', {
   configurable: true,

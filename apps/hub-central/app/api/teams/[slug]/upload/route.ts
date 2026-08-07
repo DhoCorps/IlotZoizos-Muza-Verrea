@@ -1,12 +1,12 @@
-// apps/hub-central/app/api/teams/[slug]/upload/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
-import { authOptions } from '../../../../../lib/auth';
-import { storageService } from '../../../../../modules/storage/storage.service';
-import { checkRateLimit } from '../../../../../modules/security/rateLimiter';
+import { authOptions } from '@/lib/auth';
+import { storageService } from '@/modules/storage/storage.service';
+import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { connectToDatabase, getNeo4jSession } from '@ilot/infrastructure'; 
 import { TeamModel, ITeamDocument } from '@ilot/infrastructure'; 
 import { CAPABILITIES } from '@ilot/types'; 
+import { slugify } from '@/lib/slugify';
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -64,11 +64,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ success: false, message: "La Silice est injoignable." }, { status: 500 });
     }
 
-    let resolvedParams;
-    try { resolvedParams = await params; } catch (paramErr) {
+    let rawSlug;
+    try {
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
+    } catch (paramErr) {
       return NextResponse.json({ success: false, message: "Identifiant de nid invalide." }, { status: 400 });
     }
-    const teamIdentifier = resolvedParams.slug;
+    const teamIdentifier = slugify(rawSlug || '');
 
     let session;
     try { session = await getServerSession(authOptions); } catch (sessionErr) {
@@ -80,7 +83,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ success: false, message: "Oiseau non identifié dans la canopée." }, { status: 401 });
     }
 
-    // Recherche de l'escouade/nid par slug ou uid dans MongoDB
+    // Recherche de l'escouade/nid par slug normalisé ou uid dans MongoDB
     let team: ITeamDocument | null = null;
     try {
       team = await TeamModel.findOne({ 
@@ -194,11 +197,14 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
     }
 
-    let resolvedParams;
-    try { resolvedParams = await params; } catch (paramErr) {
+    let rawSlug;
+    try {
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
+    } catch (paramErr) {
       return NextResponse.json({ error: "Identifiant de nid invalide." }, { status: 400 });
     }
-    const teamIdentifier = resolvedParams.slug;
+    const teamIdentifier = slugify(rawSlug || '');
 
     let session;
     try { session = await getServerSession(authOptions); } catch (sessionErr) {

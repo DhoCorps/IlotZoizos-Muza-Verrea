@@ -4,6 +4,7 @@
   "private": true,
   "main": "./src/index.ts",
   "dependencies": {
+    "@ilot/infrastructure": "workspace:*",
     "@ilot/types": "workspace:*",
     "zod": "^3.23.8"
   },

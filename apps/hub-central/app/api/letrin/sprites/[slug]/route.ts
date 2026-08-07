@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { connectToDatabase, LetterSpriteModel } from '@ilot/infrastructure';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../../lib/auth"; // 🪡 Ajuste la profondeur si nécessaire
+import { authOptions } from "@/lib/auth";
+import { slugify } from '@/lib/slugify';
 
 interface RouteParams { params: Promise<{ slug: string }> }
 
@@ -21,9 +22,11 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
+    const slug = slugify(resolvedParams.slug || '');
+
     let font;
     try {
-      font = await LetterSpriteModel.findOne({ slug: resolvedParams.slug }).lean();
+      font = await LetterSpriteModel.findOne({ slug }).lean();
     } catch (queryErr) {
       console.error("🔥 [SPRITE GET ERROR]", queryErr);
       return NextResponse.json({ error: "Fracture lors de la lecture." }, { status: 500 });
@@ -68,10 +71,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
     }
 
+    const slug = slugify(resolvedParams.slug || '');
+
     let updated;
     try {
       updated = await LetterSpriteModel.findOneAndUpdate(
-        { slug: resolvedParams.slug },
+        { slug },
         { $set: body },
         { new: true }
       ).lean();
@@ -117,9 +122,11 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
     }
 
+    const slug = slugify(resolvedParams.slug || '');
+
     let deleted;
     try {
-      deleted = await LetterSpriteModel.findOneAndDelete({ slug: resolvedParams.slug });
+      deleted = await LetterSpriteModel.findOneAndDelete({ slug });
     } catch (delErr) {
       console.error("🔥 [SPRITE DELETE ERROR]", delErr);
       return NextResponse.json({ error: "Erreur lors de la dissolution." }, { status: 500 });

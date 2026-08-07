@@ -2,15 +2,16 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { connectToDatabase, TaskModel, getNeo4jSession } from '@ilot/infrastructure'; 
 import { TaskOrchestrator } from '@ilot/shared-core';
-import { authOptions } from "../../../../lib/auth";
+import { authOptions } from "@/lib/auth";
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
+import { slugify } from '@/lib/slugify';
 
 /**
  * 🌿 INTERFACE DES PARAMÈTRES DE ROUTE
  * Conforme à l'exigence asynchrone de Next.js 15+ pour les segments dynamiques.
  */
 interface RouteParams {
-  params: Promise<{ taskId: string }>;
+  params: Promise<{ slug: string }>;
 }
 
 /**
@@ -90,12 +91,15 @@ export async function GET(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
     }
 
-    let resolvedParams;
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ error: "Identifiant d'atome invalide." }, { status: 400 });
     }
+
+    const taskId = slugify(rawSlug || '');
 
     let session;
     try {
@@ -112,7 +116,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     let caps: string[] = [];
     try {
-      caps = await getTaskCapabilities(userUid, resolvedParams.taskId);
+      caps = await getTaskCapabilities(userUid, taskId);
     } catch (capsErr) {
       console.error("🔥 [CAPS ERROR TASK GET]", capsErr);
     }
@@ -123,7 +127,7 @@ export async function GET(req: Request, { params }: RouteParams) {
 
     let task;
     try {
-      task = await TaskModel.findOne({ uid: resolvedParams.taskId }).lean();
+      task = await TaskModel.findOne({ uid: taskId }).lean();
     } catch (queryErr) {
       console.error("🔥 [TASK QUERY ERROR]", queryErr);
       return NextResponse.json({ error: "Échec de lecture dans la Silice." }, { status: 500 });
@@ -153,12 +157,15 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
     }
 
-    let resolvedParams;
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ error: "Identifiant d'atome invalide." }, { status: 400 });
     }
+
+    const taskId = slugify(rawSlug || '');
 
     let session;
     try {
@@ -174,7 +181,7 @@ export async function POST(req: Request, { params }: RouteParams) {
 
     let caps: string[] = [];
     try {
-      caps = await getTaskCapabilities(userUid, resolvedParams.taskId);
+      caps = await getTaskCapabilities(userUid, taskId);
     } catch (e) {}
 
     if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !caps.includes('*')) {
@@ -199,7 +206,7 @@ export async function POST(req: Request, { params }: RouteParams) {
         const taskOrch = new TaskOrchestrator();
         const newSubTask = await taskOrch.fosterTask({
           ...data,
-          parentUid: resolvedParams.taskId
+          parentUid: taskId
         }, signature);
         return NextResponse.json(newSubTask, { status: 201 });
       } catch (orchErr: any) {
@@ -230,12 +237,15 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
     }
 
-    let resolvedParams;
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ error: "Identifiant d'atome invalide." }, { status: 400 });
     }
+
+    const taskId = slugify(rawSlug || '');
 
     let session;
     try {
@@ -251,7 +261,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
 
     let caps: string[] = [];
     try {
-      caps = await getTaskCapabilities(userUid, resolvedParams.taskId);
+      caps = await getTaskCapabilities(userUid, taskId);
     } catch (e) {}
 
     if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !caps.includes('*')) {
@@ -273,7 +283,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     let updatedTask;
     try {
       const taskOrch = new TaskOrchestrator(); 
-      updatedTask = await taskOrch.updateTask(resolvedParams.taskId, body, signature);
+      updatedTask = await taskOrch.updateTask(taskId, body, signature);
     } catch (orchErr: any) {
       console.error("🌋 [TASK ORCHESTRATOR UPDATE ERROR]", orchErr);
       const status = orchErr.statusCode || orchErr.status || 500;
@@ -301,12 +311,15 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
     }
 
-    let resolvedParams;
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ error: "Identifiant d'atome invalide." }, { status: 400 });
     }
+
+    const taskId = slugify(rawSlug || '');
 
     let session;
     try {
@@ -322,7 +335,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     let caps: string[] = [];
     try {
-      caps = await getTaskCapabilities(userUid, resolvedParams.taskId);
+      caps = await getTaskCapabilities(userUid, taskId);
     } catch (e) {}
 
     if (!caps.includes(CAPABILITIES.TASK.DELETE) && !caps.includes('*')) {
@@ -336,7 +349,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     try {
       const taskOrch = new TaskOrchestrator(); 
-      await taskOrch.disintegrateTask(resolvedParams.taskId, signature);
+      await taskOrch.disintegrateTask(taskId, signature);
     } catch (orchErr: any) {
       console.error("🌋 [TASK ORCHESTRATOR DISINTEGRATE ERROR]", orchErr);
       const status = orchErr.statusCode || orchErr.status || 500;

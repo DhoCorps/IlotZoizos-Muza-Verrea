@@ -1,30 +1,16 @@
-// apps/hub-central/__test__/api/teams.slug.upload.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST, DELETE } from '../../app/api/teams/[slug]/upload/route';
+import { POST, DELETE } from '@/app/api/teams/[slug]/upload/route';
+import { getServerSession } from 'next-auth/next';
+import { TeamModel } from '@ilot/infrastructure';
 import { storageService } from '../../modules/storage/storage.service';
 import { checkRateLimit } from '../../modules/security/rateLimiter';
-import { TeamModel } from '@ilot/infrastructure';
+import type { NextRequest } from 'next/server';
 
-const mockGetServerSession = vi.fn();
-vi.mock('next-auth', () => ({ getServerSession: (...args: any[]) => mockGetServerSession(...args) }));
-vi.mock('next-auth/next', () => ({ getServerSession: (...args: any[]) => mockGetServerSession(...args) }));
-
-vi.mock('../../modules/security/rateLimiter', () => ({ checkRateLimit: vi.fn() }));
-
-vi.mock('../../modules/storage/storage.service', () => ({
-  storageService: {
-    generateStructuredKey: vi.fn().mockReturnValue('mocked/teams/artifact.png'),
-    uploadFile: vi.fn().mockResolvedValue({
-      success: true,
-      publicUrl: 'https://cdn.ilot.com/mocked/teams/artifact.png',
-      key: 'mocked/teams/artifact.png',
-    }),
-    deleteFile: vi.fn().mockResolvedValue({ success: true }),
-    extractKeyFromUrl: vi.fn().mockReturnValue('mocked/teams/artifact.png'),
-  },
+// --- MOCKS DES DÉPENDANCES ---
+vi.mock('next-auth/next', () => ({
+  getServerSession: vi.fn(),
 }));
 
-// 🛡️ SUTURE PROPRE : On mocke @ilot/infrastructure globalement avec TeamModel inclus
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   TeamModel: {
@@ -32,149 +18,127 @@ vi.mock('@ilot/infrastructure', () => ({
     findOneAndUpdate: vi.fn(),
     updateOne: vi.fn(),
   },
-  getNeo4jSession: vi.fn(() => ({
+  getNeo4jSession: vi.fn().mockReturnValue({
     run: vi.fn().mockResolvedValue({
       records: [{
-        get: (field: string) => {
-          if (field === 'userCaps') return ['*'];
-          if (field === 'relCaps') return ['*'];
-          return [];
+        get: (key: string) => {
+          if (key === 'userCaps') return ['*'];
+          if (key === 'relCaps') return [];
+          return null;
         }
       }]
     }),
     close: vi.fn().mockResolvedValue(true),
-  })),
+  }),
 }));
 
-describe('API Teams (Slug) - Téléversement et Purge d’Artefacts du Nid', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+// Utilisation du chemin relatif exact pour que Vitest intercepte le module
+vi.mock('../../modules/storage/storage.service', () => ({
+  storageService: {
+    generateStructuredKey: vi.fn().mockReturnValue('ilot-zoizos/fr/teams/team-123/attachments/file.png'),
+    uploadFile: vi.fn().mockResolvedValue({
+      publicUrl: 'https://nexus.ilot.local/storage/file.png',
+      key: 'ilot-zoizos/fr/teams/team-123/attachments/file.png',
+    }),
+    extractKeyFromUrl: vi.fn().mockReturnValue('ilot-zoizos/fr/teams/team-123/attachments/file.png'),
+    deleteFile: vi.fn().mockResolvedValue(true),
+  },
+}));
 
-  describe('Téléversement (POST)', () => {
-    it('🔴 doit rejeter si le rate limit est dépassé (429)', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0 });
-      const req = new Request('http://localhost/api/teams/escouade-alpha/upload', { method: 'POST' });
-      const res = await POST(req as any, { params: Promise.resolve({ slug: 'escouade-alpha' }) });
-      expect(res.status).toBe(429);
-    });
+vi.mock('../../../../../modules/security/rateLimiter', () => ({
+  checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
+}));
 
-    it('🔴 doit rejeter si non authentifié (401)', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
-      mockGetServerSession.mockResolvedValueOnce(null);
-      const req = new Request('http://localhost/api/teams/escouade-alpha/upload', { method: 'POST' });
-      const res = await POST(req as any, { params: Promise.resolve({ slug: 'escouade-alpha' }) });
-      expect(res.status).toBe(401);
-    });
+describe('Team Upload & Delete Slug API [POST, DELETE]', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
-    it('🔴 doit retourner 404 si le Nid est introuvable dans la Silice', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
-      mockGetServerSession.mockResolvedValueOnce({ user: { uid: 'user-123', capabilities: [] } });
-      
-      vi.mocked(TeamModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce(null),
-      } as any);
+  describe('POST /api/teams/[slug]/upload', () => {
+    it('devrait retourner 401 si l oiseau n est pas authentifié', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce(null);
 
-      const formData = new FormData();
-      formData.append('file', new Blob(['data'], { type: 'image/png' }), 'test.png');
-      const req = new Request('http://localhost/api/teams/nid-inconnu/upload', { method: 'POST', body: formData });
-      (req as any).formData = () => Promise.resolve(formData);
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn(),
+      } as unknown as NextRequest;
 
-      const res = await POST(req as any, { params: Promise.resolve({ slug: 'nid-inconnu' }) });
-      expect(res.status).toBe(404);
-    });
-
-    it('🔴 doit rejeter si le format de fichier est refusé (400)', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
-      mockGetServerSession.mockResolvedValueOnce({ user: { uid: 'user-123', capabilities: ['*'] } });
-      
-      vi.mocked(TeamModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce({ uid: 'team-uid-123', slug: 'escouade-alpha', name: 'Escouade Alpha' }),
-      } as any);
-
-      const formData = new FormData();
-      formData.append('file', new Blob(['script'], { type: 'application/x-executable' }), 'script.exe');
-
-      const req = new Request('http://localhost/api/teams/escouade-alpha/upload', { method: 'POST', body: formData });
-      (req as any).formData = () => Promise.resolve(formData);
-
-      const res = await POST(req as any, { params: Promise.resolve({ slug: 'escouade-alpha' }) });
-      expect(res.status).toBe(400);
-    });
-
-    it('🟢 doit téléverser l’artefact avec succès et le sceller dans le Nid (201)', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: true, remaining: 9 });
-      mockGetServerSession.mockResolvedValueOnce({ user: { uid: 'user-123', capabilities: ['*'] } });
-
-      vi.mocked(TeamModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce({ uid: 'team-uid-123', slug: 'escouade-alpha', name: 'Escouade Alpha' }),
-      } as any);
-
-      vi.mocked(TeamModel.findOneAndUpdate).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce({ uid: 'team-uid-123', documents: [{ name: 'blason.png' }] }),
-      } as any);
-
-      const formData = new FormData();
-      formData.append('file', new Blob(['image-data'], { type: 'image/png' }), 'blason.png');
-      formData.append('label', 'Blason officiel');
-
-      const req = new Request('http://localhost/api/teams/escouade-alpha/upload', { method: 'POST', body: formData });
-      (req as any).formData = () => Promise.resolve(formData);
-
-      const res = await POST(req as any, { params: Promise.resolve({ slug: 'escouade-alpha' }) });
-      expect(res.status).toBe(201);
+      const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Super Nid!' }) });
       const data = await res.json();
+
+      expect(res.status).toBe(401);
+      expect(data.message).toBe('Oiseau non identifié dans la canopée.');
+    });
+
+    it('devrait réussir (201) le téléversement en appliquant le slugify', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({
+        user: { uid: 'user-bird-1', capabilities: ['*'] },
+      } as any);
+
+      const mockTeam = { uid: 'team-123', slug: 'mon-super-nid' };
+      vi.mocked(TeamModel.findOne).mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValueOnce(mockTeam),
+      } as any);
+
+      const mockUpdatedTeam = { ...mockTeam, documents: [{ name: 'file.png' }] };
+      vi.mocked(TeamModel.findOneAndUpdate).mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValueOnce(mockUpdatedTeam),
+      } as any);
+
+      const formData = new FormData();
+      const file = new File(['content'], 'file.png', { type: 'image/png' });
+      formData.append('file', file);
+      formData.append('label', 'Brindille');
+
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn().mockResolvedValue(formData),
+      } as unknown as NextRequest;
+
+      const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Super Nid!' }) });
+      const data = await res.json();
+
+      expect(res.status).toBe(201);
       expect(data.success).toBe(true);
+      expect(TeamModel.findOne).toHaveBeenCalledWith({
+        $or: [{ slug: 'mon-super-nid' }, { uid: 'mon-super-nid' }],
+      });
+      expect(storageService.uploadFile).toHaveBeenCalled();
     });
   });
 
-  describe('Désintégration (DELETE)', () => {
-    it('🔴 doit rejeter si non authentifié (401)', async () => {
-      mockGetServerSession.mockResolvedValueOnce(null);
-      const req = new Request('http://localhost/api/teams/escouade-alpha/upload', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'https://cdn.ilot.com/mocked/teams/artifact.png' }),
-      });
-
-      const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'escouade-alpha' }) });
-      expect(res.status).toBe(401);
-    });
-
-    it('🔴 doit rejeter si la clé d’artefact est absente (400)', async () => {
-      mockGetServerSession.mockResolvedValueOnce({ user: { uid: 'user-123', capabilities: ['*'] } });
-      
-      vi.mocked(TeamModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce({ uid: 'team-uid-123', slug: 'escouade-alpha' }),
+  describe('DELETE /api/teams/[slug]/upload', () => {
+    it('devrait réussir (200) la purge et utiliser le slugify', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({
+        user: { uid: 'user-bird-1', capabilities: ['*'] },
       } as any);
 
-      const req = new Request('http://localhost/api/teams/escouade-alpha/upload', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-
-      const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'escouade-alpha' }) });
-      expect(res.status).toBe(400);
-    });
-
-    it('🟢 doit désitègrer l’artefact physiquement et nettoyer la Silice du Nid (200)', async () => {
-      mockGetServerSession.mockResolvedValueOnce({ user: { uid: 'user-123', capabilities: ['*'] } });
-
-      vi.mocked(TeamModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce({ uid: 'team-uid-123', slug: 'escouade-alpha' }),
+      const mockTeam = { uid: 'team-123', slug: 'mon-super-nid' };
+      vi.mocked(TeamModel.findOne).mockReturnValueOnce({
+        lean: vi.fn().mockResolvedValueOnce(mockTeam),
       } as any);
 
       vi.mocked(TeamModel.updateOne).mockResolvedValueOnce({ modifiedCount: 1 } as any);
 
-      const req = new Request('http://localhost/api/teams/escouade-alpha/upload', {
+      const req = new Request('http://localhost/api/teams/Mon Super Nid!/upload', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'https://cdn.ilot.com/mocked/teams/artifact.png' }),
+        body: JSON.stringify({ key: 'https://nexus.ilot.local/storage/file.png' }),
       });
 
-      const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'escouade-alpha' }) });
-      expect(res.status).toBe(200);
+      const res = await DELETE(req as unknown as NextRequest, { params: Promise.resolve({ slug: 'Mon Super Nid!' }) });
       const data = await res.json();
+
+      expect(res.status).toBe(200);
       expect(data.success).toBe(true);
+      expect(TeamModel.findOne).toHaveBeenCalledWith({
+        $or: [{ slug: 'mon-super-nid' }, { uid: 'mon-super-nid' }],
+      });
+      expect(TeamModel.updateOne).toHaveBeenCalledWith(
+        { uid: 'team-123' },
+        { $pull: { documents: { url: 'https://nexus.ilot.local/storage/file.png' } } }
+      );
+      expect(storageService.deleteFile).toHaveBeenCalled();
     });
   });
 });

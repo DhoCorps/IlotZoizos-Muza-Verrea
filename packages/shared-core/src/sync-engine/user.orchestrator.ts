@@ -1,8 +1,5 @@
 // packages/shared-core/src/sync-engine/user.orchestrator.ts
-import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
-import { TeamModel } from '../../../infrastructure/src/database/models/nosql/team.model';
-import { ProjectModel } from '../../../infrastructure/src/database/models/nosql/project.model';
-import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model';
+import { OiseauModel, TeamModel, ProjectModel,TaskModel } from '../../../infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { IOiseau, CAPABILITIES } from '@ilot/types';

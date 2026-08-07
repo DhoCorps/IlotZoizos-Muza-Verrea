@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { getServerSession } from "next-auth/next";
-import { TaskModel, getNeo4jSession } from '../../../../packages/infrastructure'; 
+import { TaskModel, getNeo4jSession } from '@ilot/infrastructure'; 
 // ✅ Import de l'Orchestrateur ET de la Signature
 import { TaskOrchestrator, ActionSignature } from '@ilot/shared-core'; 
 import { ITask, TaskStatus, CAPABILITIES } from '@ilot/types';

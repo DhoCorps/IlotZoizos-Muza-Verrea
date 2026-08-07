@@ -3,7 +3,6 @@ import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
-import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
 
 export interface PartitaSyncResult {
   success: boolean;
@@ -46,7 +45,7 @@ export class PartitaOrchestrator {
       const newPartitaData = {
         uid: partitaUid,
         title: title,
-        slug: finalSlug, // Injection du slug unique
+        slug: finalSlug,
         content: data.content || "",
         instrument: data.instrument || 'BASS',
         format: data.format || 'ABC',
@@ -63,7 +62,7 @@ export class PartitaOrchestrator {
       // 1. Silice (MongoDB)
       const [newPartita] = await PartitaModel.create([newPartitaData], { session: mongoSession });
 
-      // 2. Graphe (Neo4j) - On stocke aussi le slug dans le graphe si besoin
+      // 2. Graphe (Neo4j)
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (p:Partita { 
@@ -182,17 +181,22 @@ export class PartitaOrchestrator {
     }
 
     return await TransactionManager.execute("Désintégration de Partition", async (mongoSession, neo4jTx) => {
+      // 🪡 SUTURE : Au lieu de supprimer ici, on liste les URLs orphelines.
+      // L'API de hub-central récupérera ce tableau et exécutera storageService.deleteFile()
+      const filesToDelete: string[] = [];
+      
       if (existing.media?.coverImageUrl) {
-        try { await storageService.deleteFile(storageService.extractKeyFromUrl(existing.media.coverImageUrl)); } catch {}
+        filesToDelete.push(existing.media.coverImageUrl);
       }
       if (existing.media?.audioTrackUrl) {
-        try { await storageService.deleteFile(storageService.extractKeyFromUrl(existing.media.audioTrackUrl)); } catch {}
+        filesToDelete.push(existing.media.audioTrackUrl);
       }
 
       await neo4jTx.run(`MATCH (p:Partita { uid: $partitaUid }) DETACH DELETE p`, { partitaUid: existing.uid });
       await PartitaModel.deleteOne({ uid: existing.uid }, { session: mongoSession });
 
-      return { success: true, purgedCount: 1 };
+      // On renvoie le tableau à l'application hôte
+      return { success: true, purgedCount: 1, filesToDelete };
     });
   }
 }

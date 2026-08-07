@@ -1,8 +1,5 @@
 // packages/shared-core/src/sync-engine/team.orchestrator.ts
-import { OiseauModel } from '@ilot/infrastructure/src/database/models/nosql/user.model';
-import { TeamModel } from '@ilot/infrastructure/src/database/models/nosql/team.model';
-import { ProjectModel } from '@ilot/infrastructure/src/database/models/nosql/project.model';
-import { TaskModel } from '@ilot/infrastructure/src/database/models/nosql/task.model';
+import { OiseauModel, TeamModel, ProjectModel, TaskModel } from '@ilot/infrastructure';
 import { ITeam, CAPABILITIES, ActionSignature } from '@ilot/types';
 import { MoralChecker } from '../integrity/moral.checker';
 import { TransactionManager } from './transactionManager';

@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server';
 import { connectToDatabase, LetterSpriteModel } from '@ilot/infrastructure';
 import { LetrinSpriteOrchestrator } from '@ilot/shared-core';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../lib/auth"; // Ajuste la profondeur si nécessaire
+import { authOptions } from "@/lib/auth"; // Ajuste la profondeur si nécessaire
 import { v4 as uuidv4 } from 'uuid';
-import { slugify } from '../../../../lib/slugify';
+import { slugify } from '@/lib/slugify';
 
 export async function GET() {
   try {

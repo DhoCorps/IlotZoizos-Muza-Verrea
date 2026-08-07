@@ -6,19 +6,18 @@ import {
   Loader2, Plus, Trash2, X, BarChart3, Search, Check, AlertCircle, LogOut, ShieldCheck
 } from 'lucide-react';
 
-import { ProjectDashboard } from '../../../../components/projects/ProjectDashboard';
-import { ProjectForm } from '../../../../components/projects/ProjectForm';
-import { TaskCard } from '../../../../components/tasks/TaskCard';
-import { TaskForm } from '../../../../components/tasks/TaskForm';
-import { TeamForm } from '../../../../components/teams/TeamForm'; 
-import { TeamCard } from '../../../../components/teams/TeamCard'; 
-import KanbanDrawer from '../../../../components/kanban/KanbanDrawer'; 
-import CalendarView from '../../../../components/calendars/CalendarView';
-import ResonanceButton from '../../../../components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Le tisseur de liens
-import { PomodoroWarehouse } from '../../../../components/pomodoro/PomodoroWareHouse';
-
-import { PomodoroProvider } from '../../../../context/PomodoroContext'; 
-import PomodoroHUD from '../../../../components/hub/PomodoroHUD'; 
+import { ProjectDashboard } from '@/components/projects/ProjectDashboard';
+import { ProjectForm } from '@/components/projects/ProjectForm';
+import { TaskCard } from '@/components/tasks/TaskCard';
+import { TaskForm } from '@/components/tasks/TaskForm';
+import { TeamForm } from '@/components/teams/TeamForm'; 
+import { TeamCard } from '@/components/teams/TeamCard'; 
+import KanbanDrawer from '@/components/kanban/KanbanDrawer'; 
+import CalendarView from '@/components/calendars/CalendarView';
+import ResonanceButton from '@/components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Le tisseur de liens
+import { PomodoroWarehouse } from '@/components/pomodoro/PomodoroWareHouse';
+import { PomodoroProvider } from '@/context/PomodoroContext'; 
+import PomodoroHUD from '@/components/hub/PomodoroHUD'; 
 import { useHubNexus } from './useHubNexus';
 
 import dynamic from 'next/dynamic';

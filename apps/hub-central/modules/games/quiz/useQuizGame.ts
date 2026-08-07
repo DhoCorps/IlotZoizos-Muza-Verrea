@@ -103,6 +103,7 @@ export function useQuizGame({
           playerId: 'player-local',
           playerName: 'Oiseau Courageux',
           score: currentScore,
+          finalScore: currentScore,
           currentStreak,
           maxStreak: Math.max(maxStreak, currentStreak),
           totalResponseTime: totalResponseTime + actualResponseTime,

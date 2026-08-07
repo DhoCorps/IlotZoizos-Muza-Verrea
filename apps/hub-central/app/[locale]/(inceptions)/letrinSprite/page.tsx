@@ -5,9 +5,9 @@ import { useState, useEffect } from 'react';
 import { 
   Type, Plus, Trash2, Edit3, Loader2, Sparkles, Compass, Save, ArrowLeft 
 } from 'lucide-react';
-import { lettrinSprites } from '../../../../lib/apiClient';
-import { LetrinEditor, PixelData } from '../../../../components/letrin/LetrinEditor';
-import ResonanceButton from '../../../../components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Import du tisseur
+import { lettrinSprites } from '@/lib/apiClient';
+import { LetrinEditor, PixelData } from '@/components/letrin/LetrinEditor';
+import ResonanceButton from '@/components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Import du tisseur
 
 type GlyphMatrix = (PixelData | null)[][];
 type MatricesRecord = Record<string, GlyphMatrix>;

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { connectToDatabase } from '@ilot/infrastructure';
 import { KontaktOrchestrator } from '@ilot/shared-core';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../lib/auth";
+import { authOptions } from "@/lib/auth";
 
 export async function POST(req: Request) {
   try {

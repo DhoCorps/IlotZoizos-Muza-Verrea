@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../lib/auth";
+import { authOptions } from "@/lib/auth";
 import { connectToDatabase, MessageModel } from '@ilot/infrastructure';
 import { attachmentRegistry } from '@ilot/shared-core';
 import { SendMessageBodySchema } from '@ilot/types';

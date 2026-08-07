@@ -1,8 +1,8 @@
 // apps/hub-central/app/messages/page.tsx
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../lib/auth";
+import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { ChatRoom } from "../../../../components/chat/ChatRoom";
+import { ChatRoom } from "@/components/chat/ChatRoom";
 
 export default async function MessagesPage() {
   const session = await getServerSession(authOptions);

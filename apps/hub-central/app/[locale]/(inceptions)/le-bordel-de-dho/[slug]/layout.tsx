@@ -2,10 +2,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { CartDrawer } from '../../../../../components/ecommerce/cart/CartDrawer';
+import { CartDrawer } from '@/components/ecommerce/cart/CartDrawer';
 import { useCartStore } from '@ilot/shared-core';
 import { ShoppingBag, Sparkles, FolderHeart } from 'lucide-react';
-import { Link } from '../../../../../navigation';
+import { Link } from '@/navigation';
 
 export default function EcommercePublicLayout({
   children,

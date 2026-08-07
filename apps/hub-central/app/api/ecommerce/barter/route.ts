@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { connectToDatabase, BarterOfferModel } from '@ilot/infrastructure';
 import { EcommerceOrchestrator } from '@ilot/shared-core';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../lib/auth";
+import { authOptions } from "@/lib/auth";
 import { v4 as uuidv4 } from 'uuid';
 
 export async function GET() {

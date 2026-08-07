@@ -2,7 +2,7 @@ import React from 'react';
 import { getTranslations } from 'next-intl/server';
 import * as Sentry from '@sentry/nextjs';
 import type { Metadata } from 'next';
-import { CSPostHogProvider } from '../../components/providers/PostHogProvider';
+import { CSPostHogProvider } from '@/components/providers/PostHogProvider';
 
 export async function generateMetadata({ params: { locale } }: { params: { locale: string } }): Promise<Metadata> {
   const t = await getTranslations({ locale, namespace: 'metadata' });

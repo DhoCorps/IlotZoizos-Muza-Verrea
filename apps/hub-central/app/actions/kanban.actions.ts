@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../lib/auth"; // 🪡 SUTURE : On importe les options pour activer la session
+import { authOptions } from "@/lib/auth"; // 🪡 SUTURE : On importe les options pour activer la session
 import { TaskOrchestrator, ActionSignature } from '@ilot/shared-core';
 import { TaskModel, getNeo4jSession } from '@ilot/infrastructure'; 
 import { ITask, TaskStatus, CAPABILITIES } from '@ilot/types';

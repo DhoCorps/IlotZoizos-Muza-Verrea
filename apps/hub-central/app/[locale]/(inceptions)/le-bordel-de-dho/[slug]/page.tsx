@@ -3,10 +3,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { UniversalGridCanvas, useCartStore } from '@ilot/shared-core';
-import { storeRegistry } from '../../../../../components/ecommerce/stores/StoreRegistry';
-import { AddToWishlistButton } from '../../../../../components/ecommerce/wishlist/AddWishListButton';
+import { storeRegistry } from '@/components/ecommerce/stores/StoreRegistry';
+import { AddToWishlistButton } from '@/components/ecommerce/wishlist/AddWishListButton';
 import { ShoppingBag, Loader2, ArrowLeft, Coins, ShieldCheck, Box } from 'lucide-react';
-import { Link } from '../../../../../navigation';
+import { Link } from '@/navigation';
 
 interface ProductPageProps {
   params: Promise<{ slug: string }>;

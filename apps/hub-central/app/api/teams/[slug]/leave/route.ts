@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { connectToDatabase } from '@ilot/infrastructure';
-import { authOptions } from "../../../../../lib/auth";
+import { authOptions } from "@/lib/auth";
 import { TeamOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
+import { slugify } from '@/lib/slugify';
 
 /**
  * 🌿 INTERFACE DES PARAMÈTRES DE ROUTE (Projeté avec [slug])
@@ -39,15 +40,16 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Oiseau non identifié dans la canopée." }, { status: 401 });
     }
 
-    // 3. Résolution du slug dynamique
-    let resolvedParams;
+    // 3. Résolution et slugification du paramètre dynamique
+    let rawSlug;
     try {
-      resolvedParams = await params;
+      const resolvedParams = await params;
+      rawSlug = resolvedParams.slug;
     } catch (paramErr) {
       return NextResponse.json({ error: "Identifiant de nid (slug) invalide." }, { status: 400 });
     }
 
-    const teamIdentifier = resolvedParams.slug;
+    const teamIdentifier = slugify(rawSlug || '');
 
     // 4. Décodage du protocole mémoriel
     let body;

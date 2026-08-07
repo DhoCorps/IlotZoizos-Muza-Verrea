@@ -3,7 +3,7 @@
 
 import React, { useState } from 'react';
 import { useBlockEngine, UniversalGridCanvas } from '@ilot/shared-core';
-import { storeRegistry } from '../../../../../components/ecommerce/stores/StoreRegistry';
+import { storeRegistry } from '@/components/ecommerce/stores/StoreRegistry';
 import { Sparkles, Save, ArrowLeft, Plus, Box, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 

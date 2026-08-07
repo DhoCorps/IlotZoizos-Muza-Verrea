@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
-import CrazyMorpionLobbyOrRoom from '../../../../../components/games/crazymorpion/CrazyMorpionLobbyOrRoom';
+import CrazyMorpionLobbyOrRoom from '@/components/games/crazymorpion/CrazyMorpionLobbyOrRoom';
 
 export default async function CrazyMorpionPage({
   params,

@@ -1,13 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { connectToDatabase, TeamModel } from '@ilot/infrastructure'; // 🪡 SUTURE : Import unifié pour que le mock agisse
+import { connectToDatabase, TeamModel } from '@ilot/infrastructure';
 import { authOptions } from "../../../../../../lib/auth";
 import { TransactionManager } from '@ilot/shared-core';
+import { slugify } from '@/lib/slugify';
 
-/**
- * 🌿 INTERFACE DES PARAMÈTRES DE ROUTE MULTIPLES
- * Le dossier parent est nommé [slug] et le dossier enfant [targetUid].
- */
 interface RouteParams {
   params: Promise<{ slug: string; targetUid: string }>;
 }
@@ -25,7 +22,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     // -------------------------------------------------------------------------
-    // 2. RÉSOLUTION DES PARAMÈTRES DYNAMIQUES DE L'URL
+    // 2. RÉSOLUTION DES PARAMÈTRES (Slugification du Nid uniquement)
     // -------------------------------------------------------------------------
     let resolvedParams;
     try {
@@ -35,10 +32,11 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Paramètres de route invalides." }, { status: 400 });
     }
 
-    const { slug, targetUid } = resolvedParams;
+    const teamSlug = slugify(resolvedParams.slug || '');
+    const { targetUid } = resolvedParams; // On laisse targetUid tel quel (ID technique)
 
     // -------------------------------------------------------------------------
-    // 3. IDENTIFICATION DE L'OISEAU À LA GOUVERNANCE (SESSION)
+    // 3. IDENTIFICATION DE L'OISEAU (SESSION)
     // -------------------------------------------------------------------------
     let session;
     try {
@@ -54,12 +52,12 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     // -------------------------------------------------------------------------
-    // 4. RÉCUPÉRATION DU NID DANS LA SILICE (Supporte slug ou uid)
+    // 4. RÉCUPÉRATION DU NID DANS LA SILICE
     // -------------------------------------------------------------------------
     let team;
     try {
       team = await TeamModel.findOne({ 
-        $or: [{ slug: slug }, { uid: slug }] 
+        $or: [{ slug: teamSlug }, { uid: teamSlug }] 
       }).lean();
     } catch (queryErr) {
       console.error("🔥 [TEAM QUERY ERROR]", queryErr);
@@ -70,9 +68,9 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Nid introuvable dans la Silice." }, { status: 404 });
     }
 
-    const teamId = (team as any).uid; // On extrait le véritable uid pour Neo4j
+    const teamId = (team as any).uid;
 
-    // 🛡️ LE DOUBLE VERROU : Seul le propriétaire du Nid ou un architecte (*) peut révoquer
+    // 🛡️ DOUBLE VERROU
     const isNestOwner = (team as any).ownerUid === userUid;
     const isArchitect = (session?.user as any)?.capabilities?.includes('*') || false;
 
@@ -83,7 +81,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     // -------------------------------------------------------------------------
-    // 5. EXÉCUTION DU TRANCHAGE AU SEIN DU GESTIONNAIRE DE TRANSACTION UNIFIÉ
+    // 5. TRANCHAGE (TRANSACTION MANAGER)
     // -------------------------------------------------------------------------
     try {
       await TransactionManager.execute("Révocation d'Invitation", async (mongoSession, neo4jTx) => {
@@ -93,17 +91,13 @@ export async function DELETE(req: Request, { params }: RouteParams) {
           RETURN 1
         `;
         
-        const result = await neo4jTx.run(cypherRevoke, { 
-          targetUid, 
-          teamId 
-        });
+        const result = await neo4jTx.run(cypherRevoke, { targetUid, teamId });
 
         if (result.records.length === 0) {
           throw new Error("Aucune invitation active ou en attente trouvée pour cet oiseau.");
         }
         
         console.log(`⚡ [Gouvernance] Invitation révoquée : Oiseau ${targetUid} retiré du Nid ${teamId} par ${userUid}`);
-        
         return true;
       });
     } catch (txErr: any) {

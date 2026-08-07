@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../../../lib/auth";
+import { authOptions } from "@/lib/auth";
 import { connectToDatabase, BarterOfferModel } from '@ilot/infrastructure';
 import { EcommerceOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
+import { slugify } from '@/lib/slugify';
 
 interface RouteParams {
   params: Promise<{ slug: string }>;
@@ -26,6 +27,7 @@ export async function GET(req: Request, { params }: RouteParams) {
       const resolvedParams = await params;
       slug = resolvedParams.slug;
     } catch (paramErr) {
+      console.error("🔥 [PARAMS ERROR BARTER GET]", paramErr);
       return NextResponse.json({ error: "Identifiant d'offre invalide." }, { status: 400 });
     }
     
@@ -44,7 +46,7 @@ export async function GET(req: Request, { params }: RouteParams) {
     return NextResponse.json(barter, { status: 200 });
 
   } catch (error: any) {
-    console.error("🔥 Erreur GET Barter :", error);
+    console.error("🔥 Erreur fatale GET Barter :", error);
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
 }
@@ -54,6 +56,21 @@ export async function GET(req: Request, { params }: RouteParams) {
 // ==========================================
 export async function PATCH(req: Request, { params }: RouteParams) {
   try {
+    let session;
+    try {
+      session = await getServerSession(authOptions);
+    } catch (sessionErr) {
+      console.error("🔥 [SESSION ERROR BARTER PATCH]", sessionErr);
+      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
+    }
+
+    const userUid = (session?.user as any)?.uid;
+    const sessionCaps = (session?.user as any)?.capabilities || [];
+
+    if (!userUid) {
+      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
+    }
+
     try {
       await connectToDatabase();
     } catch (dbErr) {
@@ -66,28 +83,15 @@ export async function PATCH(req: Request, { params }: RouteParams) {
       const resolvedParams = await params;
       slug = resolvedParams.slug;
     } catch (paramErr) {
+      console.error("🔥 [PARAMS ERROR BARTER PATCH]", paramErr);
       return NextResponse.json({ error: "Identifiant d'offre invalide." }, { status: 400 });
-    }
-    
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR BARTER]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
-
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
     }
 
     let body;
     try {
       body = await req.json();
     } catch (parseErr) {
+      console.error("🔥 [PARSE ERROR BARTER PATCH]", parseErr);
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
@@ -114,7 +118,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     return NextResponse.json({ success: true, data: result }, { status: 200 });
 
   } catch (error: any) {
-    console.error("🔥 Erreur PATCH Barter :", error);
+    console.error("🔥 Erreur fatale PATCH Barter :", error);
     const status = error.statusCode || 500;
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status });
   }

@@ -1,6 +1,6 @@
 import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
-import AtomikLobbyOrRoom from '../../../../../components/games/atomik-k-far/AtomikKFarLobbyOrRoom';
+import AtomikLobbyOrRoom from '@/components/games/atomik-k-far/AtomikKFarLobbyOrRoom';
 
 export default async function AtomikPage({
   params,

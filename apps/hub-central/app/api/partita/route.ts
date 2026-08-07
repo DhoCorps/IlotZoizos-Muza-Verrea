@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "../../../lib/auth"; // Ajuste le chemin si besoin
+import { authOptions } from "@/lib/auth"; // Ajuste le chemin si besoin
 import { connectToDatabase, PartitaModel } from '@ilot/infrastructure';
 import { PartitaOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';

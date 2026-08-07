@@ -1,5 +1,5 @@
 'use client';
-import Sidebar from "../../../../components/navigation/Sidebar";
+import Sidebar from "@/components/navigation/Sidebar";
 
 export default function PartitaLayout({ children }: { children: React.ReactNode }) {
   return (

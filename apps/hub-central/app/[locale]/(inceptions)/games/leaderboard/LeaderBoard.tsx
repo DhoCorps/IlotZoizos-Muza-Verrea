@@ -1,7 +1,7 @@
 // apps/hub-central/app/[locale]/games/leaderboard/page.tsx
 import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
-import Leaderboard from '../../../../components/games/LeaderBoard';
+import Leaderboard from '@/components/games/LeaderBoard';
 import Link from 'next/link';
 
 export default async function LeaderboardPage({

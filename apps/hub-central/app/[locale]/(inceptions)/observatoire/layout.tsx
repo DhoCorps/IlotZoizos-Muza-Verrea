@@ -1,5 +1,5 @@
 import React from 'react';
-import Sidebar from '../../../../components/navigation/Sidebar';
+import Sidebar from '@/components/navigation/Sidebar';
 
 export default function ObservatoryLayout({ children }: { children: React.ReactNode }) {
   return (

@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ShoppingBag, Store, Plus, Repeat, ShieldCheck } from 'lucide-react';
 import { useEcommerce } from './useEcommerce';
-import { ecommerce } from '../../../../lib/apiClient'; // 🔥 Import de notre client API
+import { ecommerce } from '@/lib/apiClient'; // 🔥 Import de notre client API
 
 // Import de nos composants modulaires (Vérifie bien les majuscules sur tes fichiers physiques !)
 import { StoreCard } from '../../../../components/ecommerce/stores/StoreCard';

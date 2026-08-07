@@ -1,11 +1,11 @@
-// apps/hub-central/app/api/projects/[slug]/attachments/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
-import { authOptions } from '../../../../../lib/auth'; 
-import { storageService } from '../../../../../modules/storage/storage.service';
-import { checkRateLimit } from '../../../../../modules/security/rateLimiter';
+import { authOptions } from '@/lib/auth'; 
+import { storageService } from '@/modules/storage/storage.service';
+import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { connectToDatabase, ProjectModel, getNeo4jSession } from '@ilot/infrastructure';
 import { CAPABILITIES } from '@ilot/types';
+import { slugify } from '@/lib/slugify';
 
 interface OiseauUser { id: string; uid: string; capabilities: string[]; }
 interface RouteParams { params: Promise<{ slug: string }> }
@@ -33,6 +33,8 @@ export async function POST(req: Request, { params }: RouteParams) {
     let resolvedParams;
     try { resolvedParams = await params; } catch (err) { return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 }); }
 
+    const slug = slugify(resolvedParams.slug || '');
+
     // 🛡️ Rate Limiting par IP contre le spam de téléversement
     const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
     const { allowed } = await checkRateLimit(`upload-project-attachment:${clientIp}`, 10, 60);
@@ -51,7 +53,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // Recherche du projet par son slug dans la Silice
     let project;
     try {
-      project = await ProjectModel.findOne({ slug: resolvedParams.slug }).lean();
+      project = await ProjectModel.findOne({ slug }).lean();
     } catch (dbErr) {
       return NextResponse.json({ error: "Erreur lors de la lecture de la Silice." }, { status: 500 });
     }
@@ -106,7 +108,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     let updatedProject;
     try {
       updatedProject = await ProjectModel.findOneAndUpdate(
-        { slug: resolvedParams.slug },
+        { slug },
         { $push: { documents: documentPayload }, $set: { "dates.lastActivity": new Date() } },
         { new: true }
       ).lean();
@@ -128,6 +130,8 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     let resolvedParams;
     try { resolvedParams = await params; } catch (err) { return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 }); }
 
+    const slug = slugify(resolvedParams.slug || '');
+
     try { await connectToDatabase(); } catch (dbErr) { return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 }); }
 
     let session;
@@ -138,7 +142,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     let project;
     try {
-      project = await ProjectModel.findOne({ slug: resolvedParams.slug }).lean();
+      project = await ProjectModel.findOne({ slug }).lean();
     } catch (dbErr) {
       return NextResponse.json({ error: "Erreur base de données." }, { status: 500 });
     }
@@ -163,7 +167,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     }
 
     try {
-      await ProjectModel.updateOne({ slug: resolvedParams.slug }, { $pull: { documents: { url: body.key } } });
+      await ProjectModel.updateOne({ slug }, { $pull: { documents: { url: body.key } } });
     } catch (dbErr) { return NextResponse.json({ error: "Échec nettoyage Silice." }, { status: 500 }); }
 
     return NextResponse.json({ success: true, message: "Artefact désintégré." }, { status: 200 });

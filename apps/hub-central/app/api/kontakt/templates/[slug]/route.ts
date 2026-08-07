@@ -1,7 +1,7 @@
 // apps/hub-central/app/api/kontakt/templates/[slug]/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../../../lib/auth';
+import { authOptions } from '@/lib/auth';
 import { IlotError } from '@ilot/shared-core';
 // Importe ton modèle Mongoose de template (adapte le chemin si nécessaire)
 // import { TemplateModel } from '@ilot/infrastructure';
