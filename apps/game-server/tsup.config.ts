@@ -6,7 +6,6 @@ export default defineConfig({
   target: 'node18',
   clean: true,
   bundle: true,
-  // On indique à tsup de laisser Node.js gérer ces packages nativement au runtime
   external: [
     'express',
     'socket.io',
@@ -16,7 +15,7 @@ export default defineConfig({
     'body-parser',
     'cors',
     '@sentry/node',
-    '@sentry/profiling-node',
-    '@ilot/shared-core'
+    '@sentry/profiling-node'
+    // ⚠️ On a retiré @ilot/shared-core d'ici pour qu'il soit bundlé !
   ],
 });
