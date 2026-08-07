@@ -1,6 +1,6 @@
 // apps/hub-central/models/BarterOffer.model.ts
-import mongoose, { Document } from 'mongoose';
-
+import type { Document } from 'mongoose';
+import mongoose from 'mongoose';
 const { Schema } = mongoose;
 
 export interface IBarterOfferDocument extends Document {

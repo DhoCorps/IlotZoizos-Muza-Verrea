@@ -1,5 +1,6 @@
 // Fichier : packages/infrastructure/src/database/models/nosql/user.model.ts
-import mongoose, { Document, Types } from 'mongoose';
+import mongoose from 'mongoose'; 
+import type { Document, Types } from 'mongoose';
 
 const { Schema } = mongoose;
 

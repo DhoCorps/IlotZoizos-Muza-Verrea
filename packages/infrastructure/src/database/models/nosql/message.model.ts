@@ -1,5 +1,6 @@
 // packages/infrastructure/src/database/models/message.model.ts
-import mongoose, { Document, Model } from 'mongoose';
+import mongoose from 'mongoose'; 
+import type{ Document, Model } from 'mongoose';
 
 const { Schema, model } = mongoose;
 import { IUniversalAttachment, IMessageReaction, IMessageReadReceipt } from '@ilot/types';

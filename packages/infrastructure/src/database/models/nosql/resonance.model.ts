@@ -1,5 +1,6 @@
 // packages/infrastructure/src/database/models/nosql/resonance.model.ts
-import mongoose, { Document, Model, Types } from 'mongoose';
+import mongoose from 'mongoose'; 
+import type{ Document, Model, Types } from 'mongoose';
 
 const { Schema } = mongoose;
 

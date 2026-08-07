@@ -1,5 +1,6 @@
 // packages/infrastructure/src/database/models/nosql/gameHistory.model.ts
-import mongoose, { Document, Model } from 'mongoose';
+import mongoose from 'mongoose';
+import type { Document, Model } from 'mongoose';
 
 const { Schema } = mongoose;
 

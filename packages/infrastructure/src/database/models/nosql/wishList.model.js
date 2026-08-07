@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+
 const WishlistSchema = new mongoose.Schema({
     uid: { type: String, required: true, unique: true },
     userUid: { type: String, required: true },

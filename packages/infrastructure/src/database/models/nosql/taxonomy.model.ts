@@ -1,5 +1,6 @@
 // apps/hub-central/modules/taxonomy/taxonomy.model.ts (ou dans ton package d'infrastructure)
-import mongoose, { Document } from 'mongoose';
+import mongoose from 'mongoose';
+import type { Document } from 'mongoose';
 
 const { Schema } = mongoose;
 

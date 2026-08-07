@@ -1,5 +1,6 @@
 // apps/infrastructure/src/database/models/nosql/user.model.neo.ts
-import mongoose, { Model } from 'mongoose';
+import mongoose from 'mongoose'; 
+import type{ Model } from 'mongoose';
 
 const { Schema } = mongoose;
 
