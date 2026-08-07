@@ -4,6 +4,7 @@ import { ResonanceOrchestrator } from '../resonance.orchestrator';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
+
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
     execute: vi.fn(async (name, cb) => cb({} as any, { run: vi.fn().mockResolvedValue({ records: [{ get: () => ({}) }] }) })),

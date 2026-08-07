@@ -5,6 +5,7 @@ import { getNeo4jSession, connectToDatabase, TeamModel } from '@ilot/infrastruct
 import { CAPABILITIES, ActionSignature } from '@ilot/types'; 
 import { authOptions } from "@/lib/auth";
 import { slugify } from '@/lib/slugify';
+import { Record } from 'neo4j-driver';
 
 /**
  * 🌿 INTERFACE DES PARAMÈTRES DE ROUTE ([slug])
@@ -129,7 +130,7 @@ export async function GET(req: Request, { params }: RouteParams) {
         RETURN target.uid AS uid, target.pseudo AS pseudo, type(r) AS relType
       `;
       const inviteResult = await neoSession.run(inviteCypher, { teamUid });
-      invitations = inviteResult.records.map(record => ({
+      invitations = inviteResult.records.map((record: Record) => ({
         uid: record.get('uid'),
         pseudo: record.get('pseudo'),
         status: record.get('relType') === 'INVITED_TO' ? 'PENDING' : 'REFUSED'

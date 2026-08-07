@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { TeamModel, getNeo4jSession, connectToDatabase } from "@ilot/infrastructure"; 
 import { TeamOrchestrator } from "@ilot/shared-core";
 import { TeamSchema, CAPABILITIES, ActionSignature } from "@ilot/types";
+import { Record } from 'neo4j-driver';
 
 // ==========================================
 // 🔍 GET : Recensement des Nids de l'Oiseau
@@ -67,7 +68,7 @@ export async function GET(req: Request) {
           RETURN DISTINCT target.uid AS uid, target.pseudo AS pseudo, type(r) AS relType
         `;
         const inviteResult = await neo4jSession.run(inviteCypher, { tUid });
-        const invitations = inviteResult.records.map(record => ({
+        const invitations = result.records.map((record: Record) => ({
           uid: record.get('uid'),
           pseudo: record.get('pseudo'),
           status: record.get('relType') === 'INVITED_TO' ? 'PENDING' : 'REFUSED'

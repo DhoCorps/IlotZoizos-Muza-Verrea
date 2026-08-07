@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { ProjectOrchestrator } from '@ilot/shared-core'; 
 import { ProjectModel, getNeo4jSession, connectToDatabase } from '@ilot/infrastructure'; 
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
+import { Record } from 'neo4j-driver';
 
 function slugify(text: string) {
   return text.toString().toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w-]+/g, '').replace(/--+/g, '-');
@@ -51,7 +52,7 @@ export async function GET(req: Request) {
           RETURN DISTINCT uid
         `;
         const result = await neo4jSession.run(cypher, { userUid });
-        myProjectUids = result.records.map(record => record.get('uid')).filter(id => id !== null);
+        myProjectUids = result.records.map((record: Record) => record.get('uid')).filter(id => id !== null);
       } catch (neoErr) {
         console.error("🔥 [NEO4J ERROR PROJECTS GET]", neoErr);
         // On continue même si Neo4j échoue (résilience), on verra au moins les projets publics

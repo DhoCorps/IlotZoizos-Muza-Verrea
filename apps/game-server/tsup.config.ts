@@ -3,7 +3,10 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: ['src/server/server.ts'],
   format: ['esm'],
+  platform: 'node',         // 👈 CRUCIAL : Indique que la cible est Node.js
+  target: 'node18',
   clean: true,
+  skipNodeModulesBundle: true,
   // 🛡️ INDISPENSABLE : On dit à tsup de ne pas essayer d'inclure ces modules dans le fichier unique
   external: [
     'cors',
