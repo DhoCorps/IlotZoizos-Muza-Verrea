@@ -1,5 +1,4 @@
 // apps/hub-central/middleware.ts
-// Buld Force
 import createMiddleware from 'next-intl/middleware';
 import { routing } from './navigation';
 import { withAuth } from "next-auth/middleware";
@@ -72,7 +71,7 @@ export default withAuth(
     }
 
     // Résonance Multilingue
-    return intlMiddleware(req);
+    return intlMiddleware(req as any);
   },
   {
     callbacks: {
