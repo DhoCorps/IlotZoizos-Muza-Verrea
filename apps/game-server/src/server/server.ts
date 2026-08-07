@@ -1,5 +1,4 @@
 // Ce fichier gère la logique principale du serveur Socket.IO, l'adaptateur Redis multi-instances et la délégation modulaire aux gestionnaires de jeu.
-// Forçage Build
 import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
@@ -61,6 +60,7 @@ Sentry.init({
 
 // --- Configuration de base du serveur ---
 const PORT = process.env.PORT || 3002;
+
 const REDIS_URI = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL || 'redis://127.0.0.1:6379';
 
 const app = express();

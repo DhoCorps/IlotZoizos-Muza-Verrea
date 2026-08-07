@@ -3,18 +3,20 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: ['src/server/server.ts'],
   format: ['esm'],
-  platform: 'node',         // 👈 CRUCIAL : Indique que la cible est Node.js
   target: 'node18',
   clean: true,
-  skipNodeModulesBundle: true,
-  // 🛡️ INDISPENSABLE : On dit à tsup de ne pas essayer d'inclure ces modules dans le fichier unique
+  bundle: true,
+  // On indique à tsup de laisser Node.js gérer ces packages nativement au runtime
   external: [
-    'cors',
+    'express',
+    'socket.io',
+    'mongoose',
     'redis',
+    'ioredis',
+    'body-parser',
+    'cors',
     '@sentry/node',
-    '@sentry/node-cpu-profiler',
     '@sentry/profiling-node',
-    '@socket.io/redis-adapter',
-    'socket.io'
+    '@ilot/shared-core'
   ],
 });

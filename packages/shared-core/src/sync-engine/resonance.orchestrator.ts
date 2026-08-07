@@ -4,7 +4,7 @@ import { getNeo4jSession } from '@ilot/infrastructure';
 import { ActionSignature, CAPABILITIES, EntityLabel, ResonanceType } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
-import { Record } from 'neo4j-driver';
+
 
 export interface IResonancePayload {
   sourceUid: string;
@@ -148,7 +148,7 @@ export class ResonanceOrchestrator {
 
         const result = await neo4jTx.run(query, { userIdentifier });
         
-        return result.records.map((record: Record) => ({
+        return result.records.map((record: any) => ({
             peerUid: record.get('peerUid'),
             sharedTags: record.get('sharedTags'),
             score: record.get('commonCount').toNumber() * 2 

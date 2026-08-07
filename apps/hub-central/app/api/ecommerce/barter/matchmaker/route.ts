@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { getNeo4jSession } from '@ilot/infrastructure';
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { Record } from 'neo4j-driver';
+
 
 export async function GET(req: Request) {
   let sessionNeo4j;
@@ -52,7 +52,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Échec de l'auscultation du graphe." }, { status: 500 });
     }
     
-    const matches = result.records.map((record: Record) => ({
+    const matches = result.records.map((record: any) => ({
       matchUid: record.get('matchUid'),
       matchPseudo: record.get('matchPseudo') || 'Oiseau Inconnu',
       itemsTheyHaveThatYouWant: record.get('itemsTheyHaveThatYouWant') || [],
