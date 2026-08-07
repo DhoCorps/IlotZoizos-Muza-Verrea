@@ -5,8 +5,11 @@ import { KoOonTreezLogic } from '@ilot/shared-core';
 import { FullCountryData, KoOonTreezLevel, KoOonTreezMode, CurrentFlag, KoOonTreezQuizQuestion } from '@ilot/shared-core'; // Ajuste l'import des types selon ton arborescence
 import { QuizScoringEngine } from '@ilot/shared-core';
 import { PlayerGameStats, QuizTrophy } from '@ilot/types';
+import { Socket } from 'socket.io-client';
 
 interface KoOonTreezGameClientProps {
+  socket?: Socket;
+  roomId?: string;
   username: string;
   isLearningMode?: boolean; // Permet d'activer ou non le mode apprentissage
 }
