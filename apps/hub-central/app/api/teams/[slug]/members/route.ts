@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { TeamOrchestrator } from "@ilot/shared-core";
-import { ActionSignature } from "@ilot/types";
+import { ActionSignature, IOiseau } from "@ilot/types";
 import { authOptions } from "@/lib/auth"; 
 import { connectToDatabase } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
@@ -40,7 +40,7 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Erreur de lecture d'Aura." }, { status: 500 });
     }
 
-    const actorUid = (session?.user as any)?.uid;
+    const actorUid = (session?.user as unknown as IOiseau)?.uid;
     if (!actorUid) {
       return NextResponse.json({ error: "Oiseau non identifié dans la canopée." }, { status: 401 });
     }
@@ -84,7 +84,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     // -------------------------------------------------------------------------
     const signature: ActionSignature = {
       actorUid: actorUid,
-      capabilities: (session?.user as any)?.capabilities || []
+      capabilities: (session?.user as unknown as IOiseau)?.capabilities || []
     };
 
     // -------------------------------------------------------------------------
