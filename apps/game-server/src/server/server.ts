@@ -1,5 +1,5 @@
 // Ce fichier gère la logique principale du serveur Socket.IO, l'adaptateur Redis multi-instances et la délégation modulaire aux gestionnaires de jeu.
-
+// Forçage Build
 import express from 'express';
 import { createServer } from 'http';
 import { Server, Socket } from 'socket.io';
