@@ -1,19 +1,16 @@
 // apps/hub-central/modules/security/rateLimiter.ts
 import { createClient } from 'redis';
-import Redis from 'ioredis';
 
-const REDIS_URI = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL || 'redis://localhost:6379';
-
-const redisPub = new Redis(REDIS_URI);
-const redisSub = new Redis(REDIS_URI);
+const REDIS_URI = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL || 'redis://127.0.0.1:6379';
 
 // Client Redis singleton pour le Rate Limiting
 let redisClient: ReturnType<typeof createClient> | null = null;
 
 async function getRedisClient() {
   if (!redisClient) {
+    console.log(`[RateLimiter] 🚀 Initialisation du client Redis sur : ${REDIS_URI}`);
     redisClient = createClient({ url: REDIS_URI });
-    redisClient.on('error', (err) => console.error('[Redis RateLimiter Error]', err));
+    redisClient.on('error', (err) => console.error('[Redis RateLimiter Error]', err.message));
     await redisClient.connect();
   }
   return redisClient;

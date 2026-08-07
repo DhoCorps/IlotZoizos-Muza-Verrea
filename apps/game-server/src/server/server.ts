@@ -1,5 +1,6 @@
 // Ce fichier gère la logique principale du serveur Socket.IO, l'adaptateur Redis multi-instances et la délégation modulaire aux gestionnaires de jeu.
 // Forçage Build
+import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
 import { Server, Socket } from 'socket.io';
@@ -10,7 +11,6 @@ import { createClient } from 'redis';
 import { createAdapter } from '@socket.io/redis-adapter';
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
-import Redis from 'ioredis';
 
 import { 
     CrazyMorpionSymbol, 
@@ -51,7 +51,6 @@ import { PlumZeeManager } from '../games/plumzee/PlumZeeManager';
 import { WikiOracleManager } from '../games/wikioracle/WikiOracleManager'; 
 
 // Initialisation Sentry
-
 Sentry.init({
   dsn: "TON_DSN_SENTRY", // À récupérer sur ton dashboard Sentry
   integrations: [
@@ -60,13 +59,9 @@ Sentry.init({
   tracesSampleRate: 1.0, // Pour capturer 100% des erreurs pendant la bêta
 });
 
-
 // --- Configuration de base du serveur ---
 const PORT = process.env.PORT || 3002;
-const REDIS_URI = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL || 'redis://localhost:6379';
-
-const redisPub = new Redis(REDIS_URI);
-const redisSub = new Redis(REDIS_URI);
+const REDIS_URI = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL || 'redis://127.0.0.1:6379';
 
 const app = express();
 const httpServer = createServer(app);
@@ -215,11 +210,13 @@ function deleteRoomFromManager(gameType: GameType, roomId: string) {
 // --- Logique d'initialisation asynchrone (Redis + Bootstrap Socket.IO) ---
 async function bootstrapServer() {
     try {
+        console.log(`[SERVER] 🚀 Tentative de connexion Redis sur : ${REDIS_URI}`);
+        
         const pubClient = createClient({ url: REDIS_URI });
         const subClient = pubClient.duplicate();
 
-        pubClient.on('error', (err) => console.error('[Redis Pub Error]', err));
-        subClient.on('error', (err) => console.error('[Redis Sub Error]', err));
+        pubClient.on('error', (err) => console.error('[Redis Pub Error]', err.message));
+        subClient.on('error', (err) => console.error('[Redis Sub Error]', err.message));
 
         await Promise.all([pubClient.connect(), subClient.connect()]);
         io.adapter(createAdapter(pubClient, subClient));
