@@ -5,7 +5,8 @@ import {
     GalakTKPlayer, 
     GalakTKGameOptions, 
     GalakTKMakeMoveRequest, 
-    GalakTKPoint 
+    GalakTKMoveResult,
+    GalakTKRoomToSend
 } from '@ilot/shared-core';
 import { GalakTKLogic } from '@ilot/shared-core';
 
@@ -63,7 +64,9 @@ export class GalakTKManager {
             gameOptions: options,
             stars,
             currentTurnPlayerId: ownerPlayer.id,
-            roundStartTime: Date.now()
+            roundStartTime: Date.now(),
+            round: 0,
+            scores: {}
         };
 
         this.rooms.set(roomId, newRoom);
@@ -107,7 +110,7 @@ export class GalakTKManager {
         return room;
     }
 
-    public handleMakeMove(roomId: string, playerId: string, move: GalakTKMakeMoveRequest): { room: GalakTKGameRoom, moveResult?: any } {
+    public handleMakeMove(roomId: string, playerId: string, move: GalakTKMakeMoveRequest): { room: GalakTKGameRoom, moveResult?: GalakTKMoveResult } {
         const room = this.rooms.get(roomId);
         if (!room || room.state !== 'playing') throw new Error("Partie inactive.");
 
@@ -221,12 +224,21 @@ export class GalakTKManager {
         room.currentTurnPlayerId = connectedPlayers[nextIndex].id;
     }
 
-    public toClientRoom(room: GalakTKGameRoom, requestingPlayerId?: string): any {
-        const clientRoom = { ...room };
-        // Masquer les étoiles secrètes globales, chaque joueur ne voit que SES propres étoiles trouvées
-        clientRoom.stars = []; 
-        return clientRoom;
-    }
+    public toClientRoom(room: GalakTKGameRoom, requestingPlayerId?: string): GalakTKRoomToSend {
+    const scoresRecord: Record<string, number> = {};
+    room.players.forEach(p => {
+        scoresRecord[p.id] = p.score || 0;
+    });
+
+    const clientRoom: GalakTKRoomToSend = {
+        ...room,
+        stars: [],
+        round: room.round || 1,
+        scores: scoresRecord // <-- Ici, c'est un Record parfait
+    };
+    
+    return clientRoom as GalakTKRoomToSend;
+}
 
     public getRoom(roomId: string): GalakTKGameRoom | undefined {
         return this.rooms.get(roomId);

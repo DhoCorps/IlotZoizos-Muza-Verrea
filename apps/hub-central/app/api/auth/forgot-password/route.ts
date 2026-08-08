@@ -87,7 +87,7 @@ export const POST = withSilice(async (req: Request, _context: ApiContext) => {
     console.log(`✉️ [RESEND] Fusée de détresse envoyée à ${email} (ID: ${data?.id})`);
     return NextResponse.json({ success: true }, { status: 200 });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("❌ [FORGOT PASSWORD CRITICAL ERROR]", error);
     return NextResponse.json({ error: "La tempête a empêché l'envoi du message." }, { status: 500 });
   }

@@ -37,7 +37,12 @@ import {
     AtomikKFardEStyle,
     WikiOracleChoicesMode,
     WikiOracleTheme,
-    WikiOraclePlayerClient
+    WikiOraclePlayerClient,
+    BaseRoomData,
+    AtomikKFardEGameRoom,
+    AnyGameRoom,
+    PlayerStatus,
+    CineMaxNbPlayer
 } from '@ilot/shared-core';
 
 import { CrazyMorpionManager } from '../games/crazymorpion/CrazyMorpionManager';
@@ -48,6 +53,8 @@ import { SoonArtManager } from '../games/soonart/SoonArtManager';
 import { GalakTKManager } from '../games/galak-t-k/GalakTKManager'; 
 import { PlumZeeManager } from '../games/plumzee/PlumZeeManager'; 
 import { WikiOracleManager } from '../games/wikioracle/WikiOracleManager'; 
+
+import type { PlayerAction } from '../../../../packages/shared-core/src/games/atomikkfar/Atomik-K-FarTypes'; // (ou le chemin exact vers ton fichier de types)
 
 // Initialisation Sentry
 Sentry.init({
@@ -103,14 +110,14 @@ const plumZeeManager = new PlumZeeManager(io);
 const wikiOracleManager = new WikiOracleManager(io);
 
 // --- État global des salons en mémoire ---
-const rooms: Map<string, any> = new Map();
+const rooms: Map<string, AnyGameRoom> = new Map();
 const disconnectTimers: Map<string, NodeJS.Timeout> = new Map();
 const playerRooms: Map<string, string> = new Map();
 
 const ROOM_DELETION_GRACE_PERIOD_MS = 10000;
 
 // --- Conversion unifiée des salons pour le client ---
-function roomToRoomToSend(room: any, requestingPlayerId?: string): RoomToSend {
+function roomToRoomToSend(room: AnyGameRoom, requestingPlayerId?: string): RoomToSend {
     switch (room.gameType) {
         case 'AtomikKFardE':
             return atomikKFardEManager.toClientRoom(room);
@@ -123,7 +130,7 @@ function roomToRoomToSend(room: any, requestingPlayerId?: string): RoomToSend {
         case 'PlumZee':
             return plumZeeManager.toClientRoom(room);
         case 'CrazyMorpion': {
-            const playersToSend = room.players.map((p: any) => ({
+            const playersToSend = room.players.map((p) => ({
                 id: p.id, username: p.username, symbol: p.symbol, score: p.score, roomId: p.roomId, status: p.status
             } as CrazyMorpionPlayerClient));
             return {
@@ -133,7 +140,7 @@ function roomToRoomToSend(room: any, requestingPlayerId?: string): RoomToSend {
             } as RoomToSend;
         }
         case 'KoOonTreeZ': {
-            const playersToSend = room.players.map((p: any) => ({
+            const playersToSend = room.players.map((p) => ({
                 id: p.id, username: p.username, score: p.score, roomId: p.roomId, status: p.status
             } as KoOonTreeZPlayerClient));
             return {
@@ -145,7 +152,7 @@ function roomToRoomToSend(room: any, requestingPlayerId?: string): RoomToSend {
             } as RoomToSend;
         }
         case 'WikiOracle': {
-            const playersToSend = room.players.map((p: any) => ({
+            const playersToSend = room.players.map((p) => ({
                 id: p.id, username: p.username, score: p.score, roomId: p.roomId, status: p.status, currentHintLevel: p.currentHintLevel || 0
             } as WikiOraclePlayerClient));
             return {
@@ -156,7 +163,7 @@ function roomToRoomToSend(room: any, requestingPlayerId?: string): RoomToSend {
             } as RoomToSend;
         }
         default:
-            throw new Error(`Type de jeu inconnu lors de la conversion du salon: ${room.gameType}`);
+            throw new Error(`Type de jeu inconnu lors de la conversion du salon: ${(room as { gameType?: string }).gameType}`);
     }
 }
 
@@ -167,7 +174,7 @@ function getAllRoomsToSend(): RoomToSend[] {
 }
 
 // Fonction utilitaire pour synchroniser le salon depuis son manager respectif
-function syncRoomFromManager(roomId: string, gameType: GameType): any | undefined {
+function syncRoomFromManager(roomId: string, gameType: GameType): AnyGameRoom | undefined {
     let roomFromManager;
     switch (gameType) {
         case 'CrazyMorpion': roomFromManager = crazyMorpionManager.getRoom(roomId); break;
@@ -245,10 +252,10 @@ async function bootstrapServer() {
                 rooms.set(room.id, updatedRoomFromManager);
             }
 
-            const allPlayersEffectivelyDisconnected = updatedRoomFromManager?.players.every((p: any) => {
+           const allPlayersEffectivelyDisconnected = updatedRoomFromManager?.players.every((p) => {
                 if (updatedRoomFromManager?.gameType === 'AtomikKFardE') {
-                    const atomikPlayer = updatedRoomFromManager.players.find((ap: any) => ap.id === p.id);
-                    return atomikPlayer && atomikPlayer.status === 'disconnected';
+                    // Plus besoin de .find() ni de (ap: any) : p est déjà le joueur courant !
+                    return p.status === 'disconnected';
                 }
                 return p.status === 'disconnected' || p.status === 'disconnected_temp';
             }) || false;
@@ -258,12 +265,12 @@ async function bootstrapServer() {
                     clearTimeout(disconnectTimers.get(room.id)!);
                     disconnectTimers.delete(room.id);
                 }
-                const timer = setTimeout(() => {
+               const timer = setTimeout(() => {
                     const finalRoomState = rooms.get(room.id);
-                    const playersStillDisconnected = finalRoomState?.players.every((p: any) => {
+                    const playersStillDisconnected = finalRoomState?.players.every((p) => {
                         if (finalRoomState.gameType === 'AtomikKFardE') {
-                            const atomikPlayer = finalRoomState.players.find((ap: any) => ap.id === p.id);
-                            return atomikPlayer && atomikPlayer.status === 'disconnected';
+                            // p est déjà un joueur de la liste, pas besoin de .find() ni de (ap: any)
+                            return p.status === 'disconnected';
                         }
                         return p.status === 'disconnected';
                     }) || false;
@@ -288,7 +295,7 @@ async function bootstrapServer() {
             atomikKFardEMode?: AtomikKFardEMode; 
             atomikKFardEOption?: AtomikKFardEOption; 
             atomikKFardEGameStyle?: AtomikKFardEStyle; 
-            cineMaxNbPlayer?: any;
+            cineMaxNbPlayer?: CineMaxNbPlayer;
             cineMaxDifficultyRule?: CineMaxDifficultyRule;
             cineMaxTimePerRound?: number;
             cineMaxMaxRounds?: number;
@@ -413,7 +420,7 @@ async function bootstrapServer() {
                             socketId: socket.id, 
                             score: 0, 
                             roomId, 
-                            status: 'connected' as any, 
+                            status: 'connected' as PlayerStatus, 
                             isReady: false 
                         };
                         const rf = wikiOracleManager.createRoom(roomId, roomName || `Oracle de ${username}`, creator, { choicesMode, theme });
@@ -433,8 +440,9 @@ async function bootstrapServer() {
                     io.to(socket.id).emit('room:created', roomToSendToClient);
                     io.emit('room:list', getAllRoomsToSend());
                 }
-            } catch (error: any) {
-                socket.emit('error:message', error.message || 'Erreur inattendue.');
+            } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+                socket.emit('error:message', errorMessage);
             }
         });
 
@@ -517,7 +525,7 @@ async function bootstrapServer() {
                     }
                     case 'AtomikKFardE': {
                         const d = data as AtomikKFardEMakeMoveRequest;
-                        atomikKFardEManager.handleMakeMove(d.roomId, d.playerId, d.action);
+                        atomikKFardEManager.handleMakeMove(d.roomId, d.playerId, d.action as unknown as PlayerAction);
                         break;
                     }
                     case 'CineMax': {
@@ -546,9 +554,9 @@ async function bootstrapServer() {
                         break;
                     }
                 }
-            } catch (error: any) {
-                socket.emit('error:message', `Action invalide: ${error.message}`);
-                return;
+            } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+                socket.emit('error:message', errorMessage);
             }
 
             const updatedGameRoom = syncRoomFromManager(data.roomId, room.gameType);
@@ -588,21 +596,23 @@ async function bootstrapServer() {
         });
 
         socket.on('atomikkfarde:start-game', ({ roomId }: { roomId: string }) => {
-            const room = rooms.get(roomId);
-            if (room?.gameType === 'AtomikKFardE') {
-                try {
-                    atomikKFardEManager.startGame(room);
-                    const rf = syncRoomFromManager(roomId, 'AtomikKFardE');
-                    if (rf) {
-                        rooms.set(roomId, rf);
-                        io.to(roomId).emit('game:state-update', roomToRoomToSend(rf));
-                        io.emit('room:list', getAllRoomsToSend());
-                    }
-                } catch (error: any) {
-                    socket.emit('error:message', `Erreur au démarrage: ${error.message}`);
+        const room = rooms.get(roomId);
+        if (room?.gameType === 'AtomikKFardE') {
+            try {
+                // On caste explicitement room pour rassurer le compilateur
+                atomikKFardEManager.startGame(room as unknown as AtomikKFardEGameRoom);
+                const rf = syncRoomFromManager(roomId, 'AtomikKFardE');
+                if (rf) {
+                    rooms.set(roomId, rf);
+                    io.to(roomId).emit('game:state-update', roomToRoomToSend(rf));
+                    io.emit('room:list', getAllRoomsToSend());
                 }
+            } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+                socket.emit('error:message', errorMessage);
             }
-        });
+        }
+    });
 
         socket.on('game:restart-request', ({ roomId }: { roomId: string }) => {
             const room = rooms.get(roomId);
@@ -615,9 +625,9 @@ async function bootstrapServer() {
                     case 'AtomikKFardE': atomikKFardEManager.handleRestartRequest(roomId, socket.id); break;
                     case 'PlumZee': plumZeeManager.handleRestartRequest(roomId, socket.id); break;
                 }
-            } catch (error: any) {
-                socket.emit('error:message', `Erreur redémarrage: ${error.message}`);
-                return;
+            } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+                socket.emit('error:message', errorMessage);
             }
 
             const updatedGameRoom = syncRoomFromManager(roomId, room.gameType);
@@ -629,7 +639,15 @@ async function bootstrapServer() {
         });
 
         // --- GESTION UNIVERSELLE DU CHAT (Le Canal Zoizos) ---
-        socket.on('chat:send-message', (message: any) => {
+       interface ChatMessagePayload {
+            roomId: string;
+            sender: string;
+            text: string;
+            timestamp?: number;
+            [key: string]: any; // Pour garder la souplesse si tu ajoutes d'autres champs
+        }
+
+        socket.on('chat:send-message', (message: ChatMessagePayload) => {
             const messageWithTime = {
                 ...message,
                 timestamp: Date.now()

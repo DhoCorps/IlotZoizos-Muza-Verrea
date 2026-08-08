@@ -16,7 +16,7 @@ async function getTaskActionCapabilities(userUid: string, taskUid?: string, proj
   const session = getNeo4jSession();
   try {
     let cypher = `MATCH (u:User {uid: $userUid})`;
-    let params: any = { userUid };
+    let params: Record<string, unknown> = { userUid };
 
     if (taskUid) {
       cypher += `
@@ -69,7 +69,7 @@ export async function createTaskAction(data: Partial<ITask> & { projectUid: stri
   try {
     // 1. Qui es-tu ? (Douane Absolue sur Server Action)
     const session = await getServerSession(authOptions); // 🪡 SUTURE : authOptions ajouté
-    const userUid = (session?.user as any)?.uid;
+    const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Le Nexus est fermé. Connecte-toi.");
 
     // 2. Que peux-tu faire ?
@@ -87,9 +87,10 @@ export async function createTaskAction(data: Partial<ITask> & { projectUid: stri
 
     revalidatePath('/tom-hat-toes');
     return { success: true, data: JSON.parse(JSON.stringify(result)) };
-  } catch (error: any) {
-    console.error("❌ [TaskAction] Erreur de création :", error.message);
-    return { success: false, error: error.message };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+    console.error("❌ [TaskAction] Erreur de création :", errorMessage);
+    return { success: false, error: errorMessage };
   }
 }
 
@@ -99,7 +100,7 @@ export async function createTaskAction(data: Partial<ITask> & { projectUid: stri
 export async function fetchTasksAction(projectId: string) {
   try {
     const session = await getServerSession(authOptions); // 🪡 SUTURE : authOptions ajouté
-    const userUid = (session?.user as any)?.uid;
+    const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
     const caps = await getTaskActionCapabilities(userUid, undefined, projectId);
@@ -109,15 +110,16 @@ export async function fetchTasksAction(projectId: string) {
 
     const tasks = await TaskModel.find({ projectUid: projectId }).sort({ "dates.createdAt": -1 }).lean();
     return { success: true, data: JSON.parse(JSON.stringify(tasks)) };
-  } catch (error: any) {
-    return { success: false, error: error.message };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+    return { success: false, error: errorMessage };
   }
 }
 
 export async function updateTaskAction(taskUid: string, formData: FormData) {
   try {
     const session = await getServerSession(authOptions);
-    const userUid = (session?.user as any)?.uid;
+    const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
     // 🪡 SUTURE : Extraction manuelle et robuste des champs du formulaire
@@ -146,9 +148,10 @@ export async function updateTaskAction(taskUid: string, formData: FormData) {
 
     revalidatePath('/tom-hat-toes');
     return { success: true };
-  } catch (error: any) {
-    console.error("❌ [TaskAction] Erreur de mise à jour :", error.message);
-    return { success: false, error: error.message };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+    console.error("❌ [TaskAction] Erreur de mise à jour :", errorMessage);
+    return { success: false, error: errorMessage };
   }
 }
 
@@ -158,7 +161,7 @@ export async function updateTaskAction(taskUid: string, formData: FormData) {
 export async function updateTaskStatusAction(taskUid: string, newStatus: string) {
   try {
     const session = await getServerSession(authOptions); // 🪡 SUTURE : authOptions ajouté
-    const userUid = (session?.user as any)?.uid;
+    const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
     const caps = await getTaskActionCapabilities(userUid, taskUid);
@@ -173,8 +176,9 @@ export async function updateTaskStatusAction(taskUid: string, newStatus: string)
 
     revalidatePath('/tom-hat-toes');
     return { success: true };
-  } catch (error: any) {
-    return { success: false, error: error.message };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+    return { success: false, error: errorMessage };
   }
 }
 
@@ -184,7 +188,7 @@ export async function updateTaskStatusAction(taskUid: string, newStatus: string)
 export async function completePomodoroAction(taskUid: string) {
   try {
     const session = await getServerSession(authOptions); // 🪡 SUTURE : authOptions ajouté
-    const userUid = (session?.user as any)?.uid;
+    const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
     // Pour rajouter du temps, il faut le droit d'UPDATE
@@ -205,15 +209,16 @@ export async function completePomodoroAction(taskUid: string) {
 
     revalidatePath('/tom-hat-toes');
     return { success: true, newCount: updatedTask?.pomodoros?.completed };
-  } catch (error: any) {
-    return { success: false, error: error.message };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+    return { success: false, error: errorMessage };
   }
 }
 
 export async function scheduleTaskAction(taskUid: string, scheduledAt: Date) {
   try {
     const session = await getServerSession(authOptions);
-    const userUid = (session?.user as any)?.uid;
+    const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Accès refusé.");
 
     // Orchestration atomique : 
@@ -228,8 +233,9 @@ export async function scheduleTaskAction(taskUid: string, scheduledAt: Date) {
 
     revalidatePath('/tom-hat-toes');
     return { success: true };
-  } catch (error: any) {
-    return { success: false, error: error.message };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+    return { success: false, error: errorMessage };
   }
 }
 
@@ -239,7 +245,7 @@ export async function scheduleTaskAction(taskUid: string, scheduledAt: Date) {
 export async function deleteTaskAction(taskUid: string) {
   try {
     const session = await getServerSession(authOptions); // 🪡 SUTURE : authOptions ajouté
-    const userUid = (session?.user as any)?.uid;
+    const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
     const caps = await getTaskActionCapabilities(userUid, taskUid);
@@ -254,7 +260,8 @@ export async function deleteTaskAction(taskUid: string) {
 
     revalidatePath('/tom-hat-toes');
     return { success: true };
-  } catch (error: any) {
-    return { success: false, error: error.message };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+    return { success: false, error: errorMessage };
   }
 }

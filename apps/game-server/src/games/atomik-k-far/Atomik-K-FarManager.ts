@@ -3,7 +3,8 @@ import { Server } from 'socket.io';
 import {
     AtomikGrid, AtomikCard, AtomikKFardEMode, AtomikKFardEOption, AtomikKFardENbPlayer, AtomikKFardEStyle, CellOwner,
     AtomikKFardEGameRoom, ConquestRoundResult, CellCoordinates, AtomikTimePerRound, AtomikKFardETeamMode, PlayerAction,
-    AtomikKFardEPlayer // Import crucial: on utilise le Player spécifique au jeu, pas le Player générique
+    AtomikKFardEPlayer, // Import crucial: on utilise le Player spécifique au jeu, pas le Player générique
+    GridCell
 } from "@ilot/shared-core"; // S'assurer que les imports sont corrects
 import { AtomikKFardELogic } from "@ilot/shared-core"; // Importer la logique
 import { AtomikKFardEPlayerClient, RoomToSend, AtomikKFardERoomToSend, AtomikKFardEGameOptions } from '@ilot/shared-core'; // Inclure AtomikKFardERoomToSend
@@ -95,7 +96,7 @@ export class AtomikKFardEManager {
         }
 
         // Initialisation de la grille pour les joueurs (assurez-vous que AtomikKFardELogic existe)
-        const initialPlayerGrids: { [playerId: string]: any[][] } = {
+        const initialPlayerGrids: { [playerId: string]: GridCell[][] } = {
             [ownerPlayer.id]: AtomikKFardELogic.createEmptyAtomikKFardEGrid(gameOptions.option)
         };
 

@@ -52,6 +52,13 @@ export interface GalakTKGameRoom {
     stars: GalakTKPoint[];              // Positions secrètes des étoiles sur la grille
     currentTurnPlayerId: string | null;
     roundStartTime: number;
+    round: number; 
+    scores?: Record<string, number>;
 }
 
+export interface GalakTKMoveResult {
+    type: 'STAR_FOUND' | 'AXIS_COUNT';
+    position: { x: number; y: number };
+    count?: number; // Optionnel car présent uniquement pour AXIS_COUNT
+}
 

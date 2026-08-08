@@ -1,7 +1,8 @@
 // apps/game-server/src/games/soonart/SoonArtManager.ts
 import { Server } from 'socket.io';
 import { 
-    SoonArtGameRoom, 
+    SoonArtGameRoom,
+    SoonArtRoomToSend, 
     SoonArtPlayer, 
     SoonArtGameOptions, 
     SoonArtMakeMoveRequest,
@@ -246,7 +247,7 @@ export class SoonArtManager {
     /**
      * 🛡️ SÉCURITÉ : Masque la position exacte des trésors non trouvés aux clients
      */
-   public toClientRoom(room: SoonArtGameRoom): any {
+   public toClientRoom(room: SoonArtGameRoom): SoonArtRoomToSend {
         const clientRoom = { ...room };
         clientRoom.treasures = room.treasures.map(t => ({
             ...t,

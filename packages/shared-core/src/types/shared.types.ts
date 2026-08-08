@@ -1,6 +1,16 @@
 import { IUniversalAttachment, AttachmentSourceType } from '../../../types/src/models/message.types';
 import { IlotError } from '../errors/ilot.errors';
 import { CrazyMorpionSymbol, CrazyMorpionGrid } from '../games/crazymorpion/CrazyMorpionTypes';
+
+import type { 
+    CrazyMorpionGameRoom,  
+    AtomikKFardEGameRoom, 
+    CineMaxGameRoom, 
+    SoonArtGameRoom, 
+    GalakTKGameRoom, 
+    PlumZeeGameRoom, 
+    } from '../../../shared-core';
+
 import type {
     KoOonTreezNbPlayer,
     KoOonTreezMode,
@@ -38,6 +48,7 @@ import {
 } from '../games/atomikkfar/Atomik-K-FarTypes';
 // 🎬 Import des types CineMax
 import {
+    CineMaxDifficulty,
     CineMaxDifficultyRule,
     CineMaxQuestion,
     CineMaxGameOptions
@@ -88,6 +99,23 @@ export type PlayerStatus = 'connected' | 'disconnected' | 'disconnected_temp' | 
 
 // 🎬🎨🚀🎲🔮 Ajout de WikiOracle aux GameTypes
 export type GameType = 'CrazyMorpion' | 'KoOonTreeZ' | 'AtomikKFardE' | 'CineMax' | 'SoonArt' | 'GalakTK' | 'PlumZee' | 'WikiOracle';
+
+export type AtomikKFardEActionType = 
+    | 'PLACE_CARD'       // Poser une carte sur une case de la grille
+    | 'VALIDATE_TURN'    // Valider son tour de placement
+    | 'SURRENDER'        // Abandonner la partie
+    | 'SPECIAL_ACTION';  // Si tu as des actions spéciales liées aux bombes ou cafards
+
+export type AnyGameRoom = 
+    | CrazyMorpionGameRoom 
+    | KoOonTreeZGameRoom 
+    | AtomikKFardEGameRoom 
+    | CineMaxGameRoom 
+    | SoonArtGameRoom 
+    | GalakTKGameRoom 
+    | PlumZeeGameRoom 
+    | WikiOracleGameRoom;
+
 
 type AttachmentResolver = (entityUid: string) => Promise<IUniversalAttachment | null>;
 
@@ -151,13 +179,15 @@ export type PlumZeePlayerClient = PlayerInRoom & {
 export interface BaseRoomData {
     id: string;
     name: string;
-    players: PlayerInRoom[];
-    state: PlayerStatus;
-    winnerId: string | null;
-    round: number;
     gameType: GameType;
+    state: 'waiting' | 'playing' | 'gameOver' | 'paused' | 'waitingForPlayers' | 'readyToStart' | 'inGame' | 'empty';
+    winnerId?: string | null;
+    round: number;
     maxPlayers: number;
-    scores: { [playerId: string]: number };
+    scores: Record<string, number>;
+    // Index signature pour accepter les propriétés spécifiques de chaque jeu (grid, theme, etc.) sans lever d'erreur TS
+    [key: string]: any;
+
 }
 
 export interface CrazyMorpionRoomToSend extends BaseRoomData {
@@ -304,7 +334,7 @@ export interface PlayerBaseClientState {
     roomName: string | null;
     players: PlayerInRoom[];
     score: number;
-    scores: { [playerId: string]: number };
+    scores: Record<string, number>;
     state: PlayerStatus;
     winnerId: string | null;
     round: number;
@@ -421,14 +451,23 @@ export interface KoOonTreeZMakeMoveRequest extends BaseMakeMoveRequest {
 export interface AtomikKFardEMakeMoveRequest extends BaseMakeMoveRequest {
     gameType: 'AtomikKFardE';
     deck: AtomikDeck;
-    action: any;
+    action: AtomikKFardEActionType;
+    payload?: {
+        row?: number;
+        col?: number;
+        cardId?: string;
+    }
 }
 
 // 🎬 Requête de jeu pour CineMax
 export interface CineMaxMakeMoveRequest extends BaseMakeMoveRequest {
     gameType: 'CineMax';
     action: 'SOLVE_QUESTION' | 'HIT_BUZZER' | 'SELECT_DIFFICULTY';
-    payload?: any;
+    payload?: {
+        answer?: string;
+        difficulty?: CineMaxDifficulty;
+        movieTitle?: string; // <-- Ajouté pour corriger l'erreur du buzzer
+    };
 }
 
 // 🎨 Requête de jeu pour Soon'Art

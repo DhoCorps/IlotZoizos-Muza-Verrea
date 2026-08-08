@@ -1,6 +1,7 @@
 // packages/shared-core/src/games/plumzee/PlumZeeTypes.ts
 
 export type PlumZeeSymbolValue = 1 | 2 | 3 | 4 | 5 | 6;
+export type GameRoomState = 'waiting' | 'playing' | 'gameOver';
 
 export interface PlumZeeSymbolMeta {
     id: PlumZeeSymbolValue;
@@ -65,7 +66,7 @@ export interface PlumZeeGameRoom {
     currentTurnPlayerId: string | null;
     currentRound: number;
     round: number; // Requis par BaseRoomData
-    scores: { [playerId: string]: number }; // Requis par BaseRoomData
+    scores: Record<string, number>; // Requis par BaseRoomData
     currentDice: PlumZeeDie[];
     roundStartTime: number;
 }

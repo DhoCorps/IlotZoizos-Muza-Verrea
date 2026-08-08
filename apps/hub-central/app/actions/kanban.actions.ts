@@ -15,7 +15,7 @@ async function getKanbanActionCapabilities(userUid: string, taskUid?: string, pr
   const session = getNeo4jSession();
   try {
     let cypher = `MATCH (u:User {uid: $userUid})`;
-    let params: any = { userUid };
+    let params: Record<string, unknown> = { userUid };
 
     if (taskUid) {
       cypher += `
@@ -65,7 +65,7 @@ export async function createTaskAction(
   try {
     // 1. Authentification
     const session = await getServerSession(authOptions); // 🪡 SUTURE : Ajout authOptions
-    const userUid = (session?.user as any)?.uid;
+    const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Le Nexus est fermé. Connecte-toi.");
 
     // 2. Autorisation (Douane)
@@ -82,9 +82,9 @@ export async function createTaskAction(
     revalidatePath('/tom-hat-toes'); // 🪡 SUTURE : On revalide le chemin réel du hub
     
     return { success: true, data: JSON.parse(JSON.stringify(result)) };
-  } catch (error: any) {
-    console.error("❌ [ACTION] Échec de la fondation :", error.message);
-    return { success: false, error: error.message };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+    return { success: false, error: errorMessage };
   }
 }
 
@@ -94,7 +94,7 @@ export async function createTaskAction(
 export async function fetchKanbanTasksAction(projectUid: string) {
   try {
     const session = await getServerSession(authOptions); // 🪡 SUTURE : Ajout authOptions
-    const userUid = (session?.user as any)?.uid;
+    const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
     const caps = await getKanbanActionCapabilities(userUid, undefined, projectUid);
@@ -104,9 +104,9 @@ export async function fetchKanbanTasksAction(projectUid: string) {
 
     const tasks = await TaskModel.find({ projectUid }).lean();
     return { success: true, data: JSON.parse(JSON.stringify(tasks)) };
-  } catch (error: any) {
-    console.error("❌ [ACTION] Échec de la lecture :", error.message);
-    return { success: false, error: "Impossible de lire la Silice." };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+    return { success: false, error: errorMessage };
   }
 }
 
@@ -116,7 +116,7 @@ export async function fetchKanbanTasksAction(projectUid: string) {
 export async function moveTaskAction(taskUid: string, newStatus: TaskStatus) {
   try {
     const session = await getServerSession(authOptions); // 🪡 SUTURE : Ajout authOptions
-    const userUid = (session?.user as any)?.uid;
+    const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
     const caps = await getKanbanActionCapabilities(userUid, taskUid);
@@ -131,9 +131,10 @@ export async function moveTaskAction(taskUid: string, newStatus: TaskStatus) {
     
     revalidatePath('/tom-hat-toes'); // 🪡 SUTURE : Cohérence du chemin
     return { success: true, message: `L'oiseau a migré vers ${newStatus}` };
-  } catch (error: any) {
-    console.error("❌ [ACTION] Échec de la migration :", error.message);
-    return { success: false, error: error.message };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+    console.error("❌ [ACTION] Échec de la migration :", errorMessage);
+    return { success: false, error: errorMessage };
   }
 }
 
@@ -143,7 +144,7 @@ export async function moveTaskAction(taskUid: string, newStatus: TaskStatus) {
 export async function deleteTaskAction(taskUid: string) {
   try {
     const session = await getServerSession(authOptions); // 🪡 SUTURE : Ajout authOptions
-    const userUid = (session?.user as any)?.uid;
+    const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
     const caps = await getKanbanActionCapabilities(userUid, taskUid);
@@ -158,9 +159,10 @@ export async function deleteTaskAction(taskUid: string) {
     
     revalidatePath('/tom-hat-toes'); // 🪡 SUTURE : Cohérence du chemin
     return { success: true, message: "L'oiseau a été libéré de la matrice." };
-  } catch (error: any) {
-    console.error("❌ [ACTION] Échec de la dissolution :", error.message);
-    return { success: false, error: error.message };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
+    console.error("❌ [ACTION] Échec de la dissolution :", errorMessage);
+    return { success: false, error: errorMessage };
   }
 }
 
@@ -177,8 +179,8 @@ export async function completePomodoroAction(taskUid: string): Promise<{
 }> {
   try {
     const session = await getServerSession(authOptions);
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
+    const userUid = (session?.user as { uid?: string })?.uid;
+    const sessionCaps = (session?.user as { capabilities?: string[] })?.capabilities || [];
 
     if (!userUid) {
       // 🪡 On retourne false au lieu de faire crasher la requête
@@ -192,10 +194,10 @@ export async function completePomodoroAction(taskUid: string): Promise<{
 
     return { success: true, newCount: result.pomodoros.completed };
 
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
     console.error("🔥 Fracture lors de la sédimentation du temps :", error);
     // 🪡 On retourne false ici aussi
     return { success: false, error: "Impossible de sceller l'effort dans la Silice." };
   }
 }
-

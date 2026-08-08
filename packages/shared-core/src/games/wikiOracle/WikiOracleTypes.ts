@@ -21,7 +21,9 @@ export interface QuizQuestion {
     wikiUrl?: string;
 }
 
-export interface WikiOraclePlayer extends PlayerInRoom {}
+export interface WikiOraclePlayer extends PlayerInRoom {
+    currentHintLevel?: number;
+}
 
 export interface WikiOracleGameRoom {
     id: string;

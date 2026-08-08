@@ -6,6 +6,7 @@ import {
     PlumZeeGameOptions, 
     PlumZeeMakeMoveRequest, 
     PlumZeeRoomToSend,
+    GameRoomState
 } from '@ilot/shared-core';
 import { PlumZeeLogic } from '@ilot/shared-core';
 
@@ -297,7 +298,7 @@ export class PlumZeeManager {
                 rollsLeft: p.rollsLeft,
                 hasFinished: p.hasFinished
             })),
-            state: room.state as any,
+            state: room.state as GameRoomState,
             winnerId: room.winnerId,
             round: room.currentRound,
             maxPlayers: room.maxPlayers,

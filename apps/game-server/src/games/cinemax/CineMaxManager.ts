@@ -1,7 +1,8 @@
 // apps/game-server/src/games/cinemax/CineMaxManager.ts
 import { Server } from 'socket.io';
 import { 
-    CineMaxGameRoom, 
+    CineMaxGameRoom,
+    CineMaxRoomToSend, 
     CineMaxPlayer, 
     CineMaxGameOptions, 
     CineMaxMakeMoveRequest,
@@ -194,13 +195,13 @@ export class CineMaxManager {
 
         switch (move.action) {
             case 'SELECT_DIFFICULTY':
-                this.processDifficultySelection(room, player, move.payload.difficulty);
+                this.processDifficultySelection(room, player, move.payload?.difficulty!);
                 break;
             case 'SOLVE_QUESTION':
-                this.processQuestionSolving(room, player, move.payload.answer);
+                this.processQuestionSolving(room, player, move.payload?.answer!);
                 break;
             case 'HIT_BUZZER':
-                this.processBuzzerHit(room, player, move.payload.movieTitle);
+                this.processBuzzerHit(room, player, move.payload?.movieTitle!);
                 break;
         }
     }
@@ -396,7 +397,7 @@ export class CineMaxManager {
     /**
      * 🛡️ SÉCURITÉ : Formate la Room pour ne pas envoyer les réponses au client
      */
-    public toClientRoom(room: CineMaxGameRoom): any { // Idéalement de type CineMaxRoomToSend
+    public toClientRoom(room: CineMaxGameRoom): CineMaxRoomToSend { // Idéalement de type CineMaxRoomToSend
         // On clone la room pour ne pas modifier l'originale
         const clientRoom = { ...room };
         
