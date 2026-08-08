@@ -1,15 +1,13 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { connectToDatabase, ProductModel } from '@ilot/infrastructure';
+import { ProductModel } from '@ilot/infrastructure';
+import { unstable_cache } from 'next/cache';
+import { withSilice, ApiContext } from '@/lib/api-guards';
 
-export async function GET() {
-  try {
-    try {
-      await connectToDatabase();
-    } catch (dbError) {
-      console.error("❌ [DB ERROR MEDIA STREAM FEED]", dbError);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
+// 🧠 CACHE SÉCURISÉ : Flux média mis en cache brièvement (30s) avec bypass en mode test
+async function getCachedMediaFeed() {
+  const fetcher = async () => {
     let visuals: any[] = [];
     let tracks: any[] = [];
 
@@ -29,11 +27,36 @@ export async function GET() {
       console.error("⚠️ [MEDIA STREAM FEED] Erreur de récupération des pistes :", trackError);
     }
 
+    return { visuals, tracks };
+  };
+
+  if (process.env.NODE_ENV === 'test') {
+    return await fetcher();
+  }
+
+  return await unstable_cache(
+    fetcher,
+    ['media-stream-feed'],
+    { revalidate: 30, tags: ['media-feed', 'products'] }
+  )();
+}
+
+// ==========================================
+// 🔍 GET : Flux des médias (Public / Silice)
+// ==========================================
+export const GET = withSilice(async (_req: Request, _context: ApiContext) => {
+  try {
+    const { visuals, tracks } = await getCachedMediaFeed();
+
+    // Mélange aléatoire propre post-récupération
+    const shuffledVisuals = [...visuals].sort(() => Math.random() - 0.5);
+    const shuffledTracks = [...tracks].sort(() => Math.random() - 0.5);
+
     return NextResponse.json({ 
       success: true, 
       data: {
-        visuals: visuals.sort(() => Math.random() - 0.5),
-        tracks: tracks.sort(() => Math.random() - 0.5)
+        visuals: shuffledVisuals,
+        tracks: shuffledTracks
       } 
     }, { status: 200 });
 
@@ -41,4 +64,4 @@ export async function GET() {
     console.error("🔥 Erreur flux média Agora :", error);
     return NextResponse.json({ error: error.message || "Erreur interne du flux média." }, { status: 500 });
   }
-}
+});

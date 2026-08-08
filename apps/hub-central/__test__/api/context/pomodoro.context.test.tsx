@@ -4,7 +4,7 @@
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { PomodoroProvider, usePomodoro } from '../../../context/PomodoroContext';
+import { PomodoroProvider, usePomodoro } from '@/context/PomodoroContext';
 
 // 🛡️ Mock de l'action Server-Side
 vi.mock('../../../app/actions/kanban.actions', () => ({

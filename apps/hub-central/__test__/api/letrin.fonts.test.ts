@@ -1,50 +1,104 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, POST } from '../../app/api/letrin/fonts/route';
-import { getServerSession } from 'next-auth/next';
+import { GET, POST } from '@/app/api/letrin/fonts/route';
+import { FontProject } from '@ilot/infrastructure';
+import { revalidateTag } from 'next/cache';
+import { NextResponse } from 'next/server';
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn()
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
+// -------------------------------------------------------------------------
+vi.mock('@/lib/api-guards', () => ({
+  withSilice: (handler: any) => async (req: any, context: any) => {
+    return await handler(req, context);
+  },
+  withAura: (handler: any) => async (req: any, context: any) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser || !mockUser.uid) {
+      return NextResponse.json({ error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
+    }
+    return await handler(req, context, mockUser);
+  },
+}));
+
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
 }));
 
 const mockLean = vi.fn();
-const mockFind = vi.fn().mockImplementation(() => ({
-  sort: () => ({ lean: mockLean })
-}));
-const mockCreate = vi.fn();
+const mockSort = vi.fn().mockImplementation(() => ({ lean: mockLean }));
+const mockFind = vi.fn().mockImplementation(() => ({ sort: mockSort }));
 
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   FontProject: {
-    find: (...args: any[]) => mockFind(...args),
-    create: (...args: any[]) => mockCreate(...args)
-  }
+    find: vi.fn((...args) => mockFind(...args)),
+    create: vi.fn(),
+  },
 }));
 
-describe('API Letr\'In - Fonts Collection (GET / POST)', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+declare global {
+  var __mockUser: any;
+}
 
-  it('✅ GET : doit lister les projets Font', async () => {
-    mockLean.mockResolvedValueOnce([{ id: 'font_1', name: 'Cyber' }]);
-    const res = await GET();
-    const data = await res.json();
-    expect(res.status).toBe(200);
-    expect(data.data[0].name).toBe('Cyber');
+describe('API Letr\'In Font Projects - Gestion des projets de polices', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  it('❌ POST : doit rejeter si non connecté (401)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
-    const req = new Request('http://localhost/api/letrin/fonts', { method: 'POST' });
-    const res = await POST(req);
+  // =========================================================================
+  // 🔍 TESTS GET (Recensement)
+  // =========================================================================
+  it('🟢 doit récupérer la liste des projets avec succès (200)', async () => {
+    mockLean.mockResolvedValueOnce([{ _id: 'proj_1', name: 'Matrix Font' }]);
+
+    const req = new Request('http://localhost/api/letrin/fonts');
+    const res = await GET(req as any, {});
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(json.data).toHaveLength(1);
+    expect(json.data[0].name).toBe('Matrix Font');
+  });
+
+  // =========================================================================
+  // 🚀 TESTS POST (Sédimentation)
+  // =========================================================================
+  it('🔴 doit rejeter l’envoi si l’oiseau n’est pas connecté (401)', async () => {
+    global.__mockUser = undefined;
+
+    const req = new Request('http://localhost/api/letrin/fonts', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Matrix Font' })
+    });
+
+    const res = await POST(req as any, {});
     expect(res.status).toBe(401);
   });
 
-  it('✅ POST : doit créer un projet Font si connecté (201)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({ user: { uid: 'bird_1' } } as any);
-    mockCreate.mockResolvedValueOnce({ id: 'font_new', name: 'New Cyber' });
+  it('🟢 doit créer un nouveau projet avec succès et invalider le cache (201)', async () => {
+    global.__mockUser = { uid: 'bird_1', slug: 'oiseau-fer', capabilities: [] };
+
+    const mockCreatedProject = {
+      _id: 'proj_new',
+      name: 'Matrix Font'
+    };
+
+    vi.mocked(FontProject.create).mockResolvedValueOnce(mockCreatedProject as any);
+
     const req = new Request('http://localhost/api/letrin/fonts', {
-      method: 'POST', body: JSON.stringify({ name: 'New Cyber' })
+      method: 'POST',
+      body: JSON.stringify({ name: 'Matrix Font' })
     });
-    const res = await POST(req);
+
+    const res = await POST(req as any, {});
+    const json = await res.json();
+
     expect(res.status).toBe(201);
+    expect(json.success).toBe(true);
+    expect(json.data._id).toBe('proj_new');
+    expect(revalidateTag).toHaveBeenCalledWith('fonts');
+    expect(revalidateTag).toHaveBeenCalledWith('font-projects');
   });
 });

@@ -1,73 +1,95 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '../../app/api/kontakt/swipes/route';
-import { getServerSession } from 'next-auth/next';
+import { POST } from '@/app/api/kontakt/swipes/route';
+import { KontaktOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
+import { NextResponse } from 'next/server';
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn()
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
+// -------------------------------------------------------------------------
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: any) => async (req: any, context: any) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser || !mockUser.uid) {
+      return NextResponse.json({ error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
+    }
+    return await handler(req, context, mockUser);
+  },
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true)
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
 }));
 
-const mockRegisterSwipe = vi.fn();
 vi.mock('@ilot/shared-core', () => ({
   KontaktOrchestrator: vi.fn().mockImplementation(() => ({
-    registerSwipe: (...args: any[]) => mockRegisterSwipe(...args)
-  }))
+    registerSwipe: vi.fn(),
+  })),
 }));
 
-describe('API Kontakt - Swipes (POST /api/kontakt/swipes)', () => {
+declare global {
+  var __mockUser: any;
+}
+
+describe('API Kontakt Swipes - Enregistrement des affinités', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  it('❌ doit rejeter si l’oiseau n’est pas connecté (401)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
+  it('doit rejeter (401) si l\'oiseau n\'est pas connecté', async () => {
+    global.__mockUser = undefined;
 
-    const req = new Request('http://localhost:3000/api/kontakt/swipes', {
+    const req = new Request('http://localhost/api/kontakt/swipes', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetUid: 'bird_target', action: 'LIKE' })
+      body: JSON.stringify({ targetUid: 'target_1', action: 'LIKE' })
     });
 
-    const res = await POST(req);
+    const res = await POST(req as any, {});
     expect(res.status).toBe(401);
   });
 
-  it('❌ doit rejeter si les paramètres de swipe sont incomplets (400)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'bird_swiper', capabilities: [] }
-    } as any);
+  it('doit rejeter (400) si les paramètres de swipe sont incomplets', async () => {
+    global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
-    const req = new Request('http://localhost:3000/api/kontakt/swipes', {
+    const req = new Request('http://localhost/api/kontakt/swipes', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetUid: 'bird_target' }) // action manquant
+      body: JSON.stringify({ targetUid: 'target_1' }) // action manquant
     });
 
-    const res = await POST(req);
+    const res = await POST(req as any, {});
+    const json = await res.json();
+
     expect(res.status).toBe(400);
+    expect(json.error).toContain('incomplets');
   });
 
-  it('✅ doit enregistrer le swipe avec succès (200)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'bird_swiper', capabilities: [] }
-    } as any);
+  it('doit enregistrer le swipe avec succès (200) et invalider le cache', async () => {
+    global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
-    mockRegisterSwipe.mockResolvedValueOnce({ matched: true });
+    const mockSwipeResult = { matched: true, matchId: 'match_123' };
+    const registerSwipeMock = vi.fn().mockResolvedValueOnce(mockSwipeResult);
+    vi.mocked(KontaktOrchestrator).mockImplementationOnce(() => ({
+      registerSwipe: registerSwipeMock,
+    } as any));
 
-    const req = new Request('http://localhost:3000/api/kontakt/swipes', {
+    const req = new Request('http://localhost/api/kontakt/swipes', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ targetUid: 'bird_target', action: 'LIKE' })
+      body: JSON.stringify({ targetUid: 'target_2', action: 'LIKE' })
     });
 
-    const res = await POST(req);
-    const data = await res.json();
+    const res = await POST(req as any, {});
+    const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(data.success).toBe(true);
-    expect(data.data.matched).toBe(true);
+    expect(json.success).toBe(true);
+    expect(json.data).toEqual(mockSwipeResult);
+    expect(registerSwipeMock).toHaveBeenCalledWith(
+      { swiperUid: 'bird_1', targetUid: 'target_2', action: 'LIKE' },
+      { actorUid: 'bird_1', capabilities: [] }
+    );
+    expect(revalidateTag).toHaveBeenCalledWith('kontakt-swipes');
+    expect(revalidateTag).toHaveBeenCalledWith('matches-bird_1');
+    expect(revalidateTag).toHaveBeenCalledWith('matches-target_2');
   });
 });

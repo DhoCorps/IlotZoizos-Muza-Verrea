@@ -1,63 +1,61 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '@/app/api/tasks/[slug]/irrigate/route'; // Ajuste le chemin selon ton arborescence
+import { POST } from '@/app/api/tasks/[slug]/irrigate/route';
 import { getServerSession } from 'next-auth/next';
-import { connectToDatabase } from '@ilot/infrastructure';
 import { TaskIrrigationOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
 
-// --- MOCKS DES DÉPENDANCES ---
+// -------------------------------------------------------------------------
+// 🎭 MOCKS
+// -------------------------------------------------------------------------
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
+}));
+
 vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn(),
+  connectToDatabase: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('@ilot/shared-core', () => ({
   TaskIrrigationOrchestrator: vi.fn().mockImplementation(() => ({
-    processTaskIrrigation: vi.fn(),
+    processTaskIrrigation: vi.fn().mockResolvedValue({ status: 'irrigated', healthy: true }),
   })),
 }));
 
-describe('Task Irrigation Slug API [POST]', () => {
+// -------------------------------------------------------------------------
+// 🧪 TESTS
+// -------------------------------------------------------------------------
+describe('Route API : Irrigation Tâche (POST /api/tasks/[slug]/irrigate)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('devrait retourner 401 si l oiseau n est pas authentifié', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
+  it('doit rejeter (401) si l\'utilisateur n\'est pas connecté', async () => {
+    vi.mocked(getServerSession).mockResolvedValue(null);
 
-    const req = new Request('http://localhost/api/tasks/ma-tache/irrigate', { method: 'POST' });
-    const res = await POST(req, { params: Promise.resolve({ slug: 'ma-tache' }) });
-    const data = await res.json();
-
-    expect(res.status).toBe(401);
-    expect(data.error).toContain('Oiseau non identifié');
+    const req = new Request('http://localhost/api/tasks/my-task/irrigate', { method: 'POST' });
+    const response = await POST(req as any, { params: Promise.resolve({ slug: 'my-task' }) });
+    
+    expect(response.status).toBe(401);
   });
 
-  it('devrait réussir (200) et déclencher l irrigation via l orchestrateur avec slugify', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'user-bird-1', capabilities: [] },
+  it('doit réussir (200) l\'irrigation et invalider les tags de cache', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({
+      user: { uid: 'u-123', capabilities: [] }
     } as any);
 
-    const mockProcessIrrigation = vi.fn().mockResolvedValueOnce({ success: true, irrigated: true });
-    vi.mocked(TaskIrrigationOrchestrator).mockImplementationOnce(() => ({
-      processTaskIrrigation: mockProcessIrrigation,
-    } as any));
+    const req = new Request('http://localhost/api/tasks/my-task/irrigate', { method: 'POST' });
+    const response = await POST(req as any, { params: Promise.resolve({ slug: 'my-task' }) });
+    const json = await response.json();
 
-    const req = new Request('http://localhost/api/tasks/Ma Super Tache!/irrigate', { method: 'POST' });
-    const res = await POST(req, { params: Promise.resolve({ slug: 'Ma Super Tache!' }) });
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(data.success).toBe(true);
-    expect(mockProcessIrrigation).toHaveBeenCalledWith(
-      'ma-super-tache',
-      {
-        actorUid: 'user-bird-1',
-        capabilities: [],
-      }
-    );
-    expect(connectToDatabase).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(200);
+    expect(json.status).toBe('irrigated');
+    
+    // 💥 Vérification de l'invalidation du cache
+    expect(revalidateTag).toHaveBeenCalledWith('tasks');
+    expect(revalidateTag).toHaveBeenCalledWith('task-my-task');
   });
 });

@@ -17,6 +17,8 @@
     
     /* 🛡️ SUTURE MODERNE : Pas de baseUrl, résolution directe des chemins */
     "paths": {
+      "react": ["./node_modules/@types/react"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime"],    
       "@/*": ["./apps/hub-central/*"],
       "@ilot/*": ["./packages/*/src", "./apps/*/src"]
     },

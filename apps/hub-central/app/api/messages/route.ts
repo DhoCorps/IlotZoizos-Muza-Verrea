@@ -1,27 +1,16 @@
-// apps/hub-central/app/api/messages/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
-import { connectToDatabase, MessageModel } from '@ilot/infrastructure';
+import { MessageModel } from '@ilot/infrastructure';
 import { attachmentRegistry } from '@ilot/shared-core';
 import { SendMessageBodySchema } from '@ilot/types';
 import { randomUUID } from 'crypto';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-export async function GET(req: NextRequest) {
-  try {
-    await connectToDatabase();
-    
-    const url = new URL(req.url);
-    const conversationSlug = url.searchParams.get('conversationSlug');
-    const limit = parseInt(url.searchParams.get('limit') || '30', 10);
-    const before = url.searchParams.get('before');
-
-    if (!conversationSlug) {
-      return NextResponse.json({ error: "Slug de salon manquant." }, { status: 400 });
-    }
-
+// 🧠 CACHE SÉCURISÉ : Bypass automatique en mode test pour éviter les crashs Next.js
+async function getCachedMessages(conversationSlug: string, limit: number, before?: string | null) {
+  const fetcher = async () => {
     const query: any = { conversationSlug };
     if (before) {
       query.createdAt = { $lt: new Date(before) };
@@ -32,35 +21,50 @@ export async function GET(req: NextRequest) {
       .limit(limit)
       .lean();
 
-    return NextResponse.json(messages.reverse(), { status: 200 });
+    return messages.reverse();
+  };
+
+  if (process.env.NODE_ENV === 'test') {
+    return await fetcher();
+  }
+
+  return await unstable_cache(
+    fetcher,
+    [`messages-${conversationSlug}-${limit}-${before || 'latest'}`],
+    { revalidate: 15, tags: ['messages', `conversation-${conversationSlug}`] }
+  )();
+}
+
+// ==========================================
+// 🔍 GET : Écouter les messages d'un salon (Public / Optionnel Aura)
+// ==========================================
+export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContext, _currentUser?: OiseauUser) => {
+  try {
+    const url = new URL(req.url);
+    const conversationSlug = url.searchParams.get('conversationSlug');
+    const limit = parseInt(url.searchParams.get('limit') || '30', 10);
+    const before = url.searchParams.get('before');
+
+    if (!conversationSlug) {
+      return NextResponse.json({ error: "Slug de salon manquant." }, { status: 400 });
+    }
+
+    const messages = await getCachedMessages(conversationSlug, limit, before);
+
+    return NextResponse.json(messages, { status: 200 });
 
   } catch (error: any) {
     console.error("🌊 [MESSAGES GET ERROR] :", error);
     return NextResponse.json({ error: "La tempête a brouillé l'écoute des messages." }, { status: 500 });
   }
-}
+});
 
-export async function POST(req: NextRequest) {
+// ==========================================
+// 🚀 POST : Propager un message (Strictement Privé / Aura)
+// ==========================================
+export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR MESSAGES POST]", sessionErr);
-      return NextResponse.json({ error: "Erreur de lecture d'Aura (session)." }, { status: 500 });
-    }
-
-    const senderSlug = (session?.user as any)?.slug || (session?.user as any)?.uid;
-    if (!senderSlug) {
-      return NextResponse.json({ error: "Oiseau non identifié dans la canopée." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR MESSAGES POST]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
+    const senderSlug = currentUser.slug || currentUser.uid;
 
     let rawBody;
     try {
@@ -105,6 +109,10 @@ export async function POST(req: NextRequest) {
       readBy: [{ userSlug: senderSlug, readAt: new Date() }]
     });
 
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade pour ce salon
+    revalidateTag('messages');
+    revalidateTag(`conversation-${conversationSlug}`);
+
     return NextResponse.json({
       success: true,
       message: newMessage
@@ -114,4 +122,4 @@ export async function POST(req: NextRequest) {
     console.error("🌋 [MESSAGES POST ERROR] :", error);
     return NextResponse.json({ error: error.message || "Impossible de propager le message." }, { status: 500 });
   }
-}
+});

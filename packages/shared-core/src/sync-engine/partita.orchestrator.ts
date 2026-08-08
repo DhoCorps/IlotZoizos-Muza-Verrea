@@ -5,6 +5,8 @@ import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
 
 export interface PartitaSyncResult {
+  uid?: string;
+  id?: string;
   success: boolean;
   status: string;
   mongo: any;

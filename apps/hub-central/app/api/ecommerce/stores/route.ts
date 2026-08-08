@@ -1,103 +1,80 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { connectToDatabase, StoreModel } from '@ilot/infrastructure';
+import { StoreModel } from '@ilot/infrastructure';
 import { EcommerceOrchestrator } from '@ilot/shared-core';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import { v4 as uuidv4 } from 'uuid';
 import { slugify } from '@/lib/slugify';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-export async function GET() {
+// 🧠 CACHE SÉCURISÉ : Recensement des boutiques vérifiées mis en cache (30s) avec bypass en mode test
+async function getCachedVerifiedStores() {
+  const fetcher = async () => {
+    return await StoreModel.find({ isVerified: true }).sort({ createdAt: -1 }).lean();
+  };
+
+  if (process.env.NODE_ENV === 'test') {
+    return await fetcher();
+  }
+
+  return await unstable_cache(
+    fetcher,
+    ['verified-stores-cache'],
+    { revalidate: 30, tags: ['stores', 'verified-stores'] }
+  )();
+}
+
+// ==========================================
+// 🔍 GET : Recenser toutes les boutiques vérifiées (Public / Silice)
+// ==========================================
+export const GET = withSilice(async (_req: Request, _context: ApiContext) => {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR STORES GET]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let stores;
-    try {
-      stores = await StoreModel.find({ isVerified: true }).sort({ createdAt: -1 }).lean();
-    } catch (queryErr) {
-      console.error("🔥 [STORES QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "Échec du recensement des boutiques." }, { status: 500 });
-    }
-
+    const stores = await getCachedVerifiedStores();
     return NextResponse.json(stores, { status: 200 });
 
   } catch (error: any) {
     console.error("🔥 Erreur lors du recensement des boutiques :", error);
     return NextResponse.json({ error: error.message || "Échec du recensement." }, { status: 500 });
   }
-}
+});
 
-export async function POST(req: Request) {
+// ==========================================
+// 🚀 POST : Création d'une boutique (Strictement Privé / Aura)
+// ==========================================
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR STORES POST]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
-
-    if (!session || !session.user) {
-      return NextResponse.json({ error: "Oiseau non identifié. Création de boutique refusée." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR STORES POST]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let body;
-    try {
-      body = await req.json();
-    } catch (parseErr) {
+    const body = await req.json().catch(() => null);
+    if (!body) {
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
-    const ownerUid = (session.user as any).uid;
+    const ownerUid = currentUser.uid;
     const storeUid = `store_${uuidv4()}`;
 
-    // 1. Génération du Slug Unique
+    // 1. Génération unique du Slug avec garde-fou anti-boucle
     const baseSlug = slugify(body.storeName || 'boutique');
     let finalSlug = baseSlug;
     
-    let slugExists;
-    try {
-      slugExists = await StoreModel.findOne({ slug: finalSlug });
-    } catch (slugErr) {
-      console.error("🔥 [SLUG CHECK ERROR]", slugErr);
-    }
-
+    let slugExists = await StoreModel.findOne({ slug: finalSlug }).lean();
     let counter = 1;
-    while (slugExists) {
+    let safetyCounter = 0;
+
+    while (slugExists && safetyCounter < 50) {
       finalSlug = `${baseSlug}-${counter}`;
-      try {
-        slugExists = await StoreModel.findOne({ slug: finalSlug });
-      } catch (slugErr) {
-        break;
-      }
+      slugExists = await StoreModel.findOne({ slug: finalSlug }).lean();
       counter++;
+      safetyCounter++;
     }
 
     // 2. Enregistrement dans MongoDB
-    let newStore;
-    try {
-      newStore = await StoreModel.create({
-        ...body,
-        uid: storeUid,
-        ownerUid,
-        slug: finalSlug,
-        isVerified: true
-      });
-    } catch (createErr) {
-      console.error("🔥 [STORE CREATE ERROR]", createErr);
-      return NextResponse.json({ error: "Échec de l'enregistrement de la boutique en base." }, { status: 500 });
-    }
+    const newStore = await StoreModel.create({
+      ...body,
+      uid: storeUid,
+      ownerUid,
+      slug: finalSlug,
+      isVerified: true
+    });
 
     // 3. Synchronisation Neo4j (Non-bloquant)
     try {
@@ -110,11 +87,15 @@ export async function POST(req: Request) {
           slug: finalSlug, 
           stripeAccountId: body.stripeAccountId 
         },
-        { actorUid: ownerUid, capabilities: (session.user as any).capabilities || [] }
+        { actorUid: ownerUid, capabilities: currentUser.capabilities || [] }
       );
     } catch (neoError) {
       console.error("⚠️ Fracture mineure Neo4j lors de la création de la boutique :", neoError);
     }
+
+    // 💥 Invalidation chirurgicale du cache en cascade
+    revalidateTag('stores');
+    revalidateTag('verified-stores');
 
     return NextResponse.json({
       success: true,
@@ -126,4 +107,4 @@ export async function POST(req: Request) {
     console.error("🔥 Fracture lors de la création de la boutique :", error);
     return NextResponse.json({ error: error.message || "Échec de la création." }, { status: 500 });
   }
-}
+});

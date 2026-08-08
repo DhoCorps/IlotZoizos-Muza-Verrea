@@ -1,63 +1,83 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '../../app/api/auth/reset-password/route';
+import { POST } from '@/app/api/auth/reset-password/route';
+import { OiseauModel } from '@ilot/infrastructure';
+import { revalidateTag } from 'next/cache';
+import { NextResponse } from 'next/server';
+import bcrypt from 'bcryptjs';
 
-const mockFindOneAndUpdate = vi.fn();
+// -------------------------------------------------------------------------
+// 🎭 MOCKS
+// -------------------------------------------------------------------------
+vi.mock('@/lib/api-guards', () => ({
+  withSilice: (handler: any) => handler,
+}));
+
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
+}));
 
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   OiseauModel: {
-    findOneAndUpdate: (...args: any[]) => mockFindOneAndUpdate(...args)
-  }
+    findOneAndUpdate: vi.fn(),
+  },
 }));
 
 vi.mock('bcryptjs', () => ({
   default: {
-    hash: vi.fn().mockResolvedValue('hashed_new_password_secure')
-  }
+    hash: vi.fn().mockResolvedValue('hashed_password'),
+  },
 }));
 
-describe('API Auth - Réinitialisation du Mot de Passe (POST /api/auth/reset-password)', () => {
+describe('API Reset Password POST', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  it('✅ doit sceller un nouveau mot de passe si le token est valide', async () => {
-    mockFindOneAndUpdate.mockResolvedValueOnce({
-      email: 'oiseau@ilot.com'
-    });
-
-    const req = new Request('http://localhost:3000/api/auth/reset-password', {
+  it('🔴 [POST] doit rejeter (400) si le schéma Zod est invalide', async () => {
+    const req = new Request('http://localhost/api/auth/reset-password', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        token: 'valid_token_abc123',
-        password: 'NewSecurePassword1!',
-        confirmPassword: 'NewSecurePassword1!'
-      })
+      body: JSON.stringify({ token: 'abc' }) // pas de password
     });
 
-    const response = await POST(req);
-    const data = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(data.success).toBe(true);
-    expect(mockFindOneAndUpdate).toHaveBeenCalled();
+    const res = await POST(req as any, {});
+    expect(res.status).toBe(400);
   });
 
-  it('❌ doit rejeter la réinitialisation si le token est expiré ou invalide', async () => {
-    mockFindOneAndUpdate.mockResolvedValueOnce(null); // Aucun utilisateur trouvé avec ce token actif
+  it('🔴 [POST] doit rejeter (400) si le token est invalide', async () => {
+    vi.mocked(OiseauModel.findOneAndUpdate).mockResolvedValueOnce(null);
 
-    const req = new Request('http://localhost:3000/api/auth/reset-password', {
+    const req = new Request('http://localhost/api/auth/reset-password', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        token: 'expired_token',
-        password: 'NewSecurePassword1!',
-        confirmPassword: 'NewSecurePassword1!'
-      })
+      body: JSON.stringify({ token: 'expired', password: 'password123', confirmPassword: 'password123' })
     });
 
-    const response = await POST(req);
-    expect(response.status).toBe(400);
+    const res = await POST(req as any, {});
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.error).toContain('invalide ou a expiré');
+  });
+
+  it('🟢 [POST] doit sceller la nouvelle clé (200) et invalider le cache', async () => {
+    vi.mocked(OiseauModel.findOneAndUpdate).mockResolvedValueOnce({
+      uid: 'bird_1',
+      email: 'test@ilot.fr'
+    } as any);
+
+    const req = new Request('http://localhost/api/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token: 'valid_token', password: 'newPassword123', confirmPassword: 'newPassword123' })
+    });
+
+    const res = await POST(req as any, {});
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(revalidateTag).toHaveBeenCalledWith('oiseaux');
+    expect(revalidateTag).toHaveBeenCalledWith('oiseau-bird_1');
+    expect(bcrypt.hash).toHaveBeenCalled();
   });
 });

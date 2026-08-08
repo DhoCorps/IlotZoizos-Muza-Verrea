@@ -1,58 +1,48 @@
-import { NextResponse } from 'next/server';
-import { connectToDatabase, LetterSpriteModel } from '@ilot/infrastructure';
+export const dynamic = 'force-dynamic';
+
+import { NextRequest, NextResponse } from 'next/server';
+import { LetterSpriteModel } from '@ilot/infrastructure';
 import { LetrinSpriteOrchestrator } from '@ilot/shared-core';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth"; // Ajuste la profondeur si nécessaire
 import { v4 as uuidv4 } from 'uuid';
 import { slugify } from '@/lib/slugify';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-export async function GET() {
+// 🧠 CACHE SÉCURISÉ : Recensement des polices mis en cache (60s) avec bypass en mode test
+async function getCachedFonts() {
+  const fetcher = async () => {
+    return await LetterSpriteModel.find({}).sort({ createdAt: -1 }).lean();
+  };
+
+  if (process.env.NODE_ENV === 'test') {
+    return await fetcher();
+  }
+
+  return await unstable_cache(
+    fetcher,
+    ['letrin-fonts-list'],
+    { revalidate: 60, tags: ['fonts', 'letrin'] }
+  )();
+}
+
+// ==========================================
+// 🔍 GET : Recenser toutes les polices Letr'In (Public / Silice)
+// ==========================================
+export const GET = withSilice(async (_req: NextRequest, _context: ApiContext) => {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR LETRIN SPRITES GET]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let fonts;
-    try {
-      // 🪡 Ajout de .lean() pour de meilleures performances et compatibilité avec les tests
-      fonts = await LetterSpriteModel.find({}).sort({ createdAt: -1 }).lean();
-    } catch (queryErr) {
-      console.error("🔥 [LETRIN SPRITES QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "Échec de lecture des polices." }, { status: 500 });
-    }
-
+    const fonts = await getCachedFonts();
     return NextResponse.json(fonts, { status: 200 });
-
   } catch (error: any) {
     console.error("🔥 Erreur globale GET Letr'In Sprites :", error);
     return NextResponse.json({ error: error.message || "Échec du recensement." }, { status: 500 });
   }
-}
+});
 
-export async function POST(req: Request) {
+// ==========================================
+// 🚀 POST : Sédimenter une police Letr'In (Strictement Privé / Aura)
+// ==========================================
+export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR LETRIN SPRITES POST]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
-
-    if (!session || !session.user) {
-      return NextResponse.json({ error: "Oiseau non identifié. Accès refusé." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR LETRIN SPRITES POST]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
     let body;
     try {
       body = await req.json();
@@ -83,7 +73,7 @@ export async function POST(req: Request) {
       uid: fontUid,
       name: fontName,
       slug: finalSlug,
-      authorUid: (session.user as any).uid || 'unknown',
+      authorUid: currentUser.uid || 'unknown',
       gridSize: body.gridSize || { width: 16, height: 16 },
       glyphs: body.glyphs || [],
       status: body.status || 'DRAFT'
@@ -97,17 +87,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Échec de sédimentation." }, { status: 500 });
     }
 
-    // Synchronisation dans le Graphe Neo4j
+    // Synchronisation dans le Graphe Neo4j via l'orchestrateur (avec résilience)
     try {
       const orchestrator = new LetrinSpriteOrchestrator();
       await orchestrator.publishFontSprite(fontData, {
         actorUid: fontData.authorUid,
-        capabilities: (session.user as any).capabilities || []
+        capabilities: currentUser.capabilities || []
       });
     } catch (neoError) {
-      // On ne bloque pas la réponse HTTP si seul Neo4j échoue (logique de résilience)
       console.error("⚠️ Erreur Neo4j au tissage de Letr'In :", neoError);
     }
+
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('fonts');
+    revalidateTag('letrin');
 
     return NextResponse.json({
       success: true,
@@ -119,4 +112,4 @@ export async function POST(req: Request) {
     console.error("🔥 Erreur globale POST Letr'In Sprites :", error);
     return NextResponse.json({ error: error.message || "Échec de la sédimentation." }, { status: 500 });
   }
-}
+});

@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, POST } from '../../app/api/partita/route';
+import { GET, POST } from '@/app/api/partita/route';
 import { getServerSession } from 'next-auth/next';
+import { revalidateTag } from 'next/cache';
+
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DU CACHE NEXT.JS
+// -------------------------------------------------------------------------
+vi.mock('next/cache', () => ({
+  unstable_cache: vi.fn((cb) => cb), // Renvoie la fonction callback sans l'exécuter immédiatement
+  revalidateTag: vi.fn(),
+}));
 
 vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn()
@@ -24,7 +33,10 @@ vi.mock('@ilot/shared-core', () => ({
 }));
 
 describe('API Partita - Collection (GET / POST)', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    global.__mockUser = undefined;
+  });
 
   it('✅ GET : doit lister les partitions', async () => {
     vi.mocked(getServerSession).mockResolvedValueOnce(null);
@@ -46,7 +58,7 @@ describe('API Partita - Collection (GET / POST)', () => {
   });
 
   it('❌ POST : doit rejeter si titre ou contenu manquant (400)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({ user: { uid: 'bird_1' } } as any);
+    vi.mocked(getServerSession).mockResolvedValueOnce({ user: { uid: 'bird_1', capabilities: [] } } as any);
     const req = new Request('http://localhost/api/partita', {
       method: 'POST', body: JSON.stringify({ title: 'Juste un titre' })
     });
@@ -67,5 +79,6 @@ describe('API Partita - Collection (GET / POST)', () => {
     expect(res.status).toBe(201);
     expect(data.uid).toBe('part_new');
     expect(mockFosterPartita).toHaveBeenCalled();
+    expect(revalidateTag).toHaveBeenCalledWith('partitas');
   });
 });

@@ -1,78 +1,44 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import { connectToDatabase, TeamModel } from '@ilot/infrastructure';
-import { authOptions } from "../../../../../../lib/auth";
+import { TeamModel } from '@ilot/infrastructure';
 import { TransactionManager } from '@ilot/shared-core';
 import { slugify } from '@/lib/slugify';
+import { revalidateTag } from 'next/cache';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards'; // 🪡 Notre bouclier souverain strict
 
-interface RouteParams {
-  params: Promise<{ slug: string; targetUid: string }>;
-}
+export const dynamic = 'force-dynamic';
 
-export async function DELETE(req: Request, { params }: RouteParams) {
+// ==========================================
+// 🧨 DELETE : Révocation d'une invitation sur un Nid
+// ==========================================
+export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // -------------------------------------------------------------------------
-    // 1. ÉVEIL DE LA SILICE
-    // -------------------------------------------------------------------------
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR TEAM INVITATION DELETE]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
+    // 1. Résolution stricte et typée des paramètres dynamiques de l'URL
+    const resolvedParams = await context.params;
+    const rawSlug = resolvedParams?.slug;
+    const rawTargetUid = resolvedParams?.targetUid;
+
+    const teamSlug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const targetUid = typeof rawTargetUid === 'string' ? rawTargetUid : Array.isArray(rawTargetUid) ? rawTargetUid[0] : '';
+
+    if (!targetUid) {
+      return NextResponse.json({ error: "UID cible (targetUid) manquant dans la route." }, { status: 400 });
     }
 
-    // -------------------------------------------------------------------------
-    // 2. RÉSOLUTION DES PARAMÈTRES (Slugification du Nid uniquement)
-    // -------------------------------------------------------------------------
-    let resolvedParams;
-    try {
-      resolvedParams = await params;
-    } catch (paramErr) {
-      console.error("🔥 [PARAM ERROR TEAM INVITATION DELETE]", paramErr);
-      return NextResponse.json({ error: "Paramètres de route invalides." }, { status: 400 });
-    }
-
-    const teamSlug = slugify(resolvedParams.slug || '');
-    const { targetUid } = resolvedParams; // On laisse targetUid tel quel (ID technique)
-
-    // -------------------------------------------------------------------------
-    // 3. IDENTIFICATION DE L'OISEAU (SESSION)
-    // -------------------------------------------------------------------------
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR TEAM INVITATION DELETE]", sessionErr);
-      return NextResponse.json({ error: "Erreur de lecture d'Aura." }, { status: 500 });
-    }
-
-    const userUid = (session?.user as any)?.uid;
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
-    }
-
-    // -------------------------------------------------------------------------
-    // 4. RÉCUPÉRATION DU NID DANS LA SILICE
-    // -------------------------------------------------------------------------
-    let team;
-    try {
-      team = await TeamModel.findOne({ 
-        $or: [{ slug: teamSlug }, { uid: teamSlug }] 
-      }).lean();
-    } catch (queryErr) {
-      console.error("🔥 [TEAM QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "Échec de lecture du Nid." }, { status: 500 });
-    }
+    // 2. Récupération du Nid dans la Silice
+    const team = await TeamModel.findOne({ 
+      $or: [{ slug: teamSlug }, { uid: teamSlug }] 
+    }).lean();
 
     if (!team) {
       return NextResponse.json({ error: "Nid introuvable dans la Silice." }, { status: 404 });
     }
 
     const teamId = (team as any).uid;
+    const teamRealSlug = (team as any).slug;
 
-    // 🛡️ DOUBLE VERROU
-    const isNestOwner = (team as any).ownerUid === userUid;
-    const isArchitect = (session?.user as any)?.capabilities?.includes('*') || false;
+    // 3. 🛡️ DOUBLE VERROU DE GOUVERNANCE (Propriétaire du Nid ou Architecte global)
+    const isNestOwner = (team as any).ownerUid === currentUser.uid;
+    const isArchitect = currentUser.capabilities?.includes('*') || false;
 
     if (!isNestOwner && !isArchitect) {
       return NextResponse.json({ 
@@ -80,9 +46,7 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       }, { status: 403 });
     }
 
-    // -------------------------------------------------------------------------
-    // 5. TRANCHAGE (TRANSACTION MANAGER)
-    // -------------------------------------------------------------------------
+    // 4. Exécution transactionnelle de la révocation (Mongo / Neo4j)
     try {
       await TransactionManager.execute("Révocation d'Invitation", async (mongoSession, neo4jTx) => {
         const cypherRevoke = `
@@ -97,7 +61,6 @@ export async function DELETE(req: Request, { params }: RouteParams) {
           throw new Error("Aucune invitation active ou en attente trouvée pour cet oiseau.");
         }
         
-        console.log(`⚡ [Gouvernance] Invitation révoquée : Oiseau ${targetUid} retiré du Nid ${teamId} par ${userUid}`);
         return true;
       });
     } catch (txErr: any) {
@@ -105,6 +68,12 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       const status = txErr.status || txErr.statusCode || 400;
       return NextResponse.json({ error: txErr.message || "L'action de gouvernance a échoué." }, { status });
     }
+
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('teams');
+    revalidateTag(`team-${teamSlug}`);
+    if (teamRealSlug) revalidateTag(`team-${teamRealSlug}`);
+    revalidateTag(`teams-${targetUid}`);
 
     return NextResponse.json({ 
       success: true, 
@@ -115,4 +84,4 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     console.error("🔥 Fracture globale lors de la révocation de l'invitation :", error);
     return NextResponse.json({ error: error.message || "L'action de gouvernance a échoué." }, { status: 500 });
   }
-}
+});

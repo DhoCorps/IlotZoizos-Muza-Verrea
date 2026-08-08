@@ -1,24 +1,51 @@
-// apps/hub-central/app/api/games/leaderboard/route.ts
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { GameResultModel } from '@ilot/infrastructure'; // Assure-toi que le modèle est exporté ici
+import { GameResultModel } from '@ilot/infrastructure';
+import { unstable_cache } from 'next/cache';
+import { withSilice, ApiContext } from '@/lib/api-guards';
 
-export async function GET(req: Request) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const gameType = searchParams.get('gameType'); // ex: 'KoOonTreez', 'WikiOracle', ou 'all'
-    const limit = parseInt(searchParams.get('limit') || '10', 10);
-
+// 🧠 CACHE SÉCURISÉ : Récupération du classement filtré (30s) avec bypass en mode test
+async function getCachedLeaderboard(gameType: string | null, limit: number) {
+  const fetcher = async () => {
     const query = gameType && gameType !== 'all' ? { gameType } : {};
-
-    // Récupération des meilleurs scores triés par score décroissant
-    const topScores = await GameResultModel.find(query)
+    return await GameResultModel.find(query)
       .sort({ score: -1 })
       .limit(limit)
       .lean();
+  };
 
-    return NextResponse.json({ success: true, scores: topScores });
-  } catch (err) {
-    console.error('[Leaderboard API] Erreur lors de la récupération :', err);
-    return NextResponse.json({ success: false, error: 'Erreur interne de la matrice' }, { status: 500 });
+  if (process.env.NODE_ENV === 'test') {
+    return await fetcher();
   }
+
+  const cacheKey = `leaderboard-${gameType || 'all'}-${limit}`;
+  return await unstable_cache(
+    fetcher,
+    [cacheKey],
+    { 
+      revalidate: 30, 
+      tags: ['leaderboard', 'games', ...(gameType && gameType !== 'all' ? [`leaderboard-${gameType}`] : [])] 
+    }
+  )();
 }
+
+// ==========================================
+// 🏆 GET : Ausculter le classement des jeux (Public / Silice)
+// ==========================================
+export const GET = withSilice(async (req: Request, _context: ApiContext) => {
+  try {
+    const url = new URL(req.url);
+    const searchParams = url.searchParams;
+    const gameType = searchParams.get('gameType');
+    const limit = parseInt(searchParams.get('limit') || '10', 10);
+
+    const topScores = await getCachedLeaderboard(gameType, limit);
+
+    return NextResponse.json({ success: true, scores: topScores }, { status: 200 });
+
+  } catch (err: any) {
+    console.error('[Leaderboard API] Erreur lors de la récupération :', err);
+    return NextResponse.json({ success: false, error: err.message || 'Erreur interne de la matrice' }, { status: 500 });
+  }
+});

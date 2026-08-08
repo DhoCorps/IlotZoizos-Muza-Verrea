@@ -1,73 +1,85 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '../../app/api/demopraxy/evaluate/route';
-import { getServerSession } from 'next-auth/next';
+import { POST } from '@/app/api/demopraxy/evaluate/route';
+import { DemopraxyOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
+import { NextResponse } from 'next/server';
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn()
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
+// -------------------------------------------------------------------------
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: any) => async (req: any, ctx: any) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser || !mockUser.uid) {
+      return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
+    }
+    return await handler(req, ctx, mockUser);
+  },
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true)
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
 }));
 
-const mockProcessEvaluation = vi.fn();
 vi.mock('@ilot/shared-core', () => ({
   DemopraxyOrchestrator: vi.fn().mockImplementation(() => ({
-    processDemopraxicEvaluation: (...args: any[]) => mockProcessEvaluation(...args)
-  }))
+    processDemopraxicEvaluation: vi.fn().mockResolvedValue({ success: true, score: 85 }),
+  })),
 }));
 
-describe('API Demopraxy - Évaluation du Vortex (POST /api/demopraxy/evaluate)', () => {
+declare global {
+  var __mockUser: any;
+}
+
+describe('API Demopraxy Evaluation POST', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  it('❌ doit rejeter les requêtes des oiseaux non authentifiés (401)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
+  it('🔴 [POST] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
+    global.__mockUser = undefined;
 
-    const req = new Request('http://localhost:3000/api/demopraxy/evaluate', {
+    const req = new Request('http://localhost/api/demopraxy', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userIdentifier: 'target-1', metrics: {} })
+      body: JSON.stringify({ userIdentifier: 'bird_1', metrics: { noiseLevel: 10 } })
     });
 
-    const res = await POST(req);
+    const res = await POST(req as any, {});
     expect(res.status).toBe(401);
   });
 
-  it('❌ doit rejeter les requêtes avec corps incomplet (400)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'actor-1', capabilities: ['ADMIN'] }
-    } as any);
+  it('🔴 [POST] doit rejeter (400) si des paramètres requis sont manquants', async () => {
+    global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
-    const req = new Request('http://localhost:3000/api/demopraxy/evaluate', {
+    const req = new Request('http://localhost/api/demopraxy', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userIdentifier: 'target-1' })
+      body: JSON.stringify({ userIdentifier: 'bird_1' }) // metrics omis
     });
 
-    const res = await POST(req);
+    const res = await POST(req as any, {});
+    const json = await res.json();
+
     expect(res.status).toBe(400);
+    expect(json.error).toContain('manquants');
   });
 
-  it('✅ doit évaluer la démopraxie avec succès si les données sont valides (200)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'actor-1', capabilities: ['ADMIN'] }
-    } as any);
+  it('🟢 [POST] doit traiter l\'évaluation démopraxique avec succès (200) et invalider le cache', async () => {
+    global.__mockUser = { uid: 'bird_1', capabilities: ['ADMIN'] };
 
-    mockProcessEvaluation.mockResolvedValueOnce({ score: 95, status: 'HARMONIOUS' });
-
-    const req = new Request('http://localhost:3000/api/demopraxy/evaluate', {
+    const req = new Request('http://localhost/api/demopraxy', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userIdentifier: 'target-1', metrics: { noiseLevel: 5 } })
+      body: JSON.stringify({ userIdentifier: 'bird_2', metrics: { noiseLevel: 5 } })
     });
 
-    const res = await POST(req);
-    const data = await res.json();
+    const res = await POST(req as any, {});
+    const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(data.score).toBe(95);
-    expect(data.status).toBe('HARMONIOUS');
+    expect(json.success).toBe(true);
+    expect(json.score).toBe(85);
+    expect(revalidateTag).toHaveBeenCalledWith('demopraxy');
+    expect(revalidateTag).toHaveBeenCalledWith('demopraxy-bird_2');
+    expect(revalidateTag).toHaveBeenCalledWith('demopraxy-actor-bird_1');
   });
 });

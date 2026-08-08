@@ -2,7 +2,7 @@
 'use client';
 
 import React from 'react';
-import { scheduleTaskAction } from '../../app/actions/task.actions'; 
+import { scheduleTaskAction } from '@/app/actions/task.actions'; 
 import { Plus } from 'lucide-react';
 import { addDays, startOfWeek, addMinutes, startOfDay } from 'date-fns';
 

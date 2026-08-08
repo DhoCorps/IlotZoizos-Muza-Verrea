@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     // 🪄 Magie : Résout les alias de base comme @/* pour hub-central
     tsconfigPaths(),
-  ],
+  ] as any[], // 👈 Contournement radical du conflit de types entre Vite et Vitest
   resolve: {
     alias: {
       // 🛡️ SUTURE MANUELLE : On force Vitest à pointer sur les fichiers index.ts des packages

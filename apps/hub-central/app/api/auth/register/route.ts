@@ -1,20 +1,17 @@
-import { NextResponse } from 'next/server';
-import { connectToDatabase } from '@ilot/infrastructure'; 
-import { OiseauOrchestrator } from '@ilot/shared-core';
+export const dynamic = 'force-dynamic';
 
-export async function POST(req: Request) {
+import { NextResponse } from 'next/server';
+import { OiseauOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
+import { withSilice, ApiContext } from '@/lib/api-guards';
+
+// ==========================================
+// 🕊️ POST : Accueillir un nouvel Oiseau (Public / Silice)
+// ==========================================
+export const POST = withSilice(async (req: Request, _context: ApiContext) => {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbError) {
-      console.error("❌ [DB ERROR REGISTER]", dbError);
-      return NextResponse.json({ message: "La Silice est inaccessible." }, { status: 500 });
-    }
-    
-    let body;
-    try {
-      body = await req.json();
-    } catch (parseError) {
+    const body = await req.json().catch(() => null);
+    if (!body) {
       return NextResponse.json({ message: "Flux d'inscription illisible." }, { status: 400 });
     }
 
@@ -29,6 +26,7 @@ export async function POST(req: Request) {
 
     const oiseauOrch = new OiseauOrchestrator();
 
+    // 🚀 Création de l'Oiseau via l'orchestrateur
     const syncResult = await oiseauOrch.fosterOiseau({
       email,
       password,
@@ -37,6 +35,9 @@ export async function POST(req: Request) {
     });
 
     const nouvelOiseau = syncResult.mongo;
+
+    // 💥 Invalidation chirurgicale du cache (pour rafraîchir les listes d'utilisateurs/oiseaux)
+    revalidateTag('oiseaux');
 
     return NextResponse.json({
       message: "L'oiseau a rejoint l'Îlot !",
@@ -52,8 +53,8 @@ export async function POST(req: Request) {
     console.error("🔥 Caprice au seuil (Inscription) :", error.message);
     
     return NextResponse.json(
-        { message: error.message || "L'Îlot repousse cette tentative." }, 
-        { status }
+      { message: error.message || "L'Îlot repousse cette tentative." }, 
+      { status }
     );
   }
-}
+});

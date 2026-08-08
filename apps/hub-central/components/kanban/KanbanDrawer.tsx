@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
-import { moveTaskAction } from '../../app/actions/kanban.actions';
+import { moveTaskAction } from '@/app/actions/kanban.actions';
 import { ITask, TaskStatus } from '@ilot/types';
 
 // Colonnes du Kanban alignées sur tes types

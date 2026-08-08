@@ -1,77 +1,45 @@
-export const dynamic = 'force-dynamic';
-
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth"; 
-import { connectToDatabase, OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TaskResonanceOrchestrator, ResonanceOrchestrator } from '@ilot/shared-core';
 import { ActionSignature, ResonanceType, IResonancePayload } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
+import { revalidateTag } from 'next/cache';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards'; // 🪡 Notre bouclier souverain strict
 
-/**
- * 🌿 INTERFACE DES PARAMÈTRES
- * Standard universel basé sur le [slug]
- */
-interface RouteParams {
-  params: Promise<{ slug: string }>;
-}
+export const dynamic = 'force-dynamic';
 
-interface OiseauUser {
-  id: string;
-  uid: string;
-  capabilities: string[];
-}
-
-export async function POST(req: NextRequest, { params }: RouteParams) {
+// ==========================================
+// 🎼 POST : La Résonance (Tisser ou Rompre)
+// ==========================================
+export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 1. ÉVEIL DE LA SILICE
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR USER RESONANCE]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
+    // 1. Résolution stricte et typée des paramètres de route
+    const resolvedParams = await context.params;
+    const rawSlug = resolvedParams?.slug;
+    const targetSlug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    // 2. RÉSOLUTION ET SLUGIFICATION DES PARAMÈTRES
-    let rawSlug;
-    try {
-      const resolvedParams = await params;
-      rawSlug = resolvedParams.slug;
-    } catch (paramErr) {
-      return NextResponse.json({ error: "Paramètres de route invalides." }, { status: 400 });
-    }
-    const targetSlug = slugify(rawSlug || '');
+    const signature: ActionSignature = { 
+      actorUid: currentUser.uid, 
+      capabilities: currentUser.capabilities 
+    };
 
-    // 3. IDENTIFICATION DE L'OISEAU (L'AURA)
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      return NextResponse.json({ error: "Erreur de lecture d'Aura." }, { status: 500 });
-    }
-
-    const actorUid = (session?.user as OiseauUser | undefined)?.uid;
-    const capabilities = (session?.user as OiseauUser | undefined)?.capabilities || [];
-
-    if (!actorUid) {
-      return NextResponse.json({ error: "Oiseau non identifié dans la canopée." }, { status: 401 });
-    }
-
-    const signature: ActionSignature = { actorUid, capabilities };
-
-    // 4. PARSAGE DU CORPS DE REQUÊTE
-    let body: any = {};
+    // 2. Parsage du corps de la requête
+    let body: Record<string, any> = {};
     try {
       const text = await req.text();
       if (text) body = JSON.parse(text);
-    } catch (e) {}
+    } catch (e) {
+      return NextResponse.json({ error: "L'onde est muette : Corps de requête invalide." }, { status: 400 });
+    }
 
     const { action, type, entityId } = body;
 
+    // ---------------------------------------------------------------------
     // 5A. MODE ABONNEMENT (WEAVE / SEVER)
+    // ---------------------------------------------------------------------
     if (action === 'WEAVE' || action === 'SEVER') {
-      // Comparaison robuste (slugifiée) pour éviter de résonner avec soi-même
-      if (actorUid === targetSlug || slugify(actorUid) === targetSlug) {
+      // On ne résonne pas avec soi-même
+      if (currentUser.uid === targetSlug || slugify(currentUser.uid) === targetSlug) {
         return NextResponse.json({ error: "On ne peut résonner avec soi-même." }, { status: 400 });
       }
 
@@ -88,7 +56,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       }
 
       const payload: IResonancePayload = {
-        sourceUid: actorUid,
+        sourceUid: currentUser.uid,
         targetUid: targetUser.uid,
         type: type as ResonanceType,
         entityId
@@ -99,8 +67,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         
         if (type === 'FOLLOWS_GLOBAL') {
            await OiseauModel.updateOne({ uid: targetUser.uid }, { $inc: { followersCount: 1 } });
-           await OiseauModel.updateOne({ uid: actorUid }, { $inc: { followingCount: 1 } });
+           await OiseauModel.updateOne({ uid: currentUser.uid }, { $inc: { followingCount: 1 } });
         }
+
+        // 💥 BOOM ! On invalide le cache des DEUX profils
+        revalidateTag(`profile-${targetUser.slug || targetUser.uid}`);
+        revalidateTag(`profile-${currentUser.uid}`);
+        revalidateTag('users');
 
         return NextResponse.json({ success: true, message: "Les fils sont liés.", isHarmonic }, { status: 200 });
 
@@ -109,29 +82,33 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
         if (type === 'FOLLOWS_GLOBAL') {
            await OiseauModel.updateOne({ uid: targetUser.uid }, { $inc: { followersCount: -1 } });
-           await OiseauModel.updateOne({ uid: actorUid }, { $inc: { followingCount: -1 } });
+           await OiseauModel.updateOne({ uid: currentUser.uid }, { $inc: { followingCount: -1 } });
         }
+
+        // 💥 BOOM ! On invalide le cache des DEUX profils
+        revalidateTag(`profile-${targetUser.slug || targetUser.uid}`);
+        revalidateTag(`profile-${currentUser.uid}`);
+        revalidateTag('users');
 
         return NextResponse.json({ success: true, message: "Le lien a été rompu.", isHarmonic: false }, { status: 200 });
       }
     }
 
+    // ---------------------------------------------------------------------
     // 5B. MODE CALCUL (COMPORTEMENT HISTORIQUE PAR DÉFAUT)
-    let result;
+    // ---------------------------------------------------------------------
     try {
       const taskOrchestrator = new TaskResonanceOrchestrator();
-      // On passe targetSlug (normalisé)
-      result = await taskOrchestrator.processUserTaskResonance(targetSlug, signature);
+      const result = await taskOrchestrator.processUserTaskResonance(targetSlug, signature);
+      return NextResponse.json(result, { status: 200 });
     } catch (orchErr: any) {
       console.error("🌋 [ORCHESTRATOR RESONANCE ERROR]", orchErr);
       const status = orchErr.statusCode || orchErr.status || 400;
       return NextResponse.json({ error: orchErr.message || "Échec du calcul de la résonance." }, { status });
     }
 
-    return NextResponse.json(result, { status: 200 });
-
   } catch (error: any) {
     console.error("🔥 Fracture globale lors de l'appel de résonance :", error);
     return NextResponse.json({ error: error.message || "Erreur interne de résonance." }, { status: 500 });
   }
-}
+});

@@ -1,15 +1,24 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { connectToDatabase, OiseauModel } from "@ilot/infrastructure";
+import { OiseauModel } from "@ilot/infrastructure";
 import { ResetPasswordSchema } from "@ilot/types";
+import { revalidateTag } from "next/cache";
+import { withSilice, ApiContext } from "@/lib/api-guards";
 
-export async function POST(req: Request) {
+// ==========================================
+// 🛡️ POST : Sceller une nouvelle clé (Public / Silice)
+// ==========================================
+export const POST = withSilice(async (req: Request, _context: ApiContext) => {
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => null);
+    if (!body) {
+      return NextResponse.json({ error: "Flux illisible." }, { status: 400 });
+    }
     
-    // 🛡️ Validation via le schéma Zod (vérifie token, password et confirmPassword)
+    // 🛡️ Validation stricte via Zod
     const validation = ResetPasswordSchema.safeParse(body);
-
     if (!validation.success) {
       return NextResponse.json(
         { error: "Données invalides ou mots de passe non identiques." }, 
@@ -18,12 +27,11 @@ export async function POST(req: Request) {
     }
 
     const { token, password } = validation.data;
-    await connectToDatabase();
 
-    // 🔨 1. Jambonisage : On hache manuellement car le modèle User ne le fait pas
+    // 🔨 Jambonisage : Hachage de la nouvelle clé
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // 🚀 2. On utilise findOneAndUpdate pour l'atomicité (Trouve, Change et Nettoie d'un coup)
+    // 🚀 Mise à jour atomique : Trouve, Change et Nettoie d'un coup
     const user = await OiseauModel.findOneAndUpdate(
       { 
         resetPasswordToken: token, 
@@ -31,7 +39,6 @@ export async function POST(req: Request) {
       },
       { 
         $set: { password: hashedPassword },
-        // 🔥 On supprime les traces du token pour qu'il ne soit plus utilisable
         $unset: { resetPasswordToken: "", resetPasswordExpires: "" } 
       },
       { new: true }
@@ -45,6 +52,10 @@ export async function POST(req: Request) {
       );
     }
 
+    // 💥 Invalidation chirurgicale du cache utilisateur
+    revalidateTag('oiseaux');
+    revalidateTag(`oiseau-${user.uid}`);
+
     console.log(`✅ [RESET] Nouvelle clé scellée pour l'oiseau : ${user.email}`);
 
     return NextResponse.json({ 
@@ -52,11 +63,11 @@ export async function POST(req: Request) {
       message: "Ta nouvelle clé est scellée. Bon vol !" 
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("🚨 [RESET ERROR]", error);
     return NextResponse.json(
       { error: "La forge a surchauffé. Réessaie plus tard." }, 
       { status: 500 }
     );
   }
-}
+});

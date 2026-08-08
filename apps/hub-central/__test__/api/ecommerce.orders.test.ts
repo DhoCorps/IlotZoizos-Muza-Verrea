@@ -1,55 +1,95 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '../../app/api/ecommerce/orders/route';
+import { POST } from '@/app/api/ecommerce/orders/route';
+import { OrderModel } from '@ilot/infrastructure';
+import { revalidateTag } from 'next/cache';
+import { NextResponse } from 'next/server';
 
-const mockCreate = vi.fn();
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
+// -------------------------------------------------------------------------
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: any) => async (req: any, ctx: any) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser || !mockUser.uid) {
+      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
+    }
+    return await handler(req, ctx, mockUser);
+  },
+}));
+
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
+}));
+
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   OrderModel: {
-    create: (...args: any[]) => mockCreate(...args)
-  }
+    create: vi.fn(),
+  },
 }));
 
-describe('API Ecommerce - Orders Principal (POST /api/ecommerce/orders)', () => {
+declare global {
+  var __mockUser: any;
+}
+
+describe('API Orders (Commandes)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  it('✅ doit créer une commande avec succès et retourner 201', async () => {
-    mockCreate.mockResolvedValueOnce({
-      uid: 'ord_123',
-      buyerUid: 'bird_1',
-      totalAmount: 50,
-      currency: 'EUR',
-      status: 'PAID'
-    });
+  it('🔴 [POST] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
+    global.__mockUser = undefined;
 
-    const req = new Request('http://localhost:3000/api/ecommerce/orders', {
+    const req = new Request('http://localhost/api/orders', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ buyerUid: 'bird_1', items: [], totalAmount: 50 })
+      body: JSON.stringify({ items: [], totalAmount: 50 })
     });
 
-    const res = await POST(req);
-    const data = await res.json();
+    const res = await POST(req as any, {});
+    expect(res.status).toBe(401);
+  });
+
+  it('🔴 [POST] doit rejeter (400) si le corps de la requête est malformé', async () => {
+    global.__mockUser = { uid: 'bird_1', capabilities: [] };
+
+    // Corps invalide (pas de JSON valide)
+    const req = new Request('http://localhost/api/orders', {
+      method: 'POST',
+      body: 'invalid-json'
+    });
+    // On simule un échec de req.json()
+    req.json = vi.fn().mockRejectedValue(new Error('Invalid JSON'));
+
+    const res = await POST(req as any, {});
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.error).toContain('illisible ou malformé');
+  });
+
+  it('🟢 [POST] doit sédimenter la commande avec succès (201) et invalider le cache', async () => {
+    global.__mockUser = { uid: 'bird_1', capabilities: [] };
+
+    vi.mocked(OrderModel.create).mockResolvedValueOnce({
+      uid: 'ord_test_123',
+      buyerUid: 'bird_1',
+      totalAmount: 120,
+      status: 'PAID'
+    } as any);
+
+    const req = new Request('http://localhost/api/orders', {
+      method: 'POST',
+      body: JSON.stringify({ items: [{ id: 'prod_1' }], totalAmount: 120, currency: 'EUR' })
+    });
+
+    const res = await POST(req as any, {});
+    const json = await res.json();
 
     expect(res.status).toBe(201);
-    expect(data.success).toBe(true);
-    expect(data.data.uid).toBe('ord_123');
-  });
-
-  it('🔥 doit gérer un échec de création avec élégance (500)', async () => {
-    mockCreate.mockRejectedValueOnce(new Error('Erreur base de données'));
-
-    const req = new Request('http://localhost:3000/api/ecommerce/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ totalAmount: 50 })
-    });
-
-    const res = await POST(req);
-    const data = await res.json();
-
-    expect(res.status).toBe(500);
-    expect(data.error).toBeDefined();
+    expect(json.success).toBe(true);
+    expect(json.data.uid).toBe('ord_test_123');
+    expect(revalidateTag).toHaveBeenCalledWith('orders');
+    expect(revalidateTag).toHaveBeenCalledWith('user-orders-bird_1');
   });
 });

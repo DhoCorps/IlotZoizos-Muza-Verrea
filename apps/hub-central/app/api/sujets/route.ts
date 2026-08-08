@@ -1,32 +1,43 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
-import { connectToDatabase, SujetModel } from '@ilot/infrastructure';
+import { SujetModel } from '@ilot/infrastructure';
 import { SujetOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+
+export const dynamic = 'force-dynamic';
+
+// 🧠 CACHE : Récupération des sujets (Bibliothèque)
+const getCachedSujets = (userUid?: string, category?: string) => {
+  return unstable_cache(
+    async () => {
+      let queryFilter: any = {
+        $or: [{ status: 'PUBLISHED' }]
+      };
+
+      if (userUid) {
+        queryFilter.$or.push({ authorUid: userUid });
+      }
+
+      if (category) {
+        queryFilter.category = category;
+      }
+
+      return await SujetModel.find(queryFilter)
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean();
+    },
+    [`sujets-list-${userUid || 'public'}-${category || 'all'}`],
+    { revalidate: 60, tags: ['sujets', `sujets-user-${userUid || 'public'}`] }
+  )();
+};
 
 // ==========================================
-// GET : La Bibliothèque (Lister les sujets)
+// 🔍 GET : La Bibliothèque (Lister les sujets - Public / Optionnel Aura)
 // ==========================================
-export async function GET(req: Request) {
+export const GET = withOptionalAura(async (req: Request, _context: ApiContext, currentUser?: OiseauUser) => {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR SUJETS GET]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR SUJETS GET]", sessionErr);
-      return NextResponse.json({ error: "Erreur de lecture d'Aura." }, { status: 500 });
-    }
-
-    const userUid = (session?.user as any)?.uid;
-
     let url;
     try {
       url = new URL(req.url);
@@ -34,66 +45,24 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "URL de requête invalide." }, { status: 400 });
     }
 
-    const filterCategory = url.searchParams.get('category');
-    
-    let queryFilter: any = {
-      $or: [ { status: 'PUBLISHED' } ]
-    };
+    const filterCategory = url.searchParams.get('category') || undefined;
+    const userUid = currentUser?.uid;
 
-    if (userUid) {
-      queryFilter.$or.push({ authorUid: userUid });
-    }
+    const sujets = await getCachedSujets(userUid, filterCategory);
 
-    if (filterCategory) {
-      queryFilter.category = filterCategory;
-    }
-
-    let sujetsFromMongo;
-    try {
-      sujetsFromMongo = await SujetModel.find(queryFilter)
-        .sort({ createdAt: -1 })
-        .limit(50)
-        .lean();
-    } catch (queryErr) {
-      console.error("🔥 [SUJETS QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "L'écho de ces pensées s'est brisé." }, { status: 500 });
-    }
-
-    return NextResponse.json(sujetsFromMongo, { status: 200 });
+    return NextResponse.json(sujets, { status: 200 });
 
   } catch (error: any) {
     console.error("🌊 Erreur globale dans la Bibliothèque (GET Sujets):", error);
     return NextResponse.json({ error: "Erreur interne globale." }, { status: 500 });
   }
-}
+});
 
 // ==========================================
-// POST : Fondation d'un Nœud de Pensée
+// 🚀 POST : Fondation d'un Nœud de Pensée (Strictement Privé)
 // ==========================================
-export async function POST(req: Request) {
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR SUJETS POST]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
-
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR SUJETS POST]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
     let body;
     try {
       body = await req.json();
@@ -106,14 +75,14 @@ export async function POST(req: Request) {
     }
 
     const signature: ActionSignature = {
-      actorUid: userUid,
-      capabilities: sessionCaps
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
     };
 
     let result;
     try {
       const sujetOrch = new SujetOrchestrator();
-      const dataToForge = { ...body, authorUid: userUid };
+      const dataToForge = { ...body, authorUid: currentUser.uid };
       result = await sujetOrch.fosterSujet(dataToForge, signature);
     } catch (orchErr: any) {
       console.error("🌋 [NEXUS SUJET ORCHESTRATOR ERROR] :", orchErr);
@@ -121,10 +90,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: orchErr.message || "L'Îlot repousse ce fragment de pensée." }, { status });
     }
     
+    // 💥 BOOM ! Invalidation chirurgicale du cache de la bibliothèque
+    revalidateTag('sujets');
+    revalidateTag(`sujets-user-${currentUser.uid}`);
+    revalidateTag(`sujets-user-public`);
+
     return NextResponse.json(result, { status: 201 });
 
   } catch (error: any) {
     console.error("🔥 Erreur globale POST Sujet :", error);
     return NextResponse.json({ error: "Erreur interne globale." }, { status: 500 });
   }
-}
+});

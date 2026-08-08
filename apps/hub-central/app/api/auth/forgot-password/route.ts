@@ -1,10 +1,17 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import crypto from "crypto";
-import { connectToDatabase, OiseauModel } from "@ilot/infrastructure";
+import { OiseauModel } from "@ilot/infrastructure";
 import { ForgotPasswordSchema } from "@ilot/types";
+import { revalidateTag } from "next/cache";
+import { withSilice, ApiContext } from "@/lib/api-guards";
 
-export async function POST(req: Request) {
+// ==========================================
+// 🗺️ POST : Envoyer la fusée de détresse / Réinitialisation (Public / Silice)
+// ==========================================
+export const POST = withSilice(async (req: Request, _context: ApiContext) => {
   try {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
@@ -12,10 +19,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Configuration email défaillante." }, { status: 500 });
     }
 
-    let body;
-    try {
-      body = await req.json();
-    } catch (parseError) {
+    const body = await req.json().catch(() => null);
+    if (!body) {
       return NextResponse.json({ error: "Format de requête invalide." }, { status: 400 });
     }
 
@@ -25,22 +30,15 @@ export async function POST(req: Request) {
     }
 
     const { email } = validation.data;
-    
-    try {
-      await connectToDatabase();
-    } catch (dbError) {
-      console.error("❌ [DB ERROR FORGOT]", dbError);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
 
     const user = await OiseauModel.findOne({ email });
     
-    // Sécurité : On ne révèle pas si l'email existe ou non pour éviter leenumeration d'utilisateurs
+    // 🛡️ Sécurité : On ne révèle pas si l'email existe ou non pour éviter l'énumération d'utilisateurs
     if (!user) {
       return NextResponse.json({ success: true }, { status: 200 });
     }
 
-    // 2. Génération du Token
+    // 2. Génération du Token de réinitialisation
     const resetToken = crypto.randomBytes(32).toString("hex");
     const resetTokenExpiry = Date.now() + 3600000; // 1 heure
 
@@ -48,7 +46,11 @@ export async function POST(req: Request) {
     user.resetPasswordExpires = resetTokenExpiry;
     await user.save();
 
-    // 3. Configuration
+    // 💥 Invalidation chirurgicale du cache utilisateur
+    revalidateTag('oiseaux');
+    revalidateTag(`oiseau-${user.uid}`);
+
+    // 3. Configuration de l'expéditeur
     const resend = new Resend(apiKey);
     const locale = "fr"; 
     const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/${locale}/auth/reset-password?token=${resetToken}`;
@@ -57,7 +59,7 @@ export async function POST(req: Request) {
       ? "L'Îlot Zoizos <bonjour@ton-domaine.com>" 
       : "L'Îlot Zoizos <onboarding@resend.dev>";
 
-    // 4. Envoi de l'email
+    // 4. Envoi de l'email via Resend
     const { data, error } = await resend.emails.send({
       from: fromAddress,
       to: email,
@@ -89,4 +91,4 @@ export async function POST(req: Request) {
     console.error("❌ [FORGOT PASSWORD CRITICAL ERROR]", error);
     return NextResponse.json({ error: "La tempête a empêché l'envoi du message." }, { status: 500 });
   }
-}
+});

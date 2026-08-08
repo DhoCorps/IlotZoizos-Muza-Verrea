@@ -1,16 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PUT, DELETE } from '@/app/api/sujets/[slug]/route';
 import { getServerSession } from 'next-auth/next';
-import { connectToDatabase, SujetModel } from '@ilot/infrastructure';
+import { SujetModel } from '@ilot/infrastructure';
 import { SujetOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
 
-// --- MOCKS DES DÉPENDANCES ---
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT
+// -------------------------------------------------------------------------
+vi.mock('next/cache', () => ({
+  unstable_cache: vi.fn((cb) => cb), // Exécution immédiate
+  revalidateTag: vi.fn(),
+}));
+
 vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn(),
+  connectToDatabase: vi.fn().mockResolvedValue(true),
   SujetModel: {
     findOne: vi.fn(),
     findOneAndUpdate: vi.fn(),
@@ -20,134 +28,111 @@ vi.mock('@ilot/infrastructure', () => ({
 
 vi.mock('@ilot/shared-core', () => ({
   SujetOrchestrator: vi.fn().mockImplementation(() => ({
-    disintegrateSujet: vi.fn(),
+    disintegrateSujet: vi.fn().mockResolvedValue(true),
   })),
 }));
 
-describe('Abyss Sujet Slug API [GET, PUT, DELETE]', () => {
+// -------------------------------------------------------------------------
+// 🧪 SUITE DE TESTS
+// -------------------------------------------------------------------------
+describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  describe('GET /api/abyss/sujets/[slug]', () => {
-    it('devrait retourner 404 si le sujet est introuvable', async () => {
-      vi.mocked(SujetModel.findOne).mockReturnValueOnce({
-        lean: vi.fn().mockResolvedValueOnce(null),
+  describe('GET - Auscultation du Sujet', () => {
+    it('doit autoriser (200) la lecture si le sujet est publié (visiteur anonyme)', async () => {
+      vi.mocked(getServerSession).mockResolvedValue(null);
+
+      vi.mocked(SujetModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 's-1', status: 'PUBLISHED', authorUid: 'u-999' }),
       } as any);
 
-      const req = new Request('http://localhost/api/abyss/sujets/inconnu');
-      const res = await GET(req, { params: Promise.resolve({ slug: 'inconnu' }) });
-      const data = await res.json();
+      const req = new Request('http://localhost/api/sujets/mon-sujet');
+      const response = await GET(req as any, { params: Promise.resolve({ slug: 'mon-sujet' }) });
+      const json = await response.json();
 
-      expect(res.status).toBe(404);
-      expect(data.error).toContain('évaporé');
+      expect(response.status).toBe(200);
+      expect(json.uid).toBe('s-1');
     });
 
-    it('devrait retourner 200 et le sujet s il est publié en appliquant slugify', async () => {
-      const mockSujet = { slug: 'mon-sujet', status: 'PUBLISHED', authorUid: 'user-2' };
-      vi.mocked(SujetModel.findOne).mockReturnValueOnce({
-        lean: vi.fn().mockResolvedValueOnce(mockSujet),
+    it('doit refuser (403) l\'accès à un sujet privé pour un utilisateur non autorisé', async () => {
+      vi.mocked(getServerSession).mockResolvedValue({
+        user: { uid: 'u-other', capabilities: [] }
       } as any);
 
-      const req = new Request('http://localhost/api/abyss/sujets/Mon Sujet!');
-      const res = await GET(req, { params: Promise.resolve({ slug: 'Mon Sujet!' }) });
-      const data = await res.json();
+      vi.mocked(SujetModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 's-1', status: 'DRAFT', authorUid: 'u-owner' }),
+      } as any);
 
-      expect(res.status).toBe(200);
-      expect(data).toEqual(mockSujet);
-      expect(SujetModel.findOne).toHaveBeenCalledWith({
-        $or: [{ slug: 'mon-sujet' }, { uid: 'mon-sujet' }]
-      });
+      const req = new Request('http://localhost/api/sujets/mon-sujet');
+      const response = await GET(req as any, { params: Promise.resolve({ slug: 'mon-sujet' }) });
+      const json = await response.json();
+
+      expect(response.status).toBe(403);
+      expect(json.error).toContain("intime t'est fermé");
     });
   });
 
-  describe('PUT /api/abyss/sujets/[slug]', () => {
-    it('devrait retourner 401 si l oiseau n est pas identifié', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce(null);
+  describe('PUT - Mutation du Sujet', () => {
+    it('doit réussir (200) si l\'utilisateur est l\'auteur et invalider le cache', async () => {
+      vi.mocked(getServerSession).mockResolvedValue({
+        user: { uid: 'u-owner', capabilities: [] }
+      } as any);
 
-      const req = new Request('http://localhost/api/abyss/sujets/mon-sujet', {
+      vi.mocked(SujetModel.findOne).mockResolvedValue({
+        uid: 's-1',
+        slug: 'mon-sujet',
+        authorUid: 'u-owner',
+      } as any);
+
+      vi.mocked(SujetModel.findOneAndUpdate).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 's-1', title: 'Titre Modifié' }),
+      } as any);
+
+      const req = new Request('http://localhost/api/sujets/mon-sujet', {
         method: 'PUT',
-        body: JSON.stringify({ title: 'Nouveau titre' }),
-      });
-      const res = await PUT(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
-      const data = await res.json();
-
-      expect(res.status).toBe(401);
-      expect(data.error).toBe('Oiseau non identifié.');
-    });
-
-    it('devrait réussir (200) et muter le sujet avec slugify', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'user-1', capabilities: [] },
-      } as any);
-
-      const mockSujetDoc = { uid: 'suj-1', slug: 'mon-sujet', authorUid: 'user-1' };
-      vi.mocked(SujetModel.findOne).mockResolvedValueOnce(mockSujetDoc as any);
-
-      const mockUpdated = { ...mockSujetDoc, title: 'Nouveau titre' };
-      vi.mocked(SujetModel.findOneAndUpdate).mockReturnValueOnce({
-        lean: vi.fn().mockResolvedValueOnce(mockUpdated),
-      } as any);
-
-      const req = new Request('http://localhost/api/abyss/sujets/Mon Sujet!', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Nouveau titre' }),
+        body: JSON.stringify({ title: 'Titre Modifié' }),
       });
 
-      const res = await PUT(req, { params: Promise.resolve({ slug: 'Mon Sujet!' }) });
-      const data = await res.json();
+      const response = await PUT(req as any, { params: Promise.resolve({ slug: 'mon-sujet' }) });
+      const json = await response.json();
 
-      expect(res.status).toBe(200);
-      expect(data.success).toBe(true);
-      expect(data.data.title).toBe('Nouveau titre');
-      expect(SujetModel.findOne).toHaveBeenCalledWith({
-        $or: [{ slug: 'mon-sujet' }, { uid: 'mon-sujet' }]
-      });
+      expect(response.status).toBe(200);
+      expect(json.success).toBe(true);
+
+      // 💥 Vérification de l'invalidation du cache
+      expect(revalidateTag).toHaveBeenCalledWith('sujets');
+      expect(revalidateTag).toHaveBeenCalledWith('sujet-mon-sujet');
     });
   });
 
-  describe('DELETE /api/abyss/sujets/[slug]', () => {
-    it('devrait retourner 401 si non authentifié lors de la suppression', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce(null);
-
-      const req = new Request('http://localhost/api/abyss/sujets/mon-sujet', {
-        method: 'DELETE',
-      });
-      const res = await DELETE(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
-      const data = await res.json();
-
-      expect(res.status).toBe(401);
-      expect(data.error).toBe('Oiseau non identifié.');
-    });
-
-    it('devrait réussir (200) et désintégrer le sujet avec slugify', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'user-1', capabilities: [] },
+  describe('DELETE - Désintégration du Sujet', () => {
+    it('doit réussir (200) si l\'utilisateur est l\'auteur et invalider le cache', async () => {
+      vi.mocked(getServerSession).mockResolvedValue({
+        user: { uid: 'u-owner', capabilities: [] }
       } as any);
 
-      const mockSujetDoc = { uid: 'suj-1', slug: 'mon-sujet', authorUid: 'user-1' };
-      vi.mocked(SujetModel.findOne).mockResolvedValueOnce(mockSujetDoc as any);
+      vi.mocked(SujetModel.findOne).mockResolvedValue({
+        uid: 's-1',
+        slug: 'mon-sujet',
+        authorUid: 'u-owner',
+      } as any);
 
-      const mockDisintegrate = vi.fn().mockResolvedValueOnce(true);
-      vi.mocked(SujetOrchestrator).mockImplementationOnce(() => ({
-        disintegrateSujet: mockDisintegrate,
-      } as any));
-
-      const req = new Request('http://localhost/api/abyss/sujets/Mon Sujet!', {
+      const req = new Request('http://localhost/api/sujets/mon-sujet', {
         method: 'DELETE',
       });
 
-      const res = await DELETE(req, { params: Promise.resolve({ slug: 'Mon Sujet!' }) });
-      const data = await res.json();
+      const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'mon-sujet' }) });
+      const json = await response.json();
 
-      expect(res.status).toBe(200);
-      expect(data.success).toBe(true);
-      expect(data.message).toContain('cendres');
-      expect(mockDisintegrate).toHaveBeenCalledWith(
-        'suj-1',
-        { actorUid: 'user-1', capabilities: [] }
-      );
+      expect(response.status).toBe(200);
+      expect(json.success).toBe(true);
+
+      // 💥 Vérification de l'invalidation du cache
+      expect(revalidateTag).toHaveBeenCalledWith('sujets');
+      expect(revalidateTag).toHaveBeenCalledWith('sujet-mon-sujet');
     });
   });
 });

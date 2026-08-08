@@ -1,6 +1,6 @@
 // apps/hub-central/__test__/api/actions/pomodoro.actions.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { completePomodoroAction } from '../../../app/actions/kanban.actions';
+import { completePomodoroAction } from '@/app/actions/kanban.actions';
 import { getServerSession } from "next-auth/next";
 
 // 🛡️ SUTURE MAJEURE : On mock l'Orchestrateur directement. 

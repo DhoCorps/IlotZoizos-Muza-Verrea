@@ -1,30 +1,13 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { connectToDatabase, ProductModel } from '@ilot/infrastructure';
+import { ProductModel } from '@ilot/infrastructure';
+import { unstable_cache } from 'next/cache';
+import { withSilice, ApiContext } from '@/lib/api-guards';
 
-export async function GET(req: Request) {
-  try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR MARKETPLACE]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let url;
-    try {
-      url = new URL(req.url);
-    } catch (urlErr) {
-      return NextResponse.json({ error: "URL de requête invalide." }, { status: 400 });
-    }
-
-    const searchParams = url.searchParams;
-    const category = searchParams.get('category');
-    const style = searchParams.get('style');
-    const author = searchParams.get('author');
-
-    // 🛡️ Typage plus strict que "any" pour la requête Mongoose
+// 🧠 CACHE SÉCURISÉ : Recensement des artefacts du Marketplace filtrés (30s) avec bypass en mode test
+async function getCachedMarketplaceProducts(category?: string | null, style?: string | null, author?: string | null) {
+  const fetcher = async () => {
     const query: Record<string, any> = {};
     
     if (category && category !== 'ALL') {
@@ -42,21 +25,45 @@ export async function GET(req: Request) {
       query.author = { $regex: author, $options: 'i' };
     }
 
-    let products;
-    try {
-      products = await ProductModel.find(query).sort({ createdAt: -1 }).lean();
-    } catch (queryErr) {
-      console.error("🔥 [MARKETPLACE MONGODB QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "Échec du recensement des artefacts dans la Silice." }, { status: 500 });
-    }
+    const products = await ProductModel.find(query).sort({ createdAt: -1 }).lean();
 
-    // 🕸️ ENRICHISSEMENT POUR LA RÉSONANCE (Le Front en a besoin)
-    const enrichedProducts = products.map((product: any) => ({
+    // 🕸️ ENRICHISSEMENT POUR LA RÉSONANCE
+    return products.map((product: any) => ({
       ...product,
-      // Si on n'a pas explicitement de authorSlug, on fallback sur le ownerUid du produit.
-      // Cela permet au bouton de Résonance de cibler le bon Oiseau dans Neo4j.
       authorSlug: product.authorSlug || product.ownerUid || product.storeOwnerUid || null
     }));
+  };
+
+  if (process.env.NODE_ENV === 'test') {
+    return await fetcher();
+  }
+
+  const cacheKey = `marketplace-${category || 'all'}-${style || 'all'}-${author || 'all'}`;
+  return await unstable_cache(
+    fetcher,
+    [cacheKey],
+    { 
+      revalidate: 30, 
+      tags: [
+        'marketplace', 
+        ...(category && category !== 'ALL' ? [`marketplace-category-${category}`] : [])
+      ] 
+    }
+  )();
+}
+
+// ==========================================
+// 🔍 GET : Recenser le Marketplace (Public / Silice)
+// ==========================================
+export const GET = withSilice(async (req: Request, _context: ApiContext) => {
+  try {
+    const url = new URL(req.url);
+    const searchParams = url.searchParams;
+    const category = searchParams.get('category');
+    const style = searchParams.get('style');
+    const author = searchParams.get('author');
+
+    const enrichedProducts = await getCachedMarketplaceProducts(category, style, author);
 
     return NextResponse.json({ success: true, data: enrichedProducts }, { status: 200 });
 
@@ -64,4 +71,4 @@ export async function GET(req: Request) {
     console.error("🔥 Erreur lors du recensement du Marketplace :", error);
     return NextResponse.json({ error: error.message || "Erreur interne de la Marketplace." }, { status: 500 });
   }
-}
+});

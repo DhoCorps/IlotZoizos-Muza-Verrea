@@ -1,10 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/users/[slug]/actions/leave/route';
 import { getServerSession } from 'next-auth/next';
-import { connectToDatabase, OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TeamOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
 
-// --- MOCKS DES DÉPENDANCES ---
+vi.mock('next/cache', () => ({
+  unstable_cache: vi.fn((cb) => cb),
+  revalidateTag: vi.fn(),
+}));
+
 vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),
 }));
@@ -18,91 +23,71 @@ vi.mock('@ilot/infrastructure', () => ({
 
 vi.mock('@ilot/shared-core', () => ({
   TeamOrchestrator: vi.fn().mockImplementation(() => ({
-    leaveTeam: vi.fn(),
+    leaveTeam: vi.fn().mockResolvedValue({ success: true }),
   })),
 }));
 
-describe('Oiseau Slug API [GET, POST]', () => {
+describe('Route API : Miroir & Envol (GET / POST)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  describe('GET /api/oiseaux/[slug]', () => {
-    it('devrait réussir (200) et afficher le miroir intime si c est soi-même avec application du slugify', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'mon-super-oiseau' },
+  describe('GET - Miroir', () => {
+    it('doit renvoyer les données privées si c\'est le propriétaire', async () => {
+      vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'dho' } } as any);
+      vi.mocked(OiseauModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 'dho', pseudo: 'DhÖ', email: 'secret@zoizos.fr' }),
       } as any);
 
-      const mockOiseau = {
-        uid: 'mon-super-oiseau',
-        pseudo: 'Oiseau Libre',
-        email: 'libre@ilot.local',
-        sanctuaireVerrouille: false,
-        isGhostMode: false,
-      };
+      const req = new Request('http://localhost/api/users/dho');
+      const response = await GET(req as any, { params: Promise.resolve({ slug: 'dho' }) });
+      const json = await response.json();
 
-      vi.mocked(OiseauModel.findOne).mockReturnValueOnce({
-        lean: vi.fn().mockResolvedValueOnce(mockOiseau),
+      expect(response.status).toBe(200);
+      expect(json.email).toBe('secret@zoizos.fr');
+    });
+
+    it('doit masquer l\'email pour un visiteur anonyme', async () => {
+      vi.mocked(getServerSession).mockResolvedValue(null);
+      vi.mocked(OiseauModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 'dho', pseudo: 'DhÖ', email: 'secret@zoizos.fr' }),
       } as any);
 
-      const req = new Request('http://localhost/api/oiseaux/Mon Super Oiseau!');
-      const res = await GET(req, { params: Promise.resolve({ slug: 'Mon Super Oiseau!' }) });
-      const data = await res.json();
+      const req = new Request('http://localhost/api/users/dho');
+      const response = await GET(req as any, { params: Promise.resolve({ slug: 'dho' }) });
+      const json = await response.json();
 
-      expect(res.status).toBe(200);
-      expect(data.email).toBe('libre@ilot.local');
-      expect(OiseauModel.findOne).toHaveBeenCalledWith({
-        $or: [{ slug: 'mon-super-oiseau' }, { uid: 'mon-super-oiseau' }],
-      });
+      expect(response.status).toBe(200);
+      expect(json.email).toBeUndefined();
     });
   });
 
-  describe('POST /api/oiseaux/[slug]', () => {
-    it('devrait retourner 403 si l oiseau tente de forcer l envol d un autre (violation de souveraineté)', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'autre-oiseau' },
-      } as any);
+  describe('POST - Envol', () => {
+    it('doit rejeter (403) si l\'utilisateur tente de forcer l\'exil d\'un autre', async () => {
+      vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'intrus' } } as any);
 
-      const req = new Request('http://localhost/api/oiseaux/Mon Super Oiseau!', {
+      const req = new Request('http://localhost/api/users/dho', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'CLEAN', teamId: 'team-1' }),
+        body: JSON.stringify({ mode: 'CLEAN', teamId: 't-1' }),
       });
 
-      const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Super Oiseau!' }) });
-      const data = await res.json();
-
-      expect(res.status).toBe(403);
-      expect(data.error).toContain('Souveraineté violée');
+      const response = await POST(req as any, { params: Promise.resolve({ slug: 'dho' }) });
+      expect(response.status).toBe(403);
     });
 
-    it('devrait réussir (200) l envol si les conditions de souveraineté et le slugify sont respectés', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'mon-super-oiseau', capabilities: [] },
-      } as any);
+    it('doit réussir (200) l\'envol et invalider le cache', async () => {
+      vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'dho', capabilities: [] } } as any);
 
-      const mockLeaveTeam = vi.fn().mockResolvedValueOnce({ success: true, message: 'Envol réussi' });
-      vi.mocked(TeamOrchestrator).mockImplementationOnce(() => ({
-        leaveTeam: mockLeaveTeam,
-      } as any));
-
-      const req = new Request('http://localhost/api/oiseaux/Mon Super Oiseau!', {
+      const req = new Request('http://localhost/api/users/dho', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'CLEAN', teamId: 'team-1' }),
+        body: JSON.stringify({ mode: 'CLEAN', teamId: 't-1' }),
       });
 
-      const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Super Oiseau!' }) });
-      const data = await res.json();
-
-      expect(res.status).toBe(200);
-      expect(data.success).toBe(true);
-      expect(mockLeaveTeam).toHaveBeenCalledWith(
-        'team-1',
-        'mon-super-oiseau',
-        'CLEAN',
-        { actorUid: 'mon-super-oiseau', capabilities: [] }
-      );
+      const response = await POST(req as any, { params: Promise.resolve({ slug: 'dho' }) });
+      
+      expect(response.status).toBe(200);
+      expect(revalidateTag).toHaveBeenCalledWith('profile-dho');
     });
   });
 });

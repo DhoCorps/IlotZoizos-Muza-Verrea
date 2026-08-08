@@ -1,57 +1,49 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { connectToDatabase, WishlistModel } from '@ilot/infrastructure';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
+import { WishlistModel } from '@ilot/infrastructure';
 import { v4 as uuidv4 } from 'uuid';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-export async function GET(req: Request) {
-  try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR WISHLIST GET]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
-
-    if (!session || !session.user) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR WISHLIST GET]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    const userUid = (session.user as any).uid || (session.user as any).id;
+// 🧠 CACHE SÉCURISÉ : Récupération des wishlists de l'utilisateur (30s) avec bypass en mode test
+async function getCachedUserWishlists(userUid: string) {
+  const fetcher = async () => {
+    let wishlists = await WishlistModel.find({ userUid }).lean();
     
-    let wishlists;
-    try {
-      wishlists = await WishlistModel.find({ userUid }).lean();
-    } catch (queryErr) {
-      console.error("🔥 [WISHLIST FIND ERROR]", queryErr);
-      return NextResponse.json({ error: "Échec de lecture des listes de souhaits." }, { status: 500 });
-    }
-    
+    // Initialisation automatique d'une liste par défaut si vide
     if (!wishlists || wishlists.length === 0) {
-      let defaultWishlist;
-      try {
-        defaultWishlist = await WishlistModel.create({
-          uid: `wish_${uuidv4()}`,
-          userUid,
-          name: 'Favoris Principaux',
-          productUids: []
-        });
-      } catch (createErr) {
-        console.error("🔥 [DEFAULT WISHLIST CREATE ERROR]", createErr);
-        return NextResponse.json({ error: "Échec de création de la liste par défaut." }, { status: 500 });
-      }
-
+      const defaultWishlist = await WishlistModel.create({
+        uid: `wish_${uuidv4()}`,
+        userUid,
+        name: 'Favoris Principaux',
+        productUids: []
+      });
       const obj = typeof defaultWishlist.toObject === 'function' ? defaultWishlist.toObject() : defaultWishlist;
       wishlists = [obj];
     }
+    return wishlists;
+  };
+
+  if (process.env.NODE_ENV === 'test') {
+    return await fetcher();
+  }
+
+  const cacheKey = `wishlists-user-${userUid}`;
+  return await unstable_cache(
+    fetcher,
+    [cacheKey],
+    { revalidate: 30, tags: ['wishlists', `user-wishlists-${userUid}`] }
+  )();
+}
+
+// ==========================================
+// 🔍 GET : Récupérer ou initialiser les Wishlists (Strictement Privé / Aura)
+// ==========================================
+export const GET = withAura(async (_req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+  try {
+    const userUid = currentUser.uid || currentUser.id;
+    const wishlists = await getCachedUserWishlists(userUid);
 
     return NextResponse.json({ success: true, data: wishlists }, { status: 200 });
 
@@ -59,75 +51,48 @@ export async function GET(req: Request) {
     console.error("🔥 Erreur lors de la lecture des wishlists :", error);
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
-}
+});
 
-export async function POST(req: Request) {
+// ==========================================
+// 🚀 POST : Créer une liste ou basculer un produit (Strictement Privé / Aura)
+// ==========================================
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR WISHLIST POST]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
+    const userUid = currentUser.uid || currentUser.id;
+    const body = await req.json().catch(() => null);
 
-    if (!session || !session.user) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR WISHLIST POST]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let body;
-    try {
-      body = await req.json();
-    } catch (parseErr) {
+    if (!body) {
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
-    const userUid = (session.user as any).uid || (session.user as any).id;
     const { productUid, wishlistUid, name } = body;
 
+    // 1. Création d'une nouvelle liste personnalisée si un nom est fourni sans produit initial
     if (name && !productUid) {
-      let newWishlist;
-      try {
-        newWishlist = await WishlistModel.create({
-          uid: `wish_${uuidv4()}`,
-          userUid,
-          name: name.trim(),
-          productUids: []
-        });
-      } catch (createErr) {
-        console.error("🔥 [WISHLIST CREATE ERROR]", createErr);
-        return NextResponse.json({ error: "Échec de la création de la liste." }, { status: 500 });
-      }
+      const newWishlist = await WishlistModel.create({
+        uid: `wish_${uuidv4()}`,
+        userUid,
+        name: name.trim(),
+        productUids: []
+      });
+
+      revalidateTag(`user-wishlists-${userUid}`);
+      revalidateTag('wishlists');
+
       return NextResponse.json({ success: true, data: newWishlist }, { status: 201 });
     }
 
+    // 2. Recherche ou initialisation de la wishlist cible
     const query = wishlistUid ? { uid: wishlistUid, userUid } : { userUid };
-    let wishlist;
-    try {
-      wishlist = await WishlistModel.findOne(query);
-    } catch (queryErr) {
-      console.error("🔥 [WISHLIST QUERY ERROR]", queryErr);
-    }
+    let wishlist = await WishlistModel.findOne(query);
 
     if (!wishlist) {
-      try {
-        wishlist = await WishlistModel.create({
-          uid: `wish_${uuidv4()}`,
-          userUid,
-          name: name || 'Favoris Principaux',
-          productUids: productUid ? [productUid] : []
-        });
-      } catch (createErr) {
-        console.error("🔥 [WISHLIST FALLBACK CREATE ERROR]", createErr);
-        return NextResponse.json({ error: "Échec de l'initialisation de la wishlist." }, { status: 500 });
-      }
+      wishlist = await WishlistModel.create({
+        uid: `wish_${uuidv4()}`,
+        userUid,
+        name: name || 'Favoris Principaux',
+        productUids: productUid ? [productUid] : []
+      });
     } else if (productUid) {
       if (!wishlist.productUids.includes(productUid)) {
         wishlist.productUids.push(productUid);
@@ -135,14 +100,13 @@ export async function POST(req: Request) {
         wishlist.productUids = wishlist.productUids.filter((id: string) => id !== productUid);
       }
       if (typeof wishlist.save === 'function') {
-        try {
-          await wishlist.save();
-        } catch (saveErr) {
-          console.error("🔥 [WISHLIST SAVE ERROR]", saveErr);
-          return NextResponse.json({ error: "Échec de la mise à jour des favoris." }, { status: 500 });
-        }
+        await wishlist.save();
       }
     }
+
+    // 💥 Invalidation chirurgicale du cache utilisateur
+    revalidateTag(`user-wishlists-${userUid}`);
+    revalidateTag('wishlists');
 
     return NextResponse.json({ success: true, data: wishlist }, { status: 200 });
 
@@ -150,4 +114,4 @@ export async function POST(req: Request) {
     console.error("🔥 Erreur lors de la mise à jour de la wishlist :", error);
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
-}
+});

@@ -1,6 +1,6 @@
 // apps/hub-central/__test__/api/market.regulation.evaluate.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '../../app/api/ecommerce/market/regulate/route';
+import { POST } from '@/app/api/ecommerce/market/regulate/route';
 
 vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),

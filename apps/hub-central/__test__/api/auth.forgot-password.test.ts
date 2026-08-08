@@ -1,76 +1,89 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '../../app/api/auth/forgot-password/route';
+import { POST } from '@/app/api/auth/forgot-password/route';
+import { OiseauModel } from '@ilot/infrastructure';
+import { revalidateTag } from 'next/cache';
+import { NextResponse } from 'next/server';
 
-// Mock de Mongoose et Resend
-const mockSave = vi.fn().mockResolvedValue(true);
-const mockFindOne = vi.fn();
+// -------------------------------------------------------------------------
+// 🎭 MOCKS
+// -------------------------------------------------------------------------
+vi.mock('@/lib/api-guards', () => ({
+  withSilice: (handler: any) => handler,
+}));
+
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
+}));
 
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   OiseauModel: {
-    findOne: (...args: any[]) => mockFindOne(...args)
-  }
+    findOne: vi.fn(),
+  },
 }));
 
 vi.mock('resend', () => ({
   Resend: vi.fn().mockImplementation(() => ({
     emails: {
-      send: vi.fn().mockResolvedValue({ data: { id: 'email-mock-id' }, error: null })
-    }
-  }))
+      send: vi.fn().mockResolvedValue({ data: { id: 'msg_123' }, error: null }),
+    },
+  })),
 }));
 
-describe('API Auth - Mot de Passe Oublié (POST /api/auth/forgot-password)', () => {
+describe('API Forgot Password POST', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.RESEND_API_KEY = 're_test_key_123';
+    process.env.RESEND_API_KEY = 're_test_key';
   });
 
-  it('✅ doit envoyer un email de réinitialisation si l’Oiseau existe', async () => {
-    mockFindOne.mockResolvedValueOnce({
-      email: 'perdu@ilot.com',
-      save: mockSave
-    });
-
-    const req = new Request('http://localhost:3000/api/auth/forgot-password', {
+  it('🔴 [POST] doit rejeter (400) si l\'email est invalide ou absent', async () => {
+    const req = new Request('http://localhost/api/auth/forgot-password', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'perdu@ilot.com' })
+      body: JSON.stringify({ email: 'mauvais-format' })
     });
 
-    const response = await POST(req);
-    const data = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(data.success).toBe(true);
-    expect(mockSave).toHaveBeenCalled();
+    const res = await POST(req as any, {});
+    expect(res.status).toBe(400);
   });
 
-  it('🛡️ doit répondre un succès neutre même si l’Oiseau n’existe pas (Sécurité anti-énumération)', async () => {
-    mockFindOne.mockResolvedValueOnce(null); // Aucun utilisateur trouvé
+  it('🟢 [POST] doit renvoyer un succès silencieux (200) si l\'email n\'existe pas (anti-énumération)', async () => {
+    vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(null);
 
-    const req = new Request('http://localhost:3000/api/auth/forgot-password', {
+    const req = new Request('http://localhost/api/auth/forgot-password', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'inconnu@ilot.com' })
+      body: JSON.stringify({ email: 'inconnu@ilot.fr' })
     });
 
-    const response = await POST(req);
-    const data = await response.json();
+    const res = await POST(req as any, {});
+    const json = await res.json();
 
-    expect(response.status).toBe(200);
-    expect(data.success).toBe(true);
-    expect(mockSave).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
   });
 
-  it('❌ doit rejeter un format d’email invalide via Zod', async () => {
-    const req = new Request('http://localhost:3000/api/auth/forgot-password', {
+  it('🟢 [POST] doit envoyer la fusée de détresse (200) et invalider le cache si l\'oiseau existe', async () => {
+    const mockUserDoc = {
+      uid: 'bird_1',
+      email: 'piaf@ilot.fr',
+      resetPasswordToken: undefined,
+      resetPasswordExpires: undefined,
+      save: vi.fn().mockResolvedValue(true),
+    };
+
+    vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockUserDoc as any);
+
+    const req = new Request('http://localhost/api/auth/forgot-password', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'ce-n-est-pas-un-email' })
+      body: JSON.stringify({ email: 'piaf@ilot.fr' })
     });
 
-    const response = await POST(req);
-    expect(response.status).toBe(400);
+    const res = await POST(req as any, {});
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(mockUserDoc.save).toHaveBeenCalled();
+    expect(revalidateTag).toHaveBeenCalledWith('oiseaux');
+    expect(revalidateTag).toHaveBeenCalledWith('oiseau-bird_1');
   });
 });

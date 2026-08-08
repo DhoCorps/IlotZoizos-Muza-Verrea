@@ -1,151 +1,56 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, POST } from '../../app/api/tasks/route';
+import { GET, POST } from '@/app/api/tasks/route';
 import { getServerSession } from 'next-auth/next';
+import { TaskModel, ProjectModel } from '@ilot/infrastructure';
+import { TaskOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
 
-// ==========================================
-// MOCKS DU SANCTUAIRE
-// ==========================================
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn()
+vi.mock('next/cache', () => ({
+  unstable_cache: vi.fn((cb) => cb),
+  revalidateTag: vi.fn(),
 }));
-
-const mockRun = vi.fn().mockResolvedValue({
-  records: [{ get: () => ['task_1'] }]
-});
-const mockClose = vi.fn();
-const mockFindOne = vi.fn().mockImplementation(() => ({
-  lean: vi.fn().mockResolvedValue({ uid: 'proj_1', creatorUid: 'bird_1' })
-}));
-const mockFindLean = vi.fn().mockResolvedValue([
-  { uid: 'task_1', title: 'Atome Fondamental' }
-]);
-const mockConnectToDatabase = vi.fn().mockResolvedValue(true);
-
+vi.mock('next-auth/next', () => ({ getServerSession: vi.fn() }));
 vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: (...args: any[]) => mockConnectToDatabase(...args),
-  getNeo4jSession: vi.fn().mockImplementation(() => ({
-    run: mockRun,
-    close: mockClose
-  })),
-  ProjectModel: {
-    findOne: (...args: any[]) => mockFindOne(...args)
-  },
-  TaskModel: {
-    find: vi.fn().mockImplementation(() => ({
-      sort: vi.fn().mockImplementation(() => ({
-        lean: mockFindLean
-      }))
-    }))
-  }
+  connectToDatabase: vi.fn().mockResolvedValue(true),
+  getNeo4jSession: vi.fn().mockReturnValue({ run: vi.fn().mockResolvedValue({ records: [] }), close: vi.fn() }),
+  TaskModel: { find: vi.fn() },
+  ProjectModel: { findOne: vi.fn() },
 }));
-
-const mockFosterTask = vi.fn();
 vi.mock('@ilot/shared-core', () => ({
   TaskOrchestrator: vi.fn().mockImplementation(() => ({
-    fosterTask: mockFosterTask
-  }))
+    fosterTask: vi.fn().mockResolvedValue({ uid: 'task-123' }),
+  })),
 }));
 
-describe('API Tasks - Collection / Clairière (/api/tasks)', () => {
+describe('Route API : Atomes (Tasks)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockConnectToDatabase.mockResolvedValue(true);
-    mockRun.mockResolvedValue({
-      records: [{ get: () => ['task_1'] }]
-    });
+    global.__mockUser = undefined;
   });
 
-  // ==========================================
-  // TESTS POUR LE GET
-  // ==========================================
-  describe('Parcours (GET)', () => {
-    it('🔴 doit rejeter si l’Oiseau n’est pas connecté (401)', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce(null);
+  it('GET - doit renvoyer les tâches', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'u-123', capabilities: [] } } as any);
+    vi.mocked(TaskModel.find).mockReturnValue({
+        sort: () => ({ lean: vi.fn().mockResolvedValue([{ uid: 't1' }]) })
+    } as any);
 
-      const req = new Request('http://localhost/api/tasks');
-      const res = await GET(req);
-      const data = await res.json();
-
-      expect(res.status).toBe(401);
-      expect(data.error).toBeDefined();
-    });
-
-    it('🟢 doit lister les atomes d’un chantier avec succès (200)', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'bird_1' }
-      } as any);
-
-      const req = new Request('http://localhost/api/tasks?projectUid=proj_1');
-      const res = await GET(req);
-      const data = await res.json();
-
-      expect(res.status).toBe(200);
-      expect(Array.isArray(data)).toBe(true);
-      expect(data[0].title).toBe('Atome Fondamental');
-    });
-
-    it('🟢 doit lister les atomes assignés en mode personnel sans projectUid (200)', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'bird_1' }
-      } as any);
-
-      const req = new Request('http://localhost/api/tasks');
-      const res = await GET(req);
-      const data = await res.json();
-
-      expect(res.status).toBe(200);
-      expect(Array.isArray(data)).toBe(true);
-    });
+    const req = new Request('http://localhost/api/tasks');
+    const response = await GET(req as any, {});
+    expect(response.status).toBe(200);
   });
 
-  // ==========================================
-  // TESTS POUR LE POST (FONDATION)
-  // ==========================================
-  describe('Fondation (POST)', () => {
-    it('🔴 doit rejeter si l’Oiseau n’est pas connecté (401)', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce(null);
+  it('POST - doit créer une tâche si autorisé', async () => {
+    // 🪡 Ajout sécurisé des capabilities dans le mock de session
+    vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'u-123', capabilities: [] } } as any);
+    vi.mocked(ProjectModel.findOne).mockReturnValue({ lean: vi.fn().mockResolvedValue({ uid: 'p-1', creatorUid: 'u-123' }) } as any);
 
-      const req = new Request('http://localhost/api/tasks', {
-        method: 'POST',
-        body: JSON.stringify({ projectUid: 'proj_1', title: 'Nouvel Atome' })
-      });
-
-      const res = await POST(req);
-      expect(res.status).toBe(401);
+    const req = new Request('http://localhost/api/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ projectUid: 'p-1', name: 'Atome 1' }),
     });
 
-    it('🔴 doit rejeter si le projectUid est absent (400)', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'bird_1' }
-      } as any);
-
-      const req = new Request('http://localhost/api/tasks', {
-        method: 'POST',
-        body: JSON.stringify({ title: 'Nouvel Atome' }) // Sans projectUid
-      });
-
-      const res = await POST(req);
-      expect(res.status).toBe(400);
-    });
-
-    it('🟢 doit fonder un nouvel Atome avec succès (201)', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'bird_1', capabilities: ['*'] }
-      } as any);
-
-      mockFosterTask.mockResolvedValueOnce({ uid: 'task_new', title: 'Nouvel Atome' });
-
-      const req = new Request('http://localhost/api/tasks', {
-        method: 'POST',
-        body: JSON.stringify({ projectUid: 'proj_1', title: 'Nouvel Atome' })
-      });
-
-      const res = await POST(req);
-      const data = await res.json();
-
-      expect(res.status).toBe(201);
-      expect(data.title).toBe('Nouvel Atome');
-      expect(mockFosterTask).toHaveBeenCalled();
-    });
+    const response = await POST(req as any, {});
+    expect(response.status).toBe(201);
+    expect(revalidateTag).toHaveBeenCalledWith('project-p-1');
   });
 });

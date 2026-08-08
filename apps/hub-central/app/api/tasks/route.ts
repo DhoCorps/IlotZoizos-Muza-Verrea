@@ -1,19 +1,19 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth"; // 🪡 SUTURE : Approvisionnement direct au sanctuaire unique
-import { connectToDatabase, getNeo4jSession } from '@ilot/infrastructure'; // 🪡 SUTURE DE CONNEXION : Import unifié pour préserver le Singleton Neo4j
+import { TaskModel, ProjectModel, getNeo4jSession } from '@ilot/infrastructure'; 
 import { TaskOrchestrator } from '@ilot/shared-core';
-import { TaskModel, ProjectModel } from '@ilot/infrastructure';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+
+export const dynamic = 'force-dynamic';
 
 /**
  * 🛡️ COMPILATEUR D'AURA ASCENDANTE
- * Résout de manière découplée si l'oiseau a le droit de lire le Chantier
+ * Résout si l'oiseau a le droit sur ce Chantier.
  */
 async function getProjectCapabilities(userUid: string, projectUid: string): Promise<string[]> {
-  let session;
+  const session = getNeo4jSession();
   try {
-    session = getNeo4jSession();
     const result = await session.run(
       `MATCH (u:User {uid: $userUid})
        OPTIONAL MATCH (u)-[r:CONTRIBUTES_TO|OWNER_OF]->(pDirect:Project {uid: $projectUid})
@@ -34,248 +34,88 @@ async function getProjectCapabilities(userUid: string, projectUid: string): Prom
       if (!compiledCaps.includes(CAPABILITIES.PROJECT.READ)) compiledCaps.push(CAPABILITIES.PROJECT.READ);
       if (!compiledCaps.includes(CAPABILITIES.TASK.READ)) compiledCaps.push(CAPABILITIES.TASK.READ);
     }
-
     return compiledCaps;
   } catch (error) {
-    console.error("🔥 [PROJECT CAPS ERROR] Erreur lors de la compilation d'Aura ascendante :", error);
+    console.error("🔥 [PROJECT CAPS ERROR]", error);
     return [];
   } finally {
-    if (session) {
-      try {
-        await session.close();
-      } catch (closeErr) {
-        console.error("⚠️ Erreur lors de la fermeture de la session Neo4j :", closeErr);
-      }
-    }
+    await session.close();
   }
 }
 
-/**
- * 🔍 GET : Parcourir les Atomes d'un Chantier (La Clairière)
- */
-export async function GET(req: Request) {
-  try {
-    // -------------------------------------------------------------------------
-    // 1. ÉVEIL DE LA SILICE ET SESSIONS
-    // -------------------------------------------------------------------------
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR TASKS GET]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR TASKS GET]", sessionErr);
-      return NextResponse.json({ error: "Erreur de lecture d'Aura." }, { status: 500 });
-    }
-
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
-    }
-
-    let url;
-    try {
-      url = new URL(req.url);
-    } catch (urlErr) {
-      return NextResponse.json({ error: "URL de requête invalide." }, { status: 400 });
-    }
-
-    const projectUid = url.searchParams.get('projectUid');
-
-    // -------------------------------------------------------------------------
-    // 2. DOUANE TERRITORIALE SI UN CHANTIER EST SPÉCIFIÉ
-    // -------------------------------------------------------------------------
-    if (projectUid) {
-      let project;
+// 🧠 CACHE : Récupération des tâches (Hydratation Graphe + Silice)
+const getCachedTasks = async (userUid: string, projectUid?: string) => {
+  return unstable_cache(
+    async () => {
+      const neo4jSession = getNeo4jSession();
+      let tasksFromGraph: Record<string, string[]> = {};
       try {
-        project = await ProjectModel.findOne({ uid: projectUid }).lean();
-      } catch (projQueryErr) {
-        console.error("🔥 [PROJECT QUERY ERROR]", projQueryErr);
-      }
-      
-      // 🪡 SUTURE DE SURVIE : Si la Silice a été vidée, on empêche le crash sur un Chantier fantôme
-      if (!project) return NextResponse.json([], { status: 200 });
-
-      let projectCaps: string[] = [];
-      try {
-        projectCaps = await getProjectCapabilities(userUid, projectUid);
-      } catch (capsErr) {
-        console.error("🔥 [PROJECT CAPS FETCH ERROR]", capsErr);
-      }
-      
-      const isCreator = project?.creatorUid === userUid;
-      const isArchitect = sessionCaps.includes('*');
-      const canRead = isCreator || isArchitect || projectCaps.includes(CAPABILITIES.PROJECT.READ) || projectCaps.includes('*');
-
-      if (!canRead) {
-        return NextResponse.json({ error: "Accès au Chantier refusé." }, { status: 403 });
-      }
-    }
-
-    // -------------------------------------------------------------------------
-    // 3. SCRUTATION DU GRAPHE NEO4J (RÉCUPÉRATION DES IDENTIFIANTS)
-    // -------------------------------------------------------------------------
-    const neo4jSession = getNeo4jSession();
-    let tasksFromGraph: Record<string, string[]> = {};
-
-    try {
-      let cypher = "";
-      let params: any = {};
-
-      if (projectUid) {
-        // 🔒 SCÉNARIO 1 : Vue "Chantier" (Droits déjà validés ci-dessus)
-        cypher = `
-          MATCH (t:Task)-[:TASK_OF]->(p:Project {uid: $projectUid})
-          OPTIONAL MATCH (bird:User)-[:ASSIGNED_TO]->(t)
-          RETURN t.uid AS taskUid, collect(bird.uid) AS assignees
-        `;
-        params.projectUid = projectUid;
-      } else {
-        // 🪡 SUTURE DE SÉCURITÉ ABSOLUE (SCÉNARIO 2) : Mode "Mes Atomes"
-        cypher = `
-          MATCH (me:User {uid: $userUid})-[:ASSIGNED_TO]->(t:Task)
-          OPTIONAL MATCH (bird:User)-[:ASSIGNED_TO]->(t)
-          RETURN t.uid AS taskUid, collect(bird.uid) AS assignees
-        `;
-        params.userUid = userUid;
+        const params: any = projectUid ? { projectUid } : { userUid };
+        const cypher = projectUid 
+          ? `MATCH (t:Task)-[:TASK_OF]->(p:Project {uid: $projectUid}) OPTIONAL MATCH (bird:User)-[:ASSIGNED_TO]->(t) RETURN t.uid AS taskUid, collect(bird.uid) AS assignees`
+          : `MATCH (me:User {uid: $userUid})-[:ASSIGNED_TO]->(t:Task) OPTIONAL MATCH (bird:User)-[:ASSIGNED_TO]->(t) RETURN t.uid AS taskUid, collect(bird.uid) AS assignees`;
+        
+        const result = await neo4jSession.run(cypher, params);
+        result.records.forEach(r => { tasksFromGraph[r.get('taskUid')] = r.get('assignees'); });
+      } finally {
+        await neo4jSession.close();
       }
 
-      const result = await neo4jSession.run(cypher, params);
-      result.records.forEach(record => { 
-        tasksFromGraph[record.get('taskUid')] = record.get('assignees'); 
-      });
-    } catch (neoErr) {
-      console.error("🔥 [NEO4J TASKS GRAPH ERROR]", neoErr);
-      return NextResponse.json({ error: "Le Graphe est momentanément muet." }, { status: 500 });
-    } finally {
-      if (neo4jSession) {
-        try {
-          await neo4jSession.close();
-        } catch (closeErr) {
-          console.error("⚠️ Erreur fermeture session Neo4j :", closeErr);
-        }
-      }
-    }
+      const taskUids = Object.keys(tasksFromGraph);
+      if (taskUids.length === 0) return [];
 
-    const taskUids = Object.keys(tasksFromGraph);
-    if (taskUids.length === 0) return NextResponse.json([], { status: 200 });
+      const tasks = await TaskModel.find({ uid: { $in: taskUids } }).sort({ 'dates.updatedAt': -1 }).lean();
+      return tasks.map(t => ({ ...t, assigneeUids: tasksFromGraph[t.uid] || [] }));
+    },
+    [`tasks-${userUid}-${projectUid || 'global'}`],
+    { revalidate: 60, tags: ['tasks', projectUid ? `project-${projectUid}` : `user-tasks-${userUid}`] }
+  )();
+};
 
-    // -------------------------------------------------------------------------
-    // 4. HYDRATATION SÉDIMENTAIRE VIA MONGODB (LA SILICE)
-    // -------------------------------------------------------------------------
-    let tasks;
-    try {
-      tasks = await TaskModel.find({ uid: { $in: taskUids } })
-        .sort({ 'dates.updatedAt': -1 })
-        .lean();
-    } catch (mongoQueryErr) {
-      console.error("🔥 [MONGO TASKS QUERY ERROR]", mongoQueryErr);
-      return NextResponse.json({ error: "Échec de l'hydratation des Atomes dans la Silice." }, { status: 500 });
-    }
-      
-    const hydrated = tasks.map(t => ({ 
-      ...t, 
-      assigneeUids: tasksFromGraph[t.uid] || [] 
-    }));
+// ==========================================
+// 🔍 GET : Découverte des Atomes
+// ==========================================
+export const GET = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+  const { searchParams } = new URL(req.url);
+  const projectUid = searchParams.get('projectUid') || undefined;
 
-    return NextResponse.json(hydrated, { status: 200 });
+  if (projectUid) {
+    const project = await ProjectModel.findOne({ uid: projectUid }).lean();
+    if (!project) return NextResponse.json([], { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 Fracture interne globale lors de la Clairière des Atomes (GET Tasks):", error);
-    return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
-  }
-}
-
-/**
- * 🚀 POST : Forger un nouvel Atome (Fondation)
- */
-export async function POST(req: Request) {
-  try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR TASKS POST]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR TASKS POST]", sessionErr);
-      return NextResponse.json({ error: "Erreur de lecture d'Aura." }, { status: 500 });
-    }
-
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
-    }
-
-    let body;
-    try {
-      body = await req.json();
-    } catch (parseErr) {
-      return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
-    }
-
-    const projectUid = body.projectUid;
-    if (!projectUid) {
-      return NextResponse.json({ error: "Un Atome doit obligatoirement être rattaché à un Chantier (projectUid)." }, { status: 400 });
-    }
-
-    let project;
-    try {
-      project = await ProjectModel.findOne({ uid: projectUid }).lean();
-    } catch (projErr) {
-      console.error("🔥 [PROJECT QUERY ERROR]", projErr);
-    }
-
-    if (!project) {
-      return NextResponse.json({ error: "Chantier introuvable." }, { status: 404 });
-    }
-
-    let projectCaps: string[] = [];
-    try {
-      projectCaps = await getProjectCapabilities(userUid, projectUid);
-    } catch (e) {}
+    const caps = await getProjectCapabilities(currentUser.uid, projectUid);
+    const canRead = currentUser.capabilities.includes('*') || project.creatorUid === currentUser.uid || caps.includes(CAPABILITIES.PROJECT.READ);
     
-    const isCreator = project.creatorUid === userUid;
-    const isArchitect = sessionCaps.includes('*');
-    const hasTaskRight = projectCaps.includes(CAPABILITIES.TASK.CREATE) || projectCaps.includes('*');
-
-    if (!isCreator && !isArchitect && !hasTaskRight) {
-      return NextResponse.json({ error: "Ton Aura ne résonne pas assez fort sur ce territoire." }, { status: 403 });
-    }
-
-    const signature: ActionSignature = {
-      actorUid: userUid,
-      capabilities: (isCreator || isArchitect) ? ['*'] : projectCaps 
-    };
-
-    let newTask;
-    try {
-      const taskOrch = new TaskOrchestrator(); 
-      newTask = await taskOrch.fosterTask(body, signature);
-    } catch (orchErr: any) {
-      console.error("🌋 [TASK ORCHESTRATOR FOSTER ERROR]", orchErr);
-      const status = orchErr.statusCode || orchErr.status || 500;
-      return NextResponse.json({ error: orchErr.message || "L'Îlot repousse la fondation de cet Atome." }, { status });
-    }
-
-    return NextResponse.json(newTask, { status: 201 });
-
-  } catch (error: any) {
-    console.error("🔥 Fracture interne globale lors du POST Tasks :", error);
-    const status = error.statusCode || 500;
-    return NextResponse.json({ error: error.message || "Erreur interne." }, { status });
+    if (!canRead) return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
   }
-}
+
+  const tasks = await getCachedTasks(currentUser.uid, projectUid);
+  return NextResponse.json(tasks, { status: 200 });
+});
+
+// ==========================================
+// 🚀 POST : Forger un nouvel Atome
+// ==========================================
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+  const body = await req.json();
+  const { projectUid } = body;
+  if (!projectUid) return NextResponse.json({ error: "projectUid obligatoire." }, { status: 400 });
+
+  const project = await ProjectModel.findOne({ uid: projectUid }).lean();
+  if (!project) return NextResponse.json({ error: "Chantier introuvable." }, { status: 404 });
+
+  const caps = await getProjectCapabilities(currentUser.uid, projectUid);
+  const canCreate = currentUser.capabilities?.includes('*') || project.creatorUid === currentUser.uid || caps.includes(CAPABILITIES.TASK.CREATE);
+  
+  if (!canCreate) return NextResponse.json({ error: "Aura insuffisante." }, { status: 403 });
+
+  const signature: ActionSignature = { actorUid: currentUser.uid, capabilities: currentUser.capabilities };
+  const taskOrch = new TaskOrchestrator();
+  const newTask = await taskOrch.fosterTask(body, signature);
+
+  // 💥 Invalidation du cache pour ce chantier
+  revalidateTag(`project-${projectUid}`);
+  revalidateTag(`user-tasks-${currentUser.uid}`);
+
+  return NextResponse.json(newTask, { status: 201 });
+});

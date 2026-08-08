@@ -1,32 +1,44 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth"; // Ajuste le chemin si besoin
-import { connectToDatabase, PartitaModel } from '@ilot/infrastructure';
+import { PartitaModel } from '@ilot/infrastructure';
 import { PartitaOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+
+// 🧠 CACHE : Récupération optimisée du catalogue des partitions
+const getCachedPartitas = (userUid?: string, filterInstrument?: string | null, filterStatus?: string | null) => {
+  return unstable_cache(
+    async () => {
+      let queryFilter: any = {
+        $or: [
+          { status: 'PUBLISHED' } // Les partitions publiées sont visibles par tous
+        ]
+      };
+
+      if (userUid) {
+        queryFilter.$or.push({ authorUid: userUid });
+      }
+
+      if (filterInstrument) queryFilter.instrument = filterInstrument;
+      if (filterStatus) queryFilter.status = filterStatus;
+
+      return await PartitaModel.find(queryFilter)
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean();
+    },
+    [`partitas-list-${userUid || 'public'}-${filterInstrument || 'all'}-${filterStatus || 'all'}`],
+    { revalidate: 60, tags: ['partitas', `partitas-user-${userUid || 'public'}`] }
+  )();
+};
 
 // ==========================================
-// GET : Le Catalogue des Partitions
+// 🔍 GET : Le Catalogue des Partitions (Public / Optionnel Aura)
 // ==========================================
-export async function GET(req: Request) {
+export const GET = withOptionalAura(async (req: Request, _context: ApiContext, currentUser?: OiseauUser) => {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR PARTITA GET]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR PARTITA GET]", sessionErr);
-      return NextResponse.json({ error: "Échec de lecture de la session." }, { status: 500 });
-    }
-
-    const userUid = (session?.user as any)?.uid;
-
     let url;
     try {
       url = new URL(req.url);
@@ -36,67 +48,23 @@ export async function GET(req: Request) {
 
     const filterInstrument = url.searchParams.get('instrument');
     const filterStatus = url.searchParams.get('status');
-    
-    let queryFilter: any = {
-      $or: [
-        { status: 'PUBLISHED' } // Les partitions publiées sont visibles par tous
-      ]
-    };
+    const userUid = currentUser?.uid;
 
-    // Si connecté, on peut voir ses propres brouillons
-    if (userUid) {
-      queryFilter.$or.push({ authorUid: userUid });
-    }
+    const partitions = await getCachedPartitas(userUid, filterInstrument, filterStatus);
 
-    if (filterInstrument) queryFilter.instrument = filterInstrument;
-    if (filterStatus) queryFilter.status = filterStatus;
-
-    let partitionsFromMongo;
-    try {
-      partitionsFromMongo = await PartitaModel.find(queryFilter)
-        .sort({ createdAt: -1 })
-        .limit(50)
-        .lean();
-    } catch (queryErr) {
-      console.error("🔥 [PARTITA QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "L'écho de ces notes s'est brisé." }, { status: 500 });
-    }
-
-    return NextResponse.json(partitionsFromMongo, { status: 200 });
+    return NextResponse.json(partitions, { status: 200 });
 
   } catch (error: any) {
     console.error("🌊 Erreur globale GET Partitions:", error);
     return NextResponse.json({ error: "Erreur interne du serveur." }, { status: 500 });
   }
-}
+});
 
 // ==========================================
-// POST : Fondation d'une Partition
+// 🚀 POST : Fondation d'une Partition (Strictement Privé / Aura)
 // ==========================================
-export async function POST(req: Request) {
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR PARTITA POST]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
-
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau musicien non identifié." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR PARTITA POST]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
     let body;
     try {
       body = await req.json();
@@ -109,25 +77,30 @@ export async function POST(req: Request) {
     }
 
     const signature: ActionSignature = {
-      actorUid: userUid,
-      capabilities: sessionCaps
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
     };
 
     let result;
     try {
       const partitaOrch = new PartitaOrchestrator();
-      const dataToForge = { ...body, authorUid: userUid };
+      const dataToForge = { ...body, authorUid: currentUser.uid };
       result = await partitaOrch.fosterPartita(dataToForge, signature);
     } catch (orchErr: any) {
       console.error("🌋 [PARTITA ORCHESTRATOR POST ERROR] :", orchErr);
-      const status = orchErr.statusCode || 500;
+      const status = orchErr.statusCode || orchErr.status || 500;
       return NextResponse.json({ error: orchErr.message || "L'Îlot repousse cette partition." }, { status });
     }
     
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('partitas');
+    revalidateTag(`partitas-user-${currentUser.uid}`);
+    revalidateTag(`partitas-user-public`);
+
     return NextResponse.json(result, { status: 201 });
 
   } catch (error: any) {
     console.error("🔥 Erreur globale POST Partitions :", error);
     return NextResponse.json({ error: "Erreur interne du serveur." }, { status: 500 });
   }
-}
+});

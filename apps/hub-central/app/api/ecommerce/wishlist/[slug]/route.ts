@@ -1,77 +1,53 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
-import { connectToDatabase, WishlistModel } from '@ilot/infrastructure';
+import { WishlistModel } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
+import { revalidateTag } from 'next/cache';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-interface RouteParams {
-  params: Promise<{ slug: string }>;
-}
-
-export async function DELETE(req: Request, { params }: RouteParams) {
+// ==========================================
+// 🗑️ DELETE : Dissoudre une liste ou retirer un artefact (Strictement Privé / Aura)
+// ==========================================
+export const DELETE = withAura(async (_req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR WISHLIST DELETE]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
+    const userUid = currentUser.uid || currentUser.id;
 
-    const userUid = (session?.user as any)?.uid || (session?.user as any)?.id;
-
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR WISHLIST DELETE]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let rawSlug;
-    try {
-      const resolvedParams = await params;
-      rawSlug = resolvedParams.slug;
-    } catch (paramErr) {
-      console.error("🔥 [PARAMS ERROR WISHLIST DELETE]", paramErr);
+    const resolvedParams = await context.params;
+    const rawSlug = (resolvedParams as any)?.slug;
+    
+    if (!rawSlug) {
       return NextResponse.json({ error: "Identifiant de slug invalide." }, { status: 400 });
     }
     
-    const slug = slugify(rawSlug || '');
+    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    // Tentative 1 : Supprimer toute la wishlist si le slug correspond à une liste
-    let deletedList;
-    try {
-      deletedList = await WishlistModel.findOneAndDelete({ 
-        uid: slug, 
-        userUid: userUid 
-      });
-    } catch (delErr) {
-      console.error("🔥 [WISHLIST LIST DELETE ERROR]", delErr);
-    }
+    // 1. Tentative : Supprimer toute la wishlist si le slug correspond à une liste
+    const deletedList = await WishlistModel.findOneAndDelete({ 
+      uid: slug, 
+      userUid: userUid 
+    });
 
     if (deletedList) {
+      // 💥 Invalidation du cache utilisateur
+      revalidateTag(`user-wishlists-${userUid}`);
+      revalidateTag('wishlists');
       return NextResponse.json({ success: true, message: "Wishlist dissoute avec succès." }, { status: 200 });
     }
 
-    // Tentative 2 : Sinon, retirer le produit de toutes les wishlists de l'utilisateur
-    let updated;
-    try {
-      updated = await WishlistModel.updateMany(
-        { userUid: userUid },
-        { $pull: { productUids: slug } }
-      );
-    } catch (updateErr) {
-      console.error("🔥 [WISHLIST ITEM PULL ERROR]", updateErr);
-      return NextResponse.json({ error: "Échec du retrait de l'artefact de la liste." }, { status: 500 });
-    }
+    // 2. Sinon : Retirer le produit de toutes les wishlists de l'utilisateur
+    const updated = await WishlistModel.updateMany(
+      { userUid: userUid },
+      { $pull: { productUids: slug } }
+    );
 
     if (updated.modifiedCount === 0) {
       return NextResponse.json({ error: "Élément introuvable dans vos listes." }, { status: 404 });
     }
+
+    // 💥 Invalidation du cache utilisateur
+    revalidateTag(`user-wishlists-${userUid}`);
+    revalidateTag('wishlists');
 
     return NextResponse.json({ success: true, message: "Artefact retiré de la liste de souhaits." }, { status: 200 });
 
@@ -79,4 +55,4 @@ export async function DELETE(req: Request, { params }: RouteParams) {
     console.error("🔥 Erreur fatale DELETE Wishlist :", error);
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
-}
+});

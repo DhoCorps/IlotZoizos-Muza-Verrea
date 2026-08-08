@@ -1,62 +1,25 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import { TeamModel, OiseauModel, ProjectModel, TaskModel, connectToDatabase, getNeo4jSession } from '@ilot/infrastructure'; 
-import { authOptions } from "@/lib/auth"; 
+import { TeamModel, OiseauModel, ProjectModel, TaskModel, getNeo4jSession } from '@ilot/infrastructure'; 
 import { TransactionManager } from '@ilot/shared-core';
 import { slugify } from '@/lib/slugify';
+import { revalidateTag } from 'next/cache';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards'; // 🪡 Notre bouclier souverain strict
 
-/**
- * 🌿 INTERFACE DES PARAMÈTRES DE ROUTE ([slug])
- * Conforme à l'exigence asynchrone de Next.js 15+ pour les segments dynamiques.
- */
-interface RouteParams {
-  params: Promise<{ slug: string }>;
-}
+export const dynamic = 'force-dynamic';
 
-export async function POST(req: Request, { params }: RouteParams) {
+// ==========================================
+// 🤝 POST : Réponse au Pacte d'Adhésion (ACCEPT / REFUSE / PURGE_REFUSE)
+// ==========================================
+export const POST = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // -------------------------------------------------------------------------
-    // 1. ÉVEIL DE LA SILICE
-    // -------------------------------------------------------------------------
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR TEAM RESPOND POST]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-    
-    // -------------------------------------------------------------------------
-    // 2. VÉRIFICATION DE L'EMPREINTE DE SESSION (DOUANE)
-    // -------------------------------------------------------------------------
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR TEAM RESPOND POST]", sessionErr);
-      return NextResponse.json({ error: "Erreur de lecture d'Aura." }, { status: 500 });
-    }
+    const userUid = currentUser.uid;
 
-    const userUid = (session?.user as any)?.uid;
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié dans la canopée." }, { status: 401 });
-    }
+    // 1. Résolution stricte et typée des paramètres de route
+    const resolvedParams = await context.params;
+    const rawSlug = resolvedParams?.slug;
+    const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    // -------------------------------------------------------------------------
-    // 3. RÉSOLUTION ET SLUGIFICATION DES PARAMÈTRES DYNAMIQUES DE L'URL ([slug])
-    // -------------------------------------------------------------------------
-    let rawSlug;
-    try {
-      const resolvedParams = await params;
-      rawSlug = resolvedParams.slug;
-    } catch (paramErr) {
-      return NextResponse.json({ error: "Identifiant de nid (slug) invalide." }, { status: 400 });
-    }
-
-    const teamIdentifier = slugify(rawSlug || '');
-
-    // -------------------------------------------------------------------------
-    // 4. DÉCODAGE SÉCURISÉ DU CORPS DE REQUÊTE (JSON)
-    // -------------------------------------------------------------------------
+    // 2. Décodage sécurisé du corps de requête (JSON)
     let body;
     try {
       body = await req.json();
@@ -70,28 +33,19 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Mouvement invalide sur le Pacte." }, { status: 400 });
     }
 
-    // -------------------------------------------------------------------------
-    // 5. RÉCUPÉRATION DU NID DANS LA SILICE (Supporte slug normalisé ou uid)
-    // -------------------------------------------------------------------------
-    let team;
-    try {
-      team = await TeamModel.findOne({ 
-        $or: [{ slug: teamIdentifier }, { uid: teamIdentifier }] 
-      }).lean();
-    } catch (queryErr) {
-      console.error("🔥 [TEAM QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "Échec de lecture du Nid." }, { status: 500 });
-    }
+    // 3. Récupération du Nid dans la Silice
+    const team = await TeamModel.findOne({ 
+      $or: [{ slug: teamIdentifier }, { uid: teamIdentifier }] 
+    }).lean();
 
     if (!team) {
       return NextResponse.json({ error: "Ce Nid s'est volatilisé de la Silice." }, { status: 404 });
     }
 
     const teamUid = (team as any).uid;
+    const teamSlug = (team as any).slug;
 
-    // -------------------------------------------------------------------------
-    // 6. VALIDATION DE L'INVITATION DANS LE GRAPHE NEO4J
-    // -------------------------------------------------------------------------
+    // 4. Validation de l'invitation dans le Graphe Neo4j
     const neoSession = getNeo4jSession();
     let invitationCapabilities: string[] = [];
     try {
@@ -113,17 +67,11 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Échec de vérification du pacte dans le Graphe." }, { status: 500 });
     } finally {
       if (neoSession) {
-        try {
-          await neoSession.close();
-        } catch (closeErr) {
-          console.error("⚠️ Erreur fermeture session Neo4j :", closeErr);
-        }
+        try { await neoSession.close(); } catch (closeErr) {}
       }
     }
 
-    // -------------------------------------------------------------------------
-    // 7. EXÉCUTION TRANSATIONNELLE DE LA RÉPONSE AU PACTE
-    // -------------------------------------------------------------------------
+    // 5. Exécution transactionnelle de la réponse au Pacte
     try {
       await TransactionManager.execute("Réponse au Pacte d'Adhésion", async (mongoSession, neo4jTx) => {
         if (action === 'ACCEPT') {
@@ -143,7 +91,6 @@ export async function POST(req: Request, { params }: RouteParams) {
             { session: mongoSession }
           );
         } else if (action === 'PURGE_REFUSE') {
-          // 🪡 SUTURE MAJEURE : Purge souveraine avant refus
           const projects = await ProjectModel.find({ ownerUid: teamUid }).session(mongoSession).lean();
           const projectUids = projects.map(p => p.uid);
 
@@ -183,6 +130,12 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: txErr.message || "Échec de l'application du pacte." }, { status });
     }
 
+    // 💥 BOOM ! Invalidation chirurgicale du cache (profil utilisateur et nids)
+    revalidateTag(`teams-${userUid}`);
+    revalidateTag('teams');
+    revalidateTag(`team-${teamIdentifier}`);
+    if (teamSlug) revalidateTag(`team-${teamSlug}`);
+
     const teamName = (team as any).name || 'Nid';
 
     return NextResponse.json({ 
@@ -199,4 +152,4 @@ export async function POST(req: Request, { params }: RouteParams) {
     const status = error.statusCode || error.status || 500;
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status });
   }
-}
+});

@@ -1,12 +1,13 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
 import { ProjectOrchestrator } from '@ilot/shared-core';
-import { ProjectModel, getNeo4jSession, connectToDatabase } from '@ilot/infrastructure';
+import { ProjectModel, getNeo4jSession } from '@ilot/infrastructure';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
-import { authOptions } from "@/lib/auth"; 
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-interface RouteParams { params: Promise<{ projectId: string }> }
-
+// 🧠 Fonction d'évaluation des capacités dans le Graphe (Neo4j)
 async function getProjectCapabilities(userUid: string | undefined, projectUid: string) {
   if (!userUid) return { hasAccess: false, capabilities: [] as string[] };
   const session = getNeo4jSession();
@@ -38,27 +39,44 @@ async function getProjectCapabilities(userUid: string | undefined, projectUid: s
   }
 }
 
-export async function GET(req: Request, { params }: RouteParams) {
+// 🧠 CACHE : Récupération des détails d'un projet
+const getCachedProjectDetails = (projectId: string) => {
+  return unstable_cache(
+    async () => {
+      return await ProjectModel.findOne({ uid: projectId })
+        .select('-moderation.internalNotes')
+        .lean();
+    },
+    [`project-details-${projectId}`],
+    { revalidate: 60, tags: ['projects', `project-${projectId}`] }
+  )();
+};
+
+// ==========================================
+// 🔍 GET : Ausculter un Chantier spécifique (Public / Optionnel Aura)
+// ==========================================
+export const GET = withOptionalAura(async (req: Request, context: ApiContext, currentUser?: OiseauUser) => {
   try {
-    let resolvedParams;
-    try { resolvedParams = await params; } catch (err) { return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 }); }
+    const resolvedParams = await context.params;
+    const projectId = typeof resolvedParams?.projectId === 'string' 
+      ? resolvedParams.projectId 
+      : Array.isArray(resolvedParams?.projectId) 
+        ? resolvedParams.projectId[0] 
+        : '';
 
-    try { await connectToDatabase(); } catch (dbErr) { return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 }); }
+    if (!projectId) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
 
-    let session;
-    try { session = await getServerSession(authOptions); } catch (err) { return NextResponse.json({ error: "Erreur session." }, { status: 500 }); }
-    
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
+    const project = await getCachedProjectDetails(projectId);
+    if (!project) {
+      return NextResponse.json({ error: "Chantier introuvable." }, { status: 404 });
+    }
 
-    let project;
-    try {
-      project = await ProjectModel.findOne({ uid: resolvedParams.projectId }).select('-moderation.internalNotes').lean();
-    } catch (err) { return NextResponse.json({ error: "Fracture de lecture." }, { status: 500 }); }
-    
-    if (!project) return NextResponse.json({ error: "Chantier introuvable." }, { status: 404 });
+    const userUid = currentUser?.uid;
+    const sessionCaps = currentUser?.capabilities || [];
 
-    const { hasAccess, capabilities } = await getProjectCapabilities(userUid, resolvedParams.projectId);
+    const { hasAccess, capabilities } = await getProjectCapabilities(userUid, projectId);
     const mergedCaps = [...new Set([...capabilities, ...sessionCaps])];
 
     const isPublic = project.visibility === 'PUBLIC' || project.visibility === 'OPEN_SOURCE';
@@ -69,88 +87,128 @@ export async function GET(req: Request, { params }: RouteParams) {
     }
 
     return NextResponse.json({ ...project, myCapabilities: mergedCaps }, { status: 200 });
-  } catch (error: any) { return NextResponse.json({ error: "Erreur globale." }, { status: 500 }); }
-}
 
-export async function PUT(req: Request, { params }: RouteParams) {
+  } catch (error: any) {
+    console.error("🔥 Erreur globale GET Project:", error);
+    return NextResponse.json({ error: "Erreur interne globale." }, { status: 500 });
+  }
+});
+
+// ==========================================
+// 🚀 PUT : Mutation / Modification d'un Chantier (Strictement Privé / Aura)
+// ==========================================
+export const PUT = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let resolvedParams;
-    try { resolvedParams = await params; } catch (err) { return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 }); }
+    const resolvedParams = await context.params;
+    const projectId = typeof resolvedParams?.projectId === 'string' 
+      ? resolvedParams.projectId 
+      : Array.isArray(resolvedParams?.projectId) 
+        ? resolvedParams.projectId[0] 
+        : '';
 
-    try { await connectToDatabase(); } catch (dbErr) { return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 }); }
+    if (!projectId) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
 
-    let session;
-    try { session = await getServerSession(authOptions); } catch (err) { return NextResponse.json({ error: "Erreur session." }, { status: 500 }); }
-    
-    const userUid = (session?.user as any)?.uid;
-    if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
-
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-    const { capabilities } = await getProjectCapabilities(userUid, resolvedParams.projectId);
+    const userUid = currentUser.uid;
+    const sessionCaps = currentUser.capabilities || [];
+    const { capabilities } = await getProjectCapabilities(userUid, projectId);
     const mergedCaps = [...new Set([...capabilities, ...sessionCaps])];
 
     let projectCheck;
-    try { projectCheck = await ProjectModel.findOne({ uid: resolvedParams.projectId }).lean(); } catch(e) {}
+    try { 
+      projectCheck = await ProjectModel.findOne({ uid: projectId }).lean(); 
+    } catch(e) {}
     
     const isCreator = projectCheck?.creatorUid === userUid;
     const canUpdate = mergedCaps.includes(CAPABILITIES.SYSTEM.ALL) || mergedCaps.includes(CAPABILITIES.PROJECT.UPDATE) || mergedCaps.includes('*') || isCreator;
     
-    if (!canUpdate) return NextResponse.json({ error: "Tu n'as pas l'aura requise pour muter ce Chantier." }, { status: 403 });
+    if (!canUpdate) {
+      return NextResponse.json({ error: "Tu n'as pas l'aura requise pour muter ce Chantier." }, { status: 403 });
+    }
 
     let body;
-    try { body = await req.json(); } catch (err) { return NextResponse.json({ error: "Corps invalide." }, { status: 400 }); }
+    try { 
+      body = await req.json(); 
+    } catch (err) { 
+      return NextResponse.json({ error: "Corps invalide." }, { status: 400 }); 
+    }
 
     const signature: ActionSignature = { actorUid: userUid, capabilities: mergedCaps };
     let updatedProject;
     try {
       const projectOrch = new ProjectOrchestrator();
       if (body.newFiles && Array.isArray(body.newFiles)) {
-        await projectOrch.appendFiles(resolvedParams.projectId, body.newFiles, signature);
+        await projectOrch.appendFiles(projectId, body.newFiles, signature);
         delete body.newFiles; 
       }
-      updatedProject = await projectOrch.mutateProject(resolvedParams.projectId, body, signature);
+      updatedProject = await projectOrch.mutateProject(projectId, body, signature);
     } catch (orchErr: any) {
-      return NextResponse.json({ error: orchErr.message || "Impossible de muter le projet." }, { status: orchErr.statusCode || 500 });
+      return NextResponse.json({ error: orchErr.message || "Impossible de muter le projet." }, { status: orchErr.statusCode || orchErr.status || 500 });
     }
 
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('projects');
+    revalidateTag(`project-${projectId}`);
+
     return NextResponse.json(updatedProject, { status: 200 });
-  } catch (error: any) { return NextResponse.json({ error: "Erreur globale." }, { status: 500 }); }
-}
 
-export async function DELETE(req: Request, { params }: RouteParams) {
+  } catch (error: any) {
+    console.error("🔥 Erreur globale PUT Project:", error);
+    return NextResponse.json({ error: "Erreur interne globale." }, { status: 500 });
+  }
+});
+
+// ==========================================
+// 🗑️ DELETE : Dissolution / Suppression d'un Chantier (Strictement Privé / Aura)
+// ==========================================
+export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let resolvedParams;
-    try { resolvedParams = await params; } catch (err) { return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 }); }
+    const resolvedParams = await context.params;
+    const projectId = typeof resolvedParams?.projectId === 'string' 
+      ? resolvedParams.projectId 
+      : Array.isArray(resolvedParams?.projectId) 
+        ? resolvedParams.projectId[0] 
+        : '';
 
-    try { await connectToDatabase(); } catch (dbErr) { return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 }); }
+    if (!projectId) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
 
-    let session;
-    try { session = await getServerSession(authOptions); } catch (err) { return NextResponse.json({ error: "Erreur session." }, { status: 500 }); }
-    
-    const userUid = (session?.user as any)?.uid;
-    if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
-
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-    const { capabilities } = await getProjectCapabilities(userUid, resolvedParams.projectId);
+    const userUid = currentUser.uid;
+    const sessionCaps = currentUser.capabilities || [];
+    const { capabilities } = await getProjectCapabilities(userUid, projectId);
     const mergedCaps = [...new Set([...capabilities, ...sessionCaps])];
 
     let projectCheck;
-    try { projectCheck = await ProjectModel.findOne({ uid: resolvedParams.projectId }).lean(); } catch(e) {}
+    try { 
+      projectCheck = await ProjectModel.findOne({ uid: projectId }).lean(); 
+    } catch(e) {}
     
     const isCreator = projectCheck?.creatorUid === userUid;
     const canDelete = mergedCaps.includes(CAPABILITIES.SYSTEM.ALL) || mergedCaps.includes(CAPABILITIES.PROJECT.DELETE) || mergedCaps.includes('*') || isCreator;
 
-    if (!canDelete) return NextResponse.json({ error: "Seul l'Architecte possède l'aura de dissolution." }, { status: 403 });
+    if (!canDelete) {
+      return NextResponse.json({ error: "Seul l'Architecte possède l'aura de dissolution." }, { status: 403 });
+    }
 
     const signature: ActionSignature = { actorUid: userUid, capabilities: mergedCaps };
 
     try {
       const projectOrch = new ProjectOrchestrator();
-      await projectOrch.dissolveProject(resolvedParams.projectId, signature);
+      await projectOrch.dissolveProject(projectId, signature);
     } catch (orchErr: any) {
-      return NextResponse.json({ error: orchErr.message || "Le rituel a échoué." }, { status: orchErr.statusCode || 500 });
+      return NextResponse.json({ error: orchErr.message || "Le rituel a échoué." }, { status: orchErr.statusCode || orchErr.status || 500 });
     }
     
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('projects');
+    revalidateTag(`project-${projectId}`);
+
     return NextResponse.json({ message: "L'œuvre est retournée au silence.", status: "dissolved" }, { status: 200 }); 
-  } catch (error: any) { return NextResponse.json({ error: "Erreur globale." }, { status: 500 }); }
-}
+
+  } catch (error: any) {
+    console.error("🔥 Erreur globale DELETE Project:", error);
+    return NextResponse.json({ error: "Erreur interne globale." }, { status: 500 });
+  }
+});

@@ -1,32 +1,22 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
 import { OiseauModel } from '@ilot/infrastructure';
 import { OiseauOrchestrator } from '@ilot/shared-core';
-import { authOptions } from '@/lib/auth';
+import { revalidateTag } from 'next/cache';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-export async function PUT(req: Request) {
+// ==========================================
+// 🕊️ PUT : Appliquer une fluctuation à l'Oiseau (Strictement Privé / Aura)
+// ==========================================
+export const PUT = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionError) {
-      console.error("🔥 [SESSION ERROR]", sessionError);
-      return NextResponse.json({ message: "Erreur lors de la vérification de la session." }, { status: 500 });
-    }
-
-    const userUid = (session?.user as any)?.uid;
-    
-    if (!userUid) {
-      return NextResponse.json({ message: "Oiseau non identifié. Le vent rejette tes murmures." }, { status: 401 });
-    }
-
-    let body;
-    try {
-      body = await req.json();
-    } catch (parseError) {
+    const body = await req.json().catch(() => null);
+    if (!body) {
       return NextResponse.json({ message: "Flux de mutation illisible." }, { status: 400 });
     }
 
+    const userUid = currentUser.uid || currentUser.id;
     const { frequenceHEX, sanctuaire, variationEntropie } = body;
 
     const oiseau = await OiseauModel.findOne({ uid: userUid });
@@ -51,6 +41,10 @@ export async function PUT(req: Request) {
       variationEntropie 
     );
 
+    // 💥 Invalidation chirurgicale du cache en cascade
+    revalidateTag('oiseaux');
+    revalidateTag(`oiseau-${userUid}`);
+
     return NextResponse.json({
       message: "La structure a muté.",
       etat: resultat
@@ -60,4 +54,4 @@ export async function PUT(req: Request) {
     console.error("🔥 Erreur de fluctuation :", error);
     return NextResponse.json({ message: "La magie s'est dissipée avant d'agir." }, { status: 500 });
   }
-}
+});

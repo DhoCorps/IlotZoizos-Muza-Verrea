@@ -1,15 +1,15 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth'; 
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
-import { connectToDatabase, ProjectModel, getNeo4jSession } from '@ilot/infrastructure';
+import { ProjectModel, getNeo4jSession } from '@ilot/infrastructure';
 import { CAPABILITIES } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
+import { revalidateTag } from 'next/cache';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-interface OiseauUser { id: string; uid: string; capabilities: string[]; }
-interface RouteParams { params: Promise<{ slug: string }> }
-
+// 🧠 Vérification Neo4j des permissions de mise à jour du projet
 async function canUpdateProject(userUid: string, projectUid: string): Promise<boolean> {
   const session = getNeo4jSession();
   try {
@@ -25,15 +25,25 @@ async function canUpdateProject(userUid: string, projectUid: string): Promise<bo
     const projectCreatorUid = record.get('projectCreatorUid');
     const caps = record.get('allCaps').flat() || [];
     return (projectCreatorUid === userUid) || caps.includes(CAPABILITIES.PROJECT.UPDATE) || caps.includes('*');
-  } catch (error) { return false; } finally { await session.close(); }
+  } catch (error) { 
+    return false; 
+  } finally { 
+    await session.close(); 
+  }
 }
 
-export async function POST(req: Request, { params }: RouteParams) {
+// ==========================================
+// 📤 POST : Téléversement d'un artefact/document sur un Chantier
+// ==========================================
+export const POST = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let resolvedParams;
-    try { resolvedParams = await params; } catch (err) { return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 }); }
+    const resolvedParams = await context.params;
+    const rawSlug = resolvedParams?.slug;
+    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    const slug = slugify(resolvedParams.slug || '');
+    if (!slug) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
 
     // 🛡️ Rate Limiting par IP contre le spam de téléversement
     const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
@@ -41,14 +51,6 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!allowed) {
       return NextResponse.json({ success: false, message: "Trop de téléversements. Veuillez patienter." }, { status: 429 });
     }
-
-    try { await connectToDatabase(); } catch (dbErr) { return NextResponse.json({ error: "Silice injoignable." }, { status: 500 }); }
-
-    let session;
-    try { session = await getServerSession(authOptions); } catch (err) { return NextResponse.json({ error: "Erreur session." }, { status: 500 }); }
-    
-    const user = session?.user as OiseauUser | undefined;
-    if (!user || !user.uid) return NextResponse.json({ success: false, message: "Oiseau non identifié." }, { status: 401 });
 
     // Recherche du projet par son slug dans la Silice
     let project;
@@ -62,13 +64,17 @@ export async function POST(req: Request, { params }: RouteParams) {
       return NextResponse.json({ success: false, message: "Chantier introuvable." }, { status: 404 });
     }
 
-    const isAuthorized = await canUpdateProject(user.uid, project.uid);
-    if (!isAuthorized && !user.capabilities.includes('*')) {
+    const isAuthorized = await canUpdateProject(currentUser.uid, project.uid);
+    if (!isAuthorized && !currentUser.capabilities.includes('*')) {
       return NextResponse.json({ success: false, message: "Aura insuffisante." }, { status: 403 });
     }
 
     let formData;
-    try { formData = await req.formData(); } catch (err) { return NextResponse.json({ error: "Formulaire invalide." }, { status: 400 }); }
+    try { 
+      formData = await req.formData(); 
+    } catch (err) { 
+      return NextResponse.json({ error: "Formulaire invalide." }, { status: 400 }); 
+    }
     
     const file = formData.get('file') as File | null;
     const label = formData.get('label') as string || 'Document de Chantier';
@@ -117,28 +123,32 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
 
     if (!updatedProject) return NextResponse.json({ success: false, message: "Chantier introuvable." }, { status: 404 });
+
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('projects');
+    revalidateTag(`project-${project.uid}`);
+    revalidateTag(`project-slug-${slug}`);
+
     return NextResponse.json({ success: true, message: "Artefact scellé.", document: documentPayload, project: updatedProject }, { status: 201 });
 
   } catch (error: any) { 
     console.error("❌ [PROJECT ATTACHMENTS POST ERROR]", error);
     return NextResponse.json({ success: false, message: "Le téléversement a échoué." }, { status: 500 }); 
   }
-}
+});
 
-export async function DELETE(req: Request, { params }: RouteParams) {
+// ==========================================
+// 🗑️ DELETE : Désintégration / Purge d'un artefact de Chantier
+// ==========================================
+export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let resolvedParams;
-    try { resolvedParams = await params; } catch (err) { return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 }); }
+    const resolvedParams = await context.params;
+    const rawSlug = resolvedParams?.slug;
+    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    const slug = slugify(resolvedParams.slug || '');
-
-    try { await connectToDatabase(); } catch (dbErr) { return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 }); }
-
-    let session;
-    try { session = await getServerSession(authOptions); } catch (err) { return NextResponse.json({ error: "Erreur session." }, { status: 500 }); }
-    
-    const user = session?.user as OiseauUser | undefined;
-    if (!user || !user.uid) return NextResponse.json({ message: "Non autorisé" }, { status: 401 });
+    if (!slug) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
 
     let project;
     try {
@@ -151,11 +161,17 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ success: false, message: "Chantier introuvable." }, { status: 404 });
     }
 
-    const isAuthorized = await canUpdateProject(user.uid, project.uid);
-    if (!isAuthorized && !user.capabilities.includes('*')) return NextResponse.json({ message: "Souveraineté insuffisante." }, { status: 403 });
+    const isAuthorized = await canUpdateProject(currentUser.uid, project.uid);
+    if (!isAuthorized && !currentUser.capabilities.includes('*')) {
+      return NextResponse.json({ message: "Souveraineté insuffisante." }, { status: 403 });
+    }
 
     let body;
-    try { body = await req.json(); } catch (err) { return NextResponse.json({ error: "Corps invalide." }, { status: 400 }); }
+    try { 
+      body = await req.json(); 
+    } catch (err) { 
+      return NextResponse.json({ error: "Corps invalide." }, { status: 400 }); 
+    }
     
     if (!body.key) return NextResponse.json({ message: "Clé manquante" }, { status: 400 });
 
@@ -168,11 +184,19 @@ export async function DELETE(req: Request, { params }: RouteParams) {
 
     try {
       await ProjectModel.updateOne({ slug }, { $pull: { documents: { url: body.key } } });
-    } catch (dbErr) { return NextResponse.json({ error: "Échec nettoyage Silice." }, { status: 500 }); }
+    } catch (dbErr) { 
+      return NextResponse.json({ error: "Échec nettoyage Silice." }, { status: 500 }); 
+    }
+
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('projects');
+    revalidateTag(`project-${project.uid}`);
+    revalidateTag(`project-slug-${slug}`);
 
     return NextResponse.json({ success: true, message: "Artefact désintégré." }, { status: 200 });
+
   } catch (err: any) { 
     console.error("❌ [PROJECT ATTACHMENTS DELETE ERROR]", err);
     return NextResponse.json({ message: "Erreur globale." }, { status: 500 }); 
   }
-}
+});

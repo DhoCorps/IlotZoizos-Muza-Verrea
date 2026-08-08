@@ -1,44 +1,40 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '@/app/api/projects/[slug]/upload/route';
-import { getServerSession } from 'next-auth/next';
-import { connectToDatabase, ProjectModel, getNeo4jSession } from '@ilot/infrastructure';
+import { ProjectModel, getNeo4jSession } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
+import { revalidateTag } from 'next/cache';
 
-// --- MOCKS DES DÉPENDANCES ---
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT
+// -------------------------------------------------------------------------
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
+}));
+
+// Neutralisation du bouclier withAura pour les tests unitaires
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: any) => async (req: any, context: any) => {
+    const mockUser = global.__mockUser || { uid: 'u-123', capabilities: ['*'] };
+    return await handler(req, context, mockUser);
+  },
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn(),
+  connectToDatabase: vi.fn().mockResolvedValue(true),
   ProjectModel: {
     findOne: vi.fn(),
     findOneAndUpdate: vi.fn(),
     updateOne: vi.fn(),
   },
-  getNeo4jSession: vi.fn().mockReturnValue({
-    run: vi.fn().mockResolvedValue({
-      records: [{
-        get: (key: string) => {
-          if (key === 'projectCreatorUid') return 'user-bird-1';
-          if (key === 'allCaps') return [['*']];
-          return null;
-        }
-      }]
-    }),
-    close: vi.fn().mockResolvedValue(true),
-  }),
+  getNeo4jSession: vi.fn(),
 }));
 
 vi.mock('@/modules/storage/storage.service', () => ({
   storageService: {
-    generateStructuredKey: vi.fn().mockReturnValue('ilot-zoizos/fr/projects/proj-123/attachments/file.png'),
-    uploadFile: vi.fn().mockResolvedValue({
-      publicUrl: 'https://nexus.ilot.local/storage/file.png',
-      key: 'ilot-zoizos/fr/projects/proj-123/attachments/file.png',
-    }),
-    extractKeyFromUrl: vi.fn().mockReturnValue('ilot-zoizos/fr/projects/proj-123/attachments/file.png'),
+    generateStructuredKey: vi.fn().mockReturnValue('ilot-zoizos/fr/projects/proj-1/attachments/test.pdf'),
+    uploadFile: vi.fn().mockResolvedValue({ publicUrl: 'https://cdn.ilot/doc.pdf', key: 'mock-key' }),
+    extractKeyFromUrl: vi.fn().mockReturnValue('mock-key'),
     deleteFile: vi.fn().mockResolvedValue(true),
   },
 }));
@@ -47,90 +43,105 @@ vi.mock('@/modules/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
 }));
 
-describe('Project Attachments Slug API [POST, DELETE]', () => {
+declare global {
+  var __mockUser: any;
+}
+
+function mockNeo4jAuth(isValid: boolean = true) {
+  vi.mocked(getNeo4jSession).mockReturnValue({
+    run: vi.fn().mockResolvedValue({
+      records: isValid ? [{ get: (key: string) => key === 'projectCreatorUid' ? 'u-123' : ['project:update'] }] : [],
+    }),
+    close: vi.fn().mockResolvedValue(true),
+  } as any);
+}
+
+// -------------------------------------------------------------------------
+// 🧪 SUITE DE TESTS
+// -------------------------------------------------------------------------
+describe('Route API : Project Attachments (POST / DELETE /api/projects/[slug]/attachments)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  describe('POST /api/projects/[slug]/attachments', () => {
-    it('devrait retourner 401 si l oiseau n est pas authentifié', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce(null);
+  describe('POST - Téléversement d\'un artefact', () => {
+    it('doit refuser (429) si le rate limit est dépassé', async () => {
+      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false } as any);
 
-      const req = {
-        headers: { get: () => '127.0.0.1' },
-        formData: vi.fn(),
-      } as unknown as Request;
+      const req = new Request('http://localhost/api/projects/mon-chantier/attachments', {
+        method: 'POST',
+      });
 
-      const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Chantier!' }) });
-      const data = await res.json();
+      const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-chantier' }) });
+      const json = await response.json();
 
-      expect(res.status).toBe(401);
-      expect(data.message).toBe('Oiseau non identifié.');
+      expect(response.status).toBe(429);
+      expect(json.success).toBe(false);
     });
 
-    it('devrait réussir (201) et téléverser le document en appliquant le slugify', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'user-bird-1', capabilities: ['*'] },
+    it('doit téléverser un fichier valide, l\'ajouter au projet et invalider le cache (201)', async () => {
+      mockNeo4jAuth(true);
+
+      vi.mocked(ProjectModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 'proj-1', slug: 'mon-chantier', name: 'Mon Chantier' }),
       } as any);
 
-      const mockProject = { uid: 'proj-123', slug: 'mon-chantier' };
-      vi.mocked(ProjectModel.findOne).mockReturnValueOnce({
-        lean: vi.fn().mockResolvedValueOnce(mockProject),
-      } as any);
-
-      const mockUpdatedProject = { ...mockProject, documents: [{ name: 'file.png' }] };
-      vi.mocked(ProjectModel.findOneAndUpdate).mockReturnValueOnce({
-        lean: vi.fn().mockResolvedValueOnce(mockUpdatedProject),
+      vi.mocked(ProjectModel.findOneAndUpdate).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 'proj-1', documents: [{ name: 'test.pdf' }] }),
       } as any);
 
       const formData = new FormData();
-      const file = new File(['content'], 'file.png', { type: 'image/png' });
-      formData.append('file', file);
-      formData.append('label', 'Plan');
+      formData.append('file', new Blob(['pdf content'], { type: 'application/pdf' }), 'test.pdf');
+      formData.append('label', 'Schéma technique');
 
-      const req = {
-        headers: { get: () => '127.0.0.1' },
-        formData: vi.fn().mockResolvedValue(formData),
-      } as unknown as Request;
+      const req = new Request('http://localhost/api/projects/mon-chantier/attachments', {
+        method: 'POST',
+        body: formData,
+      });
 
-      const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Chantier!' }) });
-      const data = await res.json();
+      vi.spyOn(req, 'formData').mockResolvedValue(formData);
 
-      expect(res.status).toBe(201);
-      expect(data.success).toBe(true);
-      expect(ProjectModel.findOne).toHaveBeenCalledWith({ slug: 'mon-chantier' });
+      const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-chantier' }) });
+      const json = await response.json();
+
+      expect(response.status).toBe(201);
+      expect(json.success).toBe(true);
+      expect(json.document.name).toBe('test.pdf');
+
+      // 💥 Vérification de l'invalidation du cache en cascade
+      expect(revalidateTag).toHaveBeenCalledWith('projects');
+      expect(revalidateTag).toHaveBeenCalledWith('project-proj-1');
+      expect(revalidateTag).toHaveBeenCalledWith('project-slug-mon-chantier');
     });
   });
 
-  describe('DELETE /api/projects/[slug]/attachments', () => {
-    it('devrait réussir (200) et supprimer l artefact en appliquant le slugify', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'user-bird-1', capabilities: ['*'] },
-      } as any);
+  describe('DELETE - Purge d\'un artefact', () => {
+    it('doit supprimer l\'artefact du stockage et de la Silice, puis invalider le cache (200)', async () => {
+      mockNeo4jAuth(true);
 
-      const mockProject = { uid: 'proj-123', slug: 'mon-chantier' };
-      vi.mocked(ProjectModel.findOne).mockReturnValueOnce({
-        lean: vi.fn().mockResolvedValueOnce(mockProject),
+      vi.mocked(ProjectModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 'proj-1', slug: 'mon-chantier' }),
       } as any);
 
       vi.mocked(ProjectModel.updateOne).mockResolvedValueOnce({ modifiedCount: 1 } as any);
 
-      const req = new Request('http://localhost/api/projects/Mon Chantier!/attachments', {
+      const req = new Request('http://localhost/api/projects/mon-chantier/attachments', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'https://nexus.ilot.local/storage/file.png' }),
+        body: JSON.stringify({ key: 'https://cdn.ilot/doc.pdf' }),
       });
 
-      const res = await DELETE(req, { params: Promise.resolve({ slug: 'Mon Chantier!' }) });
-      const data = await res.json();
+      const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'mon-chantier' }) });
+      const json = await response.json();
 
-      expect(res.status).toBe(200);
-      expect(data.success).toBe(true);
-      expect(ProjectModel.findOne).toHaveBeenCalledWith({ slug: 'mon-chantier' });
-      expect(ProjectModel.updateOne).toHaveBeenCalledWith(
-        { slug: 'mon-chantier' },
-        { $pull: { documents: { url: 'https://nexus.ilot.local/storage/file.png' } } }
-      );
+      expect(response.status).toBe(200);
+      expect(json.success).toBe(true);
+      expect(storageService.deleteFile).toHaveBeenCalledWith('mock-key');
+
+      // 💥 Vérification de l'invalidation du cache
+      expect(revalidateTag).toHaveBeenCalledWith('projects');
+      expect(revalidateTag).toHaveBeenCalledWith('project-proj-1');
+      expect(revalidateTag).toHaveBeenCalledWith('project-slug-mon-chantier');
     });
   });
 });

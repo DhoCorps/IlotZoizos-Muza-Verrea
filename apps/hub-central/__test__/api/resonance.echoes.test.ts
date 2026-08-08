@@ -1,93 +1,122 @@
-// apps/hub-central/__test__/api/resonance.echoes.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, POST } from '../../app/api/resonance/echoes/route';
-import { getServerSession } from 'next-auth/next';
-import { NextRequest } from 'next/server';
+import { GET, POST } from '@/app/api/resonance/echoes/route';
+import { ResonanceModel } from '@ilot/infrastructure';
+import { ResonanceOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
 
-vi.mock('next-auth/next', () => ({ getServerSession: vi.fn() }));
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT
+// -------------------------------------------------------------------------
+vi.mock('next/cache', () => ({
+  unstable_cache: vi.fn((cb) => cb), // Exécution immédiate pour le test
+  revalidateTag: vi.fn(),
+}));
 
-const mockLean = vi.fn();
-const mockLimit = vi.fn().mockImplementation(() => ({ lean: mockLean }));
-const mockSort = vi.fn().mockImplementation(() => ({ limit: mockLimit }));
-const mockFind = vi.fn().mockImplementation(() => ({ sort: mockSort }));
-const mockCreate = vi.fn();
+// Neutralisation des gardes d'API pour les tests unitaires
+vi.mock('@/lib/api-guards', () => ({
+  withSilice: (handler: any) => handler,
+  withAura: (handler: any) => async (req: any, context: any) => {
+    const mockUser = { id: '1', uid: 'u-123', capabilities: ['*'] };
+    return await handler(req, context, mockUser);
+  },
+}));
 
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   ResonanceModel: {
-    find: (...args: any[]) => mockFind(...args),
-    create: (...args: any[]) => mockCreate(...args)
-  }
+    find: vi.fn(),
+    create: vi.fn(),
+  },
 }));
 
-const mockAddSocialEcho = vi.fn();
 vi.mock('@ilot/shared-core', () => ({
   ResonanceOrchestrator: {
-    addSocialEcho: (...args: any[]) => mockAddSocialEcho(...args)
-  }
+    addSocialEcho: vi.fn(),
+  },
 }));
 
-// On by-passe Zod pour se concentrer sur la logique de la route
-vi.mock('@ilot/types', async (importOriginal) => {
-  const actual = await importOriginal<any>();
-  return {
-    ...actual,
-    EchoSchema: {
-      safeParse: vi.fn((data) => {
-        if (!data.targetUid) return { success: false, error: { flatten: () => 'Erreur' } };
-        return { success: true, data };
-      })
-    }
-  };
-});
-
-describe('API Resonance - Echoes (GET / POST)', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
-
-  it('🔴 GET : doit rejeter si la cible (targetUid) manque (400)', async () => {
-    const req = new NextRequest('http://localhost/api/resonance/echoes');
-    const res = await GET(req as any);
-    expect(res.status).toBe(400);
+// -------------------------------------------------------------------------
+// 🧪 SUITE DE TESTS
+// -------------------------------------------------------------------------
+describe('Route API : Resonance Echoes (GET / POST /api/resonance/echoes)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  it('🟢 GET : doit capter les échos de la Silice (200)', async () => {
-    mockLean.mockResolvedValueOnce([{ uid: 'echo_1', content: 'Bravo !' }]);
-    const req = new NextRequest('http://localhost/api/resonance/echoes?targetUid=bird_42');
-    const res = await GET(req as any);
-    const data = await res.json();
-    
-    expect(res.status).toBe(200);
-    expect(data[0].content).toBe('Bravo !');
+  describe('GET - Écouter les résonances', () => {
+    it('🔴 doit rejeter (400) si le paramètre targetUid est absent', async () => {
+      const req = new Request('http://localhost/api/resonance/echoes');
+      const res = await GET(req as any, {});
+      const json = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(json.error).toBe("Cible de résonance manquante.");
+    });
+
+    it('🟢 doit renvoyer les échos pour une cible valide (200)', async () => {
+      vi.mocked(ResonanceModel.find).mockReturnValue({
+        sort: () => ({
+          limit: () => ({
+            lean: vi.fn().mockResolvedValue([{ uid: 'echo-1', content: 'Murmure...' }]),
+          }),
+        }),
+      } as any);
+
+      const req = new Request('http://localhost/api/resonance/echoes?targetUid=task-1');
+      const res = await GET(req as any, {});
+      const json = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(json).toHaveLength(1);
+      expect(json[0].content).toBe('Murmure...');
+    });
   });
 
-  it('🔴 POST : doit rejeter l\'Oiseau non identifié (401)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
-    const req = new NextRequest('http://localhost/api/resonance/echoes', { method: 'POST' });
-    const res = await POST(req as any);
-    expect(res.status).toBe(401);
-  });
+  describe('POST - Propager un Écho', () => {
+    it('🔴 doit rejeter (400) si le corps de la requête est malformé', async () => {
+      const req = new Request('http://localhost/api/resonance/echoes', {
+        method: 'POST',
+        body: JSON.stringify({ invalid: 'schema' }),
+      });
 
-  it('🔴 POST : doit rejeter un écho malformé (400)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({ user: { uid: 'bird_1' } } as any);
-    const req = new NextRequest('http://localhost/api', { method: 'POST', body: JSON.stringify({}) }); // Manque targetUid
-    const res = await POST(req as any);
-    expect(res.status).toBe(400);
-  });
+      const res = await POST(req as any, {});
+      expect(res.status).toBe(400);
+    });
 
-  it('🟢 POST : doit propager un écho TEXT et le sédimenter dans la Silice (201)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({ user: { uid: 'bird_1', capabilities: [] } } as any);
-    mockAddSocialEcho.mockResolvedValueOnce({ echoUid: 'echo_neo_1' });
-    mockCreate.mockResolvedValueOnce([{ uid: 'echo_neo_1', content: 'Hello' }]); // Mock Mongo Create
+    it('🟢 doit propager un écho, l\'inscrire dans le Graphe et la Silice, et invalider le cache (201)', async () => {
+      vi.mocked(ResonanceOrchestrator.addSocialEcho).mockResolvedValueOnce({
+        echoUid: 'echo-new-1',
+        status: 'propagated',
+      } as any);
 
-    const payload = { targetUid: 'post_1', targetLabel: 'Post', echoType: 'TEXT', content: 'Hello' };
-    const req = new NextRequest('http://localhost/api', { method: 'POST', body: JSON.stringify(payload) });
-    
-    const res = await POST(req as any);
-    const data = await res.json();
-    
-    expect(res.status).toBe(201);
-    expect(data.success).toBe(true);
-    expect(mockAddSocialEcho).toHaveBeenCalled();
-    expect(mockCreate).toHaveBeenCalled();
+      vi.mocked(ResonanceModel.create).mockResolvedValueOnce([
+        { uid: 'echo-new-1', content: 'Bel écho !' },
+      ] as any);
+
+      const payload = {
+        targetUid: 'task-1',
+        targetLabel: 'Task',
+        echoType: 'TEXT',
+        content: 'Bel écho !',
+      };
+
+      const req = new Request('http://localhost/api/resonance/echoes', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      const res = await POST(req as any, {});
+      const json = await res.json();
+
+      expect(res.status).toBe(201);
+      expect(json.success).toBe(true);
+      expect(json.echo.uid).toBe('echo-new-1');
+
+      // 💥 Vérification de l'invalidation chirurgicale du cache en cascade
+      expect(revalidateTag).toHaveBeenCalledWith('resonance-echoes');
+      expect(revalidateTag).toHaveBeenCalledWith('echoes-task-1');
+      expect(revalidateTag).toHaveBeenCalledWith('entity-task-1');
+    });
   });
 });

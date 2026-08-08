@@ -1,4 +1,4 @@
-// packages/shared-core/src/block-engine/__tests__/block-engine.test.ts
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useBlockEngine } from '../../../shared-core/src/bloc-engine/useBlockEngine';

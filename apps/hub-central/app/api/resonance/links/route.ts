@@ -1,37 +1,16 @@
-// apps/hub-central/app/api/resonance/links/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
-import { connectToDatabase } from '@ilot/infrastructure';
 import { ResonanceOrchestrator } from '@ilot/shared-core';
 import { WeaveLinkSchema, ActionSignature, EntityLabel, ResonanceType } from '@ilot/types';
+import { revalidateTag } from 'next/cache';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-export async function POST(req: NextRequest) {
+/**
+ * 🕸️ POST : Tissage d'un pont transdisciplinaire de résonance dans le Graphe
+ */
+export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR RESONANCE LINKS POST]", sessionErr);
-      return NextResponse.json({ error: "Erreur de lecture d'Aura (session)." }, { status: 500 });
-    }
-
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié dans la canopée." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR RESONANCE LINKS POST]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
     let rawBody;
     try {
       rawBody = await req.json();
@@ -48,13 +27,13 @@ export async function POST(req: NextRequest) {
     }
 
     const signature: ActionSignature = {
-      actorUid: userUid,
-      capabilities: sessionCaps
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
     };
 
     let result;
     try {
-      // 🕸️ APPEL STATIQUE DIRECT (Suppression définitive du "new ResonanceOrchestrator()")
+      // 🕸️ APPEL STATIQUE DIRECT (Tissage de la résonance inter-domaines)
       result = await ResonanceOrchestrator.weaveCrossDomainLink(
         validation.data.sourceUid,
         validation.data.sourceLabel as EntityLabel,
@@ -65,9 +44,15 @@ export async function POST(req: NextRequest) {
       );
     } catch (neoErr: any) {
       console.error("🌋 [NEO4J WEAVE FORGE ERROR] :", neoErr);
-      const status = neoErr.status || 500;
+      const status = neoErr.status || neoErr.statusCode || 500;
       return NextResponse.json({ error: neoErr.message || "Le Graphe a rejeté le tissage." }, { status });
     }
+
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    // On purge le tag global des liens et les tags spécifiques des deux entités reliées
+    revalidateTag('resonance-links');
+    revalidateTag(`entity-${validation.data.sourceUid}`);
+    revalidateTag(`entity-${validation.data.targetUid}`);
 
     return NextResponse.json({
       success: true,
@@ -79,4 +64,4 @@ export async function POST(req: NextRequest) {
     console.error("🌋 Fracture globale lors du tissage de liens :", error);
     return NextResponse.json({ error: error.message || "La tempête a brisé le pont." }, { status: 500 });
   }
-}
+});

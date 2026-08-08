@@ -1,14 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET } from '../../../app/api/graph/context/route';
+import { GET } from '@/app/api/graph/context/route';
 
 const mockRun = vi.fn();
 const mockClose = vi.fn().mockResolvedValue(true);
 
 vi.mock('@ilot/infrastructure', () => ({
+  connectToDatabase: vi.fn().mockResolvedValue(true),
   getNeo4jSession: vi.fn().mockImplementation(() => ({
     run: (...args: any[]) => mockRun(...args),
     close: (...args: any[]) => mockClose(...args)
   }))
+}));
+
+vi.mock('next/cache', () => ({
+  unstable_cache: vi.fn((cb) => cb),
+}));
+
+vi.mock('@/lib/api-guards', () => ({
+  withSilice: (handler: any) => handler,
 }));
 
 describe('API Graph - Contexte relationnel (GET /api/graph/context)', () => {

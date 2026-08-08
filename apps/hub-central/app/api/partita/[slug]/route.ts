@@ -1,62 +1,66 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import { connectToDatabase, PartitaModel } from '@ilot/infrastructure';
+import { PartitaModel } from '@ilot/infrastructure';
 import { PartitaOrchestrator } from '@ilot/shared-core';
-import { authOptions } from "@/lib/auth";
 import { ActionSignature, CAPABILITIES } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-interface RouteParams {
-  params: Promise<{ slug: string }>;
+// 🧠 CACHE SÉCURISÉ : Bypass automatique en mode test pour protéger Vitest
+async function getCachedPartitaDetails(identifier: string) {
+  const fetcher = async () => {
+    return await PartitaModel.findOne({ 
+      $or: [{ slug: identifier }, { uid: identifier }] 
+    }).lean();
+  };
+
+  if (process.env.NODE_ENV === 'test') {
+    return await fetcher();
+  }
+
+  return await unstable_cache(
+    fetcher,
+    [`partita-details-${identifier}`],
+    { revalidate: 60, tags: ['partitas', `partita-${identifier}`] }
+  )();
 }
 
-export async function GET(req: Request, { params }: RouteParams) {
+// ==========================================
+// 🔍 GET : Consulter une Partition spécifique (Public / Optionnel Aura)
+// ==========================================
+export const GET = withOptionalAura(async (req: Request, context: ApiContext, currentUser?: OiseauUser) => {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
     let resolvedParams;
     try {
-      resolvedParams = await params;
+      resolvedParams = await context.params;
     } catch (err) {
       return NextResponse.json({ error: "Paramètres de route invalides." }, { status: 400 });
     }
 
-    const slug = slugify(resolvedParams.slug || '');
+    const rawSlug = resolvedParams?.slug;
+    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      return NextResponse.json({ error: "Erreur de lecture de session." }, { status: 500 });
+    if (!slug) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-
-    let partition;
-    try {
-      partition = await PartitaModel.findOne({ 
-        $or: [{ slug: slug }, { uid: slug }] 
-      }).lean();
-    } catch (queryErr) {
-      console.error("🔥 [PARTITA SLUG GET ERROR]", queryErr);
-      return NextResponse.json({ error: "Échec de lecture de la partition." }, { status: 500 });
-    }
+    const partition = await getCachedPartitaDetails(slug);
 
     if (!partition) {
       return NextResponse.json({ error: "Cette partition s'est évaporée de la Silice." }, { status: 404 });
     }
+
+    const userUid = currentUser?.uid;
+    const sessionCaps = currentUser?.capabilities || [];
 
     const isPublic = partition.status === 'PUBLISHED';
     const isMine = partition.authorUid === userUid;
     const isArchitect = sessionCaps.includes('*');
 
     if (!isPublic && !isMine && !isArchitect) {
-        return NextResponse.json({ error: "Cette partition intime t'est fermée." }, { status: 403 });
+      return NextResponse.json({ error: "Cette partition intime t'est fermée." }, { status: 403 });
     }
 
     const myCaps = (isMine || isArchitect) ? [CAPABILITIES.SYSTEM.ALL] : [];
@@ -66,42 +70,32 @@ export async function GET(req: Request, { params }: RouteParams) {
     console.error("🔥 Erreur globale GET Partita Slug :", error);
     return NextResponse.json({ error: "Erreur interne du serveur." }, { status: 500 });
   }
-}
+});
 
-export async function PUT(req: Request, { params }: RouteParams) {
+// ==========================================
+// 🚀 PUT : Muter une Partition (Strictement Privé / Aura)
+// ==========================================
+export const PUT = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
-
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-
-    if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
     let resolvedParams;
     let body;
     try {
-      resolvedParams = await params;
+      resolvedParams = await context.params;
       body = await req.json();
     } catch (err) {
       return NextResponse.json({ error: "Corps de requête ou paramètres illisibles." }, { status: 400 });
     }
 
-    const slug = slugify(resolvedParams.slug || '');
+    const rawSlug = resolvedParams?.slug;
+    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+    if (!slug) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
 
     const signature: ActionSignature = {
-        actorUid: userUid,
-        capabilities: sessionCaps
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
     };
 
     let updatedPartition;
@@ -110,8 +104,15 @@ export async function PUT(req: Request, { params }: RouteParams) {
       updatedPartition = await partitaOrch.updatePartita(slug, body, signature);
     } catch (orchErr: any) {
       console.error("🔥 [PARTITA ORCHESTRATOR PUT ERROR]", orchErr);
-      const status = orchErr.statusCode || 500;
+      const status = orchErr.statusCode || orchErr.status || 500;
       return NextResponse.json({ error: orchErr.message || "Échec de mutation." }, { status });
+    }
+
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('partitas');
+    revalidateTag(`partita-${slug}`);
+    if (updatedPartition?.uid) {
+      revalidateTag(`partita-${updatedPartition.uid}`);
     }
 
     return NextResponse.json(updatedPartition, { status: 200 });
@@ -120,40 +121,30 @@ export async function PUT(req: Request, { params }: RouteParams) {
     console.error("🔥 Erreur globale PUT Partita :", error);
     return NextResponse.json({ error: "Erreur interne." }, { status: 500 });
   }
-}
+});
 
-export async function DELETE(req: Request, { params }: RouteParams) {
+// ==========================================
+// 🗑️ DELETE : Dissoudre/Désintégrer une Partition (Strictement Privé / Aura)
+// ==========================================
+export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
-
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-
-    if (!userUid) return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
     let resolvedParams;
     try {
-      resolvedParams = await params;
+      resolvedParams = await context.params;
     } catch (paramErr) {
       return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
     }
 
-    const slug = slugify(resolvedParams.slug || '');
+    const rawSlug = resolvedParams?.slug;
+    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+    if (!slug) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
 
     const signature: ActionSignature = {
-        actorUid: userUid,
-        capabilities: sessionCaps
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
     };
 
     try {
@@ -161,14 +152,18 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       await partitaOrch.disintegratePartita(slug, signature);
     } catch (orchErr: any) {
       console.error("🔥 [PARTITA ORCHESTRATOR DELETE ERROR]", orchErr);
-      const status = orchErr.statusCode || 500;
+      const status = orchErr.statusCode || orchErr.status || 500;
       return NextResponse.json({ error: orchErr.message || "Échec de dissolution." }, { status });
     }
     
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('partitas');
+    revalidateTag(`partita-${slug}`);
+
     return NextResponse.json({ message: "La partition a été réduite en cendres." }, { status: 200 });
 
   } catch (error: any) {
     console.error("🔥 Erreur globale DELETE Partita :", error);
     return NextResponse.json({ error: "Erreur interne." }, { status: 500 });
   }
-}
+});

@@ -1,10 +1,10 @@
-// packages/shared-core/src/sync-engine/__tests__/task.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TaskOrchestrator } from '../task.orchestrator';
 import { TaskModel, ProjectModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
+// 1. Unification de tous les mocks d'infrastructure en un seul bloc robuste
 vi.mock('@ilot/infrastructure', () => ({
   TaskModel: {
     create: vi.fn(),
@@ -12,9 +12,6 @@ vi.mock('@ilot/infrastructure', () => ({
     findOneAndUpdate: vi.fn(),
     deleteMany: vi.fn(),
   },
-}));
-
-vi.mock('@ilot/infrastructure', () => ({
   ProjectModel: {
     findOne: vi.fn(),
   },
@@ -74,6 +71,8 @@ describe('TaskOrchestrator', () => {
     it('🟢 doit valider un cycle Pomodoro avec succès', async () => {
       const mockTask = { uid: 'task_1', slug: 'atome-1' };
       vi.mocked(TaskModel.findOne).mockResolvedValueOnce(mockTask as any);
+      
+      // Correction : On simule la chaîne de méthode .findOneAndUpdate().lean()
       vi.mocked(TaskModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce({ ...mockTask, pomodoros: { completed: 1 } })
       } as any);

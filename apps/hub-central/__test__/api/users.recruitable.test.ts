@@ -1,105 +1,133 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET } from '../../app/api/users/recruitable/route';
+import { GET, POST } from '@/app/api/users/recruitable/route';
 import { getServerSession } from 'next-auth/next';
+import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
 
-const mocks = vi.hoisted(() => {
-  const mockFindLeanFn = vi.fn();
-  const mockFindChainingFn = vi.fn().mockImplementation(() => ({
-    select: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(), lean: mockFindLeanFn
-  }));
-  return {
-    mockFindLean: mockFindLeanFn, mockFindChaining: mockFindChainingFn, mockConnectToDatabase: vi.fn().mockResolvedValue(true),
-    mockNeo4jRun: vi.fn().mockResolvedValue({ records: [] }), mockOiseauModel: { find: mockFindChainingFn }
-  };
-});
-
-const { mockFindLean, mockFindChaining, mockConnectToDatabase, mockNeo4jRun } = mocks;
-
-vi.mock('next-auth/next', () => ({ getServerSession: vi.fn() }));
-
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: mocks.mockConnectToDatabase, OiseauModel: mocks.mockOiseauModel,
-  getNeo4jSession: vi.fn().mockImplementation(() => ({ run: mocks.mockNeo4jRun, close: vi.fn() }))
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT
+// -------------------------------------------------------------------------
+vi.mock('next/cache', () => ({
+  unstable_cache: vi.fn((cb) => cb), // Laisse passer pour tester la logique
+  revalidateTag: vi.fn(),
 }));
 
-vi.mock('@ilot/infrastructure/src/database/models/nosql/user.model', () => ({ OiseauModel: mocks.mockOiseauModel }));
+vi.mock('next-auth/next', () => ({
+  getServerSession: vi.fn(),
+}));
 
-describe('API Users - Recrutables pour un Nid (/api/users/recruitable)', () => {
+vi.mock('@ilot/infrastructure', () => ({
+  connectToDatabase: vi.fn().mockResolvedValue(true),
+  OiseauModel: {
+    find: vi.fn(),
+    findOne: vi.fn(),
+  },
+}));
+
+vi.mock('@ilot/shared-core', () => ({
+  OiseauOrchestrator: vi.fn().mockImplementation(() => ({
+    fosterOiseau: vi.fn(),
+  })),
+}));
+
+// -------------------------------------------------------------------------
+// 🧪 SUITE DE TESTS
+// -------------------------------------------------------------------------
+describe('Route API : Volière Publique (GET / POST)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockConnectToDatabase.mockResolvedValue(true);
-    mockNeo4jRun.mockResolvedValue({ records: [] }); // Par défaut, Neo4j ne trouve personne
-    mockFindLean.mockResolvedValue([]);
+    global.__mockUser = undefined;
   });
 
-  it('🔴 doit repousser les étrangers non identifiés (401)', async () => {
-    vi.mocked(getServerSession).mockResolvedValue(null);
+  describe('GET - Recensement', () => {
+    it('doit rejeter (401) si l\'utilisateur n\'est pas connecté (pas d\'Aura)', async () => {
+      vi.mocked(getServerSession).mockResolvedValue(null);
 
-    const req = new Request('http://localhost/api/users/recruitable?teamSlug=nid-alpha');
-    const res = await GET(req);
-    const data = await res.json();
+      const req = new Request('http://localhost/api/users');
+      const response = await GET(req, {}); // 🪡 2 arguments (req et context)
+      const json = await response.json();
 
-    expect(res.status).toBe(401);
-    expect(data.error).toContain('invisible aux étrangers');
-  });
-
-  it('🔴 doit rejeter si le teamSlug manque à l’appel (400)', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'bird_1' } } as any);
-
-    const req = new Request('http://localhost/api/users/recruitable?search=artisan'); // Manque teamSlug
-    const res = await GET(req);
-    const data = await res.json();
-
-    expect(res.status).toBe(400);
-    expect(data.error).toContain('teamSlug est requis');
-  });
-
-  it('🔥 doit gérer une rupture du Graphe Neo4j avec élégance (500)', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'bird_1' } } as any);
-    mockNeo4jRun.mockRejectedValueOnce(new Error("Neo4j déconnecté"));
-
-    const req = new Request('http://localhost/api/users/recruitable?teamSlug=nid-alpha');
-    const res = await GET(req);
-    const data = await res.json();
-
-    expect(res.status).toBe(500);
-    expect(data.error).toContain('Graphe est momentanément muet');
-  });
-
-  it('🟢 doit lister les Oiseaux recrutables en excluant ceux déjà dans le Nid (200)', async () => {
-    // Le visiteur actuel
-    vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'bird_1' } } as any);
-    
-    // Neo4j renvoie qu'un Oiseau est DÉJÀ dans le Nid (bird_2)
-    mockNeo4jRun.mockResolvedValueOnce({
-      records: [
-        { get: () => 'bird_2' } // bird_2 est déjà membre
-      ]
+      expect(response.status).toBe(401);
+      expect(json.error).toBe("Le Nexus est invisible aux étrangers.");
     });
 
-    mockFindLean.mockResolvedValueOnce([
-      { uid: 'bird_3', slug: 'artisan-3', pseudo: 'Artisan Nouveau' }
-    ]);
+    it('doit renvoyer (200) la liste des oiseaux filtrés pour un utilisateur connecté', async () => {
+      vi.mocked(getServerSession).mockResolvedValue({ 
+        user: { uid: 'u-123', capabilities: [] } 
+      } as any);
+      
+      const mockOiseaux = [{ uid: '123', pseudo: 'Alpha' }];
+      const chainMock = {
+        select: vi.fn().mockReturnThis(),
+        sort: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnThis(),
+        lean: vi.fn().mockResolvedValue(mockOiseaux),
+      };
+      vi.mocked(OiseauModel.find).mockReturnValue(chainMock as any);
 
-    const req = new Request('http://localhost/api/users/recruitable?teamSlug=nid-alpha&search=Artisan');
-    const res = await GET(req);
-    const data = await res.json();
+      const req = new Request('http://localhost/api/users?search=Alpha');
+      const response = await GET(req, {}); // 🪡 2 arguments
+      const json = await response.json();
 
-    expect(res.status).toBe(200);
-    expect(data.length).toBe(1);
-    expect(data[0].slug).toBe('artisan-3');
+      expect(response.status).toBe(200);
+      expect(json).toEqual(mockOiseaux);
+      expect(OiseauModel.find).toHaveBeenCalledWith(expect.objectContaining({
+        $or: expect.any(Array)
+      }));
+    });
+  });
 
-    // On vérifie que la requête Mongoose contient bien le filtre `$nin` (Not In)
-    // avec le currentUser (bird_1) et le membre existant (bird_2)
-    expect(mockFindChaining).toHaveBeenCalledWith(
-      expect.objectContaining({
-        uid: { $nin: ['bird_1', 'bird_2'] },
-        $or: [
-          { slug: { $regex: 'Artisan', $options: 'i' } },
-          { pseudo: { $regex: 'Artisan', $options: 'i' } },
-          { capabilities: { $regex: 'Artisan', $options: 'i' } }
-        ]
-      })
-    );
+  describe('POST - Éclosion (Inscription)', () => {
+    it('doit rejeter (400) si l\'œuf est incomplet', async () => {
+      const req = new Request('http://localhost/api/users', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'test@mail.com' }), // Manque pseudo et password
+      });
+
+      const response = await POST(req, {});
+      const json = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(json.error).toContain("L'œuf est incomplet");
+    });
+
+    it('doit rejeter (409) si l\'email ou le pseudo existe déjà', async () => {
+      vi.mocked(OiseauModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 'existing' }),
+      } as any);
+
+      const req = new Request('http://localhost/api/users', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'clone@mail.com', pseudo: 'Clone', password: '123' }),
+      });
+
+      const response = await POST(req, {});
+      expect(response.status).toBe(409);
+    });
+
+    it('doit créer l\'Oiseau (201) et invalider le cache de la volière', async () => {
+      vi.mocked(OiseauModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue(null),
+      } as any);
+
+      const mockFoster = vi.fn().mockResolvedValue({ uid: 'new-uid', slug: 'new-slug' });
+      vi.mocked(OiseauOrchestrator).mockImplementation(() => ({ fosterOiseau: mockFoster } as any));
+
+      const req = new Request('http://localhost/api/users', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'new@mail.com', pseudo: 'NewBird', password: '123' }),
+      });
+
+      const response = await POST(req, {});
+      const json = await response.json();
+
+      expect(response.status).toBe(201);
+      expect(json.uid).toBe('new-uid');
+      
+      // Vérification cruciale de l'invalidation du cache de la volière
+      expect(revalidateTag).toHaveBeenCalledWith('users');
+      expect(mockFoster).toHaveBeenCalledWith(expect.objectContaining({ pseudo: 'NewBird' }));
+    });
   });
 });

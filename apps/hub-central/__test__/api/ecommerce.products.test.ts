@@ -1,84 +1,110 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, POST } from '../../app/api/ecommerce/products/route';
-import { getServerSession } from 'next-auth/next';
+import { GET, POST } from '@/app/api/ecommerce/products/route';
+import { ProductModel } from '@ilot/infrastructure';
+import { revalidateTag } from 'next/cache';
+import { NextResponse } from 'next/server';
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn()
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
+// -------------------------------------------------------------------------
+vi.mock('@/lib/api-guards', () => ({
+  withSilice: (handler: any) => handler,
+  withAura: (handler: any) => async (req: any, ctx: any) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser || !mockUser.uid) {
+      return NextResponse.json({ error: "Oiseau non identifié. Dépôt refusé." }, { status: 401 });
+    }
+    return await handler(req, ctx, mockUser);
+  },
 }));
 
-const mockFind = vi.fn();
-const mockFindOne = vi.fn().mockResolvedValue(null);
-const mockCreate = vi.fn();
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val),
+}));
+
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
+  unstable_cache: vi.fn((cb) => cb),
+}));
 
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   ProductModel: {
-    find: (...args: any[]) => ({
-      sort: () => ({
-        lean: () => mockFind(...args)
-      })
-    }),
-    findOne: (...args: any[]) => mockFindOne(...args),
-    create: (...args: any[]) => mockCreate(...args)
-  }
+    find: vi.fn(() => ({
+      sort: vi.fn().mockReturnThis(),
+      lean: vi.fn().mockResolvedValue([]),
+    })),
+    findOne: vi.fn(),
+    create: vi.fn(),
+  },
 }));
 
-vi.mock('../../../../lib/slugify', () => ({
-  slugify: (str: string) => str.toLowerCase().replace(/\s+/g, '-')
-}));
+declare global {
+  var __mockUser: any;
+}
 
-describe('API Ecommerce - Products Principal (GET / POST /api/ecommerce/products)', () => {
+describe('API Products (Catalogue)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  it('✅ GET : doit lister les produits', async () => {
-    mockFind.mockResolvedValueOnce([{ uid: 'prod_1', title: 'Test Artefact' }]);
+  describe('GET /api/products', () => {
+    it('🟢 doit récupérer la liste des artefacts avec succès (200)', async () => {
+      vi.mocked(ProductModel.find).mockReturnValue({
+        sort: vi.fn().mockReturnThis(),
+        lean: vi.fn().mockResolvedValue([{ uid: 'prod_1', title: 'Artefact Ancien' }]),
+      } as any);
 
-    const req = new Request('http://localhost:3000/api/ecommerce/products');
-    const res = await GET(req);
-    const data = await res.json();
+      const req = new Request('http://localhost/api/products');
+      const res = await GET(req as any, {});
+      const json = await res.json();
 
-    expect(res.status).toBe(200);
-    expect(data.length).toBe(1);
+      expect(res.status).toBe(200);
+      expect(json).toHaveLength(1);
+      expect(json[0].uid).toBe('prod_1');
+    });
   });
 
-  it('❌ POST : doit rejeter si l’oiseau n’est pas connecté (401)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
+  describe('POST /api/products', () => {
+    it('🔴 doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
+      global.__mockUser = undefined;
 
-    const req = new Request('http://localhost:3000/api/ecommerce/products', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Nouvelle Police' })
+      const req = new Request('http://localhost/api/products', {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Nouvel Artefact' })
+      });
+
+      const res = await POST(req as any, {});
+      expect(res.status).toBe(401);
     });
 
-    const res = await POST(req);
-    expect(res.status).toBe(401);
-  });
+    it('🟢 doit créer un artefact avec succès (201) et invalider le cache', async () => {
+      global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
-  it('✅ POST : doit créer un produit avec slug unique (201)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'bird_creator', capabilities: [] }
-    } as any);
+      vi.mocked(ProductModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue(null)
+      } as any);
 
-    mockCreate.mockResolvedValueOnce({
-      uid: 'prod_new',
-      title: 'Nouvelle Police',
-      slug: 'nouvelle-police'
+      vi.mocked(ProductModel.create).mockResolvedValueOnce({
+        uid: 'prod_new',
+        title: 'Nouvel Artefact',
+        slug: 'nouvel-artefact'
+      } as any);
+
+      const req = new Request('http://localhost/api/products', {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Nouvel Artefact', storeUid: 'store_1' })
+      });
+
+      const res = await POST(req as any, {});
+      const json = await res.json();
+
+      expect(res.status).toBe(201);
+      expect(json.success).toBe(true);
+      expect(json.data.uid).toBe('prod_new');
+      expect(revalidateTag).toHaveBeenCalledWith('products');
+      expect(revalidateTag).toHaveBeenCalledWith('store-products-store_1');
     });
-
-    const req = new Request('http://localhost:3000/api/ecommerce/products', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Nouvelle Police', category: 'FONT_SPRITE' })
-    });
-
-    const res = await POST(req);
-    const data = await res.json();
-
-    expect(res.status).toBe(201);
-    expect(data.success).toBe(true);
-    expect(data.data.slug).toBe('nouvelle-police');
-    expect(mockCreate).toHaveBeenCalled();
   });
 });

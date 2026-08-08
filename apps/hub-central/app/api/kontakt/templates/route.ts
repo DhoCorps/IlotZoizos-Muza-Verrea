@@ -1,18 +1,36 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { connectToDatabase, CVTemplateModel } from '@ilot/infrastructure';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth"; // Ajusté selon l'arborescence exacte
+import { CVTemplateModel } from '@ilot/infrastructure';
 import { v4 as uuidv4 } from 'uuid';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-export async function GET(req: Request) {
+// 🧠 CACHE SÉCURISÉ : Récupération des templates mis en cache (30s) avec bypass en mode test
+async function getCachedTemplates(authorUid?: string | null) {
+  const fetcher = async () => {
+    const query: any = {};
+    if (authorUid) query.authorUid = authorUid;
+    return await CVTemplateModel.find(query).sort({ createdAt: -1 }).lean();
+  };
+
+  if (process.env.NODE_ENV === 'test') {
+    return await fetcher();
+  }
+
+  const cacheKey = authorUid ? `cv-templates-${authorUid}` : 'cv-templates-all';
+  return await unstable_cache(
+    fetcher,
+    [cacheKey],
+    { revalidate: 30, tags: ['cv-templates', ...(authorUid ? [`author-${authorUid}`] : [])] }
+  )();
+}
+
+// ==========================================
+// 🔍 GET : Recenser les modèles de CV (Public / Silice)
+// ==========================================
+export const GET = withSilice(async (req: Request, _context: ApiContext) => {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR TEMPLATES GET]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
     let url;
     try {
       url = new URL(req.url);
@@ -21,16 +39,7 @@ export async function GET(req: Request) {
     }
 
     const authorUid = url.searchParams.get('authorUid');
-    const query: any = {};
-    if (authorUid) query.authorUid = authorUid;
-
-    let templates;
-    try {
-      templates = await CVTemplateModel.find(query).sort({ createdAt: -1 }).lean();
-    } catch (queryErr) {
-      console.error("🔥 [TEMPLATES QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "Échec de lecture des modèles de CV." }, { status: 500 });
-    }
+    const templates = await getCachedTemplates(authorUid);
 
     return NextResponse.json({ success: true, data: templates }, { status: 200 });
 
@@ -38,29 +47,13 @@ export async function GET(req: Request) {
     console.error("🔥 Erreur GET Templates CV :", error);
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
-}
+});
 
-export async function POST(req: Request) {
+// ==========================================
+// 🚀 POST : Sédimenter et publier un modèle de CV (Strictement Privé / Aura)
+// ==========================================
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR TEMPLATES POST]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
-
-    if (!session || !session.user) {
-      return NextResponse.json({ error: "Oiseau non identifié. Publication rejetée." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR TEMPLATES POST]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
     let body;
     try {
       body = await req.json();
@@ -68,8 +61,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
-    const userUid = (session.user as any).uid;
-    const userName = (session.user as any).name || 'Oiseau Inconnu';
+    const userUid = currentUser.uid;
+    const userName = (currentUser as any).name || 'Oiseau Inconnu';
 
     const templateUid = `tmpl_${uuidv4()}`;
     let newTemplate;
@@ -90,6 +83,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Échec de la sédimentation du modèle en base." }, { status: 500 });
     }
 
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('cv-templates');
+    revalidateTag(`author-${userUid}`);
+
     return NextResponse.json({
       success: true,
       message: "Modèle de CV sédimenté et publié comme artefact.",
@@ -100,4 +97,4 @@ export async function POST(req: Request) {
     console.error("🔥 Erreur POST Template CV :", error);
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
-}
+});

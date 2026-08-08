@@ -1,51 +1,91 @@
-// apps/hub-central/__test__/api/game.save-result.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '../../app/api/games/save-result/route';
-import { getServerSession } from 'next-auth';
+import { POST } from '@/app/api/games/save-result/route';
 import { GameResultModel } from '@ilot/infrastructure';
+import { revalidateTag } from 'next/cache';
+import { NextResponse } from 'next/server';
 
-// 1. On isole le mock de la méthode create du modèle
-const { mockCreate } = vi.hoisted(() => ({
-  mockCreate: vi.fn(),
-}));
-
-vi.mock('next-auth', () => ({
-  getServerSession: vi.fn(),
-}));
-
-// 2. On intercepte directement le package partagé pour couper l'accès à MongoDB
-vi.mock('@ilot/infrastructure', () => ({
-  GameResultModel: {
-    create: mockCreate,
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
+// -------------------------------------------------------------------------
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: any) => async (req: any, ctx: any) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser || !mockUser.uid) {
+      return NextResponse.json({ error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
+    }
+    return await handler(req, ctx, mockUser);
   },
 }));
 
-describe('POST /api/games/save-result', () => {
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
+}));
+
+vi.mock('@ilot/infrastructure', () => ({
+  connectToDatabase: vi.fn().mockResolvedValue(true),
+  GameResultModel: {
+    create: vi.fn(),
+  },
+}));
+
+declare global {
+  var __mockUser: any;
+}
+
+describe('API Games Save Result', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  it('devrait retourner 401 si non authentifié', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
-    const req = new Request('http://test', { method: 'POST', body: JSON.stringify({}) });
-    const res = await POST(req);
+  it('🔴 [POST] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
+    global.__mockUser = undefined;
+
+    const req = new Request('http://localhost/api/games/save-result', {
+      method: 'POST',
+      body: JSON.stringify({ gameType: 'quiz', score: 100 })
+    });
+
+    const res = await POST(req as any, {});
     expect(res.status).toBe(401);
   });
 
-  it('devrait enregistrer le résultat', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'Oiseau' } } as any);
-    mockCreate.mockResolvedValueOnce({ _id: '123' });
+  it('🔴 [POST] doit rejeter (400) si les données de jeu sont incomplètes', async () => {
+    global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
-    const req = new Request('http://test', {
+    const req = new Request('http://localhost/api/games/save-result', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ gameType: 'Wiki', score: 100 }),
+      body: JSON.stringify({ gameType: 'quiz' }) // score omis
     });
 
-    const res = await POST(req);
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.success).toBe(true);
-    expect(mockCreate).toHaveBeenCalled();
+    const res = await POST(req as any, {});
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.error).toContain('incomplètes');
+  });
+
+  it('🟢 [POST] doit enregistrer le score avec succès (201) et invalider les caches', async () => {
+    global.__mockUser = { uid: 'bird_1', slug: 'mage-silice', capabilities: [] };
+
+    vi.mocked(GameResultModel.create).mockResolvedValueOnce({
+      _id: 'result_id_123',
+    } as any);
+
+    const req = new Request('http://localhost/api/games/save-result', {
+      method: 'POST',
+      body: JSON.stringify({ gameType: 'memory', score: 1500, trophies: 3, maxStreak: 5 })
+    });
+
+    const res = await POST(req as any, {});
+    const json = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(json.success).toBe(true);
+    expect(json.id).toBe('result_id_123');
+    
+    // Vérification de l'invalidation chirurgicale du cache des classements
+    expect(revalidateTag).toHaveBeenCalledWith('game-leaderboard');
+    expect(revalidateTag).toHaveBeenCalledWith('leaderboard-memory');
   });
 });

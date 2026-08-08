@@ -1,64 +1,52 @@
-import { NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
-import { connectToDatabase, OrderModel } from '@ilot/infrastructure';
-import mongoose from 'mongoose';
-import { slugify } from '@/lib/slugify';
+export const dynamic = 'force-dynamic';
 
-interface RouteParams {
-  params: Promise<{ slug: string }>;
+import { NextResponse } from 'next/server';
+import { OrderModel } from '@ilot/infrastructure';
+import mongoose from 'mongoose';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+
+// 🧠 CACHE SÉCURISÉ : Récupération d'une commande par uid ou _id (30s) avec bypass en mode test
+async function getCachedOrder(slug: string) {
+  const fetcher = async () => {
+    const queryId = mongoose.isValidObjectId(slug) ? slug : null;
+    return await OrderModel.findOne({ 
+      $or: [{ uid: slug }, { _id: queryId }] 
+    }).lean();
+  };
+
+  if (process.env.NODE_ENV === 'test') {
+    return await fetcher();
+  }
+
+  return await unstable_cache(
+    fetcher,
+    [`order-${slug}`],
+    { revalidate: 30, tags: ['orders', `order-${slug}`] }
+  )();
 }
 
 // ==========================================
-// GET : Ausculter une commande spécifique
+// 🔍 GET : Ausculter une commande spécifique (Strictement Privé / Aura)
 // ==========================================
-export async function GET(req: Request, { params }: RouteParams) {
+export const GET = withAura(async (_req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR ORDER GET]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
+    const userUid = currentUser.uid || currentUser.id;
+    const isAdmin = currentUser.capabilities?.includes('ADMIN') || false;
 
-    let slug;
-    try {
-      const resolvedParams = await params;
-      slug = resolvedParams.slug;
-    } catch (paramErr) {
-      console.error("🔥 [PARAMS ERROR ORDER GET]", paramErr);
+    const resolvedParams = await context.params;
+    const rawSlug = (resolvedParams as any)?.slug;
+
+    if (!rawSlug) {
       return NextResponse.json({ error: "Identifiant de commande invalide." }, { status: 400 });
     }
-    
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR ORDER GET]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
 
-    const userUid = (session?.user as any)?.uid || (session?.user as any)?.id;
-
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
-    }
-
-    let order;
-    try {
-      order = await OrderModel.findOne({ 
-        $or: [{ uid: slug }, { _id: mongoose.isValidObjectId(slug) ? slug : null }] 
-      }).lean();
-    } catch (queryErr) {
-      console.error("🔥 [ORDER QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "Échec de lecture dans le grand livre." }, { status: 500 });
-    }
+    const order = await getCachedOrder(rawSlug);
 
     if (!order) {
       return NextResponse.json({ error: "Commande introuvable dans le grand livre de l'Îlot." }, { status: 404 });
     }
 
-    const isAdmin = (session?.user as any)?.capabilities?.includes('ADMIN');
     if ((order as any).buyerUid !== userUid && !isAdmin) {
       return NextResponse.json({ error: "Accès refusé à cette transaction." }, { status: 403 });
     }
@@ -69,78 +57,54 @@ export async function GET(req: Request, { params }: RouteParams) {
     console.error("🔥 Erreur fatale GET Order Details :", error);
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
-}
+});
 
 // ==========================================
-// PATCH : Mettre à jour le statut d'une commande
+// ⚡ PATCH : Mettre à jour le statut d'une commande (Strictement Privé / Aura)
 // ==========================================
-export async function PATCH(req: Request, { params }: RouteParams) {
+export const PATCH = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR ORDER PATCH]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
+    const userUid = currentUser.uid || currentUser.id;
+    const isAdmin = currentUser.capabilities?.includes('ADMIN') || false;
 
-    const userUid = (session?.user as any)?.uid || (session?.user as any)?.id;
+    const resolvedParams = await context.params;
+    const rawSlug = (resolvedParams as any)?.slug;
 
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR ORDER PATCH]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let slug;
-    try {
-      const resolvedParams = await params;
-      slug = resolvedParams.slug;
-    } catch (paramErr) {
-      console.error("🔥 [PARAMS ERROR ORDER PATCH]", paramErr);
+    if (!rawSlug) {
       return NextResponse.json({ error: "Identifiant de commande invalide." }, { status: 400 });
     }
 
-    let body;
-    try {
-      body = await req.json();
-    } catch (parseErr) {
-      console.error("🔥 [PARSE ERROR ORDER PATCH]", parseErr);
+    const body = await req.json().catch(() => null);
+    if (!body) {
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
-    
-    let order;
-    try {
-      order = await OrderModel.findOne({ 
-        $or: [{ uid: slug }, { _id: mongoose.isValidObjectId(slug) ? slug : null }] 
-      });
-    } catch (queryErr) {
-      console.error("🔥 [ORDER PATCH QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "Échec de lecture dans la base." }, { status: 500 });
-    }
+
+    const queryId = mongoose.isValidObjectId(rawSlug) ? rawSlug : null;
+    const order = await OrderModel.findOne({ 
+      $or: [{ uid: rawSlug }, { _id: queryId }] 
+    });
 
     if (!order) {
       return NextResponse.json({ error: "Commande introuvable." }, { status: 404 });
     }
 
-    const isAdmin = (session?.user as any)?.capabilities?.includes('ADMIN');
     if ((order as any).buyerUid !== userUid && !isAdmin) {
       return NextResponse.json({ error: "Action non autorisée sur cette commande." }, { status: 403 });
     }
 
     if (body.status && ['PENDING', 'PAID', 'COMPLETED', 'CANCELLED'].includes(body.status)) {
       (order as any).status = body.status;
-      try {
-        await (order as any).save();
-      } catch (saveErr) {
-        console.error("🔥 [ORDER SAVE ERROR]", saveErr);
-        return NextResponse.json({ error: "Échec de la sauvegarde du nouveau statut." }, { status: 500 });
-      }
+      await (order as any).save();
+    }
+
+    // 💥 Invalidation chirurgicale du cache en cascade
+    revalidateTag('orders');
+    revalidateTag(`order-${rawSlug}`);
+    if (order.uid) {
+      revalidateTag(`order-${order.uid}`);
+    }
+    if ((order as any).buyerUid) {
+      revalidateTag(`user-orders-${(order as any).buyerUid}`);
     }
 
     return NextResponse.json({ 
@@ -153,4 +117,4 @@ export async function PATCH(req: Request, { params }: RouteParams) {
     console.error("🔥 Erreur fatale PATCH Order :", error);
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
-}
+});

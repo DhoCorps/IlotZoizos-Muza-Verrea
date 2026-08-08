@@ -1,107 +1,125 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, POST, PATCH } from '../../app/api/ecommerce/barter/route';
-import { getServerSession } from 'next-auth/next';
+import { GET, POST, PATCH } from '@/app/api/ecommerce/barter/route';
+import { BarterOfferModel } from '@ilot/infrastructure';
+import { revalidateTag } from 'next/cache';
+import { NextResponse } from 'next/server';
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn()
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
+// -------------------------------------------------------------------------
+vi.mock('@/lib/api-guards', () => ({
+  withSilice: (handler: any) => handler,
+  withAura: (handler: any) => async (req: any, ctx: any) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser || !mockUser.uid) {
+      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
+    }
+    return await handler(req, ctx, mockUser);
+  },
 }));
 
-const mockFind = vi.fn();
-const mockCreate = vi.fn();
-const mockFindOneAndUpdate = vi.fn();
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
+  unstable_cache: vi.fn((cb) => cb),
+}));
 
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   BarterOfferModel: {
-    find: (...args: any[]) => ({
-      sort: () => ({
-        lean: () => mockFind(...args)
-      })
-    }),
-    create: (...args: any[]) => mockCreate(...args),
-    findOneAndUpdate: (...args: any[]) => mockFindOneAndUpdate(...args)
-  }
+    find: vi.fn(() => ({
+      sort: vi.fn().mockReturnThis(),
+      lean: vi.fn().mockResolvedValue([{ uid: 'barter_1', status: 'PENDING' }]),
+    })),
+    // Correction : On fait en sorte que create renvoie les données passées avec un uid
+    create: vi.fn().mockImplementation((data) => Promise.resolve(data)),
+    findOneAndUpdate: vi.fn(),
+  },
 }));
 
-const mockProposeBarter = vi.fn();
-const mockResolveBarter = vi.fn();
 vi.mock('@ilot/shared-core', () => ({
   EcommerceOrchestrator: vi.fn().mockImplementation(() => ({
-    proposeBarter: (...args: any[]) => mockProposeBarter(...args),
-    resolveBarter: (...args: any[]) => mockResolveBarter(...args)
-  }))
+    proposeBarter: vi.fn().mockResolvedValue(true),
+    resolveBarter: vi.fn().mockResolvedValue(true),
+  })),
 }));
 
-describe('API Ecommerce - Barter Principal (GET / POST / PATCH /api/ecommerce/barter)', () => {
+declare global {
+  var __mockUser: any;
+}
+
+describe('API Barter Offers (Troc)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  it('✅ GET : doit lister les offres de troc en attente (PENDING)', async () => {
-    mockFind.mockResolvedValueOnce([{ uid: 'barter_1', status: 'PENDING' }]);
+  describe('GET /api/ecommerce/barter', () => {
+    it('🟢 doit récupérer la liste des offres de troc en attente avec succès (200)', async () => {
+      const req = new Request('http://localhost/api/ecommerce/barter');
+      const res = await GET(req as any, {});
+      const json = await res.json();
 
-    const res = await GET();
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(data.length).toBe(1);
+      expect(res.status).toBe(200);
+      expect(json).toHaveLength(1);
+      expect(json[0].uid).toBe('barter_1');
+    });
   });
 
-  it('❌ POST : doit rejeter si l’oiseau n’est pas authentifié (401)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
+  describe('POST /api/ecommerce/barter', () => {
+    it('🔴 doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
+      global.__mockUser = undefined;
 
-    const req = new Request('http://localhost:3000/api/ecommerce/barter', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ receiverUid: 'rec_1' })
+      const req = new Request('http://localhost/api/ecommerce/barter', {
+        method: 'POST',
+        body: JSON.stringify({ receiverUid: 'bird_2' })
+      });
+
+      const res = await POST(req as any, {});
+      expect(res.status).toBe(401);
     });
 
-    const res = await POST(req);
-    expect(res.status).toBe(401);
+    it('🟢 doit proposer un troc avec succès (201) et invalider le cache', async () => {
+      global.__mockUser = { uid: 'bird_1', capabilities: [] };
+
+      const req = new Request('http://localhost/api/ecommerce/barter', {
+        method: 'POST',
+        body: JSON.stringify({ receiverUid: 'bird_2', offeredProductUids: ['prod_1'], requestedProductUids: ['prod_2'] })
+      });
+
+      const res = await POST(req as any, {});
+      const json = await res.json();
+
+      expect(res.status).toBe(201);
+      expect(json.success).toBe(true);
+      expect(json.data.uid).toBeDefined();
+      expect(json.data.initiatorUid).toBe('bird_1');
+      expect(revalidateTag).toHaveBeenCalledWith('barter-offers');
+      expect(revalidateTag).toHaveBeenCalledWith('pending-barters');
+    });
   });
 
-  it('✅ POST : doit créer une proposition de troc avec succès (201)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'oiseau-initiator-1', capabilities: [] }
-    } as any);
+  describe('PATCH /api/ecommerce/barter', () => {
+    it('🟢 doit mettre à jour le statut du troc (200) et invalider le cache', async () => {
+      global.__mockUser = { uid: 'bird_2', capabilities: [] };
 
-    mockCreate.mockResolvedValueOnce({ uid: 'barter_new', status: 'PENDING' });
-    mockProposeBarter.mockResolvedValueOnce(true);
+      vi.mocked(BarterOfferModel.findOneAndUpdate).mockResolvedValueOnce({
+        uid: 'barter_1',
+        status: 'ACCEPTED'
+      } as any);
 
-    const req = new Request('http://localhost:3000/api/ecommerce/barter', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ receiverUid: 'rec_1', offeredProductUids: ['p1'], requestedProductUids: ['p2'] })
+      const req = new Request('http://localhost/api/ecommerce/barter', {
+        method: 'PATCH',
+        body: JSON.stringify({ barterUid: 'barter_1', status: 'ACCEPTED' })
+      });
+
+      const res = await PATCH(req as any, {});
+      const json = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(json.success).toBe(true);
+      expect(json.data.status).toBe('ACCEPTED');
+      expect(revalidateTag).toHaveBeenCalledWith('barter-offers');
+      expect(revalidateTag).toHaveBeenCalledWith('barter-barter_1');
     });
-
-    const res = await POST(req);
-    const data = await res.json();
-
-    expect(res.status).toBe(201);
-    expect(data.success).toBe(true);
-    expect(mockCreate).toHaveBeenCalled();
-    expect(mockProposeBarter).toHaveBeenCalled();
-  });
-
-  it('✅ PATCH : doit mettre à jour le statut du troc (200)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'oiseau-acceptor-1', capabilities: [] }
-    } as any);
-
-    mockFindOneAndUpdate.mockResolvedValueOnce({ uid: 'barter_1', status: 'ACCEPTED' });
-    mockResolveBarter.mockResolvedValueOnce(true);
-
-    const req = new Request('http://localhost:3000/api/ecommerce/barter', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ barterUid: 'barter_1', status: 'ACCEPTED' })
-    });
-
-    const res = await PATCH(req);
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(data.success).toBe(true);
-    expect(mockFindOneAndUpdate).toHaveBeenCalled();
   });
 });

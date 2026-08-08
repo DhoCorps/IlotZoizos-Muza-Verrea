@@ -1,81 +1,153 @@
+// Fichier : app/api/users/[slug]/resonance/route.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/users/[slug]/resonance/route';
 import { getServerSession } from 'next-auth/next';
-import { connectToDatabase, OiseauModel } from '@ilot/infrastructure';
-import { TaskResonanceOrchestrator, ResonanceOrchestrator } from '@ilot/shared-core';
-import { NextRequest } from 'next/server';
+import { OiseauModel } from '@ilot/infrastructure';
+import { ResonanceOrchestrator, TaskResonanceOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
 
-// --- MOCKS ---
-vi.mock('next-auth/next', () => ({ getServerSession: vi.fn() }));
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT
+// -------------------------------------------------------------------------
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
+}));
+
+vi.mock('next-auth/next', () => ({
+  getServerSession: vi.fn(),
+}));
+
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
-  OiseauModel: { findOne: vi.fn(), updateOne: vi.fn() },
-}));
-vi.mock('@ilot/shared-core', () => ({
-  TaskResonanceOrchestrator: vi.fn().mockImplementation(() => ({
-    processUserTaskResonance: vi.fn(),
-  })),
-  ResonanceOrchestrator: {
-    weaveResonance: vi.fn(),
-    severResonance: vi.fn(),
+  OiseauModel: {
+    findOne: vi.fn(),
+    updateOne: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
   },
 }));
 
-describe('User Resonance Slug API [POST]', () => {
+vi.mock('@ilot/shared-core', () => ({
+  ResonanceOrchestrator: {
+    weaveResonance: vi.fn().mockResolvedValue(true),
+    severResonance: vi.fn().mockResolvedValue(true),
+  },
+  TaskResonanceOrchestrator: vi.fn().mockImplementation(() => ({
+    processUserTaskResonance: vi.fn().mockResolvedValue({ score: 100 }),
+  })),
+}));
+
+// -------------------------------------------------------------------------
+// 🧪 SUITE DE TESTS
+// -------------------------------------------------------------------------
+describe('Route API : Résonance (POST /[slug]/resonance)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  it('devrait retourner 401 si l oiseau n est pas authentifié', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
+  it('doit rejeter (401) si l\'utilisateur n\'a pas d\'Aura', async () => {
+    vi.mocked(getServerSession).mockResolvedValue(null);
 
-    const req = { text: vi.fn().mockResolvedValue('') } as unknown as NextRequest;
-    const res = await POST(req, { params: Promise.resolve({ slug: 'cible' }) });
-    
-    expect(res.status).toBe(401);
-  });
-
-  it('devrait réussir (200) le mode WEAVE en appliquant le slugify', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'oiseau-1' },
-    } as any);
-
-    vi.mocked(OiseauModel.findOne).mockReturnValueOnce({
-      lean: vi.fn().mockResolvedValueOnce({ uid: 'oiseau-2' }),
-    } as any);
-
-    vi.mocked(ResonanceOrchestrator.weaveResonance).mockResolvedValueOnce(true);
-
-    const body = JSON.stringify({ action: 'WEAVE', type: 'FOLLOWS_GLOBAL' });
-    const req = { text: vi.fn().mockResolvedValue(body) } as unknown as NextRequest;
-
-    const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Oiseau Test!' }) });
-    const data = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(data.success).toBe(true);
-    // Vérifie que le slugify a été appliqué (Mon Oiseau Test! -> mon-oiseau-test)
-    expect(OiseauModel.findOne).toHaveBeenCalledWith({
-      $or: [{ slug: 'mon-oiseau-test' }, { uid: 'mon-oiseau-test' }]
+    const req = new Request('http://localhost/api/users/cible-123/resonance', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'WEAVE', type: 'FOLLOWS_GLOBAL' }),
     });
+
+    const response = await POST(req as any, { params: Promise.resolve({ slug: 'cible-123' }) });
+    const json = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(json.error).toBe("Le Nexus est invisible aux étrangers.");
   });
 
-  it('devrait réussir (200) le calcul de resonance par défaut en appliquant le slugify', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'oiseau-1' },
+  it('doit rejeter (400) si l\'oiseau tente de résonner avec lui-même', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({
+      user: { uid: 'moi-même', capabilities: [] }
     } as any);
 
-    const mockResonance = { value: 0.8 };
-    const mockProcess = vi.fn().mockResolvedValueOnce(mockResonance);
-    vi.mocked(TaskResonanceOrchestrator).mockImplementationOnce(() => ({
-        processUserTaskResonance: mockProcess,
-    } as any));
+    const req = new Request('http://localhost/api/users/moi-même/resonance', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'WEAVE', type: 'FOLLOWS_GLOBAL' }),
+    });
 
-    const req = { text: vi.fn().mockResolvedValue('') } as unknown as NextRequest;
-    const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Oiseau Test!' }) });
-    const data = await res.json();
+    const response = await POST(req as any, { params: Promise.resolve({ slug: 'moi-même' }) });
+    const json = await response.json();
 
-    expect(res.status).toBe(200);
-    expect(mockProcess).toHaveBeenCalledWith('mon-oiseau-test', expect.any(Object));
+    expect(response.status).toBe(400);
+    expect(json.error).toBe("On ne peut résonner avec soi-même.");
+  });
+
+  it('doit réussir (200) un abonnement WEAVE, mettre à jour les compteurs et invalider le cache', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({
+      user: { uid: 'source-uid', capabilities: [] }
+    } as any);
+
+    vi.mocked(OiseauModel.findOne).mockReturnValue({
+      lean: vi.fn().mockResolvedValue({ uid: 'target-uid', slug: 'cible-slug' }),
+    } as any);
+
+    const req = new Request('http://localhost/api/users/cible-slug/resonance', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'WEAVE', type: 'FOLLOWS_GLOBAL' }),
+    });
+
+    const response = await POST(req as any, { params: Promise.resolve({ slug: 'cible-slug' }) });
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(json.isHarmonic).toBe(true);
+
+    expect(ResonanceOrchestrator.weaveResonance).toHaveBeenCalled();
+    expect(OiseauModel.updateOne).toHaveBeenCalledTimes(2); // Incrément followers & following
+
+    // 💥 Vérification cruciale de l'invalidation croisée des caches
+    expect(revalidateTag).toHaveBeenCalledWith('profile-cible-slug');
+    expect(revalidateTag).toHaveBeenCalledWith('profile-source-uid');
+    expect(revalidateTag).toHaveBeenCalledWith('users');
+  });
+
+  it('doit réussir (200) une rupture SEVER et décrémenter les compteurs', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({
+      user: { uid: 'source-uid', capabilities: [] }
+    } as any);
+
+    vi.mocked(OiseauModel.findOne).mockReturnValue({
+      lean: vi.fn().mockResolvedValue({ uid: 'target-uid', slug: 'cible-slug' }),
+    } as any);
+
+    const req = new Request('http://localhost/api/users/cible-slug/resonance', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'SEVER', type: 'FOLLOWS_GLOBAL' }),
+    });
+
+    const response = await POST(req as any, { params: Promise.resolve({ slug: 'cible-slug' }) });
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.success).toBe(true);
+
+    expect(ResonanceOrchestrator.severResonance).toHaveBeenCalled();
+    expect(OiseauModel.updateOne).toHaveBeenCalledWith(
+      { uid: 'target-uid' },
+      { $inc: { followersCount: -1 } }
+    );
+    expect(revalidateTag).toHaveBeenCalledWith('profile-cible-slug');
+  });
+
+  it('doit exécuter le mode calcul par défaut si aucune action WEAVE/SEVER n\'est fournie', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({
+      user: { uid: 'source-uid', capabilities: [] }
+    } as any);
+
+    const req = new Request('http://localhost/api/users/cible-slug/resonance', {
+      method: 'POST',
+      body: JSON.stringify({}), // Pas d'action WEAVE ou SEVER
+    });
+
+    const response = await POST(req as any, { params: Promise.resolve({ slug: 'cible-slug' }) });
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.score).toBe(100);
   });
 });

@@ -1,25 +1,55 @@
-// apps/hub-central/app/api/games/save-result/route.ts
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
 import { GameResultModel } from '@ilot/infrastructure';
+import { revalidateTag } from 'next/cache';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-export async function POST(req: Request) {
-  const session = await getServerSession();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const { gameType, score, trophies, maxStreak } = await req.json();
-
+// ==========================================
+// 🎮 POST : Sauvegarder un résultat de jeu (Strictement Privé / Aura)
+// ==========================================
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // Utilisation de finalScore pour correspondre au schéma MongoDB
+    const body = await req.json();
+    const { gameType, score, trophies, maxStreak } = body;
+
+    // Validation rapide des données essentielles
+    if (!gameType || score === undefined) {
+      return NextResponse.json(
+        { error: "Données de jeu incomplètes. Le type de jeu et le score sont requis." },
+        { status: 400 }
+      );
+    }
+
+    const username = currentUser.slug || currentUser.id || currentUser.uid || 'Oiseau Inconnu';
+
+    // 1. Sédimentation du résultat dans la base de données
     const result = await GameResultModel.create({
-      username: session.user.name,
+      username,
+      userUid: currentUser.uid,
       gameType,
-      finalScore: score, // <--- Correction ici
-      trophies,
-      maxStreak
+      finalScore: score,
+      trophies: trophies || 0,
+      maxStreak: maxStreak || 0,
     });
-    return NextResponse.json({ success: true, id: result._id });
-  } catch (err) {
-    return NextResponse.json({ error: 'Database error' }, { status: 500 });
+
+    // 💥 Invalidation chirurgicale du cache des classements (leaderboards)
+    revalidateTag('game-leaderboard');
+    if (gameType) {
+      revalidateTag(`leaderboard-${gameType}`);
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Résultat de jeu sédimenté avec succès.",
+      id: result._id,
+    }, { status: 201 });
+
+  } catch (error: any) {
+    console.error("🔥 Fracture lors de la sédimentation du résultat de jeu :", error);
+    return NextResponse.json(
+      { error: error.message || "Échec de l'enregistrement du score." },
+      { status: 500 }
+    );
   }
-}
+});

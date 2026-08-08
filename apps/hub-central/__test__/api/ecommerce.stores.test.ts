@@ -1,90 +1,113 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, POST } from '../../app/api/ecommerce/stores/route';
-import { getServerSession } from 'next-auth/next';
+import { GET, POST } from '@/app/api/ecommerce/stores/route'; // Ajuste le chemin selon ton arborescence
+import { StoreModel } from '@ilot/infrastructure';
+import { EcommerceOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
+import { NextResponse } from 'next/server';
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn()
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
+// -------------------------------------------------------------------------
+vi.mock('@/lib/api-guards', () => ({
+  withSilice: (handler: any) => handler,
+  withAura: (handler: any) => async (req: any, ctx: any) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser || !mockUser.uid) {
+      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
+    }
+    return await handler(req, ctx, mockUser);
+  },
 }));
 
-const mockFind = vi.fn();
-const mockFindOne = vi.fn().mockResolvedValue(null);
-const mockCreate = vi.fn();
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
+  unstable_cache: vi.fn((cb) => cb),
+}));
 
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   StoreModel: {
-    find: (...args: any[]) => ({
-      sort: () => ({
-        lean: () => mockFind(...args)
-      })
-    }),
-    findOne: (...args: any[]) => mockFindOne(...args),
-    create: (...args: any[]) => mockCreate(...args)
-  }
+    find: vi.fn(() => ({
+      sort: vi.fn().mockReturnThis(),
+      lean: vi.fn().mockResolvedValue([]),
+    })),
+    findOne: vi.fn(),
+    create: vi.fn(),
+  },
 }));
 
-const mockCreateStore = vi.fn().mockResolvedValue(true);
 vi.mock('@ilot/shared-core', () => ({
   EcommerceOrchestrator: vi.fn().mockImplementation(() => ({
-    createStore: (...args: any[]) => mockCreateStore(...args)
-  }))
+    createStore: vi.fn().mockResolvedValue(true),
+  })),
 }));
 
-vi.mock('../../../../lib/slugify', () => ({
-  slugify: (str: string) => str.toLowerCase().replace(/\s+/g, '-')
-}));
+declare global {
+  var __mockUser: any;
+}
 
-describe('API Ecommerce - Stores Principal (GET / POST /api/ecommerce/stores)', () => {
+describe('API Stores (Boutiques)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  it('✅ GET : doit lister les boutiques vérifiées', async () => {
-    mockFind.mockResolvedValueOnce([{ uid: 'store_1', storeName: 'Artisanat Fretless' }]);
+  describe('GET /api/stores', () => {
+    it('🟢 [GET] doit récupérer la liste des boutiques vérifiées avec succès (200)', async () => {
+      vi.mocked(StoreModel.find).mockReturnValue({
+        sort: vi.fn().mockReturnThis(),
+        lean: vi.fn().mockResolvedValue([{ uid: 'store_1', storeName: 'Boutique Test' }]),
+      } as any);
 
-    const res = await GET();
-    const data = await res.json();
+      const req = new Request('http://localhost/api/stores');
+      const res = await GET(req as any, {});
+      const json = await res.json();
 
-    expect(res.status).toBe(200);
-    expect(data.length).toBe(1);
+      expect(res.status).toBe(200);
+      expect(json).toHaveLength(1);
+      expect(json[0].uid).toBe('store_1');
+    });
   });
 
-  it('❌ POST : doit rejeter si l’oiseau n’est pas connecté (401)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
+  describe('POST /api/stores', () => {
+    it('🔴 [POST] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
+      global.__mockUser = undefined;
 
-    const req = new Request('http://localhost:3000/api/ecommerce/stores', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ storeName: 'Nouvelle Boutique' })
+      const req = new Request('http://localhost/api/stores', {
+        method: 'POST',
+        body: JSON.stringify({ storeName: 'Boutique Inconnue' })
+      });
+
+      const res = await POST(req as any, {});
+      expect(res.status).toBe(401);
     });
 
-    const res = await POST(req);
-    expect(res.status).toBe(401);
-  });
+    it('🟢 [POST] doit créer une boutique avec succès (201) et invalider le cache', async () => {
+      global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
-  it('✅ POST : doit créer une boutique avec slug unique (201)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'bird_owner', capabilities: [] }
-    } as any);
+      vi.mocked(StoreModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue(null) // Pas de collision de slug
+      } as any);
 
-    mockCreate.mockResolvedValueOnce({
-      uid: 'store_new',
-      storeName: 'Nouvelle Boutique',
-      slug: 'nouvelle-boutique'
+      vi.mocked(StoreModel.create).mockResolvedValueOnce({
+        uid: 'store_new',
+        storeName: 'Canopée Shop',
+        slug: 'canopee-shop'
+      } as any);
+
+      const req = new Request('http://localhost/api/stores', {
+        method: 'POST',
+        body: JSON.stringify({ storeName: 'Canopée Shop', stripeAccountId: 'acct_test' })
+      });
+
+      const res = await POST(req as any, {});
+      const json = await res.json();
+
+      expect(res.status).toBe(201);
+      expect(json.success).toBe(true);
+      expect(json.data.uid).toBe('store_new');
+      expect(revalidateTag).toHaveBeenCalledWith('stores');
+      expect(revalidateTag).toHaveBeenCalledWith('verified-stores');
     });
-
-    const req = new Request('http://localhost:3000/api/ecommerce/stores', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ storeName: 'Nouvelle Boutique' })
-    });
-
-    const res = await POST(req);
-    const data = await res.json();
-
-    expect(res.status).toBe(201);
-    expect(data.success).toBe(true);
-    expect(data.data.slug).toBe('nouvelle-boutique');
-    expect(mockCreate).toHaveBeenCalled();
   });
 });

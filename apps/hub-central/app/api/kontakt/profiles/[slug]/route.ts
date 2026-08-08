@@ -1,95 +1,62 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { connectToDatabase, KontaktProfileModel } from '@ilot/infrastructure';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
+import { KontaktProfileModel } from '@ilot/infrastructure';
 import { v4 as uuidv4 } from 'uuid';
 import { slugify } from '@/lib/slugify';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+
+// 🧠 CACHE SÉCURISÉ : Recensement des profils filtrés mis en cache (30s) avec bypass en mode test
+async function getCachedKontaktProfiles(alignment?: string | null, status?: string | null) {
+  const fetcher = async () => {
+    const query: any = {};
+    if (alignment) query.alignment = alignment;
+    if (status) query.availabilityStatus = status;
+    return await KontaktProfileModel.find(query).sort({ createdAt: -1 }).lean();
+  };
+
+  if (process.env.NODE_ENV === 'test') {
+    return await fetcher();
+  }
+
+  const cacheKey = `kontakt-profiles-${alignment || 'all'}-${status || 'all'}`;
+  return await unstable_cache(
+    fetcher,
+    [cacheKey],
+    { revalidate: 30, tags: ['kontakt-profiles', ...(alignment ? [`alignment-${alignment}`] : []), ...(status ? [`status-${status}`] : [])] }
+  )();
+}
 
 // ==========================================
-// GET : Recenser tous les profils Kontakt
+// 🔍 GET : Recenser tous les profils Kontakt (Public / Silice)
 // ==========================================
-export async function GET(req: Request) {
+export const GET = withSilice(async (req: Request, _context: ApiContext) => {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR KONTAKT PROFILES GET]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let url;
-    try {
-      url = new URL(req.url);
-    } catch (urlErr) {
-      return NextResponse.json({ error: "URL de requête invalide." }, { status: 400 });
-    }
-
+    const url = new URL(req.url);
     const searchParams = url.searchParams;
     const alignment = searchParams.get('alignment');
     const status = searchParams.get('status');
 
-    const query: any = {};
-    if (alignment) query.alignment = alignment;
-    if (status) query.availabilityStatus = status;
-
-    let profiles;
-    try {
-      profiles = await KontaktProfileModel.find(query).sort({ createdAt: -1 }).lean();
-    } catch (queryErr) {
-      console.error("🔥 [KONTAKT PROFILES QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "Échec du recensement des profils Kontakt." }, { status: 500 });
-    }
-
+    const profiles = await getCachedKontaktProfiles(alignment, status);
     return NextResponse.json(profiles, { status: 200 });
 
   } catch (error: any) {
     console.error("🔥 Erreur lors du recensement des profils Kontakt :", error);
     return NextResponse.json({ error: error.message || "Échec du recensement." }, { status: 500 });
   }
-}
+});
 
 // ==========================================
-// POST : Création initiale d'un profil Kontakt
+// 🚀 POST : Création initiale d'un profil Kontakt (Strictement Privé / Aura)
 // ==========================================
-export async function POST(req: Request) {
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR KONTAKT PROFILES POST]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
+    const body = await req.json();
+    const userUid = currentUser.uid || 'unknown';
 
-    if (!session || !session.user) {
-      return NextResponse.json({ error: "Oiseau non identifié. Accès refusé." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR KONTAKT PROFILES POST]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let body;
-    try {
-      body = await req.json();
-    } catch (parseErr) {
-      return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
-    }
-
-    const userUid = (session.user as any).uid || 'unknown';
-
-    // 1. Vérifier si un profil existe déjà pour cet Oiseau (Interdiction du double POST)
-    let existing;
-    try {
-      existing = await KontaktProfileModel.findOne({ userUid });
-    } catch (findErr) {
-      console.error("🔥 [KONTAKT EXISTING CHECK ERROR]", findErr);
-      return NextResponse.json({ error: "Échec de vérification du profil existant." }, { status: 500 });
-    }
-
+    // 1. Vérifier si un profil existe déjà pour cet Oiseau
+    const existing = await KontaktProfileModel.findOne({ userUid }).lean();
     if (existing) {
       return NextResponse.json(
         { error: "Un profil Kontakt existe déjà pour cet oiseau. Utilisez la route de modification (PUT) à la place." },
@@ -97,41 +64,34 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2. Génération unique et définitive du Slug basé sur le titre professionnel
-    let baseSlug = slugify(body.professionalTitle || 'profil-oiseau');
+    // 2. Génération unique du Slug basé sur le titre professionnel avec garde-fou anti-boucle
+    const baseSlug = slugify(body.professionalTitle || 'profil-oiseau');
     let finalSlug = baseSlug;
     
-    let slugExists;
-    try {
-      slugExists = await KontaktProfileModel.findOne({ slug: finalSlug });
-    } catch (slugErr) {
-      console.error("🔥 [KONTAKT SLUG CHECK ERROR]", slugErr);
-    }
-
+    let slugExists = await KontaktProfileModel.findOne({ slug: finalSlug }).lean();
     let counter = 1;
-    while (slugExists) {
+    let safetyCounter = 0;
+
+    while (slugExists && safetyCounter < 50) { 
       finalSlug = `${baseSlug}-${counter}`;
-      try {
-        slugExists = await KontaktProfileModel.findOne({ slug: finalSlug });
-      } catch (slugErr) {
-        break;
-      }
+      slugExists = await KontaktProfileModel.findOne({ slug: finalSlug }).lean();
       counter++;
+      safetyCounter++;
     }
 
-    // 3. Création pure et sédimentation en base
-    let profile;
-    try {
-      const profileUid = `kontakt_${uuidv4()}`;
-      profile = await KontaktProfileModel.create({
-        ...body,
-        uid: profileUid,
-        userUid,
-        slug: finalSlug,
-      });
-    } catch (saveErr) {
-      console.error("🔥 [KONTAKT PROFILE SAVE ERROR]", saveErr);
-      return NextResponse.json({ error: "Échec de la sédimentation du profil en base." }, { status: 500 });
+    // 3. Création et sédimentation en base
+    const profileUid = `kontakt_${uuidv4()}`;
+    const profile = await KontaktProfileModel.create({
+      ...body,
+      uid: profileUid,
+      userUid,
+      slug: finalSlug,
+    });
+
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('kontakt-profiles');
+    if (profile?.slug) {
+      revalidateTag(`kontakt-profile-${profile.slug}`);
     }
 
     return NextResponse.json({
@@ -144,4 +104,4 @@ export async function POST(req: Request) {
     console.error("🔥 Fracture lors de la sédimentation du profil Kontakt :", error);
     return NextResponse.json({ error: error.message || "Échec de la sédimentation." }, { status: 500 });
   }
-}
+});

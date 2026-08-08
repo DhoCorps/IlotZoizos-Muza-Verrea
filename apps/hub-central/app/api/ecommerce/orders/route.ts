@@ -1,37 +1,35 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { connectToDatabase, OrderModel } from '@ilot/infrastructure';
+import { OrderModel } from '@ilot/infrastructure';
 import { v4 as uuidv4 } from 'uuid';
+import { revalidateTag } from 'next/cache';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-export async function POST(req: Request) {
+// ==========================================
+// 🚀 POST : Sédimenter une commande dans le grand livre (Strictement Privé / Aura)
+// ==========================================
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR ORDERS POST]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let body;
-    try {
-      body = await req.json();
-    } catch (parseErr) {
+    const body = await req.json().catch(() => null);
+    if (!body) {
       return NextResponse.json({ error: "Corps de requête illisible ou malformé." }, { status: 400 });
     }
 
-    let order;
-    try {
-      order = await OrderModel.create({
-        uid: `ord_${uuidv4()}`,
-        buyerUid: body.buyerUid || 'anonymous-bird',
-        items: body.items,
-        totalAmount: body.totalAmount,
-        currency: body.currency || 'EUR',
-        status: 'PAID'
-      });
-    } catch (createErr) {
-      console.error("🔥 [ORDER CREATE ERROR]", createErr);
-      return NextResponse.json({ error: "Échec de la sédimentation de la commande dans le grand livre." }, { status: 500 });
-    }
+    const buyerUid = currentUser.uid || currentUser.id || 'anonymous-bird';
+
+    const order = await OrderModel.create({
+      uid: `ord_${uuidv4()}`,
+      buyerUid,
+      items: body.items,
+      totalAmount: body.totalAmount,
+      currency: body.currency || 'EUR',
+      status: 'PAID'
+    });
+
+    // 💥 Invalidation chirurgicale du cache en cascade
+    revalidateTag('orders');
+    revalidateTag(`user-orders-${buyerUid}`);
 
     return NextResponse.json({ 
       success: true, 
@@ -43,4 +41,4 @@ export async function POST(req: Request) {
     console.error("🔥 Erreur POST Order :", error);
     return NextResponse.json({ error: error.message || "Erreur interne de commande." }, { status: 500 });
   }
-}
+});

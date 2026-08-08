@@ -1,73 +1,84 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '../../app/api/ecommerce/market/regulate/route';
-import { getServerSession } from 'next-auth/next';
+import { POST } from '@/app/api/ecommerce/market/regulate/route';
+import { MarketRegulationOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
+import { NextResponse } from 'next/server';
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn()
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
+// -------------------------------------------------------------------------
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: any) => async (req: any, ctx: any) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser || !mockUser.uid) {
+      return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
+    }
+    return await handler(req, ctx, mockUser);
+  },
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true)
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
 }));
 
-const mockProcessConnectedRegulation = vi.fn();
 vi.mock('@ilot/shared-core', () => ({
   MarketRegulationOrchestrator: vi.fn().mockImplementation(() => ({
-    processConnectedRegulation: (...args: any[]) => mockProcessConnectedRegulation(...args)
-  }))
+    processConnectedRegulation: vi.fn().mockResolvedValue({ success: true, adjustedValue: 42 }),
+  })),
 }));
 
-describe('API Market Regulation - Régulation de l’Îlot (POST /api/ecommerce/market/regulate)', () => {
+declare global {
+  var __mockUser: any;
+}
+
+describe('API Market Regulation POST', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  it('❌ doit rejeter les requêtes des oiseaux non authentifiés (401)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
+  it('🔴 [POST] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
+    global.__mockUser = undefined;
 
-    const req = new Request('http://localhost:3000/api/ecommerce/market/regulate', {
+    const req = new Request('http://localhost/api/market/regulate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userIdentifier: 'bird_1', takeValue: 10 })
     });
 
-    const res = await POST(req);
+    const res = await POST(req as any, {});
     expect(res.status).toBe(401);
   });
 
-  it('❌ doit rejeter si les paramètres de régulation sont manquants (400)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'bird_admin', capabilities: [] }
-    } as any);
+  it('🔴 [POST] doit rejeter (400) si des paramètres requis sont manquants', async () => {
+    global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
-    const req = new Request('http://localhost:3000/api/ecommerce/market/regulate', {
+    const req = new Request('http://localhost/api/market/regulate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userIdentifier: 'bird_1' }) // takeValue manquant
+      body: JSON.stringify({ userIdentifier: 'bird_1' }) // takeValue omis
     });
 
-    const res = await POST(req);
+    const res = await POST(req as any, {});
+    const json = await res.json();
+
     expect(res.status).toBe(400);
+    expect(json.error).toContain('manquants');
   });
 
-  it('✅ doit exécuter la régulation du marché avec succès (200)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { uid: 'bird_admin', capabilities: [] }
-    } as any);
+  it('🟢 [POST] doit traiter la régulation avec succès (200) et invalider le cache', async () => {
+    global.__mockUser = { uid: 'bird_1', capabilities: ['ADMIN'] };
 
-    mockProcessConnectedRegulation.mockResolvedValueOnce({ lambda: 50, status: 'STABLE' });
-
-    const req = new Request('http://localhost:3000/api/ecommerce/market/regulate', {
+    const req = new Request('http://localhost/api/market/regulate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userIdentifier: 'bird_1', takeValue: 15, currentNeeds: 2, creationFactor: 1 })
+      body: JSON.stringify({ userIdentifier: 'bird_1', takeValue: 10, currentNeeds: 5, creationFactor: 1.2 })
     });
 
-    const res = await POST(req);
-    const data = await res.json();
+    const res = await POST(req as any, {});
+    const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(data.lambda).toBe(50);
-    expect(mockProcessConnectedRegulation).toHaveBeenCalled();
+    expect(json.success).toBe(true);
+    expect(json.adjustedValue).toBe(42);
+    expect(revalidateTag).toHaveBeenCalledWith('marketplace');
+    expect(revalidateTag).toHaveBeenCalledWith('market-regulation');
   });
 });

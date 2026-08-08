@@ -1,57 +1,23 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import { connectToDatabase } from '@ilot/infrastructure';
-import { authOptions } from "@/lib/auth";
 import { TeamOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
+import { revalidateTag } from 'next/cache';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards'; // 🪡 Notre bouclier souverain strict
 
-/**
- * 🌿 INTERFACE DES PARAMÈTRES DE ROUTE (Projeté avec [slug])
- */
-interface RouteParams {
-  params: Promise<{ slug: string }>;
-}
+export const dynamic = 'force-dynamic';
 
-/**
- * 🚀 POST : L'envol volontaire d'un oiseau invité hors du Nid parent
- */
-export async function POST(req: Request, { params }: RouteParams) {
+// ==========================================
+// 🚀 POST : L'envol volontaire d'un oiseau hors du Nid parent
+// ==========================================
+export const POST = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 1. Éveil de la Silice
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR TEAM LEAVE POST]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-    
-    // 2. Vérification de l'Empreinte de Session
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR TEAM LEAVE POST]", sessionErr);
-      return NextResponse.json({ error: "Erreur de lecture d'Aura." }, { status: 500 });
-    }
+    // 1. Résolution stricte et typée des paramètres de route
+    const resolvedParams = await context.params;
+    const rawSlug = resolvedParams?.slug;
+    const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    const userUid = (session?.user as any)?.uid;
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié dans la canopée." }, { status: 401 });
-    }
-
-    // 3. Résolution et slugification du paramètre dynamique
-    let rawSlug;
-    try {
-      const resolvedParams = await params;
-      rawSlug = resolvedParams.slug;
-    } catch (paramErr) {
-      return NextResponse.json({ error: "Identifiant de nid (slug) invalide." }, { status: 400 });
-    }
-
-    const teamIdentifier = slugify(rawSlug || '');
-
-    // 4. Décodage du protocole mémoriel
+    // 2. Décodage du protocole mémoriel (corps JSON)
     let body;
     try {
         body = await req.json();
@@ -67,23 +33,29 @@ export async function POST(req: Request, { params }: RouteParams) {
       }, { status: 400 });
     }
 
-    // 5. Forge de la Signature d'Action
+    // 3. Forge de la Signature d'Action à partir de l'Aura courante
     const signature: ActionSignature = {
-      actorUid: userUid,
-      capabilities: (session?.user as any)?.capabilities || []
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
     };
 
-    // 6. Exécution du détachement
+    // 4. Exécution du détachement via l'orchestrateur
     let result;
     try {
       const orchestrator = new TeamOrchestrator();
-      result = await orchestrator.leaveTeam(teamIdentifier, userUid, mode, signature);
+      result = await orchestrator.leaveTeam(teamIdentifier, currentUser.uid, mode, signature);
     } catch (orchErr: any) {
       console.error("🌋 [TEAM ORCHESTRATOR LEAVE ERROR]", orchErr);
       const status = orchErr.status || orchErr.statusCode || 500;
       return NextResponse.json({ error: orchErr.message || "Erreur interne lors de la séparation." }, { status });
     }
     
+    // 💥 BOOM ! Invalidation chirurgicale du cache (Nids généraux, ce Nid spécifique et le profil de l'oiseau)
+    revalidateTag('teams');
+    revalidateTag(`team-${teamIdentifier}`);
+    revalidateTag(`teams-${currentUser.uid}`);
+    revalidateTag(`profile-${currentUser.uid}`);
+
     return NextResponse.json(result, { status: 200 });
 
   } catch (error: any) {
@@ -93,4 +65,4 @@ export async function POST(req: Request, { params }: RouteParams) {
       { status: error.statusCode || 500 }
     );
   }
-}
+});

@@ -1,72 +1,154 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, PUT, DELETE } from '../../app/api/projects/[slug]/route';
-import { getServerSession } from 'next-auth/next';
+import { GET, PUT, DELETE } from '@/app/api/projects/[slug]/route';
+import { ProjectModel, getNeo4jSession } from '@ilot/infrastructure';
+import { ProjectOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
+import { CAPABILITIES } from '@ilot/types';
 
-vi.mock('next-auth/next', () => ({ getServerSession: vi.fn() }));
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT
+// -------------------------------------------------------------------------
+vi.mock('next/cache', () => ({
+  unstable_cache: vi.fn((cb) => cb), // Exécution immédiate
+  revalidateTag: vi.fn(),
+}));
 
-const mockRun = vi.fn().mockResolvedValue({ records: [{ get: () => [['project:update']] }] });
-const mockClose = vi.fn();
-const mockFindOneLean = vi.fn();
+// Neutralisation des gardes d'API pour les tests unitaires
+vi.mock('@/lib/api-guards', () => ({
+  withOptionalAura: (handler: any) => async (req: any, context: any) => {
+    return await handler(req, context, global.__mockUser);
+  },
+  withAura: (handler: any) => async (req: any, context: any) => {
+    const mockUser = global.__mockUser || { uid: 'u-123', capabilities: [CAPABILITIES.PROJECT.UPDATE] };
+    return await handler(req, context, mockUser);
+  },
+}));
 
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
-  getNeo4jSession: vi.fn().mockImplementation(() => ({ run: mockRun, close: mockClose })),
   ProjectModel: {
-    findOne: vi.fn().mockImplementation(() => ({
-      select: vi.fn().mockImplementation(() => ({
-        lean: mockFindOneLean
-      })),
-      lean: mockFindOneLean
-    }))
-  }
+    findOne: vi.fn(),
+  },
+  getNeo4jSession: vi.fn(),
 }));
 
-const mockMutateProject = vi.fn();
-const mockDissolveProject = vi.fn();
 vi.mock('@ilot/shared-core', () => ({
   ProjectOrchestrator: vi.fn().mockImplementation(() => ({
-    mutateProject: mockMutateProject,
-    dissolveProject: mockDissolveProject
-  }))
+    mutateProject: vi.fn().mockResolvedValue({ uid: 'proj-1', name: 'Projet Muté' }),
+    dissolveProject: vi.fn().mockResolvedValue(true),
+    appendFiles: vi.fn().mockResolvedValue(true),
+  })),
 }));
 
-describe('API Projects - Par ID (/api/projects/[projectId])', () => {
-  const mockParams = { params: Promise.resolve({ projectId: 'proj_1' }) };
+// Variable globale pour simuler l'utilisateur connecté dans les tests
+declare global {
+  var __mockUser: any;
+}
 
-  beforeEach(() => { vi.clearAllMocks(); });
+// Helper pour mocker les sessions Neo4j de vérification des capacités
+function mockNeo4jCaps(hasAccess: boolean = true, caps: string[] = [], rels: string[] = []) {
+  vi.mocked(getNeo4jSession).mockReturnValue({
+    run: vi.fn().mockResolvedValue({
+      records: hasAccess ? [{ get: (key: string) => key === 'compiledCaps' ? [caps] : rels }] : [],
+    }),
+    close: vi.fn().mockResolvedValue(true),
+  } as any);
+}
 
-  it('🟢 GET : doit récupérer le chantier public (200)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
-    mockFindOneLean.mockResolvedValueOnce({ uid: 'proj_1', visibility: 'PUBLIC' });
-    
-    const req = new Request('http://localhost/api');
-    const res = await GET(req, mockParams);
-    expect(res.status).toBe(200);
+// -------------------------------------------------------------------------
+// 🧪 SUITE DE TESTS
+// -------------------------------------------------------------------------
+describe('Route API : Project [projectId] (GET / PUT / DELETE)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  it('🔴 PUT : doit rejeter si l\'oiseau n\'est pas connecté (401)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
-    
-    const req = new Request('http://localhost/api', { method: 'PUT', body: JSON.stringify({}) });
-    const res = await PUT(req, mockParams);
-    expect(res.status).toBe(401);
+  describe('GET - Auscultation du Chantier', () => {
+    it('doit autoriser (200) la lecture d\'un projet public pour un visiteur anonyme', async () => {
+      global.__mockUser = undefined;
+
+      vi.mocked(ProjectModel.findOne).mockReturnValue({
+        select: () => ({
+          lean: vi.fn().mockResolvedValue({ uid: 'proj-1', visibility: 'PUBLIC', creatorUid: 'u-other' }),
+        }),
+      } as any);
+
+      const req = new Request('http://localhost/api/projects/proj-1');
+      const response = await GET(req as any, { params: Promise.resolve({ projectId: 'proj-1' }) });
+      const json = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(json.uid).toBe('proj-1');
+    });
+
+    it('doit refuser (403) l\'accès à un projet privé sans permissions', async () => {
+      global.__mockUser = { uid: 'u-intruder', capabilities: [] };
+      mockNeo4jCaps(false);
+
+      vi.mocked(ProjectModel.findOne).mockReturnValue({
+        select: () => ({
+          lean: vi.fn().mockResolvedValue({ uid: 'proj-priv', visibility: 'PRIVATE', creatorUid: 'u-owner' }),
+        }),
+      } as any);
+
+      const req = new Request('http://localhost/api/projects/proj-priv');
+      const response = await GET(req as any, { params: Promise.resolve({ projectId: 'proj-priv' }) });
+      const json = await response.json();
+
+      expect(response.status).toBe(403);
+      expect(json.error).toContain("protégé");
+    });
   });
 
-  it('🟢 PUT : doit muter le chantier avec succès (200)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({ user: { uid: 'bird_1', capabilities: ['*'] } } as any);
-    mockMutateProject.mockResolvedValueOnce({ uid: 'proj_1', name: 'Updated' });
-    
-    const req = new Request('http://localhost/api', { method: 'PUT', body: JSON.stringify({ name: 'Updated' }) });
-    const res = await PUT(req, mockParams);
-    expect(res.status).toBe(200);
+  describe('PUT - Mutation du Chantier', () => {
+    it('doit réussir (200) si l\'utilisateur a l\'aura requise et invalider le cache', async () => {
+      global.__mockUser = { uid: 'u-123', capabilities: [CAPABILITIES.PROJECT.UPDATE] };
+      mockNeo4jCaps(true, ['project:update']);
+
+      vi.mocked(ProjectModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 'proj-1', creatorUid: 'u-other' }),
+      } as any);
+
+      const req = new Request('http://localhost/api/projects/proj-1', {
+        method: 'PUT',
+        body: JSON.stringify({ name: 'Nouveau Nom' }),
+      });
+
+      const response = await PUT(req as any, { params: Promise.resolve({ projectId: 'proj-1' }) });
+      const json = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(json.name).toBe('Projet Muté');
+
+      // 💥 Vérification de l'invalidation du cache
+      expect(revalidateTag).toHaveBeenCalledWith('projects');
+      expect(revalidateTag).toHaveBeenCalledWith('project-proj-1');
+    });
   });
 
-  it('🟢 DELETE : doit dissoudre le chantier avec succès (200)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({ user: { uid: 'bird_1', capabilities: ['*'] } } as any);
-    mockDissolveProject.mockResolvedValueOnce(true);
-    
-    const req = new Request('http://localhost/api', { method: 'DELETE' });
-    const res = await DELETE(req, mockParams);
-    expect(res.status).toBe(200);
+  describe('DELETE - Dissolution du Chantier', () => {
+    it('doit réussir (200) si l\'utilisateur est le créateur et invalider le cache', async () => {
+      global.__mockUser = { uid: 'u-creator', capabilities: [] };
+      mockNeo4jCaps(false);
+
+      vi.mocked(ProjectModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 'proj-1', creatorUid: 'u-creator' }),
+      } as any);
+
+      const req = new Request('http://localhost/api/projects/proj-1', {
+        method: 'DELETE',
+      });
+
+      const response = await DELETE(req as any, { params: Promise.resolve({ projectId: 'proj-1' }) });
+      const json = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(json.status).toBe('dissolved');
+
+      // 💥 Vérification de l'invalidation du cache en cascade
+      expect(revalidateTag).toHaveBeenCalledWith('projects');
+      expect(revalidateTag).toHaveBeenCalledWith('project-proj-1');
+    });
   });
 });

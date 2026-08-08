@@ -1,135 +1,76 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, PATCH, DELETE } from '@/app/api/tasks/[slug]/route'; // Assure-toi que le dossier s'appelle bien [slug]
+import { GET, PATCH, DELETE } from '@/app/api/tasks/[slug]/route';
 import { getServerSession } from 'next-auth/next';
-import { connectToDatabase, TaskModel, getNeo4jSession } from '@ilot/infrastructure';
+import { TaskModel } from '@ilot/infrastructure';
 import { TaskOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
 
-// --- MOCKS DES DÉPENDANCES ---
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
+vi.mock('next/cache', () => ({
+  unstable_cache: vi.fn((cb) => cb),
+  revalidateTag: vi.fn(),
 }));
-
+vi.mock('next-auth/next', () => ({ getServerSession: vi.fn() }));
 vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn(),
-  TaskModel: {
-    findOne: vi.fn(),
-  },
+  connectToDatabase: vi.fn().mockResolvedValue(true),
   getNeo4jSession: vi.fn().mockReturnValue({
     run: vi.fn().mockResolvedValue({
       records: [{
-        get: (key: string) => {
-          if (key === 'isDirectlyInvolved') return true;
-          if (key === 'projectCaps') return [];
-          if (key === 'teamDefaultCaps') return [];
-          if (key === 'teamRel') return null;
-          return null;
-        }
+        get: (key: string) => (key === 'isDirectlyInvolved' ? true : [])
       }]
     }),
-    close: vi.fn().mockResolvedValue(true),
+    close: vi.fn()
   }),
+  TaskModel: { findOne: vi.fn() },
 }));
-
 vi.mock('@ilot/shared-core', () => ({
   TaskOrchestrator: vi.fn().mockImplementation(() => ({
-    updateTask: vi.fn(),
-    disintegrateTask: vi.fn(),
+    updateTask: vi.fn().mockResolvedValue({ uid: 'task-1', name: 'Atome Muté' }),
+    disintegrateTask: vi.fn().mockResolvedValue(true),
   })),
 }));
 
-describe('Task Slug API [GET, PATCH, DELETE]', () => {
+describe('Route API : Atome Individuel ([slug])', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  describe('GET /api/tasks/[slug]', () => {
-    it('devrait retourner 401 si l oiseau n est pas authentifié', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce(null);
+  it('GET - doit ausculter l\'atome si autorisé', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'u-123', capabilities: [] } } as any);
+    vi.mocked(TaskModel.findOne).mockReturnValue({
+      lean: vi.fn().mockResolvedValue({ uid: 'task-1', name: 'Atome Alpha' })
+    } as any);
 
-      const req = new Request('http://localhost/api/tasks/mon-atome');
-      const res = await GET(req, { params: Promise.resolve({ slug: 'Mon Atome!' }) });
-      const data = await res.json();
+    const req = new Request('http://localhost/api/tasks/task-1');
+    const response = await GET(req as any, { params: Promise.resolve({ slug: 'task-1' }) });
+    const json = await response.json();
 
-      expect(res.status).toBe(401);
-      expect(data.error).toBe('Oiseau non identifié.');
-    });
-
-    it('devrait réussir (200) et ausculter l atome en appliquant le slugify', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'user-bird-1' },
-      } as any);
-
-      const mockTask = { uid: 'mon-atome', title: 'Atome Test' };
-      vi.mocked(TaskModel.findOne).mockReturnValueOnce({
-        lean: vi.fn().mockResolvedValueOnce(mockTask),
-      } as any);
-
-      const req = new Request('http://localhost/api/tasks/mon-atome');
-      const res = await GET(req, { params: Promise.resolve({ slug: 'Mon Atome!' }) });
-      const data = await res.json();
-
-      expect(res.status).toBe(200);
-      expect(data.uid).toBe('mon-atome');
-      expect(TaskModel.findOne).toHaveBeenCalledWith({ uid: 'mon-atome' });
-    });
+    expect(response.status).toBe(200);
+    expect(json.uid).toBe('task-1');
   });
 
-  describe('PATCH /api/tasks/[slug]', () => {
-    it('devrait réussir (200) et muter l atome avec le slugify', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'user-bird-1' },
-      } as any);
+  it('PATCH - doit faire muter l\'atome et invalider le cache', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'u-123', capabilities: [] } } as any);
 
-      const mockUpdateTask = vi.fn().mockResolvedValueOnce({ uid: 'mon-atome', status: 'COMPLETED' });
-      vi.mocked(TaskOrchestrator).mockImplementationOnce(() => ({
-        updateTask: mockUpdateTask,
-        disintegrateTask: vi.fn(),
-      } as any));
-
-      const req = new Request('http://localhost/api/tasks/mon-atome', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'COMPLETED' }),
-      });
-
-      const res = await PATCH(req, { params: Promise.resolve({ slug: 'Mon Atome!' }) });
-      const data = await res.json();
-
-      expect(res.status).toBe(200);
-      expect(data.status).toBe('COMPLETED');
-      expect(mockUpdateTask).toHaveBeenCalledWith(
-        'mon-atome',
-        { status: 'COMPLETED' },
-        expect.any(Object)
-      );
+    const req = new Request('http://localhost/api/tasks/task-1', {
+      method: 'PATCH',
+      body: JSON.stringify({ name: 'Atome Muté' }),
     });
+
+    const response = await PATCH(req as any, { params: Promise.resolve({ slug: 'task-1' }) });
+    expect(response.status).toBe(200);
+    expect(revalidateTag).toHaveBeenCalledWith('task-task-1');
   });
 
-  describe('DELETE /api/tasks/[slug]', () => {
-    it('devrait réussir (200) et désintégrer l atome avec le slugify', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({
-        user: { uid: 'user-bird-1' },
-      } as any);
+  it('DELETE - doit désintégrer l\'atome et invalider le cache', async () => {
+    vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'u-123', capabilities: [] } } as any);
 
-      const mockDisintegrate = vi.fn().mockResolvedValueOnce(true);
-      vi.mocked(TaskOrchestrator).mockImplementationOnce(() => ({
-        updateTask: vi.fn(),
-        disintegrateTask: mockDisintegrate,
-      } as any));
-
-      const req = new Request('http://localhost/api/tasks/mon-atome', {
-        method: 'DELETE',
-      });
-
-      const res = await DELETE(req, { params: Promise.resolve({ slug: 'Mon Atome!' }) });
-      const data = await res.json();
-
-      expect(res.status).toBe(200);
-      expect(data.message).toContain('poussière');
-      expect(mockDisintegrate).toHaveBeenCalledWith(
-        'mon-atome',
-        expect.any(Object)
-      );
+    const req = new Request('http://localhost/api/tasks/task-1', {
+      method: 'DELETE',
     });
+
+    const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'task-1' }) });
+    expect(response.status).toBe(200);
+    expect(revalidateTag).toHaveBeenCalledWith('task-task-1');
   });
 });

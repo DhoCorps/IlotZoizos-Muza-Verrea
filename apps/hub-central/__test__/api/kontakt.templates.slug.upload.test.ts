@@ -1,17 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '@/app/api/kontakt/templates/[slug]/upload/route';
-import { getServerSession } from 'next-auth/next';
-import { connectToDatabase } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
+import { NextResponse } from 'next/server';
 
-// --- MOCKS DES DÉPENDANCES ---
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
+// --- MOCKS DES DÉPENDANCES & GARDES D'API ---
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: any) => async (req: any, context: any) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser || !mockUser.uid) {
+      return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
+    }
+    return await handler(req, context, mockUser);
+  },
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn(),
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 vi.mock('@/modules/storage/storage.service', () => ({
@@ -30,14 +35,19 @@ vi.mock('@/modules/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
 }));
 
+declare global {
+  var __mockUser: any;
+}
+
 describe('Kontakt Template Upload & Delete API [slug]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
   describe('POST /api/kontakt/templates/[slug]/upload', () => {
     it('devrait refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce(null);
+      global.__mockUser = undefined;
 
       const req = {
         headers: { get: () => '127.0.0.1' },
@@ -52,8 +62,8 @@ describe('Kontakt Template Upload & Delete API [slug]', () => {
     });
 
     it('devrait bloquer la requête (429) en cas de dépassement des limites (rate limit)', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0 });
+      global.__mockUser = { uid: 'TestUser', capabilities: [] };
+      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0 } as any);
 
       const req = {
         headers: { get: () => '127.0.0.1' },
@@ -68,7 +78,7 @@ describe('Kontakt Template Upload & Delete API [slug]', () => {
     });
 
     it('devrait rejeter (400) si aucun fichier/parchemin n\'est fourni dans le formulaire', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
+      global.__mockUser = { uid: 'TestUser', capabilities: [] };
 
       const formData = new FormData();
       const req = {
@@ -84,7 +94,7 @@ describe('Kontakt Template Upload & Delete API [slug]', () => {
     });
 
     it('devrait réussir (201) et sceller le fichier dans le Nexus R2 en appliquant le slugify', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
+      global.__mockUser = { uid: 'TestUser', capabilities: [] };
 
       const formData = new FormData();
       const file = new File(['dummy content'], 'template.png', { type: 'image/png' });
@@ -101,13 +111,12 @@ describe('Kontakt Template Upload & Delete API [slug]', () => {
       expect(res.status).toBe(201);
       expect(data.success).toBe(true);
       expect(data.data.url).toBe('https://nexus.ilot.local/storage/cv_template_preview_test.png');
-      expect(connectToDatabase).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('DELETE /api/kontakt/templates/[slug]/upload', () => {
     it('devrait refuser l\'accès (401) si l\'oiseau n\'est pas authentifié lors de la suppression', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce(null);
+      global.__mockUser = undefined;
 
       const req = new Request('http://localhost/api/kontakt/templates/mon-template/upload?url=https://nexus.ilot.local/file.png', {
         method: 'DELETE',
@@ -120,7 +129,7 @@ describe('Kontakt Template Upload & Delete API [slug]', () => {
     });
 
     it('devrait rejeter (400) si l\'URL de l\'artefact à purger est manquante', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
+      global.__mockUser = { uid: 'TestUser', capabilities: [] };
 
       const req = new Request('http://localhost/api/kontakt/templates/mon-template/upload', {
         method: 'DELETE',
@@ -133,7 +142,7 @@ describe('Kontakt Template Upload & Delete API [slug]', () => {
     });
 
     it('devrait réussir (200) et désintégrer l\'artefact du Nexus si l\'URL est valide', async () => {
-      vi.mocked(getServerSession).mockResolvedValueOnce({ user: { name: 'TestUser' } } as any);
+      global.__mockUser = { uid: 'TestUser', capabilities: [] };
 
       const req = new Request('http://localhost/api/kontakt/templates/mon-template/upload?url=https://nexus.ilot.local/file.png', {
         method: 'DELETE',

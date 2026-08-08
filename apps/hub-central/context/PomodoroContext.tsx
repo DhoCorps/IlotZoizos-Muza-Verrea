@@ -1,7 +1,7 @@
 "use client";
 import * as React from 'react';
 const { useState, useEffect, useCallback, useRef, createContext, useContext } = React;
-import { completePomodoroAction } from '../app/actions/kanban.actions';
+import { completePomodoroAction } from '@/app/actions/kanban.actions';
 
 type PomodoroStatus = 'IDLE' | 'WORK' | 'BREAK' | 'LONG_BREAK';
 

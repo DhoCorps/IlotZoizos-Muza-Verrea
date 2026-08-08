@@ -1,65 +1,46 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
-import { connectToDatabase, SujetModel } from '@ilot/infrastructure';
+import { SujetModel } from '@ilot/infrastructure';
 import { SujetOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-interface RouteParams {
-  params: Promise<{ slug: string }>;
-}
+export const dynamic = 'force-dynamic';
 
-// ==========================================
-// GET : Ausculter un sujet spécifique par slug ou uid
-// ==========================================
-export async function GET(req: Request, { params }: RouteParams) {
-  try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR SUJET GET]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let rawSlug;
-    try {
-      const resolvedParams = await params;
-      rawSlug = resolvedParams.slug;
-    } catch (paramErr) {
-      console.error("🔥 [PARAM ERROR SUJET GET]", paramErr);
-      return NextResponse.json({ error: "Identifiant de sujet invalide." }, { status: 400 });
-    }
-    
-    const slug = slugify(rawSlug || '');
-
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR SUJET GET]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
-
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-
-    let sujet;
-    try {
-      sujet = await SujetModel.findOne({ 
-        $or: [{ slug: slug }, { uid: slug }] 
+// 🧠 CACHE : Récupération d'un sujet spécifique par son identifiant ou slug
+const getCachedSujetDetails = (identifier: string) => {
+  return unstable_cache(
+    async () => {
+      return await SujetModel.findOne({ 
+        $or: [{ slug: identifier }, { uid: identifier }] 
       }).lean();
-    } catch (queryErr) {
-      console.error("🔥 [SUJET QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "Échec de lecture du monologue." }, { status: 500 });
-    }
+    },
+    [`sujet-details-${identifier}`],
+    { revalidate: 60, tags: ['sujets', `sujet-${identifier}`] }
+  )();
+};
+
+// ==========================================
+// 🔍 GET : Ausculter un sujet spécifique (Public / Optionnel Aura)
+// ==========================================
+export const GET = withOptionalAura(async (req: Request, context: ApiContext, currentUser?: OiseauUser) => {
+  try {
+    const resolvedParams = await context.params;
+    const rawSlug = resolvedParams?.slug;
+    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+    const sujet = await getCachedSujetDetails(slug);
 
     if (!sujet) {
       return NextResponse.json({ error: "Ce monologue s'est évaporé dans la brume." }, { status: 404 });
     }
 
-    const isPublic = sujet.status === 'PUBLISHED';
-    const isMine = sujet.authorUid === userUid;
+    const userUid = currentUser?.uid;
+    const sessionCaps = currentUser?.capabilities || [];
+
+    const isPublic = (sujet as any).status === 'PUBLISHED';
+    const isMine = (sujet as any).authorUid === userUid;
     const isArchitect = sessionCaps.includes('*');
 
     if (!isPublic && !isMine && !isArchitect) {
@@ -72,62 +53,27 @@ export async function GET(req: Request, { params }: RouteParams) {
     console.error("🔥 Erreur globale GET Sujet :", error);
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
-}
+});
 
 // ==========================================
-// PUT : Mutation du Sujet
+// 🚀 PUT : Mutation du Sujet (Strictement Privé)
 // ==========================================
-export async function PUT(req: Request, { params }: RouteParams) {
+export const PUT = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR SUJET PUT]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
+    const resolvedParams = await context.params;
+    const rawSlug = resolvedParams?.slug;
+    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR SUJET PUT]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let rawSlug;
-    try {
-      const resolvedParams = await params;
-      rawSlug = resolvedParams.slug;
-    } catch (paramErr) {
-      console.error("🔥 [PARAM ERROR SUJET PUT]", paramErr);
-      return NextResponse.json({ error: "Identifiant de sujet invalide." }, { status: 400 });
-    }
-    
-    const slug = slugify(rawSlug || '');
-
-    let sujet;
-    try {
-      sujet = await SujetModel.findOne({ 
-        $or: [{ slug: slug }, { uid: slug }] 
-      });
-    } catch (queryErr) {
-      console.error("🔥 [SUJET PUT QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "Échec de recherche du sujet." }, { status: 500 });
-    }
+    const sujet = await SujetModel.findOne({ 
+      $or: [{ slug: slug }, { uid: slug }] 
+    });
 
     if (!sujet) {
       return NextResponse.json({ error: "Sujet introuvable." }, { status: 404 });
     }
 
-    const isAuthor = sujet.authorUid === userUid;
-    const isArchitect = sessionCaps.includes('*');
+    const isAuthor = sujet.authorUid === currentUser.uid;
+    const isArchitect = currentUser.capabilities?.includes('*');
 
     if (!isAuthor && !isArchitect) {
       return NextResponse.json({ error: "Tu ne peux modifier que tes propres monologues." }, { status: 403 });
@@ -152,6 +98,12 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Échec de la mutation du sujet." }, { status: 500 });
     }
 
+    // 💥 BOOM ! Invalidation chirurgicale du cache
+    revalidateTag('sujets');
+    revalidateTag(`sujet-${slug}`);
+    if (sujet.uid) revalidateTag(`sujet-${sujet.uid}`);
+    if (sujet.slug) revalidateTag(`sujet-${sujet.slug}`);
+
     return NextResponse.json({ success: true, data: updatedSujet }, { status: 200 });
 
   } catch (error: any) {
@@ -159,63 +111,36 @@ export async function PUT(req: Request, { params }: RouteParams) {
     const status = error.statusCode || 500;
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status });
   }
-}
+});
 
 // ==========================================
-// DELETE : Désintégration / Suppression du Sujet
+// 🗑️ DELETE : Désintégration / Suppression du Sujet (Strictement Privé)
 // ==========================================
-export async function DELETE(req: Request, { params }: RouteParams) {
+export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR SUJET DELETE]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
+    const resolvedParams = await context.params;
+    const rawSlug = resolvedParams?.slug;
+    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR SUJET DELETE]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
-    let rawSlug;
-    try {
-      const resolvedParams = await params;
-      rawSlug = resolvedParams.slug;
-    } catch (paramErr) {
-      console.error("🔥 [PARAM ERROR SUJET DELETE]", paramErr);
-      return NextResponse.json({ error: "Identifiant de sujet invalide." }, { status: 400 });
-    }
-    
-    const slug = slugify(rawSlug || '');
-
-    let sujet;
-    try {
-      sujet = await SujetModel.findOne({ 
-        $or: [{ slug: slug }, { uid: slug }] 
-      });
-    } catch (queryErr) {
-      console.error("🔥 [SUJET DELETE QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "Échec de recherche du sujet." }, { status: 500 });
-    }
+    const sujet = await SujetModel.findOne({ 
+      $or: [{ slug: slug }, { uid: slug }] 
+    });
 
     if (!sujet) {
       return NextResponse.json({ error: "Sujet introuvable." }, { status: 404 });
     }
 
+    // Vérification des droits d'auteur ou architecte
+    const isAuthor = sujet.authorUid === currentUser.uid;
+    const isArchitect = currentUser.capabilities?.includes('*');
+
+    if (!isAuthor && !isArchitect) {
+      return NextResponse.json({ error: "Tu ne peux supprimer que tes propres monologues." }, { status: 403 });
+    }
+
     const signature: ActionSignature = {
-      actorUid: userUid,
-      capabilities: sessionCaps
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
     };
 
     try {
@@ -231,11 +156,20 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: orchErr.message || "Échec de la désintégration du monologue." }, { status });
     }
     
-    return NextResponse.json({ success: true, message: "Le monologue a été réduit en cendres. Les liens dans le Graphe sont rompus." }, { status: 200 });
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('sujets');
+    revalidateTag(`sujet-${slug}`);
+    if (sujet.uid) revalidateTag(`sujet-${sujet.uid}`);
+    if (sujet.slug) revalidateTag(`sujet-${sujet.slug}`);
+
+    return NextResponse.json({ 
+      success: true, 
+      message: "Le monologue a été réduit en cendres. Les liens dans le Graphe sont rompus." 
+    }, { status: 200 });
 
   } catch (error: any) {
     console.error("🔥 Erreur globale DELETE Sujet :", error);
     const status = error.statusCode || 500;
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status });
   }
-}
+});

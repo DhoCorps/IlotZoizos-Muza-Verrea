@@ -1,13 +1,15 @@
-// packages/shared-core/src/sync-engine/__test__/letrin.sprite.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { LetrinSpriteOrchestrator } from '../../sync-engine/letrinSprite.orchestrator';
+import { LetrinSpriteOrchestrator } from '../letrinSprite.orchestrator';
 import { TransactionManager } from '../transactionManager';
 import { FontModel } from '../../../../infrastructure/src/database/models/nosql/font.model';
 import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('@ilot/infrastructure/src/database/models/nosql/font.model', () => ({
+// 1. Déclaration propre du mock avec une fonction de référence
+const mockFindOneAndUpdate = vi.fn();
+
+vi.mock('../../../../infrastructure/src/database/models/nosql/font.model', () => ({
   FontModel: {
-    findOneAndUpdate: vi.fn(),
+    findOneAndUpdate: (...args: any[]) => mockFindOneAndUpdate(...args),
   },
 }));
 
@@ -52,9 +54,10 @@ describe('LetrinSpriteOrchestrator', () => {
         status: 'RELEASED' as const
       };
 
-      vi.mocked(FontModel.findOneAndUpdate).mockReturnValue({
+      // Utilisation directe de notre référence mockée
+      mockFindOneAndUpdate.mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce(mockFontData),
-      } as any);
+      });
 
       const res = await orchestrator.publishFontSprite(mockFontData, validSignature as any);
 
@@ -62,7 +65,7 @@ describe('LetrinSpriteOrchestrator', () => {
       expect(res.uid).toBe('font_alpha');
       expect(res.slug).toBe('canopy-sans');
       expect(res.glyphsCount).toBe(1);
-      expect(FontModel.findOneAndUpdate).toHaveBeenCalledTimes(1);
+      expect(mockFindOneAndUpdate).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
 
@@ -76,9 +79,9 @@ describe('LetrinSpriteOrchestrator', () => {
         glyphs: []
       };
 
-      vi.mocked(FontModel.findOneAndUpdate).mockReturnValue({
+      mockFindOneAndUpdate.mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce(mockFontData),
-      } as any);
+      });
 
       // Simuler un retour vide de Neo4j
       vi.mocked(TransactionManager.execute).mockImplementationOnce(async (name, cb) => {

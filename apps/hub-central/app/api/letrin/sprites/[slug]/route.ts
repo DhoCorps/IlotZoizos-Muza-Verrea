@@ -1,77 +1,81 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { connectToDatabase, LetterSpriteModel } from '@ilot/infrastructure';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
+import { LetterSpriteModel } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-interface RouteParams { params: Promise<{ slug: string }> }
+// 🧠 CACHE SÉCURISÉ : Récupération d'une police par slug (60s) avec bypass en mode test
+async function getCachedFontDetail(slug: string) {
+  const fetcher = async () => {
+    return await LetterSpriteModel.findOne({ slug }).lean();
+  };
 
-export async function GET(req: Request, { params }: RouteParams) {
+  if (process.env.NODE_ENV === 'test') {
+    return await fetcher();
+  }
+
+  return await unstable_cache(
+    fetcher,
+    [`letrin-font-${slug}`],
+    { revalidate: 60, tags: ['fonts', 'letrin', `font-${slug}`] }
+  )();
+}
+
+// ==========================================
+// 🔍 GET : Consulter une police par son slug (Public / Silice)
+// ==========================================
+export const GET = withSilice(async (_req: Request, context: ApiContext) => {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR SPRITE GET]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
     let resolvedParams;
     try {
-      resolvedParams = await params;
+      resolvedParams = await context.params;
     } catch (err) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    const slug = slugify(resolvedParams.slug || '');
+    const rawSlug = resolvedParams?.slug;
+    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    let font;
-    try {
-      font = await LetterSpriteModel.findOne({ slug }).lean();
-    } catch (queryErr) {
-      console.error("🔥 [SPRITE GET ERROR]", queryErr);
-      return NextResponse.json({ error: "Fracture lors de la lecture." }, { status: 500 });
+    if (!slug) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    if (!font) return NextResponse.json({ error: "Police introuvable." }, { status: 404 });
+    const font = await getCachedFontDetail(slug);
+
+    if (!font) {
+      return NextResponse.json({ error: "Police introuvable." }, { status: 404 });
+    }
+
     return NextResponse.json(font, { status: 200 });
 
   } catch (error: any) {
     console.error("🔥 Erreur globale GET Letr'In Sprite Slug :", error);
     return NextResponse.json({ error: "Erreur globale." }, { status: 500 });
   }
-}
+});
 
-export async function PUT(req: Request, { params }: RouteParams) {
+// ==========================================
+// 🚀 PUT : Muter une police (Strictement Privé / Aura)
+// ==========================================
+export const PUT = withAura(async (req: Request, context: ApiContext, _currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR SPRITE PUT]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
-
-    if (!session || !session.user) {
-      return NextResponse.json({ error: "Oiseau non identifié. Mutation refusée." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR SPRITE PUT]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
     let resolvedParams;
     let body;
     try {
-      resolvedParams = await params;
+      resolvedParams = await context.params;
       body = await req.json();
     } catch (err) {
       return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
     }
 
-    const slug = slugify(resolvedParams.slug || '');
+    const rawSlug = resolvedParams?.slug;
+    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+    if (!slug) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
 
     let updated;
     try {
@@ -85,44 +89,41 @@ export async function PUT(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Fracture lors de la mutation." }, { status: 500 });
     }
 
-    if (!updated) return NextResponse.json({ error: "Police introuvable." }, { status: 404 });
+    if (!updated) {
+      return NextResponse.json({ error: "Police introuvable." }, { status: 404 });
+    }
+
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('fonts');
+    revalidateTag('letrin');
+    revalidateTag(`font-${slug}`);
+
     return NextResponse.json({ success: true, data: updated }, { status: 200 });
 
   } catch (error: any) {
     console.error("🔥 Erreur globale PUT Letr'In Sprite Slug :", error);
     return NextResponse.json({ error: "Erreur globale." }, { status: 500 });
   }
-}
+});
 
-export async function DELETE(req: Request, { params }: RouteParams) {
+// ==========================================
+// 🗑️ DELETE : Dissoudre une police (Strictement Privé / Aura)
+// ==========================================
+export const DELETE = withAura(async (_req: Request, context: ApiContext, _currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR SPRITE DELETE]", sessionErr);
-      return NextResponse.json({ error: "Erreur de session." }, { status: 500 });
-    }
-
-    if (!session || !session.user) {
-      return NextResponse.json({ error: "Oiseau non identifié. Dissolution refusée." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR SPRITE DELETE]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
     let resolvedParams;
     try {
-      resolvedParams = await params;
+      resolvedParams = await context.params;
     } catch (err) {
       return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
     }
 
-    const slug = slugify(resolvedParams.slug || '');
+    const rawSlug = resolvedParams?.slug;
+    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+    if (!slug) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
 
     let deleted;
     try {
@@ -132,11 +133,19 @@ export async function DELETE(req: Request, { params }: RouteParams) {
       return NextResponse.json({ error: "Erreur lors de la dissolution." }, { status: 500 });
     }
 
-    if (!deleted) return NextResponse.json({ error: "Police introuvable." }, { status: 404 });
+    if (!deleted) {
+      return NextResponse.json({ error: "Police introuvable." }, { status: 404 });
+    }
+
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('fonts');
+    revalidateTag('letrin');
+    revalidateTag(`font-${slug}`);
+
     return NextResponse.json({ success: true, message: "Police dissoute avec succès." }, { status: 200 });
 
   } catch (error: any) {
     console.error("🔥 Erreur globale DELETE Letr'In Sprite Slug :", error);
     return NextResponse.json({ error: "Erreur globale." }, { status: 500 });
   }
-}
+});

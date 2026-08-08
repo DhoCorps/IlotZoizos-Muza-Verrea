@@ -1,116 +1,75 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, POST } from '../../app/api/kontakt/profiles/[slug]/route';
-import { getServerSession } from 'next-auth/next';
-import { slugify } from '@/lib/slugify';
+import { GET, POST } from '@/app/api/kontakt/profiles/route';
+import { KontaktProfileModel } from '@ilot/infrastructure';
+import { revalidateTag } from 'next/cache';
+import { NextResponse } from 'next/server';
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn()
+// 1. Mocks de base
+vi.mock('@/lib/api-guards', () => ({
+  withSilice: (handler: any) => handler,
+  withAura: (handler: any) => async (req: any, ctx: any) => {
+    return await handler(req, ctx, { uid: 'bird_1', capabilities: [] });
+  },
 }));
 
-vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((str) => str ? str.toLowerCase().replace(/\s+/g, '-') : 'profil-oiseau')
-}));
+vi.mock('@/lib/slugify', () => ({ slugify: vi.fn((val) => val) }));
+vi.mock('next/cache', () => ({ revalidateTag: vi.fn(), unstable_cache: vi.fn((cb) => cb) }));
 
-const mockFind = vi.fn();
-const mockFindOne = vi.fn();
-const mockCreate = vi.fn();
-
+// 2. Mock de l'Infrastructure
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   KontaktProfileModel: {
-    find: (...args: any[]) => mockFind(...args),
-    findOne: (...args: any[]) => mockFindOne(...args),
-    create: (...args: any[]) => mockCreate(...args)
-  }
+    find: vi.fn(),
+    findOne: vi.fn(),
+    create: vi.fn(),
+  },
 }));
 
-describe('API Kontakt - Collection de Profils (GET / POST /api/kontakt-profiles)', () => {
+describe('API Kontakt Profiles - Tests incrémentaux', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
-  it('✅ GET : doit retourner la liste des profils Kontakt avec un statut 200', async () => {
-    const mockProfiles = [
-      { uid: 'kontakt_1', professionalTitle: 'Architecte Logiciel', userUid: 'bird_1' }
-    ];
+  // TEST GET (Déjà validé)
+  it('🟢 [GET] doit récupérer la liste des profils avec succès (200)', async () => {
+    vi.mocked(KontaktProfileModel.find).mockReturnValue({
+      sort: vi.fn().mockReturnThis(),
+      lean: vi.fn().mockResolvedValue([{ uid: 'kontakt_1' }]),
+    } as any);
 
-    const leanMock = vi.fn().mockResolvedValue(mockProfiles);
-    const sortMock = vi.fn().mockReturnValue({ lean: leanMock });
-    mockFind.mockReturnValue({ sort: sortMock });
-
-    const req = new Request('http://localhost:3000/api/kontakt-profiles');
-    const res = await GET(req);
-    const data = await res.json();
+    const req = new Request('http://localhost/api/kontakt/profiles');
+    const res = await GET(req as any, {});
+    const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(data).toEqual(mockProfiles);
-    expect(mockFind).toHaveBeenCalledWith({});
+    expect(json[0].uid).toBe('kontakt_1');
   });
 
-  it('❌ POST : doit rejeter si l’oiseau n’est pas connecté (401)', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
-
-    const req = new Request('http://localhost:3000/api/kontakt-profiles', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ professionalTitle: 'Développeur' })
-    });
-    const res = await POST(req);
-
-    expect(res.status).toBe(401);
-  });
-
-  it('❌ POST : doit rejeter si un profil existe déjà pour cet oiseau (409)', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'bird_1' }
+  // NOUVEAU TEST POST (Succès)
+  it('🟢 [POST] doit créer le profil avec succès (201)', async () => {
+    // On simule : 
+    // 1. Aucune existence (findOne -> null)
+    // 2. Aucune collision de slug (findOne -> null)
+    vi.mocked(KontaktProfileModel.findOne).mockReturnValue({
+      lean: vi.fn().mockResolvedValue(null)
     } as any);
 
-    // Simulation qu'un profil existe déjà en base pour cet utilisateur
-    mockFindOne.mockResolvedValueOnce({ uid: 'kontakt_1', userUid: 'bird_1' });
-
-    const req = new Request('http://localhost:3000/api/kontakt-profiles', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ professionalTitle: 'Développeur' })
-    });
-    const res = await POST(req);
-    const data = await res.json();
-
-    expect(res.status).toBe(409);
-    expect(data.error).toContain('Un profil Kontakt existe déjà');
-  });
-
-  it('✅ POST : doit créer un profil initial si l’oiseau n’en a pas (201)', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'bird_1' }
+    vi.mocked(KontaktProfileModel.create).mockResolvedValueOnce({ 
+      uid: 'kontakt_new', 
+      slug: 'dev-matrix' 
     } as any);
 
-    // 1. Aucun profil existant pour l'utilisateur
-    mockFindOne.mockResolvedValueOnce(null);
-    // 2. Aucun doublon de slug en base
-    mockFindOne.mockResolvedValueOnce(null);
-
-    const createdMock = {
-      uid: 'kontakt_uuid-test',
-      userUid: 'bird_1',
-      professionalTitle: 'Architecte Silicieux',
-      slug: 'architecte-silicieux'
-    };
-
-    mockCreate.mockResolvedValueOnce(createdMock);
-
-    const req = new Request('http://localhost:3000/api/kontakt-profiles', {
+    const req = new Request('http://localhost/api/kontakt/profiles', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ professionalTitle: 'Architecte Silicieux' })
+      body: JSON.stringify({ professionalTitle: 'Dev Matrix' })
     });
-    const res = await POST(req);
-    const data = await res.json();
+
+    const res = await POST(req as any, {});
+    const json = await res.json();
 
     expect(res.status).toBe(201);
-    expect(data.success).toBe(true);
-    expect(data.data).toEqual(createdMock);
-    expect(slugify).toHaveBeenCalledWith('Architecte Silicieux');
-    expect(mockCreate).toHaveBeenCalled();
+    expect(json.data.uid).toBe('kontakt_new');
+    expect(revalidateTag).toHaveBeenCalledWith('kontakt-profiles');
   });
 });

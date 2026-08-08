@@ -1,25 +1,31 @@
-// apps/hub-central/app/api/resonance/echoes/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
-import { connectToDatabase, ResonanceModel } from '@ilot/infrastructure';
+import { ResonanceModel } from '@ilot/infrastructure';
 import { ResonanceOrchestrator } from '@ilot/shared-core';
 import { EchoSchema, ActionSignature, EntityLabel } from '@ilot/types';
+import { unstable_cache, revalidateTag } from 'next/cache';
+import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+
+// 🧠 CACHE : Récupération des échos pour une cible donnée
+const getCachedEchoes = (targetUid: string) => {
+  return unstable_cache(
+    async () => {
+      return await ResonanceModel.find({ targetUid })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean();
+    },
+    [`resonance-echoes-${targetUid}`],
+    { revalidate: 60, tags: ['resonance-echoes', `echoes-${targetUid}`] }
+  )();
+};
 
 // ==========================================
-// GET : Écouter les résonances (Échos)
+// 🔍 GET : Écouter les résonances (Échos - Public / Silice)
 // ==========================================
-export async function GET(req: Request) {
+export const GET = withSilice(async (req: Request, _context: ApiContext) => {
   try {
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR RESONANCE ECHOES GET]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
     let url;
     try {
       url = new URL(req.url);
@@ -32,16 +38,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Cible de résonance manquante." }, { status: 400 });
     }
 
-    let echoes;
-    try {
-      echoes = await ResonanceModel.find({ targetUid })
-        .sort({ createdAt: -1 })
-        .limit(50)
-        .lean();
-    } catch (queryErr) {
-      console.error("🔥 [RESONANCE ECHOES QUERY ERROR]", queryErr);
-      return NextResponse.json({ error: "Impossible de capter les résonances dans la Silice." }, { status: 500 });
-    }
+    const echoes = await getCachedEchoes(targetUid);
 
     return NextResponse.json(echoes, { status: 200 });
 
@@ -49,35 +46,13 @@ export async function GET(req: Request) {
     console.error("🌊 Erreur globale lors de la lecture des échos :", error);
     return NextResponse.json({ error: "La tempête a brouillé l'écoute." }, { status: 500 });
   }
-}
+});
 
 // ==========================================
-// POST : Propager un Écho
+// 🚀 POST : Propager un Écho (Strictement Privé / Aura)
 // ==========================================
-export async function POST(req: Request) {
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let session;
-    try {
-      session = await getServerSession(authOptions);
-    } catch (sessionErr) {
-      console.error("🔥 [SESSION ERROR RESONANCE ECHOES POST]", sessionErr);
-      return NextResponse.json({ error: "Erreur de lecture d'Aura (session)." }, { status: 500 });
-    }
-
-    const userUid = (session?.user as any)?.uid;
-    const sessionCaps = (session?.user as any)?.capabilities || [];
-
-    if (!userUid) {
-      return NextResponse.json({ error: "Oiseau non identifié dans la canopée." }, { status: 401 });
-    }
-
-    try {
-      await connectToDatabase();
-    } catch (dbErr) {
-      console.error("❌ [DB ERROR RESONANCE ECHOES POST]", dbErr);
-      return NextResponse.json({ error: "La Silice est injoignable." }, { status: 500 });
-    }
-
     let rawBody;
     try {
       rawBody = await req.json();
@@ -94,13 +69,13 @@ export async function POST(req: Request) {
     }
 
     const signature: ActionSignature = {
-      actorUid: userUid,
-      capabilities: sessionCaps
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
     };
 
     let resonanceResult;
     try {
-      // 🕸️ 1. Inscription dans le Graphe Neo4j (via la méthode statique)
+      // 🕸️ 1. Inscription dans le Graphe Neo4j
       resonanceResult = await ResonanceOrchestrator.addSocialEcho(
         validation.data.targetUid,
         validation.data.targetLabel as EntityLabel,
@@ -110,7 +85,7 @@ export async function POST(req: Request) {
       );
     } catch (neoErr: any) {
       console.error("🌋 [NEO4J ECHO FORGE ERROR] :", neoErr);
-      const status = neoErr.statusCode || 500;
+      const status = neoErr.statusCode || neoErr.status || 500;
       return NextResponse.json({ error: neoErr.message || "Le Graphe a rejeté l'écho." }, { status });
     }
 
@@ -122,14 +97,19 @@ export async function POST(req: Request) {
           uid: resonanceResult.echoUid,
           targetUid: validation.data.targetUid,
           targetLabel: validation.data.targetLabel,
-          actorUid: userUid,
+          actorUid: currentUser.uid,
           echoType: validation.data.echoType,
           content: validation.data.content
         }]);
         savedEcho = createResult[0];
       } catch (mongoErr) {
         console.error("🔥 [MONGO ECHO SEDIMENTATION ERROR] :", mongoErr);
-        // On ne bloque pas si le Graphe a réussi, mais on notifie
+        
+        // 💥 BOOM ! Invalidation chirurgicale du cache même en cas de repli partiel
+        revalidateTag('resonance-echoes');
+        revalidateTag(`echoes-${validation.data.targetUid}`);
+        revalidateTag(`entity-${validation.data.targetUid}`);
+
         return NextResponse.json({ 
           success: true, 
           warning: "Écho inscrit dans le Graphe, mais la Silice n'a pas pu le retenir.",
@@ -137,6 +117,11 @@ export async function POST(req: Request) {
         }, { status: 201 });
       }
     }
+
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
+    revalidateTag('resonance-echoes');
+    revalidateTag(`echoes-${validation.data.targetUid}`);
+    revalidateTag(`entity-${validation.data.targetUid}`);
 
     return NextResponse.json({
       success: true,
@@ -148,4 +133,4 @@ export async function POST(req: Request) {
     console.error("🌋 Fracture globale lors de la sédimentation de l'écho :", error);
     return NextResponse.json({ error: "La tempête a étouffé le murmure." }, { status: 500 });
   }
-}
+});
