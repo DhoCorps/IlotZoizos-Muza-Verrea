@@ -14,6 +14,9 @@ export const routing = defineRouting({
     '/inception/canopy/stats': '/inception/canopy/stats',
     '/inception/kompta': '/inception/kompta',
     
+    // 🎛️ STUDIO SAMPLOTEK (Séquenceur E-Jay)
+    '/samplotek': '/samplotek',
+    
     '/le-bordel-de-dho': '/le-bordel-de-dho',
     '/abyss-blog': '/abyss-blog',
     '/abyss-blog/editor': '/abyss-blog/editor',

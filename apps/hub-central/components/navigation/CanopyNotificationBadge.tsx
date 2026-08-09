@@ -1,4 +1,3 @@
-// apps/hub-central/components/navigation/CanopyNotificationBadge.tsx
 'use client';
 
 import React from 'react';
@@ -10,7 +9,7 @@ export function CanopyNotificationBadge() {
   if (unreadCount === 0) return null;
 
   return (
-    <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white shadow-lg animate-pulse ring-2 ring-zinc-950">
+    <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white shadow-[0_0_10px_rgba(220,38,38,0.6)] animate-pulse ring-2 ring-slate-950">
       {unreadCount > 99 ? '99+' : unreadCount}
     </span>
   );

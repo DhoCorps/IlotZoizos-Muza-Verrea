@@ -20,6 +20,8 @@ export * from './models/message.types';
 export * from './models/quizz.types';
 export * from './core/payment.types';
 export * from './core/showcase.types';
+export * from './models/sample.types';
+export * from './validation/sampleSchema'
 
 export interface ActionSignature {
   actorUid: string;       

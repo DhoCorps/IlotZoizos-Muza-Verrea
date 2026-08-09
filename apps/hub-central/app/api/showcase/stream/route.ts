@@ -1,25 +1,40 @@
-// apps/hub-central/app/api/showcase/stream/route.ts
-import { NextResponse, NextRequest } from 'next/server';
-import { ShowcaseOrchestrator } from '@ilot/shared-core'; // Ajuste le chemin selon ton architecture
-import { UniversalMediaType } from '@ilot/types'; // 👈 Import du type
-
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: NextRequest) {
+import { NextResponse } from 'next/server';
+import { ShowcaseOrchestrator } from '@ilot/shared-core';
+import { UniversalMediaType } from '@ilot/types';
+import { unstable_cache } from 'next/cache';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+
+// 🛡️ CACHE SÉCURISÉ : Bypass automatique en mode test
+async function getCachedStream(userUid: string, filters: any) {
+  const fetcher = async () => {
+    return await ShowcaseOrchestrator.getPersonalizedShowcase(userUid, filters);
+  };
+
+  if (process.env.NODE_ENV === 'test') {
+    return await fetcher();
+  }
+
+  const cacheKey = `showcase-stream-${userUid}-${filters.selectedApps.join('-')}-${filters.onlyTradable}`;
+  return await unstable_cache(
+    fetcher,
+    [cacheKey],
+    { revalidate: 30, tags: ['showcase', `showcase-${userUid}`] }
+  )();
+}
+
+// ==========================================
+// 🌌 GET : Générer le Flux du Diaporama (Strictement Privé / Aura)
+// ==========================================
+export const GET = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
     const { searchParams } = new URL(req.url);
     
-    // Identification de l'oiseau
-    const userUid = searchParams.get('userUid'); 
+    // Identification sécurisée de l'oiseau par son jeton (on ignore le paramètre URL pour la sécurité)
+    const userUid = currentUser.uid || currentUser.id; 
 
-    if (!userUid) {
-      return NextResponse.json(
-        { success: false, error: "Aura non détectée. L'oiseau doit être identifié pour invoquer le Diaporama." },
-        { status: 401 }
-      );
-    }
-
-    // Extraction et CASTING des filtres granulaires depuis l'URL 👇
+    // Extraction et CASTING des filtres granulaires depuis l'URL
     const appsParam = searchParams.get('apps');
     const selectedApps = appsParam ? (appsParam.split(',') as UniversalMediaType[]) : [];
     const onlyTradable = searchParams.get('onlyTradable') === 'true';
@@ -29,8 +44,8 @@ export async function GET(req: NextRequest) {
       onlyTradable
     };
 
-    // 🎬 Tissage du flux personnalisé via notre orchestrateur
-    const playlist = await ShowcaseOrchestrator.getPersonalizedShowcase(userUid, filters);
+    // 🎬 Tissage du flux personnalisé mis en cache
+    const playlist = await getCachedStream(userUid, filters);
 
     return NextResponse.json({
       success: true,
@@ -39,10 +54,8 @@ export async function GET(req: NextRequest) {
     }, { status: 200 });
 
   } catch (error: any) {
-    const statusCode = error.statusCode || 500;
-    return NextResponse.json(
-      { success: false, error: error.message || "Erreur interne lors du tissage du flux." },
-      { status: statusCode }
-    );
+    console.error('🔥 [SHOWCASE STREAM ERROR] :', error);
+    const status = error.status || error.statusCode || 500;
+    return NextResponse.json({ success: false, error: error.message || "Erreur interne lors du tissage du flux." }, { status });
   }
-}
+});

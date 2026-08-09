@@ -3,10 +3,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Play, Pause, SkipForward, Settings2, Share2, Music, Volume2, VolumeX } from 'lucide-react';
+import { Loader2, Play, Pause, SkipForward, Settings2, Share2, Music, Volume2, VolumeX, BookOpen, Disc } from 'lucide-react';
 import { IUniversalMediaItem, UniversalMediaType } from '@ilot/types';
 import { OmniActionWidget } from '../widget/OmniActionWidget';
-import { toast } from 'sonner';
 
 interface OmniShowcasePlayerProps {
   userUid: string;
@@ -20,15 +19,87 @@ const APPS_AVAILABLE: { id: UniversalMediaType; label: string }[] = [
   { id: 'GALLERY', label: 'Galerie' },
 ];
 
+// ==========================================
+// 🎨 SOUS-LECTEURS SPÉCIALISÉS POUR LA CANOPÉE
+// ==========================================
+
+const ImageMediaViewer: React.FC<{ src: string; title: string }> = ({ src, title }) => (
+  <div className="relative w-full h-full flex items-center justify-center p-4">
+    <img 
+      src={src} 
+      alt={title} 
+      className="max-w-full max-h-[60vh] object-contain rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.8)] border border-white/5 animate-in fade-in zoom-in-95 duration-500" 
+    />
+  </div>
+);
+
+const VideoMediaViewer: React.FC<{ src: string; title: string; isPlaying: boolean }> = ({ src, title, isPlaying }) => {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.play().catch(e => console.warn("Lecture vidéo bloquée :", e));
+    } else {
+      videoRef.current.pause();
+    }
+  }, [isPlaying]);
+
+  return (
+    <div className="relative w-full h-full flex items-center justify-center p-4">
+      <video 
+        ref={videoRef}
+        src={src}
+        loop
+        playsInline
+        muted
+        className="max-w-full max-h-[60vh] object-contain rounded-2xl shadow-2xl border border-white/5" 
+      />
+    </div>
+  );
+};
+
+const AudioMediaViewer: React.FC<{ title: string; ownerSlug: string; thumbnailUrl?: string; isPlaying: boolean }> = ({ title, ownerSlug, thumbnailUrl, isPlaying }) => (
+  <div className="flex flex-col items-center justify-center space-y-6 p-8 animate-in fade-in duration-500">
+    <div className={`relative w-48 h-48 sm:w-60 sm:h-60 rounded-full p-2 bg-gradient-to-tr from-slate-900 to-slate-800 border border-slate-700 shadow-[0_0_40px_rgba(220,38,38,0.15)] ${isPlaying ? 'animate-spin duration-[10000ms]' : ''}`}>
+      <div className="w-full h-full rounded-full overflow-hidden relative flex items-center justify-center bg-black">
+        {thumbnailUrl ? (
+          <img src={thumbnailUrl} alt={title} className="w-full h-full object-cover opacity-80" />
+        ) : (
+          <Music size={56} className="text-red-500/50" />
+        )}
+        <div className="absolute w-12 h-12 bg-slate-950 border-2 border-slate-700 rounded-full flex items-center justify-center shadow-inner">
+          <Disc size={16} className="text-red-500 animate-pulse" />
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+const TextMediaViewer: React.FC<{ title: string; excerpt?: string; content?: string }> = ({ title, excerpt, content }) => (
+  <div className="w-full max-w-2xl mx-auto p-8 bg-slate-900/50 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl space-y-6 animate-in fade-in duration-500">
+    <div className="flex items-center gap-2 text-red-400 text-xs font-mono uppercase tracking-widest">
+      <BookOpen size={14} /> Pensée de l'Abysse
+    </div>
+    <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tight text-slate-100 leading-tight">{title}</h2>
+    <div className="w-12 h-0.5 bg-red-600" />
+    <p className="text-sm font-mono text-slate-300 leading-relaxed max-h-[35vh] overflow-y-auto pr-2 custom-scrollbar">
+      {content || excerpt || "Une réflexion tissée dans le silence de la Canopée..."}
+    </p>
+  </div>
+);
+
+// ==========================================
+// 🌌 COMPOSANT MAÎTRE : OMNISHOWCASEPLAYER
+// ==========================================
+
 export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid }) => {
-  // --- ÉTATS DU LECTEUR ---
   const [hasStarted, setHasStarted] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  // --- ÉTATS DES FILTRES & WIDGET ---
   const [selectedApps, setSelectedApps] = useState<UniversalMediaType[]>([]);
   const [onlyTradable, setOnlyTradable] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -37,8 +108,7 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const progressInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // 🌀 SUTURE REACT QUERY : Appel à notre route de diffusion
-  const { data: playlist = [], isLoading, isError, refetch } = useQuery({
+  const { data: playlist = [], isLoading, isError } = useQuery({
     queryKey: ['showcase-stream', userUid, selectedApps, onlyTradable],
     queryFn: async () => {
       const params = new URLSearchParams({ userUid });
@@ -50,18 +120,17 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
       if (!json.success) throw new Error(json.error);
       return json.data as IUniversalMediaItem[];
     },
-    enabled: hasStarted, // Ne charge que lorsque l'oiseau lance l'expérience
+    enabled: hasStarted,
   });
 
   const currentItem = playlist[currentIndex];
 
-  // ⏱️ GESTION DU TIMING ET DE LA PROGRESSION
+  // Gestion du timing et de la progression (15s pour Abyss, 8s pour le reste)
   useEffect(() => {
     if (!isPlaying || !currentItem || isWidgetOpen) return;
 
-    // Durée adaptative : 15s pour du texte (Abyss), 8s pour le reste
     const slideDuration = currentItem.sourceApp === 'ABYSS' ? 15000 : 8000;
-    const updateInterval = 50; // Mise à jour fluide toutes les 50ms
+    const updateInterval = 50;
 
     progressInterval.current = setInterval(() => {
       setProgress((prev) => {
@@ -79,7 +148,7 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
     };
   }, [isPlaying, currentItem, currentIndex, isWidgetOpen]);
 
-  // 🎵 GESTION DE L'AUDIO D'AMBIANCE
+  // Gestion de l'audio d'ambiance
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.pause();
@@ -112,7 +181,6 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
     }
   }, [isMuted]);
 
-  // --- CONTRÔLES ---
   const handleNext = () => {
     setProgress(0);
     setCurrentIndex((prev) => (prev + 1) % playlist.length);
@@ -124,7 +192,6 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
     );
   };
 
-  // --- RENDU : ÉCRAN D'ACCUEIL ---
   if (!hasStarted) {
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 p-6 z-10 space-y-8">
@@ -145,7 +212,6 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
     );
   }
 
-  // --- RENDU : LECTEUR ACTIF ---
   return (
     <div className="absolute inset-0 bg-slate-950 flex flex-col overflow-hidden">
       
@@ -165,7 +231,6 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
           </div>
         </div>
 
-        {/* ShowcaseFilterBar Intégrée */}
         {showFilters && (
           <div className="flex flex-wrap items-center gap-2 p-4 bg-slate-900/80 backdrop-blur-md border border-slate-700 rounded-2xl animate-in slide-in-from-top-4">
             {APPS_AVAILABLE.map(app => (
@@ -194,7 +259,7 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
         )}
       </div>
 
-      {/* ZONE CENTRALE : AFFICHAGE DU MÉDIA */}
+      {/* ZONE CENTRALE : AIGUILLAGE INTELLIGENT DES SOUS-LECTEURS */}
       <div className="flex-1 relative flex items-center justify-center p-8">
         {isLoading ? (
           <Loader2 className="w-12 h-12 animate-spin text-red-500" />
@@ -204,30 +269,41 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
             <button onClick={() => { setSelectedApps([]); setOnlyTradable(false); }} className="text-red-400 text-xs font-bold underline">Réinitialiser les filtres</button>
           </div>
         ) : currentItem ? (
-          <div className="w-full max-w-4xl max-h-full flex flex-col items-center justify-center animate-in fade-in zoom-in-95 duration-700">
+          <div className="w-full max-w-4xl max-h-full flex flex-col items-center justify-center">
             
-            {/* Rendu dynamique selon le type d'app */}
-            {currentItem.thumbnailUrl ? (
-              <img src={currentItem.thumbnailUrl} alt={currentItem.title} className="max-w-full max-h-[60vh] object-contain rounded-2xl shadow-2xl" />
-            ) : currentItem.sourceApp === 'ABYSS' ? (
-              <div className="bg-slate-900/50 border border-slate-800 p-8 rounded-3xl backdrop-blur-sm max-w-2xl text-center space-y-4">
-                <h2 className="text-3xl font-black text-slate-200 uppercase">{currentItem.title}</h2>
-                <p className="text-sm font-mono text-slate-400 line-clamp-6">{currentItem.metadata?.excerpt || "Une pensée gravée dans l'Abysse..."}</p>
-              </div>
+            {currentItem.sourceApp === 'ABYSS' || currentItem.sourceApp === 'LETRIN' ? (
+              <TextMediaViewer 
+                title={currentItem.title} 
+                excerpt={currentItem.metadata?.excerpt} 
+                content={currentItem.metadata?.content} 
+              />
+            ) : currentItem.sourceApp === 'PARTITA' ? (
+              <AudioMediaViewer 
+                title={currentItem.title} 
+                ownerSlug={currentItem.ownerSlug} 
+                thumbnailUrl={currentItem.thumbnailUrl}
+                isPlaying={isPlaying}
+              />
+            ) : currentItem.mediaUrl?.endsWith('.mp4') || currentItem.metadata?.isVideo ? (
+              <VideoMediaViewer 
+                src={currentItem.mediaUrl} 
+                title={currentItem.title} 
+                isPlaying={isPlaying} 
+              />
             ) : (
-              <div className="w-64 h-64 bg-slate-900 border border-slate-800 rounded-full flex flex-col items-center justify-center space-y-4 shadow-2xl animate-pulse">
-                 <Music size={40} className="text-slate-500" />
-              </div>
+              <ImageMediaViewer 
+                src={currentItem.thumbnailUrl || currentItem.mediaUrl} 
+                title={currentItem.title} 
+              />
             )}
 
-            {/* Méta-informations de l'oeuvre */}
-            <div className="mt-8 text-center space-y-2">
-              <h3 className="text-xl font-bold text-slate-100">{currentItem.title}</h3>
+            {/* Méta-informations globales de l'œuvre */}
+            <div className="mt-6 text-center space-y-1">
+              <h3 className="text-lg font-bold text-slate-100">{currentItem.title}</h3>
               <p className="text-xs font-mono text-slate-400">
                 Par <span className="text-slate-300">@{currentItem.ownerSlug}</span> • <span className="uppercase text-red-400">{currentItem.sourceApp}</span>
               </p>
               
-              {/* Affichage de la piste d'ambiance si présente */}
               {currentItem.metadata?.ambientTrackInfo && (
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-slate-900/80 border border-slate-800 rounded-full mt-2">
                   <Music size={10} className="text-emerald-400" />
@@ -243,7 +319,6 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
       {currentItem && (
         <div className="absolute bottom-0 inset-x-0 p-6 z-20 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent flex flex-col gap-4">
           
-          {/* Barre de progression */}
           <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
             <div className="h-full bg-red-500 transition-all ease-linear duration-50" style={{ width: `${progress}%` }} />
           </div>
@@ -252,7 +327,7 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
             <div className="flex gap-4">
               <button 
                 onClick={() => setIsPlaying(!isPlaying)} 
-                className="w-12 h-12 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-white rounded-full transition-colors"
+                className="w-12 h-12 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-white rounded-full transition-colors shadow-lg"
               >
                 {isPlaying ? <Pause size={20} /> : <Play size={20} />}
               </button>
@@ -264,10 +339,9 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
               </button>
             </div>
 
-            {/* Le Prisme d'Interaction */}
             <button
               onClick={() => {
-                setIsPlaying(false); // Met le diaporama en pause
+                setIsPlaying(false);
                 setWidgetOpen(true);
               }}
               className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs uppercase tracking-widest rounded-xl transition-all flex items-center gap-2 shadow-lg"
@@ -278,14 +352,13 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
         </div>
       )}
 
-      {/* 🧩 Rendu de l'OmniActionWidget en surimpression */}
       {currentItem && (
         <OmniActionWidget 
           media={currentItem}
           isOpen={isWidgetOpen}
           onClose={() => {
             setWidgetOpen(false);
-            setIsPlaying(true); // Reprise automatique
+            setIsPlaying(true);
           }}
         />
       )}

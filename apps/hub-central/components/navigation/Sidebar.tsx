@@ -1,9 +1,9 @@
-'use client'; 
+'use client';
 
 import { useState, useEffect } from 'react';
 import { signOut, useSession } from 'next-auth/react'; 
 import { Link } from '../../navigation'; 
-import { LogOut, User, Feather, Music, Type, Heart, Compass, Gamepad2, Activity, Lock, Film, Sparkles, Rocket, Dices, Radiation, MessageSquare, LayoutDashboard, BookOpenCheck, Calculator, LineChart } from 'lucide-react'; 
+import { LogOut, User, Feather, Music, Disc3, Type, Heart, Compass, Gamepad2, Activity, Lock, Film, Sparkles, Rocket, Dices, Radiation, MessageSquare, LayoutDashboard, BookOpenCheck, Calculator, LineChart } from 'lucide-react'; 
 import { CanopyNotificationBadge } from './CanopyNotificationBadge';
 
 export default function Sidebar() {   
@@ -296,6 +296,20 @@ export default function Sidebar() {
             </span>
           </Link>
         )}
+
+        {/* 🎛️ Navigation vers SamploTek (Studio E-Jay) */}
+        <Link
+          href="/samplotek"
+          className="flex flex-col items-center gap-2 group text-slate-500 hover:text-red-500 transition-all"
+          title="SamploTek (Studio E-Jay)"
+        >
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center border border-transparent group-hover:border-red-500/30 group-hover:bg-red-500/5 transition-all">
+            <Disc3 size={20} />
+          </div>
+          <span className="text-[10px] uppercase tracking-widest font-bold opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0 text-center">
+            SamploTek
+          </span>
+        </Link>
 
         {/* Navigation vers Letr'In & Sprites */}
         {isVisible('letrinSprite') && (

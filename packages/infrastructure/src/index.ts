@@ -2,6 +2,7 @@ export * from './database/mongoose';
 export * from './database/neo4j';
 export * from './database/models/nosql/user.model';
 export * from './database/models/nosql/team.model';
+export * from './database/models/nosql/user.inventory.model'
 
 export * from './database/models/nosql/project.model';
 export * from './database/models/nosql/task.model';
@@ -38,16 +39,18 @@ export * from './database/services/mutation.service';
 export * from './database/services/sync.service';
 export * from './database/services/gameStats.service';
 export * from './database/services/resonance.service';
-export * from './database/services/komptaLedgerService';
+export * from './database/services/komptaLedger.service';
+export * from './database/services/economy.services'
 
 export * from './database/models/graph/user.graph';
 export * from './database/models/graph/team.graph';
 
 export * from './database/models/nosql/resonance.model';
 
-
 export * from './database/models/nosql/reaction.model';
 export * from './database/models/nosql/reward.model';;
 export * from './database/models/nosql/comment.model';
 export * from './database/models/nosql/universalMedia.model';
 export * from './database/services/universalMediaRegistry';
+
+export * from './database/models/nosql/sample.model'

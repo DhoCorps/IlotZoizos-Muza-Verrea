@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KomptaPaymentOrchestrator } from '../komptaPayment.orchestrator';
 import { WalletModel } from '../../../../infrastructure/src/database/models/nosql/wallet.model';
-import { KomptaLedgerService } from '../../../../infrastructure/src/database/services/komptaLedgerService';
+import { KomptaLedgerService } from '../../../../infrastructure/src/database/services/komptaLedger.service';
 import { IlotError } from '../../errors/ilot.errors';
 
 // 1. Mock complet du TransactionManager
@@ -26,18 +26,25 @@ vi.mock('../../../../infrastructure/src/database/models/nosql/wallet.model', () 
 }));
 
 // 3. MOCK DE LEDGER ENTRY MODEL (stoppe net le buffering Mongoose)
-vi.mock('../../../../infrastructure/src/database/models/nosql/ledgerEntry.model', () => ({
-  LedgerEntryModel: {
-    findOne: vi.fn().mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        session: vi.fn().mockResolvedValue(null)
-      })
+vi.mock('../../../../infrastructure/src/database/models/nosql/ledgerEntry.model', () => {
+  const MockLedgerModel = function(data: any) {
+    return {
+      ...data,
+      save: vi.fn().mockResolvedValue(data)
+    };
+  };
+  (MockLedgerModel as any).findOne = vi.fn().mockReturnValue({
+    sort: vi.fn().mockReturnValue({
+      session: vi.fn().mockResolvedValue(null)
     })
-  }
-}));
+  });
+  return {
+    LedgerEntryModel: MockLedgerModel
+  };
+});
 
 // 4. Mock de KomptaLedgerService
-vi.mock('../../../../infrastructure/src/database/services/komptaLedgerService', () => ({
+vi.mock('../../../../infrastructure/src/database/services/komptaLedger.service', () => ({
   KomptaLedgerService: {
     recordEntry: vi.fn(async () => {})
   }

@@ -1,19 +1,15 @@
-// apps/hub-central/app/api/kompta/ledger/route.ts
-
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { LedgerEntryModel } from '@ilot/infrastructure'; // Ou chemin relatif vers l'infra/model
+import { LedgerEntryModel } from '@ilot/infrastructure';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-export async function GET(req: Request) {
+// ==========================================
+// 📒 GET : Consulter le Grand Livre (Strictement Privé / Aura)
+// ==========================================
+export const GET = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const session = await getServerSession();
-    if (!session || !session.user) {
-      return NextResponse.json({ success: false, error: 'Oiseau non authentifié.' }, { status: 401 });
-    }
-
-    const userUid = (session.user as any).uid || session.user.email;
+    const userUid = currentUser.uid || currentUser.id;
 
     // Récupérer tout le grand livre de l'oiseau chronologiquement
     const entries = await LedgerEntryModel.find({ ownerUid: userUid }).sort({ createdAt: -1 }).lean();
@@ -41,7 +37,8 @@ export async function GET(req: Request) {
     }, { status: 200 });
 
   } catch (error: any) {
-    console.error('[API Kompta Ledger Error] :', error);
-    return NextResponse.json({ success: false, error: error.message || 'Erreur lors de la lecture du grand livre.' }, { status: 500 });
+    console.error('🔥 [KOMPTA LEDGER ERROR] :', error);
+    const status = error.status || error.statusCode || 500;
+    return NextResponse.json({ success: false, error: error.message || 'Erreur lors de la lecture du grand livre.' }, { status });
   }
-}
+});

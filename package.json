@@ -52,6 +52,7 @@
     "bcryptjs": "^3.0.3",
     "date-fns": "^4.1.0",
     "express": "^5.2.1",
+    "fuse.js": "^7.5.0",
     "gifenc": "^1.0.3",
     "lucide-react": "^0.378.0",
     "mongoose": "^8.3.4",
@@ -63,6 +64,7 @@
     "react-dom": "^18.3.1",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
+    "tone": "^15.1.22",
     "uuid": "^14.0.1",
     "zustand": "^5.0.14"
   }

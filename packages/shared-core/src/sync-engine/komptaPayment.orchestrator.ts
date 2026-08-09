@@ -4,7 +4,7 @@ import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
 import { WalletModel } from '../../../infrastructure/src/database/models/nosql/wallet.model';
-import { KomptaLedgerService } from '../../../infrastructure/src/database/services/komptaLedgerService';
+import { KomptaLedgerService } from '../../../infrastructure/src/database/services/komptaLedger.service';
 
 export interface DirectTransferPayload {
   transferUid: string;
