@@ -1,68 +1,64 @@
 // apps/hub-central/app/[locale]/(inceptions)/ecommerce/[slug]/page.tsx
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { use } from 'react';
 import { UniversalGridCanvas, useCartStore } from '@ilot/shared-core';
 import { storeRegistry } from '@/components/ecommerce/stores/StoreRegistry';
 import { AddToWishlistButton } from '@/components/ecommerce/wishlist/AddWishListButton';
-import { ShoppingBag, Loader2, ArrowLeft, Coins, ShieldCheck, Box } from 'lucide-react';
+import { ShoppingBag, Loader2, ArrowLeft, Box } from 'lucide-react';
 import { Link } from '@/navigation';
+import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 
 interface ProductPageProps {
   params: Promise<{ slug: string }>;
 }
 
 export default function ProductDetailPage({ params }: ProductPageProps) {
-  const [slug, setSlug] = useState<string | null>(null);
-  const [product, setProduct] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const { addItem, setCurrency } = useCartStore();
+  const { slug } = use(params);
+  const { addItem } = useCartStore();
 
-  useEffect(() => {
-    params.then(p => {
-      setSlug(p.slug);
-      fetch(`/api/ecommerce/products/${p.slug}`)
-        .then(res => res.json())
-        .then(data => {
-          if (!data.error) setProduct(data);
-        })
-        .catch(err => console.error("🔥 Erreur de lecture de l'artefact :", err))
-        .finally(() => setLoading(false));
-    });
-  }, [params]);
+  // 🌀 SUTURE REACT QUERY : Récupération intelligente
+  const { data: product, isLoading, error } = useQuery({
+    queryKey: ['product', slug],
+    queryFn: async () => {
+      const res = await fetch(`/api/ecommerce/products/${slug}`);
+      if (!res.ok) throw new Error("Artefact introuvable");
+      return res.json();
+    },
+    enabled: !!slug
+  });
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-[#E5484D]" />
+        <Loader2 className="w-10 h-10 animate-spin text-[#E5484D]" />
       </div>
     );
   }
 
-  if (!product) {
+  if (error || !product) {
     return (
       <div className="max-w-4xl mx-auto py-24 text-center space-y-4">
         <Box className="w-12 h-12 mx-auto text-slate-600" />
         <h2 className="text-xl font-black uppercase text-white">Artefact introuvable</h2>
-        <p className="text-xs font-mono text-slate-400">Cet objet a peut-être été dissous dans les abîmes de la matrice.</p>
-        <Link href="/marketplace" className="inline-block mt-4 px-6 py-3 bg-white/5 text-white font-mono text-xs rounded-xl border border-white/10">
+        <p className="text-xs font-mono text-slate-400">Cet objet a été dissous dans les abîmes de la matrice.</p>
+        <Link href="/marketplace" className="inline-block mt-4 px-6 py-3 bg-white/5 text-white font-mono text-xs rounded-xl border border-white/10 hover:bg-white/10 transition-all">
           Retour au Grand Bazar
         </Link>
       </div>
     );
   }
 
-  const priceFormatted = (product.priceCents / 100).toFixed(2);
-
   const handleAddToCart = () => {
     addItem({
       uid: product.uid,
       title: product.title,
       priceEUR: product.priceCents / 100,
-      priceShards: Math.round(product.priceCents / 10), // Conversion symbolique en éclats si non défini
+      priceShards: Math.round(product.priceCents / 10),
       category: product.category
     });
-    alert("✨ Artefact ajouté à votre panier.");
+    toast.success("✨ Artefact ajouté à votre panier.");
   };
 
   return (
@@ -76,8 +72,8 @@ export default function ProductDetailPage({ params }: ProductPageProps) {
         <AddToWishlistButton productUid={product.uid} />
       </div>
 
-      {/* Rendu dynamique du canevas modulaire s'il existe, sinon vue classique */}
-      {product.blocks && product.blocks.length > 0 ? (
+      {/* Rendu dynamique du canevas modulaire */}
+      {product.blocks?.length > 0 ? (
         <div className="pointer-events-none">
           <UniversalGridCanvas 
             blocks={product.blocks}
@@ -103,21 +99,18 @@ export default function ProductDetailPage({ params }: ProductPageProps) {
         <div className="space-y-1 text-center sm:text-left">
           <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Valeur de l'artefact</span>
           <div className="text-2xl font-black text-white flex items-center gap-3">
-            <span>{priceFormatted} {product.currency || 'EUR'}</span>
+            <span>{(product.priceCents / 100).toFixed(2)} {product.currency || 'EUR'}</span>
             <span className="text-xs font-mono text-slate-500 font-normal">| Stock : {product.stock}</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 w-full sm:w-auto">
-          <button
-            onClick={handleAddToCart}
-            className="flex-1 sm:flex-initial px-8 py-4 bg-[#E5484D] hover:bg-[#c43d41] text-white font-black uppercase text-xs rounded-2xl shadow-[0_0_20px_rgba(229,72,77,0.3)] transition-all flex items-center justify-center gap-2"
-          >
-            <ShoppingBag size={16} /> Acquérir l'Artefact
-          </button>
-        </div>
+        <button
+          onClick={handleAddToCart}
+          className="px-8 py-4 bg-[#E5484D] hover:bg-[#c43d41] text-white font-black uppercase text-xs rounded-2xl shadow-[0_0_20px_rgba(229,72,77,0.3)] transition-all flex items-center justify-center gap-2"
+        >
+          <ShoppingBag size={16} /> Acquérir l'Artefact
+        </button>
       </div>
-
     </div>
   );
 }

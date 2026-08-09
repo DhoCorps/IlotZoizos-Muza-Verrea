@@ -3,6 +3,7 @@
 
 import React, { useState } from 'react';
 import { Camera, Shield, Zap, Target } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface UserProfileProps {
   user: any; 
@@ -39,7 +40,7 @@ export default function UserProfile({ user: initialUser }: UserProfileProps) {
         setUploadSuccess(true);
         setTimeout(() => setUploadSuccess(false), 4000);
       } else {
-        alert("Le chaos a empêché l'ancrage : " + data.message);
+        toast.error("Le chaos a empêché l'ancrage : " + data.message);
       }
     } catch (err) {
       console.error("🔥 Erreur de suture visuelle :", err);

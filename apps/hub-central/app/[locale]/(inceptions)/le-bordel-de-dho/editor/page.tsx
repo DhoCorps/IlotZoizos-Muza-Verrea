@@ -1,11 +1,13 @@
 // apps/hub-central/app/[locale]/(inceptions)/ecommerce/editor/page.tsx
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import { useBlockEngine, UniversalGridCanvas } from '@ilot/shared-core';
 import { storeRegistry } from '@/components/ecommerce/stores/StoreRegistry';
 import { Sparkles, Save, ArrowLeft, Plus, Box, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { toast } from 'sonner';
+import { useMutation } from '@tanstack/react-query';
 
 const INITIAL_PRODUCT_BLOCKS = [
   {
@@ -46,40 +48,44 @@ export default function EcommerceEditorPage() {
     toggleBlock
   } = useBlockEngine(INITIAL_PRODUCT_BLOCKS);
 
-  const [saving, setSaving] = useState(false);
-
-  const handleSaveProduct = async () => {
-    try {
-      setSaving(true);
-      const heroBlock = blocks.find(b => b.type === 'product-hero');
-      const detailsBlock = blocks.find(b => b.type === 'product-details');
-
-      const payload = {
-        title: heroBlock?.data.title || 'Artefact sans nom',
-        description: detailsBlock?.data.description || '',
-        priceEUR: Number(heroBlock?.data.priceEUR) || 0,
-        priceShards: Number(heroBlock?.data.priceShards) || 0,
-        category: heroBlock?.data.category || 'PHYSICAL',
-        rawLayoutBlocks: blocks
-      };
-
+  // 🌀 SUTURE REACT QUERY : Mutation pour la sédimentation du produit
+  const saveProductMutation = useMutation({
+    mutationFn: async (payload: any) => {
       const res = await fetch('/api/ecommerce/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      if (res.ok) {
-        alert("✨ Artefact e-commerce sédimenté avec succès dans le catalogue !");
-      } else {
-        const errData = await res.json();
-        alert(`🔥 Erreur : ${errData.error || 'Échec de la sédimentation'}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Échec de la sédimentation');
       }
-    } catch (err) {
+      return res.json();
+    },
+    onSuccess: () => {
+      toast.success("✨ Artefact e-commerce sédimenté avec succès dans le catalogue !");
+    },
+    onError: (err: any) => {
       console.error("🔥 Fracture lors de la sédimentation du produit :", err);
-    } finally {
-      setSaving(false);
+      toast.error(`🔥 Erreur : ${err.message}`);
     }
+  });
+
+  const handleSaveProduct = () => {
+    const heroBlock = blocks.find(b => b.type === 'product-hero');
+    const detailsBlock = blocks.find(b => b.type === 'product-details');
+
+    const payload = {
+      title: heroBlock?.data.title || 'Artefact sans nom',
+      description: detailsBlock?.data.description || '',
+      priceEUR: Number(heroBlock?.data.priceEUR) || 0,
+      priceShards: Number(heroBlock?.data.priceShards) || 0,
+      category: heroBlock?.data.category || 'PHYSICAL',
+      rawLayoutBlocks: blocks
+    };
+
+    saveProductMutation.mutate(payload);
   };
 
   const handleAddModule = (type: string) => {
@@ -126,10 +132,10 @@ export default function EcommerceEditorPage() {
 
           <button 
             onClick={handleSaveProduct}
-            disabled={saving}
+            disabled={saveProductMutation.isPending}
             className="px-6 py-3.5 bg-[#E5484D] hover:bg-[#c43d41] text-white font-black uppercase text-xs rounded-2xl shadow-[0_0_20px_rgba(229,72,77,0.3)] transition-all flex items-center gap-2 disabled:opacity-50"
           >
-            {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} 
+            {saveProductMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} 
             Sédimenter l'Artefact
           </button>
         </div>

@@ -1,10 +1,12 @@
-// apps/hub-central/components/teams/TeamForm.tsx
+// // apps/hub-central/components/teams/TeamForm.tsx
 'use client';
 
 import { useState } from 'react';
 import { RequireCapability } from '../auth/RequireCapability';
 import { CAPABILITIES } from '@ilot/types';
 import { Network, Globe, Lock, Paperclip, Upload, Trash2, Loader2, FileText, ExternalLink } from 'lucide-react';
+import { toast } from 'sonner';
+import { useMutation } from '@tanstack/react-query';
 
 interface TeamFormProps {
   onSuccess: () => void;
@@ -23,10 +25,60 @@ export function TeamForm({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   const [localDocuments, setLocalDocuments] = useState<any[]>(initialData?.documents || []);
-  const [uploading, setUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
   const isEdit = !!initialData;
+  const teamIdentifier = initialData?.slug || initialData?.uid;
+
+  // 🌀 SUTURE REACT QUERY : Mutation pour l'upload d'artefacts du Nid
+  const uploadDocMutation = useMutation({
+    mutationFn: async ({ file, labelText }: { file: File; labelText: string }) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('label', labelText);
+
+      const res = await fetch(`/api/teams/${teamIdentifier}/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Échec du scellage.");
+      return { uid: data.key, name: file.name, url: data.publicUrl };
+    },
+    onSuccess: (newDoc) => {
+      setLocalDocuments((prev) => [...prev, newDoc]);
+      toast.success("✨ Artefact greffé au Nid.");
+    },
+    onError: (err: any) => {
+      toast.error(`🚨 Erreur d'alchimie : ${err.message}`);
+    }
+  });
+
+  // 🌀 SUTURE REACT QUERY : Mutation pour la suppression d'artefact du Nid
+  const deleteDocMutation = useMutation({
+    mutationFn: async (doc: { uid: string, url: string }) => {
+      const res = await fetch(`/api/teams/${teamIdentifier}/upload`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: doc.url })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Échec de la désintégration.");
+      return doc.uid || doc.url;
+    },
+    onSuccess: (targetKey) => {
+      setLocalDocuments((prev) => prev.filter(d => (d.uid || d.url) !== targetKey));
+      toast.success("Artefact désintégré.");
+    },
+    onError: (err: any) => {
+      toast.error(`🚨 Ineptie : ${err.message}`);
+    },
+    onSettled: () => {
+      setIsDeleting(null);
+    }
+  });
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -67,57 +119,23 @@ export function TeamForm({
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    const teamIdentifier = initialData?.slug || initialData?.uid;
 
     if (!file || !teamIdentifier) {
-      alert("⚠️ Le Nid doit d'abord être fondé avant d'y greffer des artefacts.");
+      toast.error("⚠️ Le Nid doit d'abord être fondé avant d'y greffer des artefacts.");
       return;
     }
 
-    setUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('label', file.name);
-
-    try {
-      const res = await fetch(`/api/teams/${teamIdentifier}/upload`, {
-        method: 'POST',
-        body: formData
-      });
-      
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Échec du scellage.");
-      
-      setLocalDocuments((prev) => [...prev, { uid: data.key, name: file.name, url: data.publicUrl }]);
-    } catch (err: any) {
-      alert(`🚨 Erreur d'alchimie : ${err.message}`);
-    } finally {
-      setUploading(false);
-      e.target.value = '';
-    }
+    uploadDocMutation.mutate({ file, labelText: file.name }, {
+      onSettled: () => {
+        e.target.value = '';
+      }
+    });
   };
 
   const handleDeleteDoc = async (doc: { uid: string, url: string }) => {
-    const teamIdentifier = initialData?.slug || initialData?.uid;
     if (!teamIdentifier || !confirm("Anéantir définitivement cet artefact ?")) return;
-
     setIsDeleting(doc.uid || doc.url);
-    try {
-      const res = await fetch(`/api/teams/${teamIdentifier}/upload`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: doc.url })
-      });
-      
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Échec de la désintégration.");
-      
-      setLocalDocuments((prev) => prev.filter(d => (d.uid || d.url) !== (doc.uid || doc.url)));
-    } catch (err: any) {
-      alert(`🚨 Ineptie : ${err.message}`);
-    } finally {
-      setIsDeleting(null);
-    }
+    deleteDocMutation.mutate(doc);
   };
 
   return (
@@ -153,8 +171,8 @@ export function TeamForm({
         <div className="p-4 bg-white/[0.02] border border-white/5 rounded-xl space-y-4">
           <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-2"><Paperclip size={10} /> Artefacts (Fichiers)</label>
           <label className="w-full flex items-center justify-center gap-2 border border-dashed border-white/10 hover:border-emerald-500/30 p-3 bg-black/10 rounded-xl cursor-pointer text-slate-500 hover:text-emerald-400 text-[10px] font-bold uppercase transition-all">
-            {uploading ? <Loader2 size={12} className="animate-spin" /> : <><Upload size={12} /> Ajouter une brindille</>}
-            <input type="file" className="hidden" onChange={handleFileUpload} disabled={uploading} />
+            {uploadDocMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <><Upload size={12} /> Ajouter une brindille</>}
+            <input type="file" className="hidden" onChange={handleFileUpload} disabled={uploadDocMutation.isPending} />
           </label>
           
           <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar">

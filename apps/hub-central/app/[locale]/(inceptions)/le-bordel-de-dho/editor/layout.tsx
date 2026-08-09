@@ -1,24 +1,33 @@
 // apps/hub-central/app/[locale]/(inceptions)/ecommerce/editor/layout.tsx
+'use client';
+
 import React from 'react';
+import { Sparkles } from 'lucide-react';
 
-export default function EditorLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function EcommerceEditorLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#07090E] text-slate-100 relative overflow-x-hidden selection:bg-[#E5484D] selection:text-white">
+    <div className="min-h-screen bg-[#05070A] text-slate-100 p-6 md:p-12 relative overflow-x-hidden">
       
-      {/* 🌌 Effets de fond permanents (Atmosphère de l'Îlot) */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff03_1px,transparent_1px),linear-gradient(to_bottom,#ffffff03_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
-      <div className="absolute top-0 left-1/4 w-96 h-96 bg-[#E5484D]/5 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-10 right-1/4 w-96 h-96 bg-cyan-500/5 rounded-full blur-[120px] pointer-events-none" />
+      {/* Aura Bio-Tech */}
+      <div className="absolute top-0 right-1/4 w-[700px] h-[500px] bg-amber-500/5 blur-[160px] rounded-full pointer-events-none -z-10" />
 
-      {/* Contenu principal de l'éditeur */}
-      <main className="relative z-10 px-4 sm:px-6 lg:px-8 py-8">
-        {children}
-      </main>
+      <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+        
+        {/* En-tête global de la Forge E-commerce */}
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/5 pb-6">
+          <div className="space-y-1">
+            <span className="px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full text-[10px] font-black text-amber-400 uppercase tracking-widest inline-flex items-center gap-1.5 font-mono">
+              <Sparkles size={12} /> Studio de Création d'Artefacts
+            </span>
+            <h1 className="text-3xl font-black uppercase tracking-tight text-white">
+              Forge E-Commerce
+            </h1>
+          </div>
+        </header>
 
+        {/* Contenu principal de l'éditeur */}
+        <main>{children}</main>
+      </div>
     </div>
   );
 }

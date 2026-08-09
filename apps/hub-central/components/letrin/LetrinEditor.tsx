@@ -1,8 +1,10 @@
+// // apps/hub-central/components/letrin/LetrinEditor.tsx
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
 import { Pencil, Square, Eraser, Download, Save, RefreshCw, Upload, Image as ImageIcon, Type as TypeIcon, Clapperboard, Play, Pause, Plus, Copy, Trash2, PaintBucket, Undo2, Redo2, FlipHorizontal, FlipVertical, Trash, Minus, Circle, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Pipette } from 'lucide-react';
 import * as opentype from 'opentype.js';
+import { toast } from 'sonner';
 
 // --- STRUCTURES DE DONNÉES AVANCÉES (EXPORTÉES) ---
 export type ShapeType = 'full' | 'half-t' | 'half-b' | 'half-l' | 'half-r' | 'q-t' | 'q-b' | 'q-l' | 'q-r' | 'tl' | 'tr' | 'bl' | 'br' | 'tri-tl' | 'tri-tr' | 'tri-bl' | 'tri-br' | 'tri-t' | 'tri-b' | 'tri-l' | 'tri-r';
@@ -490,8 +492,8 @@ export function LetrinEditor({
           if (loadedFrames.length > 0) { setFrames(loadedFrames); setSelectedFrame(loadedFrames[0]); } 
           else { setFrames(['frame_0']); safeMatrices['frame_0'] = Array.from({ length: parsedData.resolution }, () => Array(parsedData.resolution).fill(null)); }
           setSelectedChar('A'); saveHistory(safeMatrices);
-        } else alert("Format Letr'In invalide.");
-      } catch (error) { alert("Lecture JSON impossible."); }
+        } else toast.error("Format Letr'In invalide.");
+      } catch (error) { toast.error("Lecture JSON impossible."); }
     };
     reader.readAsText(file);
     if (jsonInputRef.current) jsonInputRef.current.value = '';
@@ -615,24 +617,24 @@ export function LetrinEditor({
           </div>
           
           <div className="flex items-center gap-4">
-             <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <span className="text-[10px] font-mono text-slate-400 uppercase">Résolution:</span>
                 <input type="number" min="1" value={resolution} onChange={(e) => changeResolution(Number(e.target.value))} className="w-16 bg-black/60 border border-white/10 px-2 py-1 rounded-lg text-xs text-white outline-none font-mono" />
-             </div>
-             <div className="h-6 w-px bg-white/10"></div>
-             
-             <div className="flex flex-col items-center gap-0.5 bg-black/40 p-1 rounded-xl border border-white/10">
+              </div>
+              <div className="h-6 w-px bg-white/10"></div>
+              
+              <div className="flex flex-col items-center gap-0.5 bg-black/40 p-1 rounded-xl border border-white/10">
                 <button onClick={() => panGrid(0, -1)} className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white" title="Décaler en haut"><ChevronUp size={14}/></button>
                 <div className="flex items-center gap-3">
                     <button onClick={() => panGrid(-1, 0)} className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white" title="Décaler à gauche"><ChevronLeft size={14}/></button>
                     <button onClick={() => panGrid(1, 0)} className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white" title="Décaler à droite"><ChevronRight size={14}/></button>
                 </div>
                 <button onClick={() => panGrid(0, 1)} className="p-0.5 rounded hover:bg-white/10 text-slate-400 hover:text-white" title="Décaler en bas"><ChevronDown size={14}/></button>
-             </div>
-             
-             <button onClick={clearGrid} className="ml-2 px-3 py-1.5 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg border border-red-500/20 text-xs font-bold transition-all flex items-center gap-2">
+              </div>
+            
+            <button onClick={clearGrid} className="ml-2 px-3 py-1.5 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded-lg border border-red-500/20 text-xs font-bold transition-all flex items-center gap-2">
                <Trash size={14} /> Vider
-             </button>
+            </button>
           </div>
         </div>
 
@@ -651,10 +653,10 @@ export function LetrinEditor({
             </div>
 
             <div className="flex items-center gap-2">
-               {palette.map((color, i) => (
-                 <button key={i} onClick={() => setBrushColor(color)} className={`w-6 h-6 rounded-full border-2 transition-all ${brushColor === color ? 'border-white scale-110' : 'border-transparent hover:scale-105'}`} style={{ backgroundColor: color === 'transparent' ? '#222' : color }} />
-               ))}
-               <input type="color" value={brushColor !== 'transparent' ? brushColor : '#000000'} onChange={(e) => { if (!palette.includes(e.target.value)) setPalette([...palette, e.target.value]); setBrushColor(e.target.value); }} className="w-6 h-6 p-0 border-0 rounded-full cursor-pointer bg-transparent ml-2" />
+                 {palette.map((color, i) => (
+                   <button key={i} onClick={() => setBrushColor(color)} className={`w-6 h-6 rounded-full border-2 transition-all ${brushColor === color ? 'border-white scale-110' : 'border-transparent hover:scale-105'}`} style={{ backgroundColor: color === 'transparent' ? '#222' : color }} />
+                 ))}
+                 <input type="color" value={brushColor !== 'transparent' ? brushColor : '#000000'} onChange={(e) => { if (!palette.includes(e.target.value)) setPalette([...palette, e.target.value]); setBrushColor(e.target.value); }} className="w-6 h-6 p-0 border-0 rounded-full cursor-pointer bg-transparent ml-2" />
             </div>
           </div>
 
@@ -689,38 +691,38 @@ export function LetrinEditor({
              <button onClick={() => setBrushShape('tri-b')}  className={`p-2 rounded font-mono text-xs ${brushShape === 'tri-b'  ? 'bg-white text-black' : 'text-slate-400 hover:bg-white/10'}`}>▼</button>
              <button onClick={() => setBrushShape('tri-l')}  className={`p-2 rounded font-mono text-xs ${brushShape === 'tri-l'  ? 'bg-white text-black' : 'text-slate-400 hover:bg-white/10'}`}>◀</button>
              <button onClick={() => setBrushShape('tri-r')}  className={`p-2 rounded font-mono text-xs ${brushShape === 'tri-r'  ? 'bg-white text-black' : 'text-slate-400 hover:bg-white/10'}`}>▶</button>
-          </div>
+         </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-4">
+         <div className="flex flex-wrap items-center justify-between gap-4">
              <div className="flex items-center gap-4 bg-black/30 p-2 rounded-xl border border-white/5">
-                <span className="text-[10px] font-mono text-slate-500 uppercase">Bords :</span>
-                <label className="flex items-center gap-1 text-[10px] font-mono cursor-pointer"><input type="checkbox" checked={brushBorders.t} onChange={e => setBrushBorders({...brushBorders, t: e.target.checked})} className="accent-slate-500"/> H</label>
-                <label className="flex items-center gap-1 text-[10px] font-mono cursor-pointer"><input type="checkbox" checked={brushBorders.b} onChange={e => setBrushBorders({...brushBorders, b: e.target.checked})} className="accent-slate-500"/> B</label>
-                <label className="flex items-center gap-1 text-[10px] font-mono cursor-pointer"><input type="checkbox" checked={brushBorders.l} onChange={e => setBrushBorders({...brushBorders, l: e.target.checked})} className="accent-slate-500"/> G</label>
-                <label className="flex items-center gap-1 text-[10px] font-mono cursor-pointer"><input type="checkbox" checked={brushBorders.r} onChange={e => setBrushBorders({...brushBorders, r: e.target.checked})} className="accent-slate-500"/> D</label>
-                <input type="color" value={brushBorderColor} onChange={e => setBrushBorderColor(e.target.value)} className="w-5 h-5 p-0 border-0 bg-transparent cursor-pointer ml-2" title="Couleur bordure" />
-                <div className="flex items-center gap-1 ml-2">
-                   <span className="text-[9px] font-mono text-slate-400">Épaisseur:</span>
-                   <input 
-                     type="number" min="1" max={resolution} 
-                     value={brushBorderWidth} 
-                     onChange={e => setBrushBorderWidth(Math.max(1, Math.min(resolution, Number(e.target.value))))} 
-                     className="w-12 bg-black/60 border border-white/10 rounded px-1 py-0.5 text-[10px] font-mono text-white outline-none text-center"
-                   />
-                </div>
+              <span className="text-[10px] font-mono text-slate-500 uppercase">Bords :</span>
+              <label className="flex items-center gap-1 text-[10px] font-mono cursor-pointer"><input type="checkbox" checked={brushBorders.t} onChange={e => setBrushBorders({...brushBorders, t: e.target.checked})} className="accent-slate-500"/> H</label>
+              <label className="flex items-center gap-1 text-[10px] font-mono cursor-pointer"><input type="checkbox" checked={brushBorders.b} onChange={e => setBrushBorders({...brushBorders, b: e.target.checked})} className="accent-slate-500"/> B</label>
+              <label className="flex items-center gap-1 text-[10px] font-mono cursor-pointer"><input type="checkbox" checked={brushBorders.l} onChange={e => setBrushBorders({...brushBorders, l: e.target.checked})} className="accent-slate-500"/> G</label>
+              <label className="flex items-center gap-1 text-[10px] font-mono cursor-pointer"><input type="checkbox" checked={brushBorders.r} onChange={e => setBrushBorders({...brushBorders, r: e.target.checked})} className="accent-slate-500"/> D</label>
+              <input type="color" value={brushBorderColor} onChange={e => setBrushBorderColor(e.target.value)} className="w-5 h-5 p-0 border-0 bg-transparent cursor-pointer ml-2" title="Couleur bordure" />
+              <div className="flex items-center gap-1 ml-2">
+                  <span className="text-[9px] font-mono text-slate-400">Épaisseur:</span>
+                  <input 
+                    type="number" min="1" max={resolution} 
+                    value={brushBorderWidth} 
+                    onChange={e => setBrushBorderWidth(Math.max(1, Math.min(resolution, Number(e.target.value))))} 
+                    className="w-12 bg-black/60 border border-white/10 rounded px-1 py-0.5 text-[10px] font-mono text-white outline-none text-center"
+                  />
+              </div>
              </div>
 
              <div className="flex items-center gap-2 bg-black/30 p-2 rounded-xl border border-white/5">
-                <span className="text-[10px] font-mono text-slate-500 uppercase">Arrondi ({brushRadius}%)</span>
-                <input type="range" min="0" max="50" value={brushRadius} onChange={e => setBrushRadius(Number(e.target.value))} className="w-24 accent-[#E5484D]" disabled={brushShape.startsWith('tri-')} />
+              <span className="text-[10px] font-mono text-slate-500 uppercase">Arrondi ({brushRadius}%)</span>
+              <input type="range" min="0" max="50" value={brushRadius} onChange={e => setBrushRadius(Number(e.target.value))} className="w-24 accent-[#E5484D]" disabled={brushShape.startsWith('tri-')} />
              </div>
              
              <div className="flex items-center gap-2 bg-black/30 p-1 rounded-xl border border-white/5">
-                <span className="text-[10px] font-mono text-slate-500 uppercase ml-2">Symétrie</span>
-                <button onClick={() => setMirrorX(!mirrorX)} className={`p-1.5 rounded-lg transition-all ${mirrorX ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-500'}`} title="Miroir Horizontal"><FlipHorizontal size={14} /></button>
-                <button onClick={() => setMirrorY(!mirrorY)} className={`p-1.5 rounded-lg transition-all ${mirrorY ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-500'}`} title="Miroir Vertical"><FlipVertical size={14} /></button>
+              <span className="text-[10px] font-mono text-slate-500 uppercase ml-2">Symétrie</span>
+              <button onClick={() => setMirrorX(!mirrorX)} className={`p-1.5 rounded-lg transition-all ${mirrorX ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-500'}`} title="Miroir Horizontal"><FlipHorizontal size={14} /></button>
+              <button onClick={() => setMirrorY(!mirrorY)} className={`p-2 rounded-lg transition-all ${mirrorY ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-500'}`} title="Miroir Vertical"><FlipVertical size={14} /></button>
              </div>
-          </div>
+         </div>
         </div>
 
         <div className="flex-1 flex items-center justify-center p-6 bg-black/60 border border-white/10 rounded-3xl overflow-hidden" onMouseLeave={() => setHoverPoint(null)}>
@@ -748,19 +750,19 @@ export function LetrinEditor({
                       <div 
                         className="absolute"
                         style={{
-                          backgroundColor: cell.c !== 'transparent' ? cell.c : 'transparent',
-                          borderRadius: `${cell.r}%`,
-                          clipPath: getCssClipPath(cell.s),
-                          borderTop: cell.bt && !cell.s.startsWith('tri-') ? `${cell.bw || 1}px solid ${cell.bc}` : 'none',
-                          borderBottom: cell.bb && !cell.s.startsWith('tri-') ? `${cell.bw || 1}px solid ${cell.bc}` : 'none',
-                          borderLeft: cell.bl && !cell.s.startsWith('tri-') ? `${cell.bw || 1}px solid ${cell.bc}` : 'none',
-                          borderRight: cell.br && !cell.s.startsWith('tri-') ? `${cell.bw || 1}px solid ${cell.bc}` : 'none',
-                          top: (cell.s === 'half-b' || cell.s === 'bl' || cell.s === 'br') ? '50%' : (cell.s === 'q-b' ? '75%' : '0'),
-                          bottom: (cell.s === 'half-t' || cell.s === 'tl' || cell.s === 'tr') ? '50%' : (cell.s === 'q-t' ? '75%' : '0'),
-                          left: (cell.s === 'half-r' || cell.s === 'tr' || cell.s === 'br') ? '50%' : (cell.s === 'q-r' ? '75%' : '0'),
-                          right: (cell.s === 'half-l' || cell.s === 'tl' || cell.s === 'bl') ? '50%' : (cell.s === 'q-l' ? '75%' : '0'),
-                          width: (['half-l', 'half-r', 'tl', 'tr', 'bl', 'br'].includes(cell.s)) ? '50%' : (['q-l', 'q-r'].includes(cell.s) ? '25%' : '100%'),
-                          height: (['half-t', 'half-b', 'tl', 'tr', 'bl', 'br'].includes(cell.s)) ? '50%' : (['q-t', 'q-b'].includes(cell.s) ? '25%' : '100%'),
+                            backgroundColor: cell.c !== 'transparent' ? cell.c : 'transparent',
+                            borderRadius: `${cell.r}%`,
+                            clipPath: getCssClipPath(cell.s),
+                            borderTop: cell.bt && !cell.s.startsWith('tri-') ? `${cell.bw || 1}px solid ${cell.bc}` : 'none',
+                            borderBottom: cell.bb && !cell.s.startsWith('tri-') ? `${cell.bw || 1}px solid ${cell.bc}` : 'none',
+                            borderLeft: cell.bl && !cell.s.startsWith('tri-') ? `${cell.bw || 1}px solid ${cell.bc}` : 'none',
+                            borderRight: cell.br && !cell.s.startsWith('tri-') ? `${cell.bw || 1}px solid ${cell.bc}` : 'none',
+                            top: (cell.s === 'half-b' || cell.s === 'bl' || cell.s === 'br') ? '50%' : (cell.s === 'q-b' ? '75%' : '0'),
+                            bottom: (cell.s === 'half-t' || cell.s === 'tl' || cell.s === 'tr') ? '50%' : (cell.s === 'q-t' ? '75%' : '0'),
+                            left: (cell.s === 'half-r' || cell.s === 'tr' || cell.s === 'br') ? '50%' : (cell.s === 'q-r' ? '75%' : '0'),
+                            right: (cell.s === 'half-l' || cell.s === 'tl' || cell.s === 'bl') ? '50%' : (cell.s === 'q-l' ? '75%' : '0'),
+                            width: (['half-l', 'half-r', 'tl', 'tr', 'bl', 'br'].includes(cell.s)) ? '50%' : (['q-l', 'q-r'].includes(cell.s) ? '25%' : '100%'),
+                            height: (['half-t', 'half-b', 'tl', 'tr', 'bl', 'br'].includes(cell.s)) ? '50%' : (['q-t', 'q-b'].includes(cell.s) ? '25%' : '100%'),
                         }}
                       />
                     )}

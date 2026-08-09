@@ -2,8 +2,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ShoppingBag, X, Trash2, Coins, ArrowRight, Loader2, Sparkles } from 'lucide-react';
-import { useCartStore } from '@ilot/shared-core'; // ou ton chemin local de store
+import { ShoppingBag, X, Trash2, ArrowRight, Loader2, Sparkles } from 'lucide-react';
+import { useCartStore } from '@ilot/shared-core'; 
+import { toast } from 'sonner';
+import { useMutation } from '@tanstack/react-query';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -12,9 +14,6 @@ interface CartDrawerProps {
 
 export function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
   const { items, currency, setCurrency, removeItem, clearCart } = useCartStore();
-  const [checkingOut, setCheckingOut] = useState(false);
-
-  if (!isOpen) return null;
 
   // Calcul du montant total selon la devise choisie
   const totalAmount = items.reduce((acc, item) => {
@@ -22,13 +21,11 @@ export function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
     return acc + price * item.quantity;
   }, 0);
 
-  const handleCheckout = async () => {
-    if (items.length === 0) return;
-
-    try {
-      setCheckingOut(true);
+  // 🌀 SUTURE REACT QUERY : Mutation pour le processus de commande (Checkout)
+  const checkoutMutation = useMutation({
+    mutationFn: async () => {
       const payload = {
-        buyerUid: 'oiseau-souverain', // Sera remplacé par l'ID de session si connecté
+        buyerUid: 'oiseau-souverain', 
         items: items.map(i => ({
           productUid: i.productUid,
           title: i.title,
@@ -47,20 +44,20 @@ export function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
       });
 
       const data = await res.json();
-
-      if (res.ok) {
-        alert("✨ Commande validée ! L'artefact est désormais inscrit dans votre grimoire.");
-        clearCart();
-        onClose();
-      } else {
-        alert(`🔥 Échec de la transaction : ${data.error || 'Erreur inconnue'}`);
-      }
-    } catch (err) {
-      console.error("Erreur lors du checkout :", err);
-    } finally {
-      setCheckingOut(false);
+      if (!res.ok) throw new Error(data.error || 'Erreur inconnue');
+      return data;
+    },
+    onSuccess: () => {
+      toast.success("✨ Commande validée ! L'artefact est désormais inscrit dans votre grimoire.");
+      clearCart();
+      onClose();
+    },
+    onError: (err: any) => {
+      toast.error(`🔥 Échec de la transaction : ${err.message}`);
     }
-  };
+  });
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/80 backdrop-blur-md animate-in fade-in">
@@ -148,11 +145,11 @@ export function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
           </div>
 
           <button
-            onClick={handleCheckout}
-            disabled={checkingOut || items.length === 0}
+            onClick={() => checkoutMutation.mutate()}
+            disabled={checkoutMutation.isPending || items.length === 0}
             className="w-full py-4 bg-[#E5484D] hover:bg-[#c43d41] text-white font-black uppercase text-xs rounded-2xl shadow-[0_0_20px_rgba(229,72,77,0.3)] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
           >
-            {checkingOut ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+            {checkoutMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
             Sceller la Commande
           </button>
         </div>

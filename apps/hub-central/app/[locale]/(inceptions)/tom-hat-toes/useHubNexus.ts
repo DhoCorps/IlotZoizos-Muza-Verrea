@@ -1,14 +1,18 @@
 // apps/hub-central/app/[locale]/(inceptions)/tom-hat-toes/useHubNexus.ts
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useSession, signOut } from 'next-auth/react'; 
 import { teams as apiTeams, projects as apiProjects } from '../../../../lib/apiClient';
+import { toast } from 'sonner';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-// 🪡 SUTURE : Centralisation et unification des routes d'Atomes
+// 🪡 SUTURE : Routes d'Atomes
 const apiTasks = {
-  getByProject: (pUid: string) => 
-    fetch(`/api/tasks?projectUid=${pUid}&t=${Date.now()}`).then(r => r.json()),
+  getByProject: async (pUid: string) => {
+    const res = await fetch(`/api/tasks?projectUid=${pUid}&t=${Date.now()}`);
+    return res.json();
+  },
   create: (payload: any) => 
     fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }),
   update: (taskUid: string, payload: any) => 
@@ -17,7 +21,7 @@ const apiTasks = {
     fetch(`/api/tasks/${taskUid}`, { method: 'DELETE' })
 };
 
-// 🪡 SUTURE : Centralisation des opérations de gouvernance système
+// 🪡 SUTURE : Opérations de gouvernance système
 const apiSystem = {
   respondToInvitation: (teamUid: string, action: string) => 
     fetch(`/api/teams/${teamUid}/respond`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) }),
@@ -31,23 +35,22 @@ const apiSystem = {
     fetch(`/api/teams/${teamUid}/leave`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) }),
   leaveSanctuary: (userUid: string) => 
     fetch(`/api/users/${userUid}/actions/leave`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'CLEAN', teamId: 'GLOBAL_SYSTEM' }) }),
-  searchBirds: (val: string) => fetch(`/api/users/recruitable?search=${val}`).then(r => r.json())
+  searchBirds: async (val: string) => {
+    const res = await fetch(`/api/users/recruitable?search=${val}`);
+    return res.json();
+  }
 };
 
 export function useHubNexus() {
   const { data: session, status } = useSession(); 
   const userCaps = (session as any)?.user?.capabilities || [];
   const userUid = (session as any)?.user?.uid;
-  
-  const [inceptions, setInceptions] = useState<any[]>([]);
-  const [projects, setProjects] = useState<any[]>([]);
-  const [projectTasks, setProjectTasks] = useState<any[]>([]); 
+  const queryClient = useQueryClient();
   
   const [selectedProjectUid, setSelectedProjectUid] = useState<string | null>(null);
   const [selectedTeamUid, setSelectedTeamUid] = useState<string | null>(null); 
   const [selectedTaskUid, setSelectedTaskUid] = useState<string | null>(null); 
   
-  const [loading, setLoading] = useState(true);
   const [activeInceptionId, setActiveInceptionId] = useState<string | null>(null);
   const [activeTab, NavActiveTab] = useState<'teams' | 'projects' | 'horizon'>('teams');
   const [isKanbanOpen, setIsKanbanOpen] = useState(false); 
@@ -60,8 +63,35 @@ export function useHubNexus() {
   const [selectedSlotDate, setSelectedSlotDate] = useState<Date | null>(null);
   const [selectedCaps, setSelectedCaps] = useState<string[]>(['project:read', 'task:create']);
 
+  // 🌀 SUTURE REACT QUERY : Récupération automatique des Nids (Teams)
+  const { data: inceptions = [], isLoading: teamsLoading } = useQuery({
+    queryKey: ['hub-teams'],
+    queryFn: () => apiTeams.getAll(),
+    enabled: status === 'authenticated',
+  });
+
+  // 🌀 SUTURE REACT QUERY : Récupération automatique des Chantiers (Projects)
+  const { data: projects = [], isLoading: projectsLoading } = useQuery({
+    queryKey: ['hub-projects'],
+    queryFn: () => apiProjects.getAll(),
+    enabled: status === 'authenticated',
+  });
+
+  // 🌀 SUTURE REACT QUERY : Récupération automatique des Atomes (Tasks) du projet sélectionné
+  const { data: projectTasks = [], refetch: refetchTasks } = useQuery({
+    queryKey: ['hub-tasks', selectedProjectUid],
+    queryFn: async () => {
+      if (!selectedProjectUid) return [];
+      const res = await apiTasks.getByProject(selectedProjectUid);
+      return Array.isArray(res) ? res : (res.data || []);
+    },
+    enabled: !!selectedProjectUid && status === 'authenticated',
+  });
+
+  const loading = teamsLoading || projectsLoading;
+
   const activeTeam = useMemo(() => {
-    return inceptions.find(t => t.uid === selectedTeamUid) || null;
+    return inceptions.find((t: any) => t.uid === selectedTeamUid) || null;
   }, [inceptions, selectedTeamUid]);
 
   const isInviteeMode = useMemo(() => {
@@ -70,49 +100,21 @@ export function useHubNexus() {
 
   const visibleProjects = useMemo(() => {
     if (!selectedTeamUid) return []; 
-    return projects.filter(p => p.ownerUid === selectedTeamUid);
+    return projects.filter((p: any) => p.ownerUid === selectedTeamUid);
   }, [projects, selectedTeamUid]);
 
   const fetchTasks = async (pUid: string) => {
-    try {
-      const res = await apiTasks.getByProject(pUid);
-      const tasks = Array.isArray(res) ? res : (res.data || []);
-      setProjectTasks(tasks);
-      setSelectedProjectUid(pUid);
-    } catch (err) {
-      console.error("🔥 Erreur radar tâches :", err);
-      setProjectTasks([]); 
-    }
+    setSelectedProjectUid(pUid);
+    await refetchTasks();
   };
 
   const refreshData = async () => {
-    setLoading(true);
-    try {
-      const [teamsRes, projectsRes] = await Promise.all([
-        apiTeams.getAll(),
-        apiProjects.getAll()
-      ]);
-      setInceptions(teamsRes);
-      setProjects(projectsRes);
-      if (selectedProjectUid) {
-        await fetchTasks(selectedProjectUid);
-      }
-    } catch (err) {
-      console.error("🚨 Échec de synchronisation Hub via Client API:", err);
-    } finally {
-      setLoading(false);
-    }
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['hub-teams'] }),
+      queryClient.invalidateQueries({ queryKey: ['hub-projects'] }),
+      selectedProjectUid ? queryClient.invalidateQueries({ queryKey: ['hub-tasks', selectedProjectUid] }) : Promise.resolve()
+    ]);
   };
-
-  useEffect(() => { 
-    if (status === 'authenticated') refreshData(); 
-  }, [status]); 
-
-  useEffect(() => {
-    if (activeTab === 'projects' && visibleProjects.length > 0 && !selectedProjectUid) {
-      fetchTasks(visibleProjects[0].uid);
-    }
-  }, [visibleProjects, activeTab]);
 
   const handleSearchBirds = async (val: string) => {
     setSearchBird(val);
@@ -160,59 +162,47 @@ export function useHubNexus() {
   };
 
   const handleManageInvitation = async (teamUid: string, targetUid: string, action: 'CANCEL' | 'REINVITE') => {
-    setLoading(true);
     try {
       await apiSystem.manageInvitation(teamUid, targetUid, action, selectedCaps);
       await refreshData();
     } catch (err) {
       console.error("🔥 Erreur de régulation de volée :", err);
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleDeleteTeam = async (teamUid: string) => {
     if (!window.confirm("Êtes-vous sûr de vouloir dissoudre définitivement ce Nid ?")) return;
-    setLoading(true);
     try {
       const res = await apiSystem.deleteTeam(teamUid);
       if (res.ok) {
         if (selectedTeamUid === teamUid) {
           setSelectedTeamUid(null);
           setSelectedProjectUid(null);
-          setProjectTasks([]);
         }
         await refreshData();
       }
     } catch (err) {
       console.error("🔥 Impossible de dissoudre le Nid parent :", err);
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleDeleteProject = async (projectUid: string) => {
     if (!window.confirm("Êtes-vous sûr de vouloir raser définitivement ce Chantier ?")) return;
-    setLoading(true);
     try {
       const res = await apiSystem.deleteProject(projectUid);
       if (res.ok) {
         if (selectedProjectUid === projectUid) {
           setSelectedProjectUid(null);
-          setProjectTasks([]);
         }
         await refreshData();
       }
     } catch (err) {
       console.error("🔥 Impossible de détruire le Chantier :", err);
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleDeleteTask = async (taskUid: string) => {
     if (!window.confirm("Êtes-vous sûr de vouloir désintégrer cet Atome ?")) return;
-    setLoading(true);
     try {
       const res = await apiTasks.delete(taskUid);
       if (res.ok) {
@@ -220,14 +210,12 @@ export function useHubNexus() {
           setSelectedTaskUid(null);
         }
         if (selectedProjectUid) {
-          await fetchTasks(selectedProjectUid);
+          await refetchTasks();
         }
         await refreshData();
       }
     } catch (err) {
       console.error("🔥 Erreur de désintégration atomique :", err);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -253,20 +241,17 @@ export function useHubNexus() {
     };
 
     try {
-      setLoading(true);
       const res = await apiTasks.update(selectedTaskUid, taskPayload);
       if (res.ok) {
         setActiveInceptionId(null);
         setSelectedTaskUid(null);
-        if (selectedProjectUid) await fetchTasks(selectedProjectUid);
+        if (selectedProjectUid) await refetchTasks();
       } else {
         const err = await res.json();
-        alert(`Impossible d'enregistrer les modifications : ${err.error}`);
+        toast.error(`Impossible d'enregistrer les modifications : ${err.error}`);
       }
     } catch (err) {
       console.error("🔥 Erreur radar lors de la modification de l'Atome :", err);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -274,7 +259,6 @@ export function useHubNexus() {
     const confirmLeave = window.confirm(mode === 'CLEAN' ? "Quitter définitivement..." : "Quitter...");
     if (!confirmLeave) return;
 
-    setLoading(true);
     try {
       const res = await apiSystem.leaveTeam(teamUid, mode);
       if (res.ok) {
@@ -285,8 +269,6 @@ export function useHubNexus() {
       }
     } catch (err) {
       console.error("🔥 Impossible de rompre le lien volontaire :", err);
-    } finally {
-      setLoading(false);
     }
   };
   
@@ -322,15 +304,12 @@ export function useHubNexus() {
     };
 
     try {
-      setLoading(true);
       const res = await apiTasks.create(taskPayload);
       if (res.ok) {
         handleCreateSuccess(pUid || undefined);
       }
     } catch (err) {
       console.error("🔥 Erreur création atome:", err);
-    } finally {
-      setLoading(false);
     }
   };
 

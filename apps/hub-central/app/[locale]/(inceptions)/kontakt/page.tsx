@@ -2,43 +2,60 @@
 'use client';
 
 import { useState } from 'react';
-import { Sparkles, Compass, Flame, Shield, Briefcase, Plus, User, Terminal } from 'lucide-react';
+import { Sparkles, Compass, Flame, Shield, Briefcase, Plus, User, Terminal, Loader2 } from 'lucide-react';
 import { useKontakt } from './useKontakt';
 import KontaktSwipeDeck from '@/components/kontakt/KontaktSwipeDeck';
 
 // 🕸️ Le Tisseur est importé et sera passé aux cartes enfants (ex: KontaktSwipeDeck) 
 // ou utilisé directement quand on affichera le profil d'un autre oiseau.
-import ResonanceButton from '../../../../components/resonance/ResonanceButton'; 
+import ResonanceButton from '@/components/resonance/ResonanceButton'; 
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 export default function KontaktDashboard() {
+  const queryClient = useQueryClient();
   const { quests, activeTab, setActiveTab, refreshKontakt } = useKontakt();
   const [isQuestModalOpen, setIsQuestModalOpen] = useState(false);
   const [newQuestTitle, setNewQuestTitle] = useState('');
   const [newQuestDesc, setNewQuestDesc] = useState('');
 
-  const handleCreateQuest = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
+  // 🌀 SUTURE REACT QUERY : Mutation pour la publication d'une quête
+  const createQuestMutation = useMutation({
+    mutationFn: async (payload: any) => {
       const res = await fetch('/api/kontakt/quests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectUid: 'project-default',
-          title: newQuestTitle,
-          description: newQuestDesc,
-          requiredSkills: ['Next.js', 'TypeScript', 'Magie'],
-          rewardLore: 'Part d\'artefacts et aura lumineuse'
-        })
+        body: JSON.stringify(payload)
       });
-      if (res.ok) {
-        setIsQuestModalOpen(false);
-        setNewQuestTitle('');
-        setNewQuestDesc('');
-        refreshKontakt();
-      }
-    } catch (err) {
+      if (!res.ok) throw new Error("Échec de la publication de la quête");
+      return res.json();
+    },
+    onSuccess: () => {
+      setIsQuestModalOpen(false);
+      setNewQuestTitle('');
+      setNewQuestDesc('');
+      
+      // Invalidation du cache et rafraîchissement
+      queryClient.invalidateQueries({ queryKey: ['kontakt-quests'] });
+      refreshKontakt();
+      
+      toast.success("✨ Quête inscrite avec succès dans la matrice !");
+    },
+    onError: (err: any) => {
       console.error("Erreur lors de la publication de la quête :", err);
+      toast.error(`🔥 Erreur : ${err.message}`);
     }
+  });
+
+  const handleCreateQuest = (e: React.FormEvent) => {
+    e.preventDefault();
+    createQuestMutation.mutate({
+      projectUid: 'project-default',
+      title: newQuestTitle,
+      description: newQuestDesc,
+      requiredSkills: ['Next.js', 'TypeScript', 'Magie'],
+      rewardLore: 'Part d\'artefacts et aura lumineuse'
+    });
   };
 
   return (
@@ -95,7 +112,7 @@ export default function KontaktDashboard() {
             activeTab === 'quests' ? 'bg-[#E5484D] text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-white/5'
           }`}
         >
-          <Briefcase size={16} /> Tableau des Quêtes ({quests.length})
+          <Briefcase size={16} /> Tableau des Quêtes ({quests?.length || 0})
         </button>
 
         <button
@@ -118,7 +135,7 @@ export default function KontaktDashboard() {
       {/* 📜 CONTENU DE L'ONGLET : TABLEAU DES QUÊTES */}
       {activeTab === 'quests' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in duration-300">
-          {quests.map((quest: any) => (
+          {quests?.map((quest: any) => (
             <div key={quest.uid} className="p-6 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl flex flex-col justify-between space-y-4 hover:border-white/20 transition-all">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -146,7 +163,7 @@ export default function KontaktDashboard() {
             </div>
           ))}
 
-          {quests.length === 0 && (
+          {(!quests || quests.length === 0) && (
             <div className="col-span-full py-20 text-center space-y-4 bg-black/20 border border-white/5 rounded-3xl">
               <Compass className="w-10 h-10 mx-auto text-slate-600" />
               <p className="text-xs font-mono uppercase tracking-widest text-slate-500">
@@ -234,7 +251,12 @@ export default function KontaktDashboard() {
                 />
               </div>
 
-              <button type="submit" className="w-full py-4 bg-[#E5484D] hover:bg-[#c43d41] text-white font-black uppercase text-xs rounded-2xl shadow-lg transition-all">
+              <button 
+                type="submit" 
+                disabled={createQuestMutation.isPending}
+                className="w-full py-4 bg-[#E5484D] hover:bg-[#c43d41] text-white font-black uppercase text-xs rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {createQuestMutation.isPending && <Loader2 size={14} className="animate-spin" />}
                 Inscrire la Quête dans la Matrice
               </button>
             </form>

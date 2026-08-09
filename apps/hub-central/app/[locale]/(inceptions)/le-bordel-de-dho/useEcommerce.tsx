@@ -1,37 +1,40 @@
+// apps/hub-central/app/[locale]/(inceptions)/marchand/useEcommerce.ts
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { ecommerce } from '@/lib/apiClient';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 export function useEcommerce() {
-  const [products, setProducts] = useState<any[]>([]);
-  const [stores, setStores] = useState<any[]>([]);
-  const [wishlist, setWishlist] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'catalog' | 'my-store' | 'barter'>('catalog');
 
-  const fetchEcommerceData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [resProd, resStore, resWish] = await Promise.all([
-        ecommerce.getProducts(),
-        ecommerce.getStores(),
-        ecommerce.getWishlist()
-      ]);
+  // 🌀 SUTURE REACT QUERY : Récupération parallélisée et mise en cache des produits
+  const { data: products = [], isLoading: productsLoading } = useQuery({
+    queryKey: ['ecommerce-products'],
+    queryFn: async () => await ecommerce.getProducts() || []
+  });
 
-      setProducts(resProd || []);
-      setStores(resStore || []);
-      setWishlist(resWish?.productUids || []);
-    } catch (err) {
-      console.error("🌊 Fracture lors de la lecture du Marchand :", err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // 🌀 SUTURE REACT QUERY : Récupération des boutiques
+  const { data: stores = [], isLoading: storesLoading } = useQuery({
+    queryKey: ['ecommerce-stores'],
+    queryFn: async () => await ecommerce.getStores() || []
+  });
 
-  useEffect(() => {
-    fetchEcommerceData();
-  }, [fetchEcommerceData]);
+  // 🌀 SUTURE REACT QUERY : Récupération de la wishlist
+  const { data: wishlistData, isLoading: wishlistLoading } = useQuery({
+    queryKey: ['ecommerce-wishlist'],
+    queryFn: async () => await ecommerce.getWishlist()
+  });
+
+  const wishlist = wishlistData?.productUids || [];
+  const loading = productsLoading || storesLoading || wishlistLoading;
+
+  const refreshEcommerce = () => {
+    queryClient.invalidateQueries({ queryKey: ['ecommerce-products'] });
+    queryClient.invalidateQueries({ queryKey: ['ecommerce-stores'] });
+    queryClient.invalidateQueries({ queryKey: ['ecommerce-wishlist'] });
+  };
 
   return {
     products,
@@ -40,6 +43,6 @@ export function useEcommerce() {
     loading,
     activeTab,
     setActiveTab,
-    refreshEcommerce: fetchEcommerceData
+    refreshEcommerce
   };
 }

@@ -1,30 +1,40 @@
+// apps/hub-central/app/[locale]/auth/forgot-password/page.tsx
 'use client';
 
 import { useState } from 'react';
 import { Link } from '@/navigation';
+import { useMutation } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { Loader2 } from 'lucide-react';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    
-    try {
-      await fetch('/api/auth/forgot-password', { 
+  // 🌀 SUTURE REACT QUERY : Mutation pour le signal de détresse
+  const forgotPasswordMutation = useMutation({
+    mutationFn: async (targetEmail: string) => {
+      const res = await fetch('/api/auth/forgot-password', { 
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }) 
+        body: JSON.stringify({ email: targetEmail }) 
       });
-      // Par sécurité, on affiche toujours le succès pour ne pas révéler si un email existe ou non
+      if (!res.ok) throw new Error("Échec de l'émission du signal");
+      return res.json();
+    },
+    onSuccess: () => {
       setSent(true);
-    } catch (error) {
+      toast.success("✨ Signal de détresse émis dans la canopée.");
+    },
+    onError: (error: any) => {
       console.error("Perturbation lors de l'envoi de la fusée", error);
-    } finally {
-      setIsLoading(false);
+      toast.error("🔥 Perturbation lors de l'envoi de la fusée.");
     }
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    forgotPasswordMutation.mutate(email);
   };
 
   return (
@@ -55,14 +65,21 @@ export default function ForgotPasswordPage() {
 
             <button
               type="submit"
-              disabled={isLoading}
-              className={`w-full py-3 px-4 mt-2 rounded-xl text-white font-bold transition-all shadow-lg ${
-                isLoading 
+              disabled={forgotPasswordMutation.isPending}
+              className={`w-full py-3 px-4 mt-2 rounded-xl text-white font-bold transition-all shadow-lg flex items-center justify-center gap-2 ${
+                forgotPasswordMutation.isPending 
                   ? 'bg-slate-800 cursor-not-allowed opacity-50' 
                   : 'bg-[#E5484D] hover:bg-[#E5484D]/80 shadow-[#E5484D]/10'
               }`}
             >
-              {isLoading ? "Allumage de la fusée..." : "Lancer l'appel"}
+              {forgotPasswordMutation.isPending ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Allumage de la fusée...
+                </>
+              ) : (
+                "Lancer l'appel"
+              )}
             </button>
           </form>
         ) : (

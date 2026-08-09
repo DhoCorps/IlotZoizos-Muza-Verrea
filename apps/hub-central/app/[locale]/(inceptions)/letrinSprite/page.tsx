@@ -1,39 +1,69 @@
 // apps/hub-central/app/[locale]/(inceptions)/letrinSprite/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { 
-  Type, Plus, Trash2, Edit3, Loader2, Sparkles, Compass, Save, ArrowLeft 
+  Type, Plus, Trash2, Edit3, Loader2, Sparkles, Compass, ArrowLeft 
 } from 'lucide-react';
 import { lettrinSprites } from '@/lib/apiClient';
 import { LetrinEditor, PixelData } from '@/components/letrin/LetrinEditor';
-import ResonanceButton from '@/components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Import du tisseur
+import ResonanceButton from '@/components/resonance/ResonanceButton';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 type GlyphMatrix = (PixelData | null)[][];
 type MatricesRecord = Record<string, GlyphMatrix>;
 
 export default function LetrInSpritePage() {
-  const [fonts, setFonts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [currentFont, setCurrentFont] = useState<any>(null);
   const [fontName, setFontName] = useState('Nouvelle Police Sprite');
 
-  const fetchFonts = async () => {
-    try {
-      setLoading(true);
+  // 🌀 SUTURE REACT QUERY : Récupération automatique des polices
+  const { data: fonts = [], isLoading: loading } = useQuery({
+    queryKey: ['lettrin-fonts'],
+    queryFn: async () => {
       const data = await lettrinSprites.getAll();
-      if (Array.isArray(data)) setFonts(data);
-    } catch (err) {
-      console.error("🌊 Fracture lors du recensement des polices Letr'In :", err);
-    } finally {
-      setLoading(false);
+      return Array.isArray(data) ? data : [];
     }
-  };
+  });
 
-  useEffect(() => {
-    fetchFonts();
-  }, []);
+  // 🌀 SUTURE REACT QUERY : Mutation pour la suppression d'une police
+  const deleteMutation = useMutation({
+    mutationFn: async (fontId: string) => {
+      await lettrinSprites.delete(fontId);
+      return fontId;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lettrin-fonts'] });
+      toast.success("✨ Police dissoute dans le néant.");
+    },
+    onError: (err: any) => {
+      console.error("🔥 Erreur lors de la désintégration de la police :", err);
+      toast.error(`🔥 Échec de la suppression : ${err.message}`);
+    }
+  });
+
+  // 🌀 SUTURE REACT QUERY : Mutation pour la création ou la mise à jour d'une police
+  const saveFontMutation = useMutation({
+    mutationFn: async ({ payload, fontUid }: { payload: any; fontUid?: string }) => {
+      if (fontUid) {
+        return await lettrinSprites.update(fontUid, payload);
+      } else {
+        return await lettrinSprites.create(payload);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lettrin-fonts'] });
+      setIsEditing(false);
+      toast.success("✨ Police typographique sédimentée avec succès !");
+    },
+    onError: (err: any) => {
+      console.error("🔥 Erreur lors de la sédimentation de la police :", err);
+      toast.error(`🔥 Échec de la sédimentation : ${err.message}`);
+    }
+  });
 
   const handleOpenCreate = () => {
     setCurrentFont(null);
@@ -47,50 +77,33 @@ export default function LetrInSpritePage() {
     setIsEditing(true);
   };
 
-  const handleDelete = async (fontId: string) => {
+  const handleDelete = (fontId: string) => {
     if (!confirm("Es-tu sûr de vouloir dissoudre cette police dans le néant ?")) return;
-    try {
-      await lettrinSprites.delete(fontId);
-      setFonts(prev => prev.filter(f => f.uid !== fontId));
-    } catch (err) {
-      console.error("🔥 Erreur lors de la désintégration de la police :", err);
-    }
+    deleteMutation.mutate(fontId);
   };
 
-  // Sauvegarde des glyphes de l'éditeur vers la Silice & le Graphe avec gestion PixelData
-  const handleSaveFont = async (matrices: MatricesRecord) => {
-    try {
-      const formattedGlyphs = Object.entries(matrices).map(([char, matrix]) => ({
-        character: char,
-        frames: [
-          {
-            frameIndex: 0,
-            width: matrix[0]?.length || 16,
-            height: matrix.length || 16,
-            pixels: matrix.flat().map(cell => cell ? (cell.c !== 'transparent' ? cell.c : 'filled') : '0')
-          }
-        ],
-        advanceWidth: matrix[0]?.length || 16
-      }));
+  const handleSaveFont = (matrices: MatricesRecord) => {
+    const formattedGlyphs = Object.entries(matrices).map(([char, matrix]) => ({
+      character: char,
+      frames: [
+        {
+          frameIndex: 0,
+          width: matrix[0]?.length || 16,
+          height: matrix.length || 16,
+          pixels: matrix.flat().map(cell => cell ? (cell.c !== 'transparent' ? cell.c : 'filled') : '0')
+        }
+      ],
+      advanceWidth: matrix[0]?.length || 16
+    }));
 
-      const payload = {
-        name: fontName,
-        gridSize: { width: 16, height: 16 },
-        glyphs: formattedGlyphs,
-        status: 'RELEASED'
-      };
+    const payload = {
+      name: fontName,
+      gridSize: { width: 16, height: 16 },
+      glyphs: formattedGlyphs,
+      status: 'RELEASED'
+    };
 
-      if (currentFont) {
-        await lettrinSprites.update(currentFont.uid, payload);
-      } else {
-        await lettrinSprites.create(payload);
-      }
-
-      setIsEditing(false);
-      fetchFonts();
-    } catch (err) {
-      console.error("🔥 Erreur lors de la sédimentation de la police :", err);
-    }
+    saveFontMutation.mutate({ payload, fontUid: currentFont?.uid });
   };
 
   // Préparation des glyphes initiaux si on édite une police existante
@@ -129,7 +142,7 @@ export default function LetrInSpritePage() {
   // Si on est en mode édition, on affiche l'éditeur Letr'In
   if (isEditing) {
     return (
-      <div className="max-w-7xl mx-auto space-y-6 pb-24 animate-in fade-in duration-500">
+      <div className="space-y-6 pb-24 animate-in fade-in duration-500">
         <div className="flex items-center justify-between p-6 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl">
           <button 
             onClick={() => setIsEditing(false)}
@@ -147,7 +160,6 @@ export default function LetrInSpritePage() {
           />
         </div>
 
-        {/* L'Éditeur de Sprite Letr'In */}
         <LetrinEditor 
           fontTitle={fontName}
           initialGridSize={16}
@@ -160,7 +172,7 @@ export default function LetrInSpritePage() {
 
   // Sinon, on affiche le Dashboard / Catalogue des polices
   return (
-    <div className="max-w-7xl mx-auto space-y-8 pb-24 animate-in fade-in duration-500">
+    <div className="space-y-8 pb-24 animate-in fade-in duration-500">
       
       {/* 🌌 EN-TÊTE LETR'IN */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-8 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl relative overflow-hidden shadow-2xl">
@@ -206,7 +218,6 @@ export default function LetrInSpritePage() {
                 key={fontId} 
                 className="p-6 bg-black/30 border border-white/5 rounded-3xl backdrop-blur-md flex flex-col justify-between space-y-6 hover:border-white/20 transition-all group relative"
               >
-                {/* 🕸️ Bouton de Résonance granulaire sur la police */}
                 <div className="absolute top-6 right-6 z-10">
                   <ResonanceButton 
                     targetSlug={authorSlug}
@@ -246,10 +257,15 @@ export default function LetrInSpritePage() {
 
                   <button 
                     onClick={() => handleDelete(fontId)}
-                    className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl border border-red-500/20 transition-all"
+                    disabled={deleteMutation.isPending}
+                    className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl border border-red-500/20 transition-all disabled:opacity-50"
                     title="Dissoudre"
                   >
-                    <Trash2 size={14} />
+                    {deleteMutation.isPending && deleteMutation.variables === fontId ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Trash2 size={14} />
+                    )}
                   </button>
                 </div>
               </div>

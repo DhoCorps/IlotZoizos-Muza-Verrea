@@ -1,16 +1,16 @@
 // apps/hub-central/app/[locale]/(inceptions)/partita/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Music, Plus, Loader2, Sparkles, Compass } from 'lucide-react';
 import { PartitaCard } from '@/components/partita/PartitaCard';
 import { PartitaForm } from '@/components/partita/PartitaForm';
-import ResonanceButton from '@/components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Le tisseur de liens
+import ResonanceButton from '@/components/resonance/ResonanceButton';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 export default function PartitaDashboard() {
-  const [partitions, setPartitions] = useState<any[]>([]);
-  const [projects, setProjects] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [instrumentFilter, setInstrumentFilter] = useState<string>('ALL');
@@ -19,45 +19,50 @@ export default function PartitaDashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPartition, setEditingPartition] = useState<any>(null);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const [resPartitions, resProjects] = await Promise.all([
-        fetch('/api/partitions'),
-        fetch('/api/projects')
-      ]);
-      
-      if (resPartitions.ok) {
-        const data = await resPartitions.json();
-        if (Array.isArray(data)) setPartitions(data);
-      }
-      
-      if (resProjects.ok) {
-        const data = await resProjects.json();
-        const projList = Array.isArray(data) ? data : (data.data || []);
-        setProjects(projList);
-      }
-    } catch (err) {
-      console.error("🌊 Fracture lors de la synchronisation du catalogue Partita :", err);
-    } finally {
-      setLoading(false);
+  // 🌀 SUTURE REACT QUERY : Récupération des partitions
+  const { data: partitions = [], isLoading: partitionsLoading } = useQuery({
+    queryKey: ['partitions'],
+    queryFn: async () => {
+      const res = await fetch('/api/partitions');
+      if (!res.ok) throw new Error("Échec de la récupération des partitions");
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     }
-  };
+  });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  // 🌀 SUTURE REACT QUERY : Récupération des projets liés
+  const { data: projects = [], isLoading: projectsLoading } = useQuery({
+    queryKey: ['projects'],
+    queryFn: async () => {
+      const res = await fetch('/api/projects');
+      if (!res.ok) throw new Error("Échec de la récupération des projets");
+      const data = await res.json();
+      return Array.isArray(data) ? data : (data.data || []);
+    }
+  });
 
-  const handleDelete = async (uid: string) => {
-    if (!confirm("Es-tu sûr de vouloir dissoudre cette partition dans le néant ?")) return;
-    try {
+  const loading = partitionsLoading || projectsLoading;
+
+  // 🌀 SUTURE REACT QUERY : Mutation pour la suppression d'une partition
+  const deleteMutation = useMutation({
+    mutationFn: async (uid: string) => {
       const res = await fetch(`/api/partitions/${uid}`, { method: 'DELETE' });
-      if (res.ok) {
-        setPartitions(prev => prev.filter(p => p.uid !== uid));
-      }
-    } catch (err) {
+      if (!res.ok) throw new Error("Échec de la désintégration de la partition");
+      return uid;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['partitions'] });
+      toast.success("✨ Partition dissoute dans le néant.");
+    },
+    onError: (err: any) => {
       console.error("🔥 Erreur lors de la désintégration :", err);
+      toast.error(`🔥 Échec de la suppression : ${err.message}`);
     }
+  });
+
+  const handleDelete = (uid: string) => {
+    if (!confirm("Es-tu sûr de vouloir dissoudre cette partition dans le néant ?")) return;
+    deleteMutation.mutate(uid);
   };
 
   const handleOpenCreate = () => {
@@ -73,10 +78,10 @@ export default function PartitaDashboard() {
   const handleFormSuccess = () => {
     setIsModalOpen(false);
     setEditingPartition(null);
-    fetchData();
+    queryClient.invalidateQueries({ queryKey: ['partitions'] });
   };
 
-  const filteredPartitions = partitions.filter(p => {
+  const filteredPartitions = partitions.filter((p: any) => {
     const matchesStatus = statusFilter === 'ALL' || p.status === statusFilter;
     const matchesInstrument = instrumentFilter === 'ALL' || p.instrument === instrumentFilter;
     const matchesSearch = p.title?.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -85,7 +90,7 @@ export default function PartitaDashboard() {
   });
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 pb-24 animate-in fade-in duration-500">
+    <div className="space-y-8 pb-24 animate-in fade-in duration-500">
       
       {/* 🌌 EN-TÊTE DE LA PARTITIONNERIE */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-8 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl relative overflow-hidden shadow-2xl">
@@ -119,7 +124,6 @@ export default function PartitaDashboard() {
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
           
-          {/* Filtres par statut */}
           <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0 custom-scrollbar">
             {['ALL', 'DRAFT', 'PUBLISHED', 'ARCHIVED'].map((status) => (
               <button
@@ -136,7 +140,6 @@ export default function PartitaDashboard() {
             ))}
           </div>
 
-          {/* Recherche */}
           <div className="relative w-full sm:w-72">
             <input 
               type="text"
@@ -148,7 +151,6 @@ export default function PartitaDashboard() {
           </div>
         </div>
 
-        {/* Filtres par Instrument */}
         <div className="flex items-center gap-2 overflow-x-auto pb-2 custom-scrollbar">
           <span className="text-[9px] font-mono uppercase text-slate-500 mr-2 shrink-0">Instruments :</span>
           {['ALL', 'BASS', 'GUITAR', 'PIANO', 'DRUMS', 'VOCAL', 'OTHER'].map((inst) => (
@@ -180,7 +182,6 @@ export default function PartitaDashboard() {
 
             return (
               <div key={partitionId} className="relative group">
-                {/* 🕸️ Bouton de Résonance granulaire positionné en surbrillance sur la carte */}
                 <div className="absolute top-4 right-4 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                   <ResonanceButton 
                     targetSlug={authorSlug}

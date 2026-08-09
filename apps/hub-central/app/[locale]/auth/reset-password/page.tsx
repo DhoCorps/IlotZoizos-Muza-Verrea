@@ -1,11 +1,13 @@
+// apps/hub-central/app/[locale]/auth/reset-password/page.tsx
 'use client';
 
-import { useState, useEffect, Suspense } from "react";
-// 🛑 Outil natif Next.js (parfait pour lire ?token=...)
-import { useSearchParams } from "next/navigation";
-// 🟢 Routeur magique de next-intl pour garder la langue
-import { useRouter } from "@/navigation"; 
-import { useTranslations } from "next-intl";
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useRouter } from '@/navigation'; 
+import { useTranslations } from 'next-intl';
+import { useMutation } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { Loader2 } from 'lucide-react';
 
 function ResetPasswordForm() {
   const t = useTranslations("auth");
@@ -25,43 +27,51 @@ function ResetPasswordForm() {
     }
   }, [token]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password !== confirmPassword) {
-      setStatus("error");
-      return setMessage("Les chants de sécurité ne correspondent pas.");
-    }
-
-    setStatus("loading");
-    setMessage("");
-
-    try {
+  // 🌀 SUTURE REACT QUERY : Mutation pour la réinitialisation du mot de passe
+  const resetPasswordMutation = useMutation({
+    mutationFn: async () => {
       const res = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // 🪡 SUTURE : On ajoute confirmPassword pour satisfaire le gardien Zod
         body: JSON.stringify({ token, password, confirmPassword }),
       });
 
       if (!res.ok) {
-         setStatus("error");
-         setMessage("La mutation du chant a échoué.");
-         return;
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "La mutation du chant a échoué.");
       }
-
+      return res.json();
+    },
+    onSuccess: () => {
       setStatus("success");
       setMessage("Ton nouveau chant a été assimilé avec succès !");
+      toast.success("✨ Chant de sécurité mis à jour.");
       
-      // ✅ Redirection dynamique vers la page de connexion après 2 secondes
       setTimeout(() => {
         router.push('/auth/login');
       }, 2000);
-
-    } catch (error) {
-       setStatus("error");
-       setMessage("Perturbation dans la matrice de l'Îlot.");
+    },
+    onError: (error: any) => {
+      setStatus("error");
+      setMessage(error.message || "Perturbation dans la matrice de l'Îlot.");
+      toast.error(`🔥 ${error.message || "Échec de la réinitialisation"}`);
     }
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password !== confirmPassword) {
+      setStatus("error");
+      setMessage("Les chants de sécurité ne correspondent pas.");
+      return;
+    }
+
+    setStatus("loading");
+    setMessage("");
+    resetPasswordMutation.mutate();
   };
+
+  const isLoading = resetPasswordMutation.isPending || status === "loading";
 
   return (
     <div className="w-full max-w-md bio-card p-8">
@@ -87,7 +97,7 @@ function ResetPasswordForm() {
           <input
             type="password"
             required
-            disabled={status === "loading" || !token || status === "success"}
+            disabled={isLoading || !token || status === "success"}
             className="w-full rounded-xl border border-white/5 bg-white/5 p-3 text-white outline-none focus:border-[#E5484D]/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -99,7 +109,7 @@ function ResetPasswordForm() {
           <input
             type="password"
             required
-            disabled={status === "loading" || !token || status === "success"}
+            disabled={isLoading || !token || status === "success"}
             className="w-full rounded-xl border border-white/5 bg-white/5 p-3 text-white outline-none focus:border-[#E5484D]/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
@@ -108,31 +118,35 @@ function ResetPasswordForm() {
 
         <button
           type="submit"
-          disabled={status === "loading" || !token || status === "success"}
-          className={`w-full py-3 px-4 mt-2 rounded-xl text-white font-bold transition-all shadow-lg ${
-            status === "loading" || !token || status === "success"
+          disabled={isLoading || !token || status === "success"}
+          className={`w-full py-3 px-4 mt-2 rounded-xl text-white font-bold transition-all shadow-lg flex items-center justify-center gap-2 ${
+            isLoading || !token || status === "success"
               ? 'bg-slate-800 cursor-not-allowed opacity-50' 
               : 'bg-[#E5484D] hover:bg-[#E5484D]/80 shadow-[#E5484D]/10'
           }`}
         >
-          {status === "loading" ? "Assimilation en cours..." : "Valider le chant"}
+          {isLoading ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              Assimilation en cours...
+            </>
+          ) : (
+            "Valider le chant"
+          )}
         </button>
       </form>
     </div>
   );
 }
 
-// 2. L'export par défaut : Emballe et centre le composant
 export default function ResetPasswordPage() {
   return (
-    <div className="min-h-[80vh] flex items-center justify-center p-4">
-      <Suspense fallback={
-        <div className="text-[#E5484D] font-mono animate-pulse">
-          Initialisation du processus de mutation...
-        </div>
-      }>
-        <ResetPasswordForm />
-      </Suspense>
-    </div>
+    <Suspense fallback={
+      <div className="text-[#E5484D] font-mono animate-pulse text-sm">
+        Initialisation du processus de mutation...
+      </div>
+    }>
+      <ResetPasswordForm />
+    </Suspense>
   );
 }

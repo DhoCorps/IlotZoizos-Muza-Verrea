@@ -1,8 +1,10 @@
-"use client";
+// apps/hub-central/components/chat/GlobalChatWidget.tsx
+'use client';
 
 import { useChat } from "../../context/ChatContext";
 import { useState, useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
+import { toast } from "sonner";
 
 // Définition locale de l'interface ChatMessage
 export interface ChatMessage {
@@ -65,10 +67,18 @@ export function GlobalChatWidget() {
 
     const handleArchive = async () => {
         if (messages.length === 0) return;
-        if (confirm("Voulez-vous graver cette conversation dans les archives de l'Îlot ?")) {
-            console.log("Données à archiver :", messages);
-            alert("💾 La conversation a été archivée avec succès.");
-        }
+        
+        // Utilisation d'un toast avec action pour remplacer le confirm() natif
+        toast("Graver cette conversation ?", {
+            description: "Cela enverra les données aux archives de l'Îlot.",
+            action: {
+                label: "Graver",
+                onClick: () => {
+                    console.log("Données à archiver :", messages);
+                    toast.success("💾 La conversation a été archivée avec succès.");
+                },
+            },
+        });
     };
 
     return (

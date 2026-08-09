@@ -1,67 +1,66 @@
 // apps/hub-central/app/[locale]/(inceptions)/marchand/page.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { ShoppingBag, Store, Plus, Repeat, ShieldCheck } from 'lucide-react';
 import { useEcommerce } from './useEcommerce';
-import { ecommerce } from '@/lib/apiClient'; // 🔥 Import de notre client API
+import { ecommerce } from '@/lib/apiClient';
 
-// Import de nos composants modulaires (Vérifie bien les majuscules sur tes fichiers physiques !)
-import { StoreCard } from '../../../../components/ecommerce/stores/StoreCard';
-import { StoreForm } from '../../../../components/ecommerce/stores/StoreForm';
-import { ProductCard } from '../../../../components/ecommerce/products/ProductCard';
-import { ProductForm } from '../../../../components/ecommerce/products/ProductForm';
-import { BarterCard } from '../../../../components/ecommerce/barter/BarterCard';
-import { BarterForm } from '../../../../components/ecommerce/barter/BarterForm';
-import ResonanceButton from '../../../../components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Le tisseur de liens
+import { StoreCard } from '@/components/ecommerce/stores/StoreCard';
+import { StoreForm } from '@/components/ecommerce/stores/StoreForm';
+import { ProductCard } from '@/components/ecommerce/products/ProductCard';
+import { ProductForm } from '@/components/ecommerce/products/ProductForm';
+import { BarterCard } from '@/components/ecommerce/barter/BarterCard';
+import { BarterForm } from '@/components/ecommerce/barter/BarterForm';
+import ResonanceButton from '@/components/resonance/ResonanceButton';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 export default function MarchandDashboard() {
+  const queryClient = useQueryClient();
   const { products, stores, wishlist, loading, activeTab, setActiveTab, refreshEcommerce } = useEcommerce();
   
-  // États des modales d'action
   const [isStoreModalOpen, setIsStoreModalOpen] = useState(false);
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [isBarterModalOpen, setIsBarterModalOpen] = useState(false);
 
-  // État local pour les offres de troc en attente
-  const [barterOffers, setBarterOffers] = useState<any[]>([]);
+  // 🌀 SUTURE REACT QUERY : Remplacement du useEffect + fetch par useQuery pour les offres de troc
+  const { data: barterOffers = [] } = useQuery({
+    queryKey: ['barter-offers'],
+    queryFn: async () => await ecommerce.getBarterOffers()
+  });
 
-  // 🔥 Utilisation du client API pour récupérer les offres
-  const fetchBarterOffers = useCallback(async () => {
-    try {
-      const data = await ecommerce.getBarterOffers();
-      setBarterOffers(data);
-    } catch (err) {
-      console.error("🌊 Erreur lors de la lecture des offres de troc :", err);
+  // 🌀 SUTURE REACT QUERY : Mutation pour la résolution d'un troc
+  const resolveBarterMutation = useMutation({
+    mutationFn: async ({ barterUid, status }: { barterUid: string; status: 'ACCEPTED' | 'REJECTED' }) => {
+      return await ecommerce.resolveBarter(barterUid, status);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['barter-offers'] });
+      toast.success("✨ Offre de troc résolue dans la matrice.");
+    },
+    onError: (err: any) => {
+      toast.error(`🔥 Erreur lors de la résolution du troc : ${err.message}`);
     }
-  }, []);
+  });
 
-  useEffect(() => {
-    fetchBarterOffers();
-  }, [fetchBarterOffers]);
-
-  // 🔥 Utilisation du client API pour la wishlist
   const toggleWishlist = async (productUid: string) => {
     try {
       await ecommerce.toggleWishlist(productUid);
       refreshEcommerce();
+      toast.success("✨ Trésor mis à jour.");
     } catch (err) {
       console.error("Erreur wishlist :", err);
+      toast.error("🔥 Échec de la mise à jour des trésors.");
     }
   };
 
-  // 🔥 Utilisation du client API pour résoudre le troc
-  const handleResolveBarter = async (barterUid: string, status: 'ACCEPTED' | 'REJECTED') => {
-    try {
-      await ecommerce.resolveBarter(barterUid, status);
-      fetchBarterOffers();
-    } catch (err) {
-      console.error("Erreur résolution troc :", err);
-    }
+  const handleResolveBarter = (barterUid: string, status: 'ACCEPTED' | 'REJECTED') => {
+    resolveBarterMutation.mutate({ barterUid, status });
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-24 animate-in fade-in duration-500">
+    <div className="space-y-8 pb-24 animate-in fade-in duration-500">
       
       {/* 🌌 EN-TÊTE SOUVERAIN DU MARCHAND */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-8 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl relative overflow-hidden shadow-2xl">
@@ -102,32 +101,25 @@ export default function MarchandDashboard() {
 
       {/* 🎛️ BARRE DE NAVIGATION INTERACTIVE */}
       <div className="flex items-center justify-center gap-3 bg-black/30 p-2 border border-white/5 rounded-2xl backdrop-blur-md">
-        <button
-          onClick={() => setActiveTab('catalog')}
-          className={`flex-1 py-3 px-6 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
-            activeTab === 'catalog' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <ShoppingBag size={16} /> Catalogue ({products.length})
-        </button>
-
-        <button
-          onClick={() => setActiveTab('my-store')}
-          className={`flex-1 py-3 px-6 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
-            activeTab === 'my-store' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <Store size={16} /> Mes Boutiques ({stores.length})
-        </button>
-
-        <button
-          onClick={() => setActiveTab('barter')}
-          className={`flex-1 py-3 px-6 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
-            activeTab === 'barter' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <Repeat size={16} /> Comptoir de Troc ({barterOffers.length})
-        </button>
+        {[
+          { id: 'catalog', label: `Catalogue (${products.length})`, icon: ShoppingBag },
+          { id: 'my-store', label: `Mes Boutiques (${stores.length})`, icon: Store },
+          { id: 'barter', label: `Comptoir de Troc (${barterOffers.length})`, icon: Repeat },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`flex-1 py-3 px-6 rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+                isActive ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Icon size={16} /> {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* 📦 CONTENU : CATALOGUE DES PRODUITS */}
@@ -163,16 +155,13 @@ export default function MarchandDashboard() {
             {stores.map((store: any) => (
               <div key={store.uid} className="relative group">
                 <StoreCard store={store} />
-                
-                {/* 🕸️ NOUVEAU : Bouton de Résonance pour la Boutique */}
-                {/* Il est positionné en absolute pour s'intégrer discrètement sur la carte de la boutique */}
                 <div className="absolute top-4 right-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                   <ResonanceButton 
-                    targetSlug={store.ownerSlug || store.ownerUid || 'marchand'} // Le slug du créateur de la boutique
+                    targetSlug={store.ownerSlug || store.ownerUid || 'marchand'}
                     type="FOLLOWS_SPECIFIC"
                     entityId={store.uid}
                     variant="icon"
-                    initialIsFollowing={store.isFollowedByMe} // Mettre à jour depuis l'API plus tard
+                    initialIsFollowing={store.isFollowedByMe}
                   />
                 </div>
               </div>
@@ -223,39 +212,27 @@ export default function MarchandDashboard() {
         </div>
       )}
 
-      {/* 🪟 MODALE : CRÉATION DE BOUTIQUE */}
+      {/* 🪟 MODALES */}
       {isStoreModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 animate-in fade-in">
           <div className="w-full max-w-md bg-[#0A0D14] border border-white/10 rounded-3xl p-8 shadow-2xl relative space-y-6">
-            <StoreForm 
-              onSuccess={() => refreshEcommerce()} 
-              onClose={() => setIsStoreModalOpen(false)} 
-            />
+            <StoreForm onSuccess={() => refreshEcommerce()} onClose={() => setIsStoreModalOpen(false)} />
           </div>
         </div>
       )}
 
-      {/* 🪟 MODALE : AJOUT DE PRODUIT */}
       {isProductModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 animate-in fade-in">
           <div className="w-full max-w-md bg-[#0A0D14] border border-white/10 rounded-3xl p-8 shadow-2xl relative space-y-6">
-            <ProductForm 
-              stores={stores} 
-              onSuccess={() => refreshEcommerce()} 
-              onClose={() => setIsProductModalOpen(false)} 
-            />
+            <ProductForm stores={stores} onSuccess={() => refreshEcommerce()} onClose={() => setIsProductModalOpen(false)} />
           </div>
         </div>
       )}
 
-      {/* 🪟 MODALE : PROPOSITION DE TROC */}
       {isBarterModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 animate-in fade-in">
           <div className="w-full max-w-md bg-[#0A0D14] border border-white/10 rounded-3xl p-8 shadow-2xl relative space-y-6">
-            <BarterForm 
-              onSuccess={() => fetchBarterOffers()} 
-              onClose={() => setIsBarterModalOpen(false)} 
-            />
+            <BarterForm onSuccess={() => queryClient.invalidateQueries({ queryKey: ['barter-offers'] })} onClose={() => setIsBarterModalOpen(false)} />
           </div>
         </div>
       )}

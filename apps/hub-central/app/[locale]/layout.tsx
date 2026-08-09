@@ -1,47 +1,44 @@
+// apps/hub-central/app/[locale]/(app)/layout.tsx
+'use client';
+
 import React from 'react';
-import { getTranslations } from 'next-intl/server';
-import * as Sentry from '@sentry/nextjs';
-import type { Metadata } from 'next';
-import { CSPostHogProvider } from '@/components/providers/PostHogProvider';
+import { Compass, Sparkles } from 'lucide-react';
+import { Link } from '@/navigation';
 
-export async function generateMetadata({ params: { locale } }: { params: { locale: string } }): Promise<Metadata> {
-  const t = await getTranslations({ locale, namespace: 'metadata' });
-  
-  return {
-    title: 'Le Nexus des Jeux | L\'Îlot Zoizos',
-    description: 'Rejoignez les instances et affrontez d\'autres oiseaux dans la Matrice.',
-    // Sentry injecte ses données de traçage ici
-    other: {
-      ...Sentry.getTraceData(),
-    }
-  };
-}
-
-export default function GamesLayout({
-  children,
-  params: { locale }
-}: {
-  children: React.ReactNode;
-  params: { locale: string };
-}) {
+export default function AppRootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang={locale}>
-      <body>
-        <CSPostHogProvider>
-          <div className="relative min-h-screen bg-[#05070A] overflow-hidden">
-            {/* Effet visuel de fond : Nébuleuse subtile pour l'immersion (tons gris bleuté et violet) */}
-            <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
-              <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-slate-900/10 blur-[120px]"></div>
-              <div className="absolute top-[60%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-900/10 blur-[120px]"></div>
-            </div>
-
-            {/* Conteneur principal qui accueille le Nexus */}
-            <main className="relative z-10 w-full h-full">
-              {children}
-            </main>
+    <div className="min-h-screen bg-[#05070A] text-slate-100 flex flex-col justify-between selection:bg-[#E5484D] selection:text-white">
+      
+      {/* 🌌 Barre de navigation supérieure globale pour l'application */}
+      <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#05070A]/80 border-b border-white/5 px-6 py-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2 group">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#E5484D] animate-ping" />
+            <span className="font-black tracking-tighter uppercase text-sm text-white group-hover:text-[#E5484D] transition-colors">
+              Îlot Zoizos
+            </span>
+          </Link>
+          <div className="flex items-center gap-4 text-xs font-mono text-slate-400">
+            <span className="hidden sm:inline-flex items-center gap-1.5 text-emerald-400">
+              <Sparkles size={12} /> Matrice Synaptique Active
+            </span>
           </div>
-        </CSPostHogProvider>
-      </body>
-    </html>
+        </div>
+      </header>
+
+      {/* Contenu principal de l'application (la HomePage et les sous-routes) */}
+      <main className="flex-1">
+        {children}
+      </main>
+
+      {/* Pied de page global */}
+      <footer className="border-t border-white/5 py-8 px-6 bg-black/40 text-center text-xs font-mono text-slate-600">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+          <span>Îlot Zoizos &bull; Écosystème Souverain</span>
+          <span className="text-[10px] text-slate-500">&lt;(:&lt; &bull; Tous droits réservés</span>
+        </div>
+      </footer>
+
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-// apps/hub-central/components/profile/BirdProfile.tsx
+// // apps/hub-central/components/profile/BirdProfile.tsx
 'use client';
 
 import React, { useState } from 'react';

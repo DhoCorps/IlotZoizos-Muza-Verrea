@@ -1,9 +1,12 @@
+// apps/hub-central/components/tasks/TaskCard.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { Clock, AlertCircle, Paperclip, Users, Play, Loader2, Trash2, Upload, FileText, ExternalLink, ChevronDown, ChevronUp, Pencil } from 'lucide-react'; 
 import { usePomodoro } from '../../context/PomodoroContext';
 import { ITask } from '@ilot/types';
+import { toast } from 'sonner';
+import { useMutation } from '@tanstack/react-query';
 
 interface TaskCardProps {
   task: ITask;
@@ -37,6 +40,29 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
     e.dataTransfer.effectAllowed = "move";
   };
 
+  // 🌀 SUTURE REACT QUERY : Mutation pour la suppression de pièce jointe
+  const deleteAttachmentMutation = useMutation({
+    mutationFn: async (doc: any) => {
+      const res = await fetch(`/api/tasks/${task.uid}/upload`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: doc.url })
+      });
+      if (!res.ok) throw new Error("Échec de la purge de la brindille.");
+      return doc.uid;
+    },
+    onSuccess: (deletedUid) => {
+      setLocalAttachments((prev) => prev.filter(d => d.uid !== deletedUid));
+      toast.success("Pièce jointe désintégrée.");
+    },
+    onError: (err: any) => {
+      toast.error(`🚨 Ineptie technique : ${err.message}`);
+    },
+    onSettled: () => {
+      setIsDeleting(null);
+    }
+  });
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -58,7 +84,7 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
       setLocalAttachments((prev) => [...prev, data.attachment]);
       setLabel('');
     } catch (err: any) {
-      alert(`🚨 Fracture d'upload : ${err.message}`);
+      toast.error(`🚨 Fracture d'upload : ${err.message}`);
     } finally {
       setUploading(false);
     }
@@ -66,23 +92,8 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
 
   const handleDeleteAttachment = async (doc: any) => {
     if (!confirm("Anéantir cette pièce jointe ?")) return;
-
     setIsDeleting(doc.uid);
-    try {
-      const res = await fetch(`/api/tasks/${task.uid}/upload`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: doc.url })
-      });
-
-      if (!res.ok) throw new Error("Échec de la purge de la brindille.");
-
-      setLocalAttachments((prev) => prev.filter(d => d.uid !== doc.uid));
-    } catch (err: any) {
-      alert(`🚨 Ineptie technique : ${err.message}`);
-    } finally {
-      setIsDeleting(null);
-    }
+    deleteAttachmentMutation.mutate(doc);
   };
 
   return (
@@ -107,9 +118,9 @@ export function TaskCard({ task, onStatusChange, onDelete, onEdit }: TaskCardPro
             </span>
             
             <button 
-               onClick={(e) => { e.stopPropagation(); onEdit?.(task); }}
-               className="p-1 hover:bg-amber-500/10 rounded text-slate-500 hover:text-amber-400 active:scale-95 transition-all duration-200"
-               title="Modifier la tâche"
+                onClick={(e) => { e.stopPropagation(); onEdit?.(task); }}
+                className="p-1 hover:bg-amber-500/10 rounded text-slate-500 hover:text-amber-400 active:scale-95 transition-all duration-200"
+                title="Modifier la tâche"
             >
               <Pencil size={12} />
             </button>

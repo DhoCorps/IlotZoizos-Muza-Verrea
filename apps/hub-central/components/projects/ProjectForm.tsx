@@ -1,10 +1,12 @@
 // apps/hub-central/components/projects/ProjectForm.tsx
 'use client'; 
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Layers, FolderPlus, Paperclip, Upload, Trash2, Loader2, FileText, ExternalLink } from 'lucide-react';
 import { RequireCapability } from '../auth/RequireCapability';
 import { CAPABILITIES, IProjectDocument } from '@ilot/types';
+import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 
 interface ProjectFormProps {
   ownerUid: string;
@@ -39,22 +41,23 @@ export function ProjectForm({
   const [uploading, setUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
-  const [projectCategories, setProjectCategories] = useState<{ value: string; label: string }[]>([
-    { value: 'TECHNICAL', label: 'Technique' },
-    { value: 'ARTISTIC', label: 'Artistique' },
-    { value: 'SOCIAL', label: 'Social' }
-  ]);
+  // 🌀 SUTURE REACT QUERY : Remplacement du useEffect + fetch par useQuery pour la taxonomie
+  const { data: taxonomyData } = useQuery({
+    queryKey: ['taxonomy'],
+    queryFn: async () => {
+      const res = await fetch('/api/taxonomy');
+      return res.json();
+    },
+    staleTime: 1000 * 60 * 10, // Cache de 10 minutes
+  });
 
-  useEffect(() => {
-    fetch('/api/taxonomy')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && data.projectCategories) {
-          setProjectCategories(data.projectCategories);
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const projectCategories = taxonomyData?.success && taxonomyData?.projectCategories 
+    ? taxonomyData.projectCategories 
+    : [
+        { value: 'TECHNICAL', label: 'Technique' },
+        { value: 'ARTISTIC', label: 'Artistique' },
+        { value: 'SOCIAL', label: 'Social' }
+      ];
   
   const isEdit = !!initialData;
 
@@ -131,7 +134,7 @@ export function ProjectForm({
       const data = await res.json();
       setLocalDocuments((prev) => [...prev, data.document as IProjectDocument]);
     } catch (err: any) {
-      alert(`🚨 Erreur d'alchimie : ${err.message}`);
+      toast.error(`🚨 Erreur d'alchimie : ${err.message}`);
     } finally {
       setUploading(false);
     }
@@ -153,7 +156,7 @@ export function ProjectForm({
       if (!res.ok) throw new Error("Échec de la désintégration.");
       setLocalDocuments((prev) => prev.filter(d => d.uid !== doc.uid));
     } catch (err: any) {
-      alert(`🚨 Ineptie technique : ${err.message}`);
+      toast.error(`🚨 Ineptie technique : ${err.message}`);
     } finally {
       setIsDeleting(null);
     }
@@ -217,7 +220,7 @@ export function ProjectForm({
             <option value="MEDIUM">Medium</option><option value="HIGH">High</option><option value="CRITICAL">Critique</option>
           </select>
           <select name="category" defaultValue={initialData?.category || "TECHNICAL"} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-slate-300">
-            {projectCategories.map((cat) => (
+            {projectCategories.map((cat: any) => (
               <option key={cat.value} value={cat.value}>{cat.label}</option>
             ))}
           </select>

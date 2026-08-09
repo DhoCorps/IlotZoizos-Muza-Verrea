@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { RoomToSend } from '@ilot/shared-core';
 import Link from 'next/link';
+import { toast } from 'sonner';
 
 // Composants de jeux de l'Îlot
 import CrazyMorpionClient from './crazymorpion/CrazyMorpionClient';
@@ -67,7 +68,7 @@ export default function GameNexus({ username, locale = 'fr' }: GameNexusProps) {
         });
 
         newSocket.on('error:message', (msg: string) => {
-            alert(`Erreur de la Matrice : ${msg}`); 
+            toast.error(`Erreur de la Matrice : ${msg}`); 
         });
 
         return () => {
@@ -308,7 +309,7 @@ export default function GameNexus({ username, locale = 'fr' }: GameNexusProps) {
                                                 {room.state === 'playing' ? 'Partie en cours' : (room.players.length >= room.maxPlayers ? 'Salon Plein' : 'Rejoindre l\'Instance')}
                                             </button>
                                         </div>
-                                    );
+                                  );
                                 })
                             )}
                         </div>

@@ -1,65 +1,68 @@
 // apps/hub-central/app/[locale]/(inceptions)/abyss-blog/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link } from '../../../../navigation';
 import { 
   Type, Plus, Trash2, Edit3, BookOpen, Loader2, 
-  Layers, Filter, Sparkles, FolderPlus, Compass 
+  Layers, Sparkles, Compass 
 } from 'lucide-react';
 import { SujetForm } from '@/components/abyss-blog/sujets/SujetForm';
-import ResonanceButton from '@/components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Import du Bouton de Résonance
+import ResonanceButton from '@/components/resonance/ResonanceButton';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 export default function AbyssBlogDashboard() {
-  const [sujets, setSujets] = useState<any[]>([]);
-  const [projects, setProjects] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSujet, setEditingSujet] = useState<any>(null);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const [resSujets, resProjects] = await Promise.all([
-        fetch('/api/sujets'),
-        fetch('/api/projects')
-      ]);
-      
-      if (resSujets.ok) {
-        const data = await resSujets.json();
-        const sujetList = Array.isArray(data) ? data : (data.data || data.sujets || []);
-        setSujets(sujetList);
-      }
-      
-      if (resProjects.ok) {
-        const data = await resProjects.json();
-        const projList = Array.isArray(data) ? data : (data.data || data.projects || []);
-        setProjects(projList);
-      }
-    } catch (err) {
-      console.error("🌊 Fracture lors de la synchronisation de l'Atelier :", err);
-    } finally {
-      setLoading(false);
+  // 🌀 SUTURE REACT QUERY : Récupération automatique des sujets et projets en cache
+  const { data: sujets = [], isLoading: sujetsLoading } = useQuery({
+    queryKey: ['sujets'],
+    queryFn: async () => {
+      const res = await fetch('/api/sujets');
+      if (!res.ok) throw new Error("Échec de la récupération des sujets");
+      const data = await res.json();
+      return Array.isArray(data) ? data : (data.data || data.sujets || []);
     }
-  };
+  });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const { data: projects = [], isLoading: projectsLoading } = useQuery({
+    queryKey: ['projects'],
+    queryFn: async () => {
+      const res = await fetch('/api/projects');
+      if (!res.ok) throw new Error("Échec de la récupération des projets");
+      const data = await res.json();
+      return Array.isArray(data) ? data : (data.data || data.projects || []);
+    }
+  });
+
+  const loading = sujetsLoading || projectsLoading;
+
+  // 🌀 SUTURE REACT QUERY : Mutation pour la dissolution d'un monologue
+  const deleteMutation = useMutation({
+    mutationFn: async (uid: string) => {
+      const res = await fetch(`/api/sujets/${uid}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error("Échec de la désintégration du monologue");
+      return uid;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sujets'] });
+      toast.success("Monologue dissous dans le néant.");
+    },
+    onError: (err: any) => {
+      console.error("🔥 Erreur lors de la désintégration :", err);
+      toast.error(`Ineptie technique : ${err.message}`);
+    }
+  });
 
   const handleDelete = async (uid: string) => {
     if (!confirm("Es-tu sûr de vouloir dissoudre ce monologue dans le néant ?")) return;
-    try {
-      const res = await fetch(`/api/sujets/${uid}`, { method: 'DELETE' });
-      if (res.ok) {
-        setSujets(prev => prev.filter(s => s.uid !== uid && s._id !== uid));
-      }
-    } catch (err) {
-      console.error("🔥 Erreur lors de la désintégration :", err);
-    }
+    deleteMutation.mutate(uid);
   };
 
   const handleOpenCreate = () => {
@@ -75,10 +78,10 @@ export default function AbyssBlogDashboard() {
   const handleFormSuccess = () => {
     setIsModalOpen(false);
     setEditingSujet(null);
-    fetchData();
+    queryClient.invalidateQueries({ queryKey: ['sujets'] });
   };
 
-  const filteredSujets = sujets.filter(s => {
+  const filteredSujets = sujets.filter((s: any) => {
     const matchesStatus = statusFilter === 'ALL' || s.status === statusFilter;
     const term = searchTerm.toLowerCase();
     const matchesSearch = s.title?.toLowerCase().includes(term) || 
@@ -156,7 +159,6 @@ export default function AbyssBlogDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredSujets.map((sujet: any) => {
             const sujetKey = sujet.uid || sujet._id;
-            // On récupère le slug de l'auteur s'il est peuplé par l'API, sinon on met un fallback
             const targetSlug = sujet.authorSlug || sujet.authorUid || 'dho';
 
             return (
@@ -208,13 +210,12 @@ export default function AbyssBlogDashboard() {
                       <BookOpen size={12} /> Lire
                     </Link>
 
-                    {/* 🕸️ INTÉGRATION DU BOUTON DE RÉSONANCE (Granulaire) */}
                     <ResonanceButton 
                       targetSlug={targetSlug}
                       type="FOLLOWS_SPECIFIC"
                       entityId={sujetKey}
                       variant="icon"
-                      initialIsFollowing={sujet.isFollowedByMe} // Si géré plus tard par l'API
+                      initialIsFollowing={sujet.isFollowedByMe}
                     />
 
                     <button 
@@ -227,10 +228,15 @@ export default function AbyssBlogDashboard() {
 
                     <button 
                       onClick={() => handleDelete(sujetKey)}
-                      className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl border border-red-500/20 transition-all"
+                      disabled={deleteMutation.isPending}
+                      className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl border border-red-500/20 transition-all disabled:opacity-50"
                       title="Dissoudre"
                     >
-                      <Trash2 size={14} />
+                      {deleteMutation.isPending && deleteMutation.variables === sujetKey ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Trash2 size={14} />
+                      )}
                     </button>
                   </div>
                 </div>

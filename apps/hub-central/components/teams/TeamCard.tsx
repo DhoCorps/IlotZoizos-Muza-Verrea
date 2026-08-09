@@ -1,35 +1,57 @@
+// apps/hub-central/components/teams/TeamCard.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Network, UserPlus, ShieldCheck, FolderPlus, Check, X, Clock, UserX, Eye, Trash2, Upload, Loader2, FileText, ExternalLink, ChevronDown, ChevronUp, Paperclip, Download } from 'lucide-react'; // 🪡 SUTURE : Ajout Download
+import { Network, UserPlus, ShieldCheck, FolderPlus, Check, X, Clock, UserX, Eye, Trash2, Upload, Loader2, FileText, ExternalLink, ChevronDown, ChevronUp, Paperclip, Download } from 'lucide-react';
 import { ITeam } from '@ilot/types';
+import { toast } from 'sonner';
+import { useMutation } from '@tanstack/react-query';
+
 interface TeamCardProps {
   team: ITeam;
   onUploadSuccess?: () => void;
   onRecruit: (uid: string) => void;
   onFocus: (uid: string) => void;
-  onCreateProject: (uid: string) => void; // 🪡 SUTURE : Lien direct pour la Matrioshka
+  onCreateProject: (uid: string) => void;
   isActive?: boolean;
-  isInvitation?: boolean; // 🪡 SUTURE EVOLUÉE : Flag pour basculer la carte en mode "Pacte d'Adhésion"
-  onRespond?: (uid: string, action: 'ACCEPT' | 'REFUSE' | 'PURGE_REFUSE') => void; // 🪡 SUTURE EVOLUÉE : Déclencheur du choix de l'oiseau avec option purge
-  onViewProjects?: (uid: string) => void; // 🪡 SUTURE : Actionneur de navigation vers les Chantiers du Nid
-  onManageInvitation?: (teamUid: string, targetUid: string, action: 'CANCEL' | 'REINVITE') => void; // 🪡 SUTURE : Actionneur de gouvernance sur la volée invitée
-  onDelete?: (uid: string) => void; // 🪡 SUTURE : Dissolution de l'escouade parent
+  isInvitation?: boolean;
+  onRespond?: (uid: string, action: 'ACCEPT' | 'REFUSE' | 'PURGE_REFUSE') => void;
+  onViewProjects?: (uid: string) => void;
+  onManageInvitation?: (teamUid: string, targetUid: string, action: 'CANCEL' | 'REINVITE') => void;
+  onDelete?: (uid: string) => void;
 }
 
 export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, isInvitation, onRespond, onViewProjects, onManageInvitation, onDelete }: TeamCardProps) {
-  // --- ÉTATS DU TIROIR D'UPLOAD DU NID ---
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [label, setLabel] = useState('');
   const [mediaType, setMediaType] = useState('attachments');
   const [localDocuments, setLocalDocuments] = useState<any[]>(team.documents || []);
-  const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
-  // 🪡 SUTURE DE RÉACTIVITÉ : On s'assure que si team.documents change (après refreshData), l'état se met à jour
   useEffect(() => {
     setLocalDocuments(team.documents || []);
   }, [team.documents]);
+
+  // 🌀 SUTURE REACT QUERY : Mutation pour la suppression de document du Nid
+  const deleteDocMutation = useMutation({
+    mutationFn: async (doc: { uid: string, url: string }) => {
+      const res = await fetch(`/api/teams/${team.uid}/upload`, { 
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: doc.url })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Échec de la désintégration.");
+      return doc.uid;
+    },
+    onSuccess: (deletedUid) => {
+      setLocalDocuments((prev) => prev.filter(d => d.uid !== deletedUid));
+      toast.success("Artefact évaporé avec succès.");
+    },
+    onError: (err: any) => {
+      toast.error(`Ineptie technique : ${err.message || "Impossible de purger l'artefact"}`);
+    }
+  });
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -53,7 +75,6 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
       }
 
       const data = await res.json();
-      // On insère dynamiquement la nouvelle pièce jointe pour un rendu sans latence
       const newDoc = {
         uid: data.key || `file_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         name: file.name,
@@ -63,44 +84,18 @@ export function TeamCard({ team, onRecruit, onFocus, onCreateProject, isActive, 
       };
       setLocalDocuments((prev) => [...prev, newDoc]);
       setLabel('');
+      toast.success("Brindille scellée dans le Nid.");
     } catch (err: any) {
-      alert(`🚨 Fracture d'alchimie du Nid : ${err.message}`);
+      toast.error(`🚨 Fracture d'alchimie du Nid : ${err.message}`);
     } finally {
       setUploading(false);
     }
   };
 
-  // 🪡 SUTURE : Suppression d'un document
-const handleDeleteDoc = async (doc: { uid: string, url: string }) => {
-  if (!window.confirm("Effacer définitivement cet artefact du Nid ?")) return;
-
-  setIsDeleting(doc.uid); // ⚡ Feedback visuel immédiat
-
-  try {
-    const res = await fetch(`/api/teams/${team.uid}/upload`, { 
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: doc.url }) // On passe l'URL pour que le backend puisse extraire la clef
-    });
-
-    // Lecture des données retournées par le serveur
-    const data = await res.json();
-
-    if (!res.ok) {
-      throw new Error(data.message || "Échec de la désintégration.");
-    }
-
-    // Succès : Mise à jour de l'UI
-    setLocalDocuments((prev) => prev.filter(d => d.uid !== doc.uid));
-    console.log(`✅ [UI] Artefact ${doc.uid} évaporé.`);
-
-  } catch (err: any) {
-    console.error("❌ Erreur lors de la désintégration :", err);
-    alert(`Ineptie technique : ${err.message || "Impossible de purger l'artefact"}`);
-  } finally {
-    setIsDeleting(null); // On libère le bouton
-  }
-};
+  const handleDeleteDoc = async (doc: { uid: string, url: string }) => {
+    if (!window.confirm("Effacer définitivement cet artefact du Nid ?")) return;
+    deleteDocMutation.mutate(doc);
+  };
 
   return (
     <section 
@@ -257,8 +252,12 @@ const handleDeleteDoc = async (doc: { uid: string, url: string }) => {
                     <a href={doc.url} download title="Télécharger">
                       <Download size={14} className="hover:text-emerald-400" />
                     </a>
-                    <button onClick={() => handleDeleteDoc(doc.uid)} title="Désintégrer">
-                      <Trash2 size={14} className="text-red-500 hover:text-red-400" />
+                    <button onClick={() => handleDeleteDoc(doc)} disabled={deleteDocMutation.isPending} title="Désintégrer">
+                      {deleteDocMutation.isPending && deleteDocMutation.variables?.uid === doc.uid ? (
+                        <Loader2 size={14} className="animate-spin text-red-500" />
+                      ) : (
+                        <Trash2 size={14} className="text-red-500 hover:text-red-400" />
+                      )}
                     </button>
                   </div>
                 </div>

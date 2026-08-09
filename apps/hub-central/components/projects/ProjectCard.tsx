@@ -4,6 +4,8 @@
 import { useState } from 'react';
 import { Paperclip, Zap, Layers, Plus, Trash2, Upload, Loader2, FileText, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react'; 
 import { IProject } from '@ilot/types';
+import { toast } from 'sonner';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface ProjectCardProps {
   project: IProject;
@@ -14,12 +16,31 @@ interface ProjectCardProps {
 }
 
 export function ProjectCard({ project, onEdit, onCreateTask, onDelete, onViewTasks }: ProjectCardProps) {
-  // --- ÉTATS DU TIROIR D'UPLOAD DE DOCUMENTS ---
+  const queryClient = useQueryClient();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [isDeleting, setIsDeleting] = useState<string | null>(null); // 🪡 SUTURE : Suivi de la suppression
   const [label, setLabel] = useState('');
   const [localDocuments, setLocalDocuments] = useState<any[]>(project.documents || []);
+
+  // 🌀 SUTURE REACT QUERY : Mutation pour la suppression d'artefact
+  const deleteMutation = useMutation({
+    mutationFn: async (doc: any) => {
+      const res = await fetch(`/api/projects/${project.uid}/upload`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: doc.url })
+      });
+      if (!res.ok) throw new Error("Échec de la désintégration de l'artefact.");
+      return doc.uid;
+    },
+    onSuccess: (deletedUid) => {
+      setLocalDocuments((prev) => prev.filter(d => d.uid !== deletedUid));
+      toast.success("Artefact désintégré.");
+    },
+    onError: (err: any) => {
+      toast.error(`🚨 Ineptie technique : ${err.message}`);
+    }
+  });
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -54,32 +75,15 @@ export function ProjectCard({ project, onEdit, onCreateTask, onDelete, onViewTas
       setLocalDocuments((prev) => [...prev, newDoc]);
       setLabel('');
     } catch (err: any) {
-      alert(`🚨 Erreur d'alchimie : ${err.message}`);
+      toast.error(`🚨 Erreur d'alchimie : ${err.message}`);
     } finally {
       setUploading(false);
     }
   };
 
-  // 🪡 SUTURE : Logique de désintégration d'un artefact
   const handleDeleteDocument = async (doc: any) => {
     if (!confirm("Anéantir définitivement cet artefact du Nid ?")) return;
-
-    setIsDeleting(doc.uid);
-    try {
-      const res = await fetch(`/api/projects/${project.uid}/upload`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: doc.url })
-      });
-
-      if (!res.ok) throw new Error("Échec de la désintégration de l'artefact.");
-
-      setLocalDocuments((prev) => prev.filter(d => d.uid !== doc.uid));
-    } catch (err: any) {
-      alert(`🚨 Ineptie technique : ${err.message}`);
-    } finally {
-      setIsDeleting(null);
-    }
+    deleteMutation.mutate(doc);
   };
 
   return (
@@ -221,10 +225,10 @@ export function ProjectCard({ project, onEdit, onCreateTask, onDelete, onViewTas
                     <div className="flex items-center gap-2 pl-2">
                       <button 
                         onClick={() => handleDeleteDocument(doc)}
-                        disabled={isDeleting === doc.uid}
+                        disabled={deleteMutation.isPending}
                         className="opacity-0 group-hover/doc:opacity-100 transition-opacity text-slate-500 hover:text-red-500 shrink-0"
                       >
-                        {isDeleting === doc.uid ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                        {deleteMutation.isPending && deleteMutation.variables?.uid === doc.uid ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
                       </button>
                       <ExternalLink size={10} className="text-slate-500 shrink-0" />
                     </div>

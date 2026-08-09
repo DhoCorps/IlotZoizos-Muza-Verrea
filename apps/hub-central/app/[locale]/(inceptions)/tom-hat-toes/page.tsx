@@ -14,11 +14,12 @@ import { TeamForm } from '@/components/teams/TeamForm';
 import { TeamCard } from '@/components/teams/TeamCard'; 
 import KanbanDrawer from '@/components/kanban/KanbanDrawer'; 
 import CalendarView from '@/components/calendars/CalendarView';
-import ResonanceButton from '@/components/resonance/ResonanceButton'; // 🕸️ NOUVEAU : Le tisseur de liens
+import ResonanceButton from '@/components/resonance/ResonanceButton';
 import { PomodoroWarehouse } from '@/components/pomodoro/PomodoroWareHouse';
 import { PomodoroProvider } from '@/context/PomodoroContext'; 
 import PomodoroHUD from '@/components/hub/PomodoroHUD'; 
 import { useHubNexus } from './useHubNexus';
+import { ITask } from '@ilot/types';
 
 import dynamic from 'next/dynamic';
 
@@ -30,6 +31,7 @@ const ContextualGraph = dynamic(
 export default function TomHatToesHub() {
   const nexus = useHubNexus();
 
+  // Si le chargement initial est en cours et qu'il n'y a rien à afficher
   if (nexus.status === 'loading' || (nexus.loading && nexus.inceptions.length === 0)) return (
     <div className="min-h-screen flex items-center justify-center bg-[#05070A]">
       <Loader2 className="w-10 h-10 animate-spin text-[#E5484D]" />
@@ -101,6 +103,7 @@ export default function TomHatToesHub() {
     <PomodoroProvider>
       <div className="min-h-screen bg-[#05070A] text-slate-100 p-6 md:p-12 relative overflow-x-hidden">
         
+        {/* Graphique de Contexte (D3/Neo4j) */}
         {(nexus.selectedProjectUid || nexus.activeInceptionId) && (
           <div className="fixed inset-0 pointer-events-none z-0 opacity-40">
              <ContextualGraph 
@@ -110,6 +113,7 @@ export default function TomHatToesHub() {
           </div>
         )}
 
+        {/* 🚨 Bandeau Mode Éclaireur (Invitation en cours) */}
         {nexus.selectedTeamUid && nexus.isInviteeMode && (
           <div className="relative z-50 max-w-7xl mx-auto mb-6 p-4 bg-gradient-to-r from-[#E5484D]/20 to-amber-500/10 border border-[#E5484D]/30 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
             <div className="flex items-center gap-3">
@@ -149,6 +153,7 @@ export default function TomHatToesHub() {
           </div>
         )}
 
+        {/* 🚨 Bandeau Quitter le Nid Volontairement */}
         {nexus.selectedTeamUid && !nexus.isInviteeMode && nexus.activeTeam?.ownerUid !== (nexus.session?.user as any)?.uid && (
           <div className="relative z-50 max-w-7xl mx-auto mb-6 p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in duration-300">
             <div className="flex items-center gap-3">
@@ -175,6 +180,7 @@ export default function TomHatToesHub() {
           </div>
         )}
 
+        {/* En-tête de page global */}
         <header className="relative z-10 mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
           <div>
             <h1 className="text-4xl font-black uppercase tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-slate-100 to-[#E5484D]">
@@ -199,6 +205,7 @@ export default function TomHatToesHub() {
           </div>
         </header>
 
+        {/* Navigation / Onglets */}
         <nav className="relative z-10 flex gap-10 mb-12 border-b border-white/5">
           {['teams', 'projects', 'horizon'].map((tabId) => (
             <button 
@@ -212,7 +219,10 @@ export default function TomHatToesHub() {
           ))}
         </nav>
 
+        {/* Contenu Principal */}
         <main className="relative z-10">
+          
+          {/* ONGLET 1 : ÉQUIPES (NIDS) */}
           {nexus.activeTab === 'teams' ? (
             <div className="grid grid-cols-1 gap-6">
               {nexus.inceptions.map((team) => (
@@ -247,6 +257,8 @@ export default function TomHatToesHub() {
               ))}
             </div>
           ) : nexus.activeTab === 'projects' ? (
+            
+            /* ONGLET 2 : PROJETS & TÂCHES (CHANTIERS & ATOMES) */
             <div className="space-y-12">
               <ProjectDashboard 
                 projects={nexus.visibleProjects} 
@@ -273,12 +285,12 @@ export default function TomHatToesHub() {
                     <h3 className="text-2xl font-black uppercase flex items-center gap-3">
                       <BarChart3 className="text-[#E5484D]" /> Atomes du Chantier
                     </h3>
-                    <button onClick={() => nexus.setIsKanbanOpen(true)} className="px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-[10px] uppercase font-black">
+                    <button onClick={() => nexus.setIsKanbanOpen(true)} className="px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-[10px] uppercase font-black hover:bg-slate-800 transition-colors">
                       Ouvrir le Kanban
                     </button>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {nexus.projectTasks.map(task => (
+                    {nexus.projectTasks.map((task: ITask) => (
                       <div key={task.uid} className="relative group/atome cursor-pointer">
                         <TaskCard 
                           task={task} 
@@ -313,10 +325,13 @@ export default function TomHatToesHub() {
               )}
             </div>
           ) : (
-            /* 🍅 ONGLET HORIZON : Entrepôt global + Calendrier temporel */
+            /* ONGLET 3 : HORIZON (POMODORO & CALENDRIER) */
             <div className="space-y-8 animate-in fade-in duration-500">
               <PomodoroWarehouse 
-                totalPomos={nexus.projectTasks.reduce((acc, t) => acc + (t.pomodoros?.completed || 0), 0)} 
+                totalPomos={nexus.projectTasks.reduce(
+                  (acc: number, t: { pomodoros?: { completed?: number } }) => acc + (t.pomodoros?.completed || 0), 
+                  0
+                )} 
               />
               <CalendarView 
                 tasks={nexus.projectTasks} 
@@ -334,31 +349,48 @@ export default function TomHatToesHub() {
                   }
                 }}
                 onTaskDrop={() => {
-                  if (nexus.selectedProjectUid) nexus.fetchTasks(nexus.selectedProjectUid);
+                  if (nexus.selectedProjectUid) {
+                    // Relance la requête pour recharger les tâches après un drag & drop (géré par useQuery)
+                    nexus.fetchTasks(nexus.selectedProjectUid);
+                  }
                 }}
               />
             </div>
           )}
         </main>
 
+        {/* 🪟 OVERLAY MATRIOSHKA : MODALES DYNAMIQUES */}
         {nexus.activeInceptionId && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-[#05070A]/95 backdrop-blur-xl">
              <div className="w-full max-w-2xl bio-card p-10 relative border border-white/5">
-                <button onClick={() => { nexus.setActiveInceptionId(null); nexus.setSelectedTaskUid(null); nexus.setSelectedSlotDate(null); }} className="absolute top-4 right-4 text-slate-500 hover:text-white"><X size={20} /></button>
+                <button 
+                  onClick={() => { 
+                    nexus.setActiveInceptionId(null); 
+                    nexus.setSelectedTaskUid(null); 
+                    nexus.setSelectedSlotDate(null); 
+                  }} 
+                  className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors"
+                >
+                  <X size={20} />
+                </button>
                 
+                {/* 1. FORMULAIRE D'ATOME (TÂCHE) */}
                 {nexus.activeInceptionId === 'task_new' || nexus.activeInceptionId === 'task_edit' ? (
                   <TaskForm 
-                    projectUid={nexus.selectedProjectUid} 
-                    birds={nexus.foundBirds} 
-                    existingTasks={nexus.projectTasks}
-                    initialScheduledDate={nexus.selectedSlotDate}
-                    onCancel={() => { nexus.setSelectedSlotDate(null); nexus.setActiveInceptionId(null); }} 
-                    onSubmit={nexus.activeInceptionId === 'task_edit' ? nexus.handleUpdateTask : nexus.handleCreateTask}  
-                    projectCapabilities={nexus.userCaps} 
-                    loading={nexus.loading} 
-                    initialData={nexus.activeInceptionId === 'task_edit' ? nexus.projectTasks.find(t => t.uid === nexus.selectedTaskUid) : null}
-                  />
-                ) : (nexus.activeInceptionId === 'global' || nexus.activeInceptionId === 'project_edit' || nexus.activeInceptionId === 'team_edit') ? (
+                      projectUid={nexus.selectedProjectUid} 
+                      birds={nexus.foundBirds} 
+                      existingTasks={nexus.projectTasks}
+                      initialScheduledDate={nexus.selectedSlotDate}
+                      onCancel={() => { nexus.setSelectedSlotDate(null); nexus.setActiveInceptionId(null); }} 
+                      onSubmit={nexus.activeInceptionId === 'task_edit' ? nexus.handleUpdateTask : nexus.handleCreateTask}  
+                      projectCapabilities={nexus.userCaps} 
+                      loading={nexus.loading} 
+                      initialData={nexus.activeInceptionId === 'task_edit' ? nexus.projectTasks.find((t: { uid: string }) => t.uid === nexus.selectedTaskUid) : null}
+                    />
+                ) : 
+                
+                /* 2. FORMULAIRES DE NID & CHANTIER (TEAM & PROJECT) */
+                (nexus.activeInceptionId === 'global' || nexus.activeInceptionId === 'project_edit' || nexus.activeInceptionId === 'team_edit') ? (
                   (nexus.activeTab === 'teams' && nexus.activeInceptionId !== 'project_edit') || nexus.activeInceptionId === 'team_edit' ? (
                     <TeamForm 
                       onSuccess={nexus.handleCreateSuccess} 
@@ -376,11 +408,20 @@ export default function TomHatToesHub() {
                       initialData={nexus.activeInceptionId === 'project_edit' ? nexus.projects.find(p => p.uid === nexus.selectedProjectUid) : null}
                     />
                   )
-                ) : (
+                ) : 
+                
+                /* 3. RADAR DE RECRUTEMENT (OISEAUX & CAPACITÉS) */
+                (
                   <div className="space-y-6">
                     <div className="relative">
                       <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                      <input type="text" placeholder="Chercher un oiseau..." value={nexus.searchBird} onChange={(e) => nexus.handleSearchBirds(e.target.value)} className="w-full bg-black/40 border border-white/10 p-4 pl-12 rounded-xl outline-none focus:border-[#E5484D] transition-all" />
+                      <input 
+                        type="text" 
+                        placeholder="Chercher un oiseau..." 
+                        value={nexus.searchBird} 
+                        onChange={(e) => nexus.handleSearchBirds(e.target.value)} 
+                        className="w-full bg-black/40 border border-white/10 p-4 pl-12 rounded-xl outline-none focus:border-[#E5484D] transition-all" 
+                      />
                     </div>
 
                     <div className="p-5 bg-white/[0.01] border border-white/5 rounded-2xl space-y-4 max-h-80 overflow-y-auto custom-scrollbar">
@@ -417,9 +458,10 @@ export default function TomHatToesHub() {
                       ))}
                     </div>
 
+                    {/* Liste des résultats (Oiseaux trouvés) */}
                     <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
                       {nexus.foundBirds.map(bird => (
-                        <div key={bird.uid} className="p-4 bg-white/5 rounded-xl flex justify-between items-center transition-all">
+                        <div key={bird.uid} className="p-4 bg-white/5 rounded-xl flex justify-between items-center transition-all hover:bg-white/10">
                           <span className="font-bold text-slate-200">{bird.pseudo}</span>
                           
                           <div className="flex items-center gap-2">
@@ -434,7 +476,7 @@ export default function TomHatToesHub() {
                             <button 
                               onClick={() => nexus.inviteBirdToTeam(nexus.activeInceptionId!, bird.uid)} 
                               disabled={nexus.isRecruiting} 
-                              className="p-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/20 transition-all"
+                              className="p-2.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/20 transition-all disabled:opacity-50"
                               title="Inviter au Nid"
                             >
                               <Plus size={16} />
@@ -449,6 +491,7 @@ export default function TomHatToesHub() {
           </div>
         )}
 
+        {/* Tiroirs Globaux (Kanban & Pomodoro) */}
         <KanbanDrawer tasks={nexus.projectTasks} isOpen={nexus.isKanbanOpen} onClose={() => nexus.setIsKanbanOpen(false)} />
         <PomodoroHUD />
       </div>

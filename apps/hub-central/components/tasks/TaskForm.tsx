@@ -5,6 +5,8 @@ import { useState } from 'react';
 import { RequireCapability } from '../auth/RequireCapability';
 import { CAPABILITIES, TaskStatus } from '@ilot/types'; 
 import { Clock, AlertCircle, Layers, UserPlus, Type, Loader2, CalendarHeart, Target, Paperclip, Upload, Trash2, FileText, ExternalLink } from 'lucide-react';
+import { toast } from 'sonner';
+import { useMutation } from '@tanstack/react-query';
 
 interface TaskFormProps {
   birds: any[];
@@ -30,10 +32,60 @@ export function TaskForm({
   loading = false
 }: TaskFormProps) {
   const isEdit = !!initialData;
+  const taskIdentifier = initialData?.slug || initialData?.uid;
   
   const [localAttachments, setLocalAttachments] = useState<any[]>(initialData?.documents || initialData?.content?.attachments || initialData?.fileUploads || []);
-  const [uploading, setUploading] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
+
+  // 🌀 SUTURE REACT QUERY : Mutation pour l'upload d'artefact
+  const uploadMutation = useMutation({
+    mutationFn: async ({ file, label }: { file: File; label: string }) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('label', label);
+
+      const res = await fetch(`/api/tasks/${taskIdentifier}/upload`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Échec du scellage.");
+      return data.attachment;
+    },
+    onSuccess: (newAttachment) => {
+      setLocalAttachments((prev) => [...prev, newAttachment]);
+      toast.success("✨ Artefact greffé avec succès.");
+    },
+    onError: (err: any) => {
+      toast.error(`🚨 Erreur d'alchimie : ${err.message}`);
+    }
+  });
+
+  // 🌀 SUTURE REACT QUERY : Mutation pour la suppression d'artefact
+  const deleteAttachmentMutation = useMutation({
+    mutationFn: async (doc: any) => {
+      const res = await fetch(`/api/tasks/${taskIdentifier}/upload`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: doc.url })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Échec de la purge.");
+      return doc.uid || doc.url;
+    },
+    onSuccess: (targetKey) => {
+      setLocalAttachments((prev) => prev.filter(d => (d.uid || d.url) !== targetKey));
+      toast.success("Artefact désintégré.");
+    },
+    onError: (err: any) => {
+      toast.error(`🚨 Ineptie technique : ${err.message}`);
+    },
+    onSettled: () => {
+      setIsDeleting(null);
+    }
+  });
 
   const formatLocalTime = (d: Date | string | null | undefined) => {
     if (!d) return '';
@@ -44,58 +96,23 @@ export function TaskForm({
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    const taskIdentifier = initialData?.slug || initialData?.uid;
     
     if (!file || !taskIdentifier) {
-      alert("⚠️ L'atome doit d'abord être scellé avant de pouvoir y greffer des artefacts.");
+      toast.error("⚠️ L'atome doit d'abord être scellé avant de pouvoir y greffer des artefacts.");
       return;
     }
 
-    setUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('label', file.name);
-
-    try {
-      const res = await fetch(`/api/tasks/${taskIdentifier}/upload`, {
-        method: 'POST',
-        body: formData
-      });
-      
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Échec du scellage.");
-      
-      setLocalAttachments((prev) => [...prev, data.attachment]);
-    } catch (err: any) {
-      alert(`🚨 Erreur d'alchimie : ${err.message}`);
-    } finally {
-      setUploading(false);
-      // Réinitialiser l'input file
-      e.target.value = '';
-    }
+    uploadMutation.mutate({ file, label: file.name }, {
+      onSettled: () => {
+        e.target.value = '';
+      }
+    });
   };
 
   const handleDeleteAttachment = async (doc: any) => {
-    const taskIdentifier = initialData?.slug || initialData?.uid;
     if (!taskIdentifier || !confirm("Anéantir définitivement cette pièce jointe ?")) return;
-
     setIsDeleting(doc.uid || doc.url);
-    try {
-      const res = await fetch(`/api/tasks/${taskIdentifier}/upload`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: doc.url })
-      });
-      
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Échec de la purge.");
-      
-      setLocalAttachments((prev) => prev.filter(d => (d.uid || d.url) !== (doc.uid || doc.url)));
-    } catch (err: any) {
-      alert(`🚨 Ineptie technique : ${err.message}`);
-    } finally {
-      setIsDeleting(null);
-    }
+    deleteAttachmentMutation.mutate(doc);
   };
 
   const handleDragStart = (e: React.DragEvent) => {
@@ -131,8 +148,8 @@ export function TaskForm({
         <div className="p-4 bg-white/[0.02] border border-white/5 rounded-xl space-y-4">
            <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-2"><Paperclip size={10} /> Artefacts de l'Atome</label>
            <label className="w-full flex items-center justify-center gap-2 border border-dashed border-white/10 hover:border-emerald-500/30 p-3 bg-black/10 rounded-xl cursor-pointer text-slate-500 hover:text-emerald-400 text-[10px] font-bold uppercase transition-all">
-             {uploading ? <Loader2 size={12} className="animate-spin" /> : <><Upload size={12} /> Ajouter une brindille</>}
-             <input type="file" className="hidden" onChange={handleFileUpload} disabled={uploading} />
+             {uploadMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <><Upload size={12} /> Ajouter une brindille</>}
+             <input type="file" className="hidden" onChange={handleFileUpload} disabled={uploadMutation.isPending} />
            </label>
            <div className="space-y-1 max-h-32 overflow-y-auto custom-scrollbar">
              {localAttachments.map((doc: any, index: number) => {
