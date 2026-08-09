@@ -49,3 +49,5 @@ export * from './database/models/nosql/resonance.model';
 export * from './database/models/nosql/reaction.model';
 export * from './database/models/nosql/reward.model';;
 export * from './database/models/nosql/comment.model';
+export * from './database/models/nosql/universalMedia.model';
+export * from './database/services/universalMediaRegistry';

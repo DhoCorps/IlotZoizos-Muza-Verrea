@@ -5,11 +5,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { 
   Loader2, ArrowLeft, Play, Pause, Music, Layers, 
-  MessageCircle, Send, Calendar, User, Tag, ShieldCheck, ShoppingBag, Sparkles
+  MessageCircle, Send, Calendar, User, Tag, ShieldCheck, ShoppingBag, Sparkles, Share2
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
+import { OmniActionWidget } from '../../../../../components/widget/OmniActionWidget';
+import { IUniversalMediaItem } from '@ilot/types';
 
 export default function AbyssBlogPostPage() {
   const params = useParams();
@@ -20,6 +22,9 @@ export default function AbyssBlogPostPage() {
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [newComment, setNewComment] = useState('');
+  
+  // 🧩 État du widget universel
+  const [isWidgetOpen, setWidgetOpen] = useState(false);
 
   // 🌀 SUTURE REACT QUERY : Récupération parallélisée du sujet et de ses échos
   const { data: allSujets = [], isLoading: loadingSujet } = useQuery({
@@ -81,6 +86,24 @@ export default function AbyssBlogPostPage() {
     else { audioElement.play(); setIsPlayingAudio(true); }
   };
 
+  // 🧩 Transformation du Sujet en Média Universel pour l'OmniActionWidget
+  const universalMediaItem: IUniversalMediaItem | null = useMemo(() => {
+    if (!sujet) return null;
+    return {
+      mediaId: sujet.uid,
+      sourceApp: 'ABYSS',
+      ownerUid: sujet.authorUid || '',
+      ownerSlug: sujet.authorName || 'anonyme',
+      title: sujet.title,
+      mediaUrl: sujet.media?.coverImageUrl || sujet.media?.audioTrackUrl || '',
+      thumbnailUrl: sujet.media?.coverImageUrl,
+      priceCents: sujet.merchLink?.priceCents || undefined,
+      consentForShowcase: !!sujet.settings?.consentForShowcase,
+      consentForMusicSync: !!sujet.settings?.consentForMusicSync,
+      createdAt: new Date(sujet.createdAt),
+    };
+  }, [sujet]);
+
   if (loadingSujet || loadingEchoes) {
     return <div className="min-h-[70vh] flex items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-[#E5484D]" /></div>;
   }
@@ -96,9 +119,19 @@ export default function AbyssBlogPostPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-12 pb-24 animate-in fade-in duration-700">
-      <button onClick={() => router.push('/abyss-blog')} className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-mono text-slate-400 hover:text-white transition-all flex items-center gap-2">
-        <ArrowLeft size={14} /> Revenir au Flux
-      </button>
+      <div className="flex justify-between items-center">
+        <button onClick={() => router.push('/abyss-blog')} className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-mono text-slate-400 hover:text-white transition-all flex items-center gap-2">
+          <ArrowLeft size={14} /> Revenir au Flux
+        </button>
+
+        {/* 🧩 Bouton d'ouverture du Widget */}
+        <button 
+          onClick={() => setWidgetOpen(true)} 
+          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl text-xs font-bold text-slate-200 transition-all flex items-center gap-2 shadow-lg"
+        >
+          <Share2 size={14} /> Interagir & Partager
+        </button>
+      </div>
 
       <article className="space-y-6 border-b border-white/5 pb-10">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -164,6 +197,15 @@ export default function AbyssBlogPostPage() {
           ))}
         </div>
       </section>
+
+      {/* 🧩 Rendu du Prisme d'Interaction */}
+      {universalMediaItem && (
+        <OmniActionWidget 
+          media={universalMediaItem}
+          isOpen={isWidgetOpen}
+          onClose={() => setWidgetOpen(false)}
+        />
+      )}
     </div>
   );
 }

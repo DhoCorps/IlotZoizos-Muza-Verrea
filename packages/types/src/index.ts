@@ -19,6 +19,8 @@ export * from './core/gameHistory.types';
 export * from './models/message.types';
 export * from './models/quizz.types';
 export * from './core/payment.types';
+export * from './core/showcase.types';
+
 export interface ActionSignature {
   actorUid: string;       
   capabilities: string[];

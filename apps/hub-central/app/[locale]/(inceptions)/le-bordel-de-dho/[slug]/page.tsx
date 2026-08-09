@@ -1,15 +1,17 @@
 // apps/hub-central/app/[locale]/(inceptions)/ecommerce/[slug]/page.tsx
 'use client';
 
-import React, { use } from 'react';
+import React, { use, useState, useMemo } from 'react';
 import { UniversalGridCanvas, useCartStore } from '@ilot/shared-core';
 import { storeRegistry } from '@/components/ecommerce/stores/StoreRegistry';
 import { AddToWishlistButton } from '@/components/ecommerce/wishlist/AddWishListButton';
-import { ShoppingBag, Loader2, ArrowLeft, Box } from 'lucide-react';
+import { OmniActionWidget } from '@/components/widget/OmniActionWidget';
+import { ShoppingBag, Loader2, ArrowLeft, Box, Share2 } from 'lucide-react';
 import { Link } from '@/navigation';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
+import { IUniversalMediaItem } from '@ilot/types';
 
 interface ProductPageProps {
   params: Promise<{ slug: string }>;
@@ -18,6 +20,9 @@ interface ProductPageProps {
 export default function ProductDetailPage({ params }: ProductPageProps) {
   const { slug } = use(params);
   const { addItem } = useCartStore();
+
+  // 🧩 État du widget universel
+  const [isWidgetOpen, setWidgetOpen] = useState(false);
 
   // 🌀 SUTURE REACT QUERY : Récupération intelligente
   const { data: product, isLoading, error } = useQuery({
@@ -37,6 +42,24 @@ export default function ProductDetailPage({ params }: ProductPageProps) {
     targetTitle: product?.title || 'Artefact de la Canopée',
     storeUid: product?.storeUid,
   });
+
+  // 🧩 Transformation du Produit en Média Universel pour l'OmniActionWidget
+  const universalMediaItem: IUniversalMediaItem | null = useMemo(() => {
+    if (!product) return null;
+    return {
+      mediaId: product.uid,
+      sourceApp: 'DHO',
+      ownerUid: product.authorUid || product.ownerUid || '',
+      ownerSlug: product.author || product.storeName || 'anonyme',
+      title: product.title,
+      mediaUrl: product.thumbnailUrl || '', 
+      thumbnailUrl: product.thumbnailUrl || undefined,
+      priceCents: product.priceCents,
+      consentForShowcase: !!product.settings?.consentForShowcase,
+      consentForMusicSync: !!product.settings?.consentForMusicSync,
+      createdAt: product.createdAt ? new Date(product.createdAt) : new Date(),
+    };
+  }, [product]);
 
   if (isLoading) {
     return (
@@ -74,11 +97,22 @@ export default function ProductDetailPage({ params }: ProductPageProps) {
     <div className="max-w-6xl mx-auto space-y-8 pb-24 animate-in fade-in duration-500">
       
       {/* Navigation */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <Link href="/marketplace" className="text-xs font-mono text-slate-400 hover:text-white flex items-center gap-1.5 transition-colors">
           <ArrowLeft size={14} /> Retour au Grand Bazar
         </Link>
-        <AddToWishlistButton productUid={product.uid} />
+        
+        <div className="flex items-center gap-3">
+          {/* 🧩 Bouton d'ouverture du Widget */}
+          <button 
+            onClick={() => setWidgetOpen(true)} 
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl text-xs font-bold text-slate-200 transition-all flex items-center gap-2 shadow-lg"
+          >
+            <Share2 size={14} /> Interagir & Partager
+          </button>
+          
+          <AddToWishlistButton productUid={product.uid} />
+        </div>
       </div>
 
       {/* Rendu dynamique du canevas modulaire */}
@@ -120,6 +154,15 @@ export default function ProductDetailPage({ params }: ProductPageProps) {
           <ShoppingBag size={16} /> Acquérir l'Artefact
         </button>
       </div>
+
+      {/* 🧩 Rendu du Prisme d'Interaction */}
+      {universalMediaItem && (
+        <OmniActionWidget 
+          media={universalMediaItem}
+          isOpen={isWidgetOpen}
+          onClose={() => setWidgetOpen(false)}
+        />
+      )}
     </div>
   );
 }

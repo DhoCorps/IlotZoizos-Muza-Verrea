@@ -5,12 +5,14 @@ import { useState } from 'react';
 import { Link } from '../../../../navigation';
 import { 
   Type, Plus, Trash2, Edit3, BookOpen, Loader2, 
-  Layers, Sparkles, Compass 
+  Layers, Sparkles, Compass, Share2 
 } from 'lucide-react';
 import { SujetForm } from '@/components/abyss-blog/sujets/SujetForm';
 import ResonanceButton from '@/components/resonance/ResonanceButton';
+import { OmniActionWidget } from '@/components/widget/OmniActionWidget';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { IUniversalMediaItem } from '@ilot/types';
 
 export default function AbyssBlogDashboard() {
   const queryClient = useQueryClient();
@@ -19,6 +21,9 @@ export default function AbyssBlogDashboard() {
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSujet, setEditingSujet] = useState<any>(null);
+
+  // 🧩 État du widget universel
+  const [activeMediaForWidget, setActiveMediaForWidget] = useState<IUniversalMediaItem | null>(null);
 
   // 🌀 SUTURE REACT QUERY : Récupération automatique des sujets et projets en cache
   const { data: sujets = [], isLoading: sujetsLoading } = useQuery({
@@ -73,6 +78,22 @@ export default function AbyssBlogDashboard() {
   const handleOpenEdit = (sujet: any) => {
     setEditingSujet(sujet);
     setIsModalOpen(true);
+  };
+
+  const handleOpenWidget = (sujet: any) => {
+    setActiveMediaForWidget({
+      mediaId: sujet.uid || sujet._id,
+      sourceApp: 'ABYSS',
+      ownerUid: sujet.authorUid || '',
+      ownerSlug: sujet.authorName || 'anonyme',
+      title: sujet.title,
+      mediaUrl: sujet.media?.coverImageUrl || sujet.media?.audioTrackUrl || '',
+      thumbnailUrl: sujet.media?.coverImageUrl,
+      priceCents: sujet.merchLink?.priceCents || undefined,
+      consentForShowcase: !!sujet.settings?.consentForShowcase,
+      consentForMusicSync: !!sujet.settings?.consentForMusicSync,
+      createdAt: new Date(sujet.createdAt),
+    });
   };
 
   const handleFormSuccess = () => {
@@ -217,6 +238,14 @@ export default function AbyssBlogDashboard() {
                       variant="icon"
                       initialIsFollowing={sujet.isFollowedByMe}
                     />
+                    
+                    <button 
+                      onClick={() => handleOpenWidget(sujet)}
+                      className="p-2.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 rounded-xl border border-sky-500/20 transition-all"
+                      title="Interagir & Partager"
+                    >
+                      <Share2 size={14} />
+                    </button>
 
                     <button 
                       onClick={() => handleOpenEdit(sujet)}
@@ -280,6 +309,15 @@ export default function AbyssBlogDashboard() {
             />
           </div>
         </div>
+      )}
+
+      {/* 🧩 Rendu du Prisme d'Interaction */}
+      {activeMediaForWidget && (
+        <OmniActionWidget 
+          media={activeMediaForWidget}
+          isOpen={!!activeMediaForWidget}
+          onClose={() => setActiveMediaForWidget(null)}
+        />
       )}
 
     </div>

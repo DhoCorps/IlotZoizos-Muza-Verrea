@@ -3,13 +3,15 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
 import { IlotError } from '@ilot/shared-core';
+import { UniversalMediaRegistry } from '@ilot/infrastructure';
+import { ProductModel } from '@ilot/infrastructure';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
 // ==========================================
-// 🚀 POST : Téléverser une image de produit sur R2 (Strictement Privé / Aura)
+// 🚀 POST : Téléverser et Indexer une image de produit
 // ==========================================
 export const POST = withAura(async (req: Request, context: ApiContext, _currentUser: OiseauUser) => {
   try {
@@ -49,19 +51,31 @@ export const POST = withAura(async (req: Request, context: ApiContext, _currentU
 
     const uploadResult = await storageService.uploadFile(file, structuredKey);
 
-    // 💥 Invalidation chirurgicale du cache en cascade
+    // 🔄 SYNCHRONISATION : Indexation automatique dans le Registre Universel
+    const product = await ProductModel.findOne({ slug });
+    if (product) {
+      await UniversalMediaRegistry.indexItem({
+        mediaId: product.uid,
+        sourceApp: 'DHO',
+        ownerUid: product.ownerUid,
+        ownerSlug: product.ownerSlug || 'marchand',
+        title: product.title,
+        mediaUrl: uploadResult.publicUrl,
+        thumbnailUrl: uploadResult.publicUrl,
+        priceCents: product.priceCents,
+        consentForShowcase: !!product.settings?.consentForShowcase,
+        consentForMusicSync: false,
+        createdAt: new Date(),
+      });
+    }
+
     revalidateTag('products');
     revalidateTag(`product-${slug}`);
 
-    console.log(`🛍️ [Ecommerce] Image ancrée pour le produit [slug: ${slug}] : ${uploadResult.publicUrl}`);
-
     return NextResponse.json({
       success: true,
-      message: 'Illustration du produit scellée avec succès via son slug.',
-      data: {
-        url: uploadResult.publicUrl,
-        key: uploadResult.key,
-      },
+      message: 'Illustration scellée et indexée dans la matrice.',
+      data: { url: uploadResult.publicUrl, key: uploadResult.key },
     }, { status: 201 });
 
   } catch (error: any) {
@@ -72,7 +86,7 @@ export const POST = withAura(async (req: Request, context: ApiContext, _currentU
 });
 
 // ==========================================
-// 🗑️ DELETE : Purger l'image d'un produit du Nexus R2 (Strictement Privé / Aura)
+// 🗑️ DELETE : Purger et Désindexer l'image
 // ==========================================
 export const DELETE = withAura(async (req: Request, context: ApiContext, _currentUser: OiseauUser) => {
   try {
@@ -80,31 +94,21 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, _curren
     const rawSlug = (resolvedParams as any)?.slug;
     const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    if (!slug) {
-      return NextResponse.json({ error: 'Paramètre de slug illisible.' }, { status: 400 });
-    }
+    if (!slug) return NextResponse.json({ error: 'Slug invalide.' }, { status: 400 });
 
     const { searchParams } = new URL(req.url);
     const fileUrl = searchParams.get('url');
-
-    if (!fileUrl) {
-      return NextResponse.json({ error: 'URL de l\'artefact à purger manquante.' }, { status: 400 });
-    }
+    if (!fileUrl) return NextResponse.json({ error: 'URL manquante.' }, { status: 400 });
 
     const key = storageService.extractKeyFromUrl(fileUrl);
     await storageService.deleteFile(key);
 
-    // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('products');
     revalidateTag(`product-${slug}`);
 
-    console.log(`🗑️ [Ecommerce] Artefact purgé pour le produit [slug: ${slug}]`);
-
     return NextResponse.json({ success: true, message: 'Artefact produit désintégré.' }, { status: 200 });
-
   } catch (error: any) {
-    console.error('❌ [ECOMMERCE SLUG DELETE FATAL ERROR] :', error);
     const status = error instanceof IlotError ? error.status : 500;
-    return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
+    return NextResponse.json({ error: error.message || 'Erreur interne.' }, { status });
   }
 });

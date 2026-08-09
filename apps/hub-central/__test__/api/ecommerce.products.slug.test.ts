@@ -46,10 +46,11 @@ declare global {
 }
 
 describe('API Product [slug] (GET & DELETE)', () => {
+  
   beforeEach(() => {
-    vi.clearAllMocks();
-    global.__mockUser = undefined;
-  });
+      vi.clearAllMocks();
+      global.__mockUser = undefined;
+  });  
 
   describe('GET /api/products/[slug]', () => {
     it('🟢 doit récupérer l\'artefact avec succès (200)', async () => {

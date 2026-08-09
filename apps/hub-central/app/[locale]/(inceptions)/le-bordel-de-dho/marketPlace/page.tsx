@@ -3,11 +3,13 @@
 
 import React, { useState, useMemo } from 'react';
 import ResonanceButton from '@/components/resonance/ResonanceButton'; 
-import { Scale, Loader2 } from 'lucide-react';
+import { OmniActionWidget } from '@/components/widget/OmniActionWidget';
+import { Scale, Loader2, Share2 } from 'lucide-react';
 import { ProductComparator } from '@/components/ecommerce/comparator/ProductComparator';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
+import { IUniversalMediaItem } from '@ilot/types';
 
 interface Product {
   uid: string;
@@ -19,6 +21,8 @@ interface Product {
   author?: string;
   authorSlug?: string; 
   currency?: string;
+  thumbnailUrl?: string;
+  createdAt?: string;
 }
 
 export default function MarketPlacePage() {
@@ -28,6 +32,9 @@ export default function MarketPlacePage() {
 
   const [compareList, setCompareList] = useState<Product[]>([]);
   const [isComparatorOpen, setIsComparatorOpen] = useState(false);
+
+  // 🧩 État du widget universel
+  const [activeMediaForWidget, setActiveMediaForWidget] = useState<IUniversalMediaItem | null>(null);
 
   // 🦅 Synchronisation du contexte de la page avec le Chapeau Flottant
   usePageChapeauContext({
@@ -68,6 +75,22 @@ export default function MarketPlacePage() {
         return prev;
       }
       return [...prev, product];
+    });
+  };
+
+  const handleOpenWidget = (product: Product) => {
+    setActiveMediaForWidget({
+      mediaId: product.uid,
+      sourceApp: 'GALLERY', // Ou 'DHO' selon la nature exacte de l'artefact sur la marketplace
+      ownerUid: product.authorSlug || product.author || '',
+      ownerSlug: product.author || 'marchand-inconnu',
+      title: product.title,
+      mediaUrl: product.thumbnailUrl || '', 
+      thumbnailUrl: product.thumbnailUrl,
+      priceCents: product.priceCents,
+      consentForShowcase: true, // Les produits du Grand Bazar sont publics par défaut
+      consentForMusicSync: false,
+      createdAt: product.createdAt ? new Date(product.createdAt) : new Date(),
     });
   };
 
@@ -140,12 +163,22 @@ export default function MarketPlacePage() {
                 </div>
 
                 <div className="pt-4 border-t border-slate-800 flex justify-between items-center gap-2">
-                  <button 
-                    onClick={() => toggleCompare(product)}
-                    className={`p-2.5 rounded-lg transition-colors border ${isComparing ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'}`}
-                  >
-                    <Scale size={16} />
-                  </button>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => toggleCompare(product)}
+                      title="Comparer"
+                      className={`p-2.5 rounded-lg transition-colors border ${isComparing ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white hover:border-slate-500'}`}
+                    >
+                      <Scale size={16} />
+                    </button>
+                    <button 
+                      onClick={() => handleOpenWidget(product)}
+                      title="Interagir & Partager"
+                      className="p-2.5 rounded-lg bg-slate-800 text-slate-400 border border-slate-700 hover:text-white hover:border-sky-500/50 transition-colors"
+                    >
+                      <Share2 size={16} />
+                    </button>
+                  </div>
                   <button className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold px-4 py-2.5 rounded-lg text-xs transition-colors shadow-sm text-center">
                     Examiner l'Artefact
                   </button>
@@ -172,6 +205,15 @@ export default function MarketPlacePage() {
           products={compareList} 
           onClose={() => setIsComparatorOpen(false)} 
           onRemove={(uid) => setCompareList(prev => prev.filter(p => p.uid !== uid))}
+        />
+      )}
+
+      {/* 🧩 Rendu du Prisme d'Interaction centralisé */}
+      {activeMediaForWidget && (
+        <OmniActionWidget 
+          media={activeMediaForWidget}
+          isOpen={!!activeMediaForWidget}
+          onClose={() => setActiveMediaForWidget(null)}
         />
       )}
     </div>
