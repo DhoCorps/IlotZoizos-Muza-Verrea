@@ -25,6 +25,7 @@ export * from './database/models/nosql/product.model';
 export * from './database/models/nosql/wishList.model';
 export * from './database/models/nosql/order.model';
 export * from './database/models/nosql/barterOffer.model';
+export * from './database/models/nosql/ledgerEntry.model';
 
 export * from './database/models/nosql/taxonomy.model';
 
@@ -37,6 +38,7 @@ export * from './database/services/mutation.service';
 export * from './database/services/sync.service';
 export * from './database/services/gameStats.service';
 export * from './database/services/resonance.service';
+export * from './database/services/komptaLedgerService';
 
 export * from './database/models/graph/user.graph';
 export * from './database/models/graph/team.graph';

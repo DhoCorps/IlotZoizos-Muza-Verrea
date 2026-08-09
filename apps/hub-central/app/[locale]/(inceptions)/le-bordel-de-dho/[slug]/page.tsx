@@ -9,6 +9,7 @@ import { ShoppingBag, Loader2, ArrowLeft, Box } from 'lucide-react';
 import { Link } from '@/navigation';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
+import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
 
 interface ProductPageProps {
   params: Promise<{ slug: string }>;
@@ -27,6 +28,14 @@ export default function ProductDetailPage({ params }: ProductPageProps) {
       return res.json();
     },
     enabled: !!slug
+  });
+
+  // 🦅 Synchronisation du contexte de la page avec le Chapeau Flottant
+  usePageChapeauContext({
+    recipientUid: product?.authorUid || product?.ownerUid || 'canopy_store_treasury',
+    recipientPseudo: product?.author || product?.storeName || 'le Marchand',
+    targetTitle: product?.title || 'Artefact de la Canopée',
+    storeUid: product?.storeUid,
   });
 
   if (isLoading) {

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
 
 export default function AbyssBlogPostPage() {
   const params = useParams();
@@ -30,6 +31,13 @@ export default function AbyssBlogPostPage() {
   });
 
   const sujet = useMemo(() => allSujets.find((s: any) => s.slug === slug), [allSujets, slug]);
+
+  // 🦅 Synchronisation du contexte de la page avec le Chapeau Flottant
+  usePageChapeauContext({
+    recipientUid: sujet?.authorUid || sujet?.ownerUid || 'canopy_abyss_treasury',
+    recipientPseudo: sujet?.authorName || sujet?.author || 'un Oiseau de l\'Abysse',
+    targetTitle: sujet?.title || 'Monologue AbyssBlog',
+  });
 
   const { data: echoes = [], isLoading: loadingEchoes } = useQuery({
     queryKey: ['echoes', sujet?.uid],

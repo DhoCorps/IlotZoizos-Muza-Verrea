@@ -94,3 +94,16 @@
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(229, 72, 77, 0.4);
 }
+
+@keyframes subtleFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-bounce-subtle {
+  animation: subtleFloat 3s ease-in-out infinite;
+}

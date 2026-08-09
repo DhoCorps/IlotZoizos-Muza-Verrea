@@ -7,6 +7,7 @@ import { Scale, Loader2 } from 'lucide-react';
 import { ProductComparator } from '@/components/ecommerce/comparator/ProductComparator';
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
+import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
 
 interface Product {
   uid: string;
@@ -27,6 +28,13 @@ export default function MarketPlacePage() {
 
   const [compareList, setCompareList] = useState<Product[]>([]);
   const [isComparatorOpen, setIsComparatorOpen] = useState(false);
+
+  // 🦅 Synchronisation du contexte de la page avec le Chapeau Flottant
+  usePageChapeauContext({
+    recipientUid: 'canopy_marketplace_treasury',
+    recipientPseudo: 'Le Grand Bazar',
+    targetTitle: 'Place de marché ouverte',
+  });
 
   // 🌀 SUTURE REACT QUERY : Requête intelligente et chaînée
   const { data: products = [], isLoading: loading } = useQuery({

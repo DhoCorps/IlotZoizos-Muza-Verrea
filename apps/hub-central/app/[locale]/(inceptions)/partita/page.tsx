@@ -8,6 +8,7 @@ import { PartitaForm } from '@/components/partita/PartitaForm';
 import ResonanceButton from '@/components/resonance/ResonanceButton';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
 
 export default function PartitaDashboard() {
   const queryClient = useQueryClient();
@@ -18,6 +19,13 @@ export default function PartitaDashboard() {
   
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPartition, setEditingPartition] = useState<any>(null);
+
+  // 🦅 Synchronisation du contexte de la page avec le Chapeau Flottant
+  usePageChapeauContext({
+    recipientUid: 'canopy_partita_treasury',
+    recipientPseudo: 'La Partitionnerie',
+    targetTitle: 'Atelier Partita',
+  });
 
   // 🌀 SUTURE REACT QUERY : Récupération des partitions
   const { data: partitions = [], isLoading: partitionsLoading } = useQuery({

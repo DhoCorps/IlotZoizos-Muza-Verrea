@@ -10,6 +10,7 @@ import { LetrinEditor, PixelData } from '@/components/letrin/LetrinEditor';
 import ResonanceButton from '@/components/resonance/ResonanceButton';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
 
 type GlyphMatrix = (PixelData | null)[][];
 type MatricesRecord = Record<string, GlyphMatrix>;
@@ -19,6 +20,13 @@ export default function LetrInSpritePage() {
   const [isEditing, setIsEditing] = useState(false);
   const [currentFont, setCurrentFont] = useState<any>(null);
   const [fontName, setFontName] = useState('Nouvelle Police Sprite');
+
+  // 🦅 Synchronisation du contexte de la page avec le Chapeau Flottant
+  usePageChapeauContext({
+    recipientUid: 'canopy_letrin_treasury',
+    recipientPseudo: 'La Forge Typographique',
+    targetTitle: isEditing ? `Édition : ${fontName}` : 'Letr\'In Sprites',
+  });
 
   // 🌀 SUTURE REACT QUERY : Récupération automatique des polices
   const { data: fonts = [], isLoading: loading } = useQuery({

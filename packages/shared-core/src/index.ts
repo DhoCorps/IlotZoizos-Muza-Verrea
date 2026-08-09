@@ -23,6 +23,7 @@ export { UniversalGridCanvas } from '../src/bloc-engine/UniversalGridCanvas';
 export * from '../src/ecommerce/useCartStore';
 export * from '../src/ecommerce/useWishListStore';
 
+
 // --- 5. SYNCHRONISATION & ORCHESTRATEURS ---
 export * from './sync-engine/transactionManager';
 export * from './sync-engine/user.orchestrator';
@@ -42,6 +43,8 @@ export * from './sync-engine/demopraxy.orchestrator';
 export * from './sync-engine/sovereign.purge.orchestrator';
 export * from './sync-engine/market.regulation.orchestrator';
 export * from './sync-engine/consciousness.salon.orchestrator';
+export * from './sync-engine/paymentTokenisation.orchestrator';
+export * from './sync-engine/komptaPayment.orchestrator';
 
 // --- 6. JEUX (LOGIQUE & TYPES) ---
 

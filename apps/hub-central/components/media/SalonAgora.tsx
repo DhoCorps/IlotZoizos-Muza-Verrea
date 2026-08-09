@@ -1,13 +1,13 @@
-// apps/hub-central/components/media/SalonAgora.tsx
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
+import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
 
 interface MediaItem {
   uid: string;
   title: string;
-  author: string;
-  fileUrl?: string; // URL du média (image ou audio)
+  author: string; // On part du principe que l'author contient ou peut servir d'UID
+  fileUrl?: string;
   category: string;
 }
 
@@ -46,8 +46,15 @@ export default function SalonAgora() {
   const activeVisual = visuals[currentVisualIndex];
   const activeTrack = tracks[currentTrackIndex];
 
+  // 🦅 Intégration du Contexte Agora dans le Chapeau
+  // On utilise le hook pour mettre à jour le Chapeau dynamiquement dès que l'œuvre change
+  usePageChapeauContext({
+    recipientUid: activeVisual?.author || 'unknown_author',
+    recipientPseudo: activeVisual?.author || 'Oiseau Créateur',
+    targetTitle: activeVisual?.title || 'Une œuvre de l\'Agora',
+  });
+
   const handleTrackEnded = () => {
-    // Passer à la piste suivante au hasard ou en boucle
     setCurrentTrackIndex(prev => (prev + 1) % tracks.length);
   };
 
@@ -58,7 +65,6 @@ export default function SalonAgora() {
       <div className="absolute inset-0 z-0 flex items-center justify-center opacity-40 transition-opacity duration-1000">
         {activeVisual ? (
           <div className="relative w-full h-full flex items-center justify-center">
-            {/* Si c'est une image ou un rendu graphique */}
             <div className="text-center p-8 max-w-2xl bg-slate-900/40 backdrop-blur-md rounded-2xl border border-slate-800">
               <span className="text-xs uppercase font-mono tracking-widest text-emerald-400 mb-2 block">
                 [ Œuvre Visuelle : {activeVisual.category} ]
@@ -72,7 +78,7 @@ export default function SalonAgora() {
         )}
       </div>
 
-      {/* 2. En-tête : Titre de l'espace */}
+      {/* 2. En-tête */}
       <header className="relative z-10 p-6 flex justify-between items-center bg-gradient-to-b from-slate-950/80 to-transparent">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-emerald-400">📻 L'Agora des Ondes (Salon Audiovisuel)</h1>
@@ -80,7 +86,7 @@ export default function SalonAgora() {
         </div>
       </header>
 
-      {/* 3. Panneau Flottant : L'Auteur Actif (Le Crédit permanent) */}
+      {/* 3. Panneau Flottant : Crédit & Lien Profil */}
       <div className="relative z-10 self-end mr-8 mb-4 bg-slate-900/80 backdrop-blur-md border border-slate-700/60 p-4 rounded-xl shadow-2xl max-w-sm">
         <div className="text-xs text-slate-400 uppercase tracking-wider mb-1 font-mono">En ce moment à l'écran :</div>
         <div className="font-bold text-slate-100 text-base">{activeVisual?.title || "..."}</div>
@@ -93,9 +99,8 @@ export default function SalonAgora() {
         </a>
       </div>
 
-      {/* 4. Barre de Contrôle Audio Inférieure */}
+      {/* 4. Barre de Contrôle Audio */}
       <footer className="relative z-10 bg-slate-900/90 border-t border-slate-800 p-4 md:p-6 flex flex-col md:flex-row items-center justify-between gap-4">
-        
         <div className="flex items-center gap-4">
           <button 
             onClick={() => setIsPlaying(!isPlaying)}
@@ -111,7 +116,6 @@ export default function SalonAgora() {
           </div>
         </div>
 
-        {/* Élément Audio HTML5 caché ou piloté */}
         {activeTrack?.fileUrl && (
           <audio 
             ref={audioRef}
@@ -125,7 +129,6 @@ export default function SalonAgora() {
           Chaque note et chaque pixel appartiennent à leurs créateurs respectifs.
         </div>
       </footer>
-
     </div>
   );
 }

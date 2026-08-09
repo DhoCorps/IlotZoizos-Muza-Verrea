@@ -7,6 +7,13 @@ const { Schema } = mongoose;
 import { v4 as uuidv4 } from 'uuid';
 import { IOiseau } from "@ilot/types";
 
+export interface ExternalPaymentProfile {
+  externalCustomerId: string;       // ID du client chez le tiers de paiement (ex: Stripe Customer ID)
+  defaultPaymentMethodId?: string;  // ID du moyen de paiement par défaut tokenisé
+  hasActiveWallet: boolean;         // Indique si l'oiseau a initialisé son espace de paiement
+  updatedAt: Date;
+}
+
 export interface OiseauDocument extends IOiseau, Document { 
   _id: Types.ObjectId; 
   sanctuaireVerrouille: boolean;
