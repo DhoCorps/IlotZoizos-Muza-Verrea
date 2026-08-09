@@ -19,12 +19,14 @@ export default async function KoOonTreeZPage({
   }
 
   const username = session.user.name || 'Oiseau Anonyme';
-  // Tu peux récupérer d'éventuels paramètres d'URL si besoin (ex: mode d'apprentissage actif par défaut)
   const isLearningMode = resolvedSearchParams.room !== 'competitive';
 
   return (
-    <div className="min-h-screen bg-slate-950 py-8 px-4 flex flex-col justify-center">
+    <main className="min-h-screen bg-slate-950 py-8 px-4 flex flex-col justify-center">
+      <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 mb-6 text-center font-mono tracking-wider">
+        KOÔONTREEZ 🌳
+      </h1>
       <KoOonTreezGameClient username={username} isLearningMode={isLearningMode} />
-    </div>
+    </main>
   );
 }

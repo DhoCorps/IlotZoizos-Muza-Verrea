@@ -2,19 +2,18 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { KoOonTreezLogic } from '@ilot/shared-core';
-import { FullCountryData, KoOonTreezLevel, KoOonTreezMode, CurrentFlag, KoOonTreezQuizQuestion } from '@ilot/shared-core'; // Ajuste l'import des types selon ton arborescence
+import { FullCountryData, KoOonTreezLevel, KoOonTreezMode, KoOonTreezQuizQuestion } from '@ilot/shared-core';
 import { QuizScoringEngine } from '@ilot/shared-core';
-import { PlayerGameStats, QuizTrophy } from '@ilot/types';
-import { Socket } from 'socket.io-client';
+import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
 
 interface KoOonTreezGameClientProps {
-  socket?: Socket;
   roomId?: string;
   username: string;
   isLearningMode?: boolean; // Permet d'activer ou non le mode apprentissage
 }
 
-export default function KoOonTreezGameClient({ username, isLearningMode = true }: KoOonTreezGameClientProps) {
+export default function KoOonTreezGameClient({ roomId, username, isLearningMode = true }: KoOonTreezGameClientProps) {
+  const { socket, isConnected } = useGameSocket();
   const [countries, setCountries] = useState<FullCountryData[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState<KoOonTreezQuizQuestion | null>(null);
   const [currentCountryData, setCurrentCountryData] = useState<FullCountryData | null>(null);
@@ -180,7 +179,7 @@ export default function KoOonTreezGameClient({ username, isLearningMode = true }
         ))}
       </div>
 
-      {/* 📖 MODALE DU MODE APPRENTISSAGE (Fiche Pays Détaillée) */}
+      {/* 📖 MODALE DU MODE APPRENTISSAGE */}
       {showLearningModal && currentCountryData && (
         <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-md rounded-2xl p-6 flex flex-col justify-between z-50 animate-fade-in border border-emerald-500/40">
           <div>
@@ -221,9 +220,9 @@ export default function KoOonTreezGameClient({ username, isLearningMode = true }
                 <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
                     <span className="text-xs text-slate-400 block">Monnaie</span>
                     <strong className="text-white">
-                        {currentCountryData.currencies 
-                        ? (Object.values(currentCountryData.currencies)[0] as { name?: string })?.name || 'N/A'
-                        : 'N/A'
+                        {currentCountryData.currencies && typeof currentCountryData.currencies === 'object'
+                          ? (Object.values(currentCountryData.currencies)[0] as { name?: string })?.name || 'N/A'
+                          : 'N/A'
                         }
                     </strong>
                 </div>

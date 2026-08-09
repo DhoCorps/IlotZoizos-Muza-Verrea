@@ -7,8 +7,8 @@ import {
     CineMaxGameOptions, 
     CineMaxMakeMoveRequest,
     CineMaxDifficulty
-} from '@ilot/shared-core'; // Ton fichier de types partagés
-import { CineMaxLogic } from '@ilot/shared-core'; // La logique métier
+} from '@ilot/shared-core'; 
+import { CineMaxLogic } from '@ilot/shared-core'; 
 
 // 💾 IMPORT DU SERVICE D'ARCHIVAGE 
 import { GameStatsService } from '@ilot/infrastructure';
@@ -132,6 +132,39 @@ export class CineMaxManager {
     }
 
     /**
+     * 🔌 GESTION DE LA DÉCONNEXION D'UN JOUEUR
+     */
+    public notifyPlayerDisconnect(socketId: string, roomId: string): void {
+        const room = this.rooms.get(roomId);
+        if (!room) return;
+
+        const player = room.players.find(p => p.socketId === socketId || p.id === socketId);
+        if (player) {
+            player.status = 'disconnected';
+            console.log(`[CineMaxManager] Le joueur ${player.username} s'est éclipsé de la salle.`);
+        }
+    }
+
+    /**
+     * 🔍 RÉCUPÉRATION DU SALON
+     */
+    public getRoom(roomId: string): CineMaxGameRoom | undefined {
+        return this.rooms.get(roomId);
+    }
+
+    /**
+     * 🗑️ SUPPRESSION DU SALON
+     */
+    public deleteRoom(roomId: string): void {
+        const room = this.rooms.get(roomId);
+        if (room && room.roundTimerInterval) {
+            clearInterval(room.roundTimerInterval);
+        }
+        this.rooms.delete(roomId);
+        console.log(`[CineMaxManager] Salon '${roomId}' fermé et projecteur éteint.`);
+    }
+
+    /**
      * 🎞️ DÉMARRAGE DU ROUND (Le projecteur tourne)
      */
     private async startRound(roomId: string) {
@@ -144,8 +177,7 @@ export class CineMaxManager {
         room.buzzerWinnerId = null;
         room.currentRoundTimeLeft = room.gameOptions.timePerRound || ROUND_DURATION_SECONDS;
 
-        // 1. Appel TMDB Unique par manche (L'astuce pour ne pas surcharger l'API)
-        // TODO: Insérer ta clé API TMDB dans tes variables d'environnement
+        // 1. Appel TMDB Unique par manche
         const movieData = await CineMaxLogic.fetchRoundDataFromTMDB("TA_CLE_API");
         
         room.targetMovieId = movieData.targetMovieId;
@@ -163,7 +195,7 @@ export class CineMaxManager {
                 p.pendingDifficultyChoice = false;
             } else {
                 p.currentQuestion = null;
-                p.pendingDifficultyChoice = true; // Le joueur doit choisir sa diff
+                p.pendingDifficultyChoice = true; 
             }
         });
 
@@ -175,7 +207,7 @@ export class CineMaxManager {
             this.io.to(roomId).emit('cinemax:countdown', room.currentRoundTimeLeft);
 
             if (room.currentRoundTimeLeft <= 0) {
-                this.endRound(roomId, null); // Temps écoulé, personne n'a buzzé
+                this.endRound(roomId, null); 
             }
         }, 1000);
 
@@ -184,7 +216,7 @@ export class CineMaxManager {
     }
 
     /**
-     * 🎮 GESTION DES ACTIONS (Le cœur du gameplay)
+     * 🎮 GESTION DES ACTIONS
      */
     public handleMakeMove(roomId: string, playerId: string, move: CineMaxMakeMoveRequest): void {
         const room = this.rooms.get(roomId);
@@ -207,18 +239,15 @@ export class CineMaxManager {
     }
 
     /**
-     * 🎯 LOGIQUE : Le joueur choisit sa difficulté (Risk/Reward)
+     * 🎯 LOGIQUE : Le joueur choisit sa difficulté
      */
     private processDifficultySelection(room: CineMaxGameRoom, player: CineMaxPlayer, difficulty: CineMaxDifficulty) {
         if (!player.pendingDifficultyChoice) return;
 
-        // On génère une question adaptée depuis les données du film en cours
-        // (Mockée ici, mais tu utiliseras le pool de données TMDB du round)
         const mockMovieData = { title: room.targetMovieTitle || "Unknown" }; 
         player.currentQuestion = this.generateQuestionFromPool(mockMovieData, difficulty);
         player.pendingDifficultyChoice = false;
         
-        // On n'envoie l'update qu'au joueur concerné pour ne pas spammer tout le salon
         this.io.to(player.socketId!).emit('cinemax:personal-update', { 
             currentQuestion: player.currentQuestion,
             pendingDifficultyChoice: false
@@ -234,21 +263,17 @@ export class CineMaxManager {
         const isCorrect = answer.toLowerCase().trim() === player.currentQuestion.correctAnswer.toLowerCase().trim();
 
         if (isCorrect) {
-            // 1. Gain de points persos
             const points = CineMaxLogic.getPointsForDifficulty(player.currentQuestion.difficulty);
             player.score += points;
             room.scores[player.id] = player.score;
 
-            // 2. Éclaircissement de l'affiche pour TOUT LE MONDE (L'effort collectif)
             const blurReduction = CineMaxLogic.getBlurReductionForDifficulty(player.currentQuestion.difficulty);
             room.pelliculeBlur = Math.max(0, room.pelliculeBlur - blurReduction);
 
         } else {
-            // Si faux, petit feedback. Pas de pénalité de points ici, la pénalité est sur le buzzer.
             this.io.to(player.socketId!).emit('error:message', "Mauvaise réponse. Cherche encore !");
         }
 
-        // 3. Préparer la question suivante
         if (room.gameOptions.difficultyRule === 'PLAYER_CHOICE') {
             player.currentQuestion = null;
             player.pendingDifficultyChoice = true;
@@ -257,12 +282,11 @@ export class CineMaxManager {
             player.currentQuestion = this.generateQuestionFromPool({ title: room.targetMovieTitle || "" }, nextDiff);
         }
 
-        // On met à jour l'image pour tout le monde !
         this.io.to(room.id).emit('game:update', this.toClientRoom(room));
     }
 
     /**
-     * 🚨 LOGIQUE : Coup de Buzzer (La Tension !)
+     * 🚨 LOGIQUE : Coup de Buzzer
      */
     private processBuzzerHit(room: CineMaxGameRoom, player: CineMaxPlayer, guessedTitle: string) {
         if (player.isBuzzerLocked) {
@@ -273,21 +297,18 @@ export class CineMaxManager {
         const isCorrect = guessedTitle.toLowerCase().trim() === room.targetMovieTitle?.toLowerCase().trim();
 
         if (isCorrect) {
-            // BINGO !
             room.buzzerWinnerId = player.id;
-            player.score += 50; // Le gros lot
+            player.score += 50; 
             room.scores[player.id] = player.score;
-            room.pelliculeBlur = 0; // On révèle tout
+            room.pelliculeBlur = 0; 
             
             this.endRound(room.id, player.id);
         } else {
-            // CATASTROPHE : Pénalité progressive !
             player.errorCount++;
             const penalty = CineMaxLogic.calculateBuzzerPenalty(player.errorCount);
             player.score -= penalty;
             room.scores[player.id] = player.score;
 
-            // Verrouillage temporaire du buzzer
             player.isBuzzerLocked = true;
             setTimeout(() => {
                 const currentRoom = this.rooms.get(room.id);
@@ -303,7 +324,7 @@ export class CineMaxManager {
     }
 
     /**
-     * 🛑 FIN DU ROUND (et potentiellement FIN DU JEU)
+     * 🛑 FIN DU ROUND
      */
     private endRound(roomId: string, winnerId: string | null) {
         const room = this.rooms.get(roomId);
@@ -314,79 +335,54 @@ export class CineMaxManager {
             room.roundTimerInterval = null;
         }
 
-        if (winnerId) {
-            const winner = room.players.find(p => p.id === winnerId);
-            console.log(`[CineMaxManager] Coupé ! ${winner?.username} a trouvé le film : ${room.targetMovieTitle}`);
-        } else {
-            console.log(`[CineMaxManager] Coupé ! Personne n'a trouvé le film : ${room.targetMovieTitle}`);
-        }
-
-        // =========================================================
-        // 🏆 VÉRIFICATION DE FIN DE PARTIE (GAME OVER)
-        // =========================================================
-        // Dans Ciné-Max, la partie peut s'arrêter au bout de "maxRounds" ou quand un joueur atteint "scoreToWin"
         const maxScoreReched = room.players.some(p => p.score >= (room.gameOptions.scoreToWin || 500));
         const maxRoundsReached = room.gameOptions.maxRounds && room.round >= room.gameOptions.maxRounds;
 
         if (maxScoreReched || maxRoundsReached) {
             room.state = 'gameOver';
             
-            // Déterminer le grand vainqueur de la partie
             let grandWinner = room.players[0];
             room.players.forEach(p => {
                 if(p.score > grandWinner.score) grandWinner = p;
             });
             room.winnerId = grandWinner.id;
 
-            console.log(`[CineMaxManager] FIN DE PARTIE dans le salon ${roomId}. Grand Vainqueur: ${grandWinner.username}`);
-
-            // 💾 DÉCLENCHEMENT DE L'ARCHIVAGE (MONGO + NEO4J)
             const duration = (room.gameOptions.timePerRound || ROUND_DURATION_SECONDS) * room.round; 
             
             const matchData = {
                 gameType: 'CineMax' as const,
                 roomId: room.id,
-                startedAt: new Date(Date.now() - (duration * 1000)), // Estimation simple
+                startedAt: new Date(Date.now() - (duration * 1000)),
                 endedAt: new Date(),
                 durationSeconds: duration,
-                players: room.players.map(p => {
-                    return {
-                        uid: p.id, 
-                        pseudo: p.username,
-                        score: p.score,
-                        isWinner: p.id === room.winnerId,
-                        specificStats: {
-                            moviesGuessed: p.id === winnerId ? 1 : 0, // Exemple de stat spécifique
-                            errorsMade: p.errorCount
-                        }
-                    };
-                }),
+                players: room.players.map(p => ({
+                    uid: p.id, 
+                    pseudo: p.username,
+                    score: p.score,
+                    isWinner: p.id === room.winnerId,
+                    specificStats: {
+                        moviesGuessed: p.id === winnerId ? 1 : 0,
+                        errorsMade: p.errorCount
+                    }
+                })),
                 matchMetadata: {
                     difficultyRule: room.gameOptions.difficultyRule,
                     totalRoundsPlayed: room.round
                 }
             };
 
-            // Envoi en tâche de fond
             GameStatsService.recordMatch(matchData).then((success: boolean) => {
                 if(success) console.log(`[CineMaxManager] Historique sauvegardé avec succès pour le salon ${roomId}`);
             });
 
-            // On signale aux clients que la partie entière est terminée
             this.io.to(room.id).emit('game:over', this.toClientRoom(room));
 
         } else {
-            // Si la partie n'est pas finie, on passe à l'état 'waiting' (pause entre les films)
             room.state = 'waiting'; 
-            
-            // On envoie la mise à jour de fin de manche (pour afficher l'affiche nette, etc.)
             this.io.to(room.id).emit('game:round-end', this.toClientRoom(room));
 
-            // Relancer le round suivant après 10 secondes
-            // L'intervalle est créé ici pour assurer le flow automatique
             setTimeout(() => {
                 const currentRoom = this.rooms.get(roomId);
-                // On vérifie que la salle existe toujours et n'a pas été vidée pendant la pause
                 if (currentRoom && currentRoom.players.length > 0) {
                     this.startRound(roomId);
                 }
@@ -395,22 +391,19 @@ export class CineMaxManager {
     }
 
     /**
-     * 🛡️ SÉCURITÉ : Formate la Room pour ne pas envoyer les réponses au client
+     * 🛡️ SÉCURITÉ : Formate la Room pour le client
      */
-    public toClientRoom(room: CineMaxGameRoom): CineMaxRoomToSend { // Idéalement de type CineMaxRoomToSend
-        // On clone la room pour ne pas modifier l'originale
+    public toClientRoom(room: CineMaxGameRoom): CineMaxRoomToSend {
         const clientRoom = { ...room };
         
-        // IMPORTANT : On cache le titre du film à deviner tant qu'il n'est pas trouvé
         if (room.pelliculeBlur > 0 && !room.buzzerWinnerId && room.state !== 'gameOver') {
             clientRoom.targetMovieTitle = null; 
         }
 
-        // On masque la réponse correcte dans les questions actuelles des joueurs
         clientRoom.players = room.players.map(p => {
             const safePlayer = { ...p };
             if (safePlayer.currentQuestion) {
-                // @ts-ignore - Masquage volontaire pour le client
+                // @ts-ignore
                 safePlayer.currentQuestion.correctAnswer = "HIDDEN";
             }
             return safePlayer;
@@ -419,11 +412,7 @@ export class CineMaxManager {
         return clientRoom;
     }
 
-    /**
-     * 🛠️ UTILITAIRE : Fabrique une question bidon pour le mock
-     */
     private generateQuestionFromPool(movieData: any, difficulty: CineMaxDifficulty): any {
-        // Logique complexe à implémenter : piocher dans les acteurs du film
         return {
             id: Date.now().toString(),
             type: 'ACTOR_FACE',

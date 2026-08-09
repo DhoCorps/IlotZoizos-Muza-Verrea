@@ -2,7 +2,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Socket } from 'socket.io-client';
 import { 
     RoomToSend,  
     KoOonTreeZRoomToSend 
@@ -12,9 +11,9 @@ import {
     KoOonTreezMode 
 } from '@ilot/shared-core';
 import { KoOonTreezLogic } from '@ilot/shared-core';
+import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
 
 interface KoOonTreeZClientProps {
-    socket: Socket;
     roomId: string;
     username: string;
     kooonTreezNbPlayer?: string;
@@ -25,10 +24,10 @@ interface KoOonTreeZClientProps {
 }
 
 export default function KoOonTreeZClient({ 
-    socket, 
     roomId, 
     username 
 }: KoOonTreeZClientProps) {
+    const { socket, isConnected } = useGameSocket();
     const [gameState, setGameState] = useState<KoOonTreeZRoomToSend | null>(null);
     const [currentQuestion, setCurrentQuestion] = useState<KoOonTreezQuizQuestion | null>(null);
     const [timeLeft, setTimeLeft] = useState<number>(0);
@@ -42,11 +41,7 @@ export default function KoOonTreeZClient({
 
         if (!socket) return;
 
-        if (socket.connected) {
-            console.log('[KoOonTreeZ] Connecté au serveur.');
-            socket.emit('room:join', { roomId, username });
-        }
-
+        // 1. Déclaration stricte des écouteurs
         const handleConnect = () => {
             console.log('[KoOonTreeZ] Connecté au serveur.');
             socket.emit('room:join', { roomId, username });
@@ -59,60 +54,75 @@ export default function KoOonTreeZClient({
             }
         };
 
-        socket.on('connect', handleConnect);
-        socket.on('room:joined', handleStateUpdate);
-        socket.on('game:init', handleStateUpdate);
-        socket.on('game:update', handleStateUpdate);
-        
-        socket.on('game:new-question', (data: KoOonTreezQuizQuestion) => {
+        const handleNewQuestion = (data: KoOonTreezQuizQuestion) => {
             setCurrentQuestion(data);
             setHasAnswered(false);
             setHint(null);
             setFeedback(null);
-        });
+        };
 
-        socket.on('kooontreez:countdown', (time: number) => {
+        const handleCountdown = (time: number) => {
             setTimeLeft(time);
-        });
+        };
 
-        socket.on('kooontreez:feedback', (fb: { playerId: string, isCorrect: boolean, message: string }) => {
+        const handleFeedback = (fb: { playerId: string, isCorrect: boolean, message: string }) => {
             setFeedback({ message: fb.message, type: fb.isCorrect ? 'success' : 'error' });
             if (fb.playerId === socket.id) setHasAnswered(true);
-        });
+        };
 
-        socket.on('game:over', (data: RoomToSend) => {
+        const handleGameOver = (data: RoomToSend) => {
             handleStateUpdate(data);
             setFeedback({ message: 'Partie terminée !', type: 'info' });
-        });
+        };
 
-        socket.on('game:restart', (data: RoomToSend) => {
+        const handleGameRestart = (data: RoomToSend) => {
             handleStateUpdate(data);
             setFeedback({ message: 'La partie a redémarré.', type: 'info' });
             setHint(null);
             setHasAnswered(false);
-        });
+        };
 
-        socket.on('game:interrupted', (data: { message: string }) => {
+        const handleInterrupted = (data: { message: string }) => {
             setErrorMsg(`Partie interrompue: ${data.message}`);
-        });
+        };
 
-        socket.on('error:message', (msg: string) => setErrorMsg(msg));
+        const handleErrorMessage = (msg: string) => {
+            setErrorMsg(msg);
+        };
 
+        // 2. Attachement des écouteurs
+        socket.on('connect', handleConnect);
+        socket.on('room:joined', handleStateUpdate);
+        socket.on('game:init', handleStateUpdate);
+        socket.on('game:update', handleStateUpdate);
+        socket.on('game:new-question', handleNewQuestion);
+        socket.on('kooontreez:countdown', handleCountdown);
+        socket.on('kooontreez:feedback', handleFeedback);
+        socket.on('game:over', handleGameOver);
+        socket.on('game:restart', handleGameRestart);
+        socket.on('game:interrupted', handleInterrupted);
+        socket.on('error:message', handleErrorMessage);
+
+        if (socket.connected) {
+            socket.emit('room:join', { roomId, username });
+        }
+
+        // 3. Nettoyage chirurgical (Mode Strict safe)
         return () => {
             socket.emit('room:leave', { roomId });
             socket.off('connect', handleConnect);
             socket.off('room:joined', handleStateUpdate);
             socket.off('game:init', handleStateUpdate);
             socket.off('game:update', handleStateUpdate);
-            socket.off('game:new-question');
-            socket.off('kooontreez:countdown');
-            socket.off('kooontreez:feedback');
-            socket.off('game:over');
-            socket.off('game:restart');
-            socket.off('game:interrupted');
-            socket.off('error:message');
+            socket.off('game:new-question', handleNewQuestion);
+            socket.off('kooontreez:countdown', handleCountdown);
+            socket.off('kooontreez:feedback', handleFeedback);
+            socket.off('game:over', handleGameOver);
+            socket.off('game:restart', handleGameRestart);
+            socket.off('game:interrupted', handleInterrupted);
+            socket.off('error:message', handleErrorMessage);
         };
-    }, [socket, roomId, username]);
+    }, [socket, roomId, username, isConnected]);
 
     const handleStartGame = () => socket?.emit('kooontreez:start-game', { roomId });
     const handleRestartGame = () => socket?.emit('game:restart-request', { roomId });
@@ -236,7 +246,7 @@ export default function KoOonTreeZClient({
                 )}
             </div>
 
-            {/* LISTE DES JOUEURS (Sans le chat local) */}
+            {/* LISTE DES JOUEURS */}
             <div className="w-full bg-slate-900 rounded-xl border border-white/10 p-4 shadow-xl">
                 <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-3 font-mono">Explorateurs</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">

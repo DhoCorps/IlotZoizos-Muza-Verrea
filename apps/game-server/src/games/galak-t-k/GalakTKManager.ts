@@ -66,7 +66,7 @@ export class GalakTKManager {
             currentTurnPlayerId: ownerPlayer.id,
             roundStartTime: Date.now(),
             round: 0,
-            scores: {}
+            scores: { [ownerPlayer.id]: 0 }
         };
 
         this.rooms.set(roomId, newRoom);
@@ -101,6 +101,10 @@ export class GalakTKManager {
                 foundStarPositions: []
             };
             room.players.push(player);
+            if (!room.scores) {
+                room.scores = {};
+            }
+            room.scores[player.id] = 0;
         }
 
         if (room.state === 'waiting' && room.players.length >= 2) {
@@ -110,110 +114,75 @@ export class GalakTKManager {
         return room;
     }
 
+    public notifyPlayerDisconnect(socketId: string, roomId: string): void {
+        const room = this.rooms.get(roomId);
+        if (!room) return;
+
+        const player = room.players.find(p => p.socketId === socketId || p.id === socketId);
+        if (player) {
+            player.status = 'disconnected';
+            console.log(`[GalakTKManager] Le pilote ${player.username} a quitté le secteur.`);
+        }
+    }
+
     public handleMakeMove(roomId: string, playerId: string, move: GalakTKMakeMoveRequest): { room: GalakTKGameRoom, moveResult?: GalakTKMoveResult } {
         const room = this.rooms.get(roomId);
         if (!room || room.state !== 'playing') throw new Error("Partie inactive.");
-
-        if (room.currentTurnPlayerId !== playerId) {
-            throw new Error("Ce n'est pas votre tour de sonder le secteur !");
-        }
+        if (room.currentTurnPlayerId !== playerId) throw new Error("Ce n'est pas votre tour !");
 
         const player = room.players.find(p => p.id === playerId);
         if (!player) throw new Error("Joueur introuvable.");
 
         if (move.action === 'MARK_CELL') {
-            // Clic droit : mémorisation personnelle de la cellule
             const { position, markStatus } = move.payload;
             if (!position || !markStatus) throw new Error("Données de marquage invalides.");
 
             const existingIndex = player.markedCells.findIndex(m => m.x === position.x && m.y === position.y);
-            if (existingIndex >= 0) {
-                player.markedCells[existingIndex].status = markStatus;
-            } else {
-                player.markedCells.push({ x: position.x, y: position.y, status: markStatus });
-            }
+            if (existingIndex >= 0) player.markedCells[existingIndex].status = markStatus;
+            else player.markedCells.push({ x: position.x, y: position.y, status: markStatus });
 
             return { room };
         } 
         
         if (move.action === 'CLICK_CELL') {
-            // Clic gauche : tentative de découverte
             const { position } = move.payload;
             if (!position) throw new Error("Position invalide.");
 
             player.turnsTaken++;
-
-            // Vérifier si cette étoile a déjà été trouvée par CE joueur
-            const alreadyFound = player.foundStarPositions.some(s => s.x === position.x && s.y === position.y);
-            if (alreadyFound) {
-                throw new Error("Vous avez déjà découvert cette étoile !"); // syntax correction below
+            if (player.foundStarPositions.some(s => s.x === position.x && s.y === position.y)) {
+                throw new Error("Vous avez déjà découvert cette étoile !");
             }
 
             const result = GalakTKLogic.countStarsOnAxes(position, room.stars, room.gameOptions);
 
             if (result.isStar) {
-                // Succès ! Le joueur découvre une étoile en secret
                 player.foundStarPositions.push(position);
                 player.starsFoundCount++;
 
-                // Vérifier la victoire de ce joueur
                 if (player.starsFoundCount >= room.stars.length) {
                     room.state = 'gameOver';
                     room.winnerId = player.id;
-                    const totalTime = Date.now() - player.startTime;
-                    player.score = GalakTKLogic.calculateGamerScore(player.turnsTaken, totalTime, room.stars.length);
-                    
-                    console.log(`[GalakTKManager] FIN DE PARTIE dans le secteur ${roomId}. Vainqueur : ${player.username}`);
-
-                    // =========================================================
-                    // 💾 DÉCLENCHEMENT DE L'ARCHIVAGE (MONGO + NEO4J)
-                    // =========================================================
                     const durationInSeconds = Math.floor((Date.now() - room.roundStartTime) / 1000);
                     
-                    const matchData = {
-                        gameType: 'GalakTK' as const,
+                    GameStatsService.recordMatch({
+                        gameType: 'GalakTK',
                         roomId: room.id,
-                        startedAt: new Date(room.roundStartTime), 
+                        startedAt: new Date(room.roundStartTime),
                         endedAt: new Date(),
                         durationSeconds: durationInSeconds,
-                        players: room.players.map(p => {
-                            return {
-                                uid: p.id, 
-                                pseudo: p.username,
-                                score: p.score || 0, // Score calculé à la fin uniquement pour le vainqueur
-                                isWinner: p.id === room.winnerId,
-                                specificStats: {
-                                    starsFound: p.starsFoundCount,
-                                    turnsTaken: p.turnsTaken,
-                                    timeSpentMs: p.totalTimeMs || (Date.now() - p.startTime) // Approximation si pas géré finement
-                                }
-                            };
-                        }),
-                        matchMetadata: {
-                            gridSize: room.gameOptions.gridSize,
-                            totalStars: room.stars.length
-                        }
-                    };
-
-                    // Envoi en tâche de fond (Fire and Forget)
-                    GameStatsService.recordMatch(matchData).then((success: boolean) => {
-                        if(success) console.log(`[GalakTKManager] Historique sauvegardé avec succès pour le secteur ${roomId}`);
+                        players: room.players.map(p => ({
+                            uid: p.id, pseudo: p.username, score: p.score, isWinner: p.id === room.winnerId,
+                            specificStats: { starsFound: p.starsFoundCount, turnsTaken: p.turnsTaken }
+                        })),
+                        matchMetadata: { gridSize: room.gameOptions.gridSize, totalStars: room.stars.length }
                     });
-                    // =========================================================
-
-                } else {
-                    // RÈGLE : Le joueur rejoue s'il trouve une étoile !
-                    // room.currentTurnPlayerId reste inchangé.
                 }
-
                 return { room, moveResult: { type: 'STAR_FOUND', position } };
             } else {
-                // Raté, on passe le tour au joueur suivant
                 this.passToNextTurn(room);
                 return { room, moveResult: { type: 'AXIS_COUNT', position, count: result.starCount } };
             }
         }
-
         return { room };
     }
 
@@ -225,20 +194,23 @@ export class GalakTKManager {
     }
 
     public toClientRoom(room: GalakTKGameRoom, requestingPlayerId?: string): GalakTKRoomToSend {
-    const scoresRecord: Record<string, number> = {};
-    room.players.forEach(p => {
-        scoresRecord[p.id] = p.score || 0;
-    });
+        const scoresRecord: Record<string, number> = {};
+        if (room.scores) {
+            Object.assign(scoresRecord, room.scores);
+        }
+        room.players.forEach(p => {
+            scoresRecord[p.id] = p.score || 0;
+        });
 
-    const clientRoom: GalakTKRoomToSend = {
-        ...room,
-        stars: [],
-        round: room.round || 1,
-        scores: scoresRecord // <-- Ici, c'est un Record parfait
-    };
-    
-    return clientRoom as GalakTKRoomToSend;
-}
+        const clientRoom: GalakTKRoomToSend = {
+            ...room,
+            stars: [], // On cache les étoiles aux clients
+            round: room.round || 1,
+            scores: scoresRecord // Garanti non-undefined
+        };
+        
+        return clientRoom as GalakTKRoomToSend;
+    }
 
     public getRoom(roomId: string): GalakTKGameRoom | undefined {
         return this.rooms.get(roomId);

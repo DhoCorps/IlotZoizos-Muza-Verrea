@@ -1,11 +1,11 @@
+// apps/hub-central/components/games/atomikkfarde/AtomikClient.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Socket } from 'socket.io-client';
 import { AtomikKFardERoomToSend, AtomikCard } from '@ilot/shared-core';
+import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
 
 interface AtomikClientProps {
-  socket: Socket;
   roomId: string;
   username: string;
 }
@@ -18,47 +18,70 @@ const CARD_ICONS: Record<string, string> = {
   'Bombe H': '☢️'
 };
 
-export default function AtomikClient({ socket, roomId, username }: AtomikClientProps) {
+export default function AtomikClient({ roomId, username }: AtomikClientProps) {
+  const { socket, isConnected } = useGameSocket();
   const [gameState, setGameState] = useState<AtomikKFardERoomToSend | null>(null);
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [selectedCard, setSelectedCard] = useState<AtomikCard | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    socket.emit('room:join', { roomId, username });
+    if (!socket) return;
+
+    // 1. Déclaration stricte des écouteurs
+    const handleConnect = () => {
+      console.log('[AtomiK-K-Fard(e)] Connecté au serveur.');
+      socket.emit('room:join', { roomId, username });
+    };
 
     const handleUpdate = (data: AtomikKFardERoomToSend) => {
       setGameState(data);
       setErrorMsg(null);
     };
 
+    const handleCountdown = (time: number) => {
+      setTimeLeft(time);
+    };
+
+    const handleErrorMessage = (msg: string) => {
+      setErrorMsg(msg);
+      setTimeout(() => setErrorMsg(null), 3000);
+    };
+
+    // 2. Attachement des écouteurs
+    socket.on('connect', handleConnect);
     socket.on('room:joined', handleUpdate);
     socket.on('room:updated', handleUpdate);
     socket.on('game:state-update', handleUpdate);
     socket.on('game:new-round', handleUpdate);
-    socket.on('atomikkfarde:countdown', (time: number) => setTimeLeft(time));
-    socket.on('error:message', (msg: string) => {
-        setErrorMsg(msg);
-        setTimeout(() => setErrorMsg(null), 3000);
-    });
+    socket.on('atomikkfarde:countdown', handleCountdown);
+    socket.on('error:message', handleErrorMessage);
 
+    // Si déjà connecté au montage
+    if (socket.connected) {
+      socket.emit('room:join', { roomId, username });
+    }
+
+    // 3. Nettoyage ciblé pour survivre au Strict Mode
     return () => {
       socket.emit('room:leave', { roomId });
-      socket.off('room:joined');
-      socket.off('room:updated');
-      socket.off('game:state-update');
-      socket.off('game:new-round');
-      socket.off('atomikkfarde:countdown');
-      socket.off('error:message');
+      
+      socket.off('connect', handleConnect);
+      socket.off('room:joined', handleUpdate);
+      socket.off('room:updated', handleUpdate);
+      socket.off('game:state-update', handleUpdate);
+      socket.off('game:new-round', handleUpdate);
+      socket.off('atomikkfarde:countdown', handleCountdown);
+      socket.off('error:message', handleErrorMessage);
     };
-  }, [socket, roomId, username]);
+  }, [socket, roomId, username, isConnected]);
 
   const handleStartGame = () => {
-    socket.emit('atomikkfarde:start-game', { roomId });
+    socket?.emit('atomikkfarde:start-game', { roomId });
   };
 
   const handleCellClick = (r: number, c: number) => {
-    if (!selectedCard || gameState?.state !== 'inGame') return;
+    if (!socket || !selectedCard || gameState?.state !== 'inGame') return;
     
     socket.emit('game:make-move', {
       roomId,
@@ -72,7 +95,7 @@ export default function AtomikClient({ socket, roomId, username }: AtomikClientP
     setSelectedCard(null);
   };
 
-  if (!gameState) return <div className="font-mono text-purple-400">Chargement de la zone de guerre...</div>;
+  if (!gameState || !socket) return <div className="font-mono text-purple-400">Chargement de la zone de guerre...</div>;
 
   const me = gameState.players.find(p => p.socketId === socket.id || p.id === socket.id);
   const myPlayerId = me?.id || '';
@@ -150,7 +173,7 @@ export default function AtomikClient({ socket, roomId, username }: AtomikClientP
               style={{ gridTemplateColumns: `repeat(${displayGrid[0]?.length || 3}, minmax(0, 1fr))` }}
             >
               {displayGrid.map((row, r) => 
-                row.map((cell: any, c: number) => {
+                row.map((cell: { isRadioactive?: boolean; isNest?: boolean; owner?: string; pendingCard?: AtomikCard }, c: number) => {
                   
                   let cellClass = "bg-slate-900 border-white/5";
                   let content = "";

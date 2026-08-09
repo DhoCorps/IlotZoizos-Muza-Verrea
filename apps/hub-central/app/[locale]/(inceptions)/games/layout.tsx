@@ -1,5 +1,7 @@
+// apps/hub-central/app/[locale]/(inceptions)/games/layout.tsx
 import React from 'react';
 import { getTranslations } from 'next-intl/server';
+import { GameSocketProvider } from '@/components/games/providers/GameSocketProvider'; // 👈 Import du Provider
 
 export async function generateMetadata({ params: { locale } }: { params: { locale: string } }) {
   const t = await getTranslations({ locale, namespace: 'metadata' });
@@ -22,10 +24,12 @@ export default function GamesLayout({
         <div className="absolute top-[60%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-900/10 blur-[120px]"></div>
       </div>
 
-      {/* Conteneur principal qui accueille le Nexus (GameNexus) */}
-      <main className="relative z-10 w-full h-full">
-        {children}
-      </main>
+      {/* 🕸️ Le Provider maintient la connexion WebSocket ouverte pour toutes les routes enfants */}
+      <GameSocketProvider>
+        <main className="relative z-10 w-full h-full">
+          {children}
+        </main>
+      </GameSocketProvider>
     </div>
   );
 }

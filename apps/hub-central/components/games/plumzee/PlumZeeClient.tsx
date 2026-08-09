@@ -1,11 +1,11 @@
+// apps/hub-central/components/games/plumzee/PlumZeeClient.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Socket } from 'socket.io-client';
 import { PlumZeeRoomToSend } from '@ilot/shared-core';
+import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
 
 interface PlumZeeClientProps {
-  socket: Socket;
   roomId: string;
   username: string;
 }
@@ -35,26 +35,20 @@ const COMBINATIONS: { key: string; label: string; desc: string }[] = [
   { key: 'VENT_LIBRE', label: '🌬️ Vent Libre (Chance)', desc: 'Somme de tous les dés' }
 ];
 
-export default function PlumZeeClient({ socket, roomId, username }: PlumZeeClientProps) {
+export default function PlumZeeClient({ roomId, username }: PlumZeeClientProps) {
+  const { socket, isConnected } = useGameSocket();
   const [gameState, setGameState] = useState<PlumZeeRoomToSend | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   // Apparence : 'sober' ou '3d'
   const [interfaceStyle, setInterfaceStyle] = useState<'sober' | '3d'>('3d');
-  // Animation du crayon magique (stocke la clé en cours d'écriture)
+  // Animation du crayon magique
   const [animatingCombination, setAnimatingCombination] = useState<string | null>(null);
 
   useEffect(() => {
     if (!socket) return;
 
-    if (socket.connected) {
-      socket.emit('room:join', { roomId, username });
-    }
-
-    const handleConnect = () => {
-      socket.emit('room:join', { roomId, username });
-    };
-
+    // 1. Déclaration stricte des écouteurs
     const handleStateUpdate = (data: PlumZeeRoomToSend) => {
       if (data.gameType === 'PlumZee') {
         setGameState(data);
@@ -62,19 +56,34 @@ export default function PlumZeeClient({ socket, roomId, username }: PlumZeeClien
       }
     };
 
+    const handleErrorMessage = (msg: string) => {
+      setErrorMsg(msg);
+    };
+
+    const handleConnect = () => {
+      socket.emit('room:join', { roomId, username });
+    };
+
+    // 2. Attachement des écouteurs
     socket.on('connect', handleConnect);
     socket.on('room:joined', handleStateUpdate);
     socket.on('game:state-update', handleStateUpdate);
-    socket.on('error:message', (msg: string) => setErrorMsg(msg));
+    socket.on('error:message', handleErrorMessage);
 
+    // Initialisation
+    if (socket.connected) {
+      socket.emit('room:join', { roomId, username });
+    }
+
+    // 3. Nettoyage chirurgical (Mode Strict safe)
     return () => {
       socket.emit('room:leave', { roomId });
       socket.off('connect', handleConnect);
       socket.off('room:joined', handleStateUpdate);
       socket.off('game:state-update', handleStateUpdate);
-      socket.off('error:message');
+      socket.off('error:message', handleErrorMessage);
     };
-  }, [socket, roomId, username]);
+  }, [socket, roomId, username, isConnected]);
 
   const handleRollDice = () => {
     if (!socket || gameState?.state !== 'playing') return;
@@ -165,72 +174,43 @@ export default function PlumZeeClient({ socket, roomId, username }: PlumZeeClien
 
         {/* ZONE DES DÉS COSMIQUES */}
         <div className="w-full bg-black/50 border border-amber-500/20 rounded-2xl p-8 flex flex-col items-center justify-center gap-6 shadow-inner my-2">
-          
           <div className="flex flex-wrap justify-center gap-4 md:gap-6">
             {gameState.currentDice.map((die, index) => {
               const meta = SYMBOL_MAP[die.value] || { icon: '?', color: '#fff' };
 
-              if (interfaceStyle === '3d') {
-                return (
-                  <div
-                    key={die.id}
-                    onClick={() => isMyTurn && handleToggleLock(index)}
-                    className={`relative w-16 h-16 md:w-20 md:h-20 rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all duration-300 select-none ${
-                      die.isLocked 
-                        ? 'bg-gradient-to-b from-amber-500 to-amber-700 text-white shadow-lg shadow-amber-500/40 -translate-y-2 ring-2 ring-amber-300' 
-                        : 'bg-gradient-to-b from-slate-800 to-slate-900 text-slate-200 border border-amber-500/30 hover:border-amber-400 shadow-xl hover:scale-105'
-                    }`}
-                    style={{
-                      transformStyle: 'preserve-3d',
-                      perspective: '1000px'
-                    }}
-                  >
-                    <span className="text-2xl md:text-3xl drop-shadow-md">{meta.icon}</span>
-                    <span className="text-[9px] font-mono uppercase tracking-widest opacity-60 mt-1">{meta.name}</span>
-                    {die.isLocked && (
-                      <span className="absolute -top-2 -right-2 bg-emerald-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow">
-                        🔒 Gardé
-                      </span>
-                    )}
-                  </div>
-                );
-              } else {
-                return (
-                  <button
-                    key={die.id}
-                    onClick={() => isMyTurn && handleToggleLock(index)}
-                    className={`w-16 h-16 md:w-20 md:h-20 rounded-xl flex flex-col items-center justify-center font-mono font-bold transition-all border ${
-                      die.isLocked
-                        ? 'bg-amber-600/30 border-amber-500 text-amber-200 shadow'
-                        : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-300'
-                    }`}
-                  >
-                    <span className="text-2xl">{meta.icon}</span>
-                    <span className="text-[9px] uppercase tracking-wider text-slate-400 mt-1">{meta.name}</span>
-                  </button>
-                );
-              }
+              return (
+                <button
+                  key={die.id}
+                  onClick={() => isMyTurn && handleToggleLock(index)}
+                  className={`relative w-16 h-16 md:w-20 md:h-20 rounded-2xl flex flex-col items-center justify-center transition-all duration-300 select-none ${
+                    die.isLocked 
+                      ? 'bg-gradient-to-b from-amber-500 to-amber-700 text-white shadow-lg shadow-amber-500/40 -translate-y-2 ring-2 ring-amber-300' 
+                      : 'bg-gradient-to-b from-slate-800 to-slate-900 text-slate-200 border border-amber-500/30 hover:border-amber-400 shadow-xl'
+                  }`}
+                >
+                  <span className="text-2xl md:text-3xl drop-shadow-md">{meta.icon}</span>
+                  <span className="text-[9px] font-mono uppercase tracking-widest opacity-60 mt-1">{meta.name}</span>
+                  {die.isLocked && <span className="absolute -top-2 -right-2 bg-emerald-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow">🔒</span>}
+                </button>
+              );
             })}
           </div>
 
-          {/* CONTRÔLES DES LANCERS */}
           <div className="flex items-center gap-4 mt-4">
             <button
               onClick={handleRollDice}
               disabled={!isMyTurn || (me?.rollsLeft !== undefined && me.rollsLeft <= 0) || gameState.state !== 'playing'}
-              className="px-6 py-3 bg-gradient-to-r from-amber-500 to-emerald-600 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-lg shadow-amber-500/20 transition-all font-mono tracking-wide"
+              className="px-6 py-3 bg-gradient-to-r from-amber-500 to-emerald-600 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-lg transition-all font-mono tracking-wide"
             >
               🎲 Lancer les Dés ({me?.rollsLeft ?? 3} restants)
             </button>
           </div>
-          <p className="text-[11px] font-mono text-slate-500">💡 Cliquez sur un dé pour le verrouiller (garder) avant de relancer.</p>
+          <p className="text-[11px] font-mono text-slate-500">💡 Cliquez sur un dé pour le verrouiller avant de relancer.</p>
         </div>
-
       </div>
 
-      {/* SECTION DROITE : LA FEUILLE DE SCORE PARCHEMINÉE */}
+      {/* SECTION DROITE : LA FEUILLE DE SCORE */}
       <div className="flex-[1.5] bg-slate-900 rounded-2xl border border-amber-500/20 p-6 shadow-xl flex flex-col justify-between">
-        
         <div>
           <div className="flex justify-between items-center mb-4 pb-3 border-b border-amber-500/20">
             <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider font-mono">📜 Parchemin de Scores ({me?.username})</h3>
@@ -239,43 +219,28 @@ export default function PlumZeeClient({ socket, roomId, username }: PlumZeeClien
             </span>
           </div>
 
-          {/* LISTE DES COMBINAISONS */}
           <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
             {COMBINATIONS.map(comb => {
-              const scoreValue = me?.scoreSheet?.[comb.key];
+              const scoreValue = me?.scoreSheet?.[comb.key as keyof typeof me.scoreSheet];
               const isFilled = scoreValue !== undefined && scoreValue !== null;
               const isAnimating = animatingCombination === comb.key;
 
               return (
-                <div 
-                  key={comb.key} 
-                  className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
-                    isFilled 
-                      ? 'bg-black/30 border-amber-500/20 text-slate-400' 
-                      : 'bg-slate-800/40 hover:bg-slate-800 border-white/5 text-slate-200'
-                  }`}
-                >
+                <div key={comb.key} className={`flex items-center justify-between p-3 rounded-xl border ${isFilled ? 'bg-black/30 border-amber-500/20 text-slate-400' : 'bg-slate-800/40 border-white/5 text-slate-200'}`}>
                   <div className="flex flex-col">
                     <span className="text-xs font-bold font-mono">{comb.label}</span>
                     <span className="text-[10px] text-slate-500">{comb.desc}</span>
                   </div>
-
                   <div>
                     {isFilled ? (
-                      <span className="font-mono font-bold text-amber-400 text-sm px-3 py-1 bg-amber-950/40 rounded-lg">
-                        {scoreValue} pts
-                      </span>
+                      <span className="font-mono font-bold text-amber-400 text-sm">{scoreValue} pts</span>
                     ) : (
                       <button
                         onClick={() => isMyTurn && handleScoreCombination(comb.key)}
-                        disabled={!isMyTurn || gameState.state !== 'playing' || (me?.rollsLeft === 3)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all relative overflow-hidden ${
-                          isAnimating 
-                            ? 'bg-emerald-500 text-black animate-pulse' 
-                            : 'bg-amber-600 hover:bg-amber-500 disabled:opacity-30 disabled:cursor-not-allowed text-white shadow'
-                        }`}
+                        disabled={!isMyTurn || gameState.state !== 'playing'}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${isAnimating ? 'bg-emerald-500 text-black' : 'bg-amber-600 hover:bg-amber-500 text-white'}`}
                       >
-                        {isAnimating ? '✍️ Écriture...' : 'Inscrire'}
+                        Inscrire
                       </button>
                     )}
                   </div>
@@ -284,24 +249,7 @@ export default function PlumZeeClient({ socket, roomId, username }: PlumZeeClien
             })}
           </div>
         </div>
-
-        {/* CLASSEMENT RAPIDE DES JOUEURS */}
-        <div className="mt-6 pt-4 border-t border-amber-500/20">
-          <h4 className="text-[11px] font-mono uppercase tracking-wider text-slate-400 mb-2">Joueurs dans le Boulier</h4>
-          <div className="grid grid-cols-2 gap-2">
-            {gameState.players.map(p => (
-              <div key={p.id} className="bg-black/40 p-2.5 rounded-xl border border-white/5 flex justify-between items-center">
-                <span className={`text-xs truncate ${p.status === 'connected' ? 'text-white font-medium' : 'text-slate-500 line-through'}`}>
-                  {p.username} {gameState.currentTurnPlayerId === p.id && '🟢'}
-                </span>
-                <span className="text-xs font-mono font-bold text-amber-400">{p.score || 0} pts</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
       </div>
-
     </div>
   );
 }

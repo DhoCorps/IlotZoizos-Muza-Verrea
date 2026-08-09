@@ -1,3 +1,4 @@
+// apps/hub-central/app/[locale]/(inceptions)/games/cinemax/[slug]/page.tsx
 import { getServerSession } from 'next-auth/next';
 import { redirect } from 'next/navigation';
 import CineMaxRoomClient from '@/components/games/cinemax/CineMaxRoomClient';

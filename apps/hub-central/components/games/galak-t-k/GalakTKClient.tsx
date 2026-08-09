@@ -1,27 +1,34 @@
+// apps/hub-central/components/games/galaktk/GalakTKClient.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Socket } from 'socket.io-client';
 import { GalakTKRoomToSend } from '@ilot/shared-core';
+import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
 
 interface GalakTKClientProps {
-  socket: Socket;
   roomId: string;
   username: string;
 }
 
-export default function GalakTKClient({ socket, roomId, username }: GalakTKClientProps) {
+// Définition de l'interface de cellule pour éviter le 'any'
+interface CellData {
+  isRadioactive?: boolean;
+  isNest?: boolean;
+  owner?: 'player1' | 'player2' | 'tie' | null;
+  // Ajoute d'autres propriétés si nécessaire selon ton modèle
+}
+
+export default function GalakTKClient({ roomId, username }: GalakTKClientProps) {
+  const { socket, isConnected } = useGameSocket();
   const [gameState, setGameState] = useState<GalakTKRoomToSend | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!socket) return;
 
-    if (socket.connected) {
-      socket.emit('room:join', { roomId, username });
-    }
-
+    // 1. Déclaration stricte des écouteurs
     const handleConnect = () => {
+      console.log('[Galak-T-K] Connecté au secteur.');
       socket.emit('room:join', { roomId, username });
     };
 
@@ -32,19 +39,31 @@ export default function GalakTKClient({ socket, roomId, username }: GalakTKClien
       }
     };
 
+    const handleErrorMessage = (msg: string) => {
+      setErrorMsg(msg);
+      setTimeout(() => setErrorMsg(null), 3000);
+    };
+
+    // 2. Attachement des écouteurs
     socket.on('connect', handleConnect);
     socket.on('room:joined', handleStateUpdate);
     socket.on('game:state-update', handleStateUpdate);
-    socket.on('error:message', (msg: string) => setErrorMsg(msg));
+    socket.on('error:message', handleErrorMessage);
 
+    // Initialisation
+    if (socket.connected) {
+      socket.emit('room:join', { roomId, username });
+    }
+
+    // 3. Nettoyage ciblé pour le mode Strict
     return () => {
       socket.emit('room:leave', { roomId });
       socket.off('connect', handleConnect);
       socket.off('room:joined', handleStateUpdate);
       socket.off('game:state-update', handleStateUpdate);
-      socket.off('error:message');
+      socket.off('error:message', handleErrorMessage);
     };
-  }, [socket, roomId, username]);
+  }, [socket, roomId, username, isConnected]);
 
   const handleCellClick = (x: number, y: number) => {
     if (!socket || gameState?.state !== 'playing') return;

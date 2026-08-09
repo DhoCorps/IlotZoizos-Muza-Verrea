@@ -55,8 +55,6 @@ export class SoonArtManager {
         const totalTreasures = options.totalTreasures || 5;
         const maxCircles = options.maxCircles || 10;
 
-        // Génération secrète des trésors sur la carte
-
         const treasures = SoonArtLogic.generateRandomTreasures(totalTreasures, mapWidth, mapHeight);
 
         const newRoom: SoonArtGameRoom = {
@@ -69,18 +67,12 @@ export class SoonArtManager {
             gameType: 'SoonArt',
             maxPlayers: 4,
             scores: { [ownerPlayer.id]: 0 },
-            gameOptions: {
-                mapWidth,
-                mapHeight,
-                totalTreasures,
-                maxCircles
-            },
+            gameOptions: { mapWidth, mapHeight, totalTreasures, maxCircles },
             treasures,
-            treasuresCount: treasures.length, // <--- ICI : C'est la propriété qui manquait !
+            treasuresCount: treasures.length,
             circles: [],
             scanTimeLeft: 120,
-            markTimeLeft: 60,
-            // (Note: l'idéal serait d'ajouter roundStartTime: Date.now() dans SoonArtGameRoom pour la précision)
+            markTimeLeft: 60
         };
 
         this.rooms.set(roomId, newRoom);
@@ -122,15 +114,27 @@ export class SoonArtManager {
 
         if (room.state === 'waiting' && room.players.length >= 2) {
             room.state = 'playing';
-            // Idéalement on devrait marquer le début de la partie ici
-            // (room as any).roundStartTime = Date.now();
         }
 
         return room;
     }
 
     /**
-     * 🔍 GESTION DES ACTIONS (Tracer un cercle ou poser un repère de trésor)
+     * 🔌 GESTION DE LA DÉCONNEXION
+     */
+    public notifyPlayerDisconnect(socketId: string, roomId: string): void {
+        const room = this.rooms.get(roomId);
+        if (!room) return;
+
+        const player = room.players.find(p => p.socketId === socketId || p.id === socketId);
+        if (player) {
+            player.status = 'disconnected';
+            console.log(`[SoonArtManager] ${player.username} a quitté la galerie.`);
+        }
+    }
+
+    /**
+     * 🔍 GESTION DES ACTIONS
      */
     public handleMakeMove(roomId: string, playerId: string, move: SoonArtMakeMoveRequest): void {
         const room = this.rooms.get(roomId);
@@ -144,7 +148,7 @@ export class SoonArtManager {
             if (!center || radius === undefined || radius <= 0) return;
 
             if (player.circlesUsed >= room.gameOptions.maxCircles) {
-                this.io.to(player.socketId!).emit('error:message', "Vous avez épuisé tous vos cercles de recherche !");
+                this.io.to(player.socketId!).emit('error:message', "Vous avez épuisé tous vos cercles !");
                 return;
             }
 
@@ -169,7 +173,6 @@ export class SoonArtManager {
             if (!position) return;
 
             const { score, matchedId } = SoonArtLogic.calculateGuessAccuracyScore(position, room.treasures);
-            
             player.score += score;
             room.scores[player.id] = player.score;
 
@@ -186,75 +189,33 @@ export class SoonArtManager {
                 if (treasure) treasure.isDiscovered = true;
             }
 
-            // Vérifier si tous les trésors ont été découverts
-            const allFound = room.treasures.every(t => t.isDiscovered);
-            if (allFound) {
+            if (room.treasures.every(t => t.isDiscovered)) {
                 room.state = 'gameOver';
-                let maxScore = -1;
-                let winner: string | null = null;
-                for (const p of room.players) {
-                    if (p.score > maxScore) {
-                        maxScore = p.score;
-                        winner = p.id;
-                    }
-                }
-                room.winnerId = winner;
+                room.winnerId = room.players.reduce((prev, curr) => (curr.score > prev.score ? curr : prev)).id;
                 
-                console.log(`[SoonArtManager] FIN DE PARTIE dans le salon ${roomId}. Vainqueur : ${winner || 'Aucun'}`);
-
-                // =========================================================
-                // 💾 DÉCLENCHEMENT DE L'ARCHIVAGE (MONGO + NEO4J)
-                // =========================================================
-                // Puisque roundStartTime n'est pas dans l'interface originale, on utilise les timers 
-                // pour estimer la durée max jouée (scanTime + markTime max) ou une valeur par défaut.
-                const estimatedDuration = 180; // 3 minutes par défaut
-                
-                const matchData = {
-                    gameType: 'SoonArt' as const,
+                // 💾 ARCHIVAGE
+                GameStatsService.recordMatch({
+                    gameType: 'SoonArt',
                     roomId: room.id,
-                    startedAt: new Date(Date.now() - (estimatedDuration * 1000)),
+                    startedAt: new Date(),
                     endedAt: new Date(),
-                    durationSeconds: estimatedDuration,
-                    players: room.players.map(p => {
-                        return {
-                            uid: p.id, 
-                            pseudo: p.username,
-                            score: p.score || 0,
-                            isWinner: p.id === room.winnerId,
-                            specificStats: {
-                                circlesUsed: p.circlesUsed,
-                                totalGuessesMade: p.guesses.length
-                            }
-                        };
-                    }),
-                    matchMetadata: {
-                        totalTreasures: room.gameOptions.totalTreasures,
-                        mapDimensions: `${room.gameOptions.mapWidth}x${room.gameOptions.mapHeight}`
-                    }
-                };
-
-                // Envoi en tâche de fond
-                GameStatsService.recordMatch(matchData).then((success: boolean) => {
-                    if(success) console.log(`[SoonArtManager] Historique sauvegardé avec succès pour le salon ${roomId}`);
+                    durationSeconds: 180,
+                    players: room.players.map(p => ({
+                        uid: p.id, pseudo: p.username, score: p.score, isWinner: p.id === room.winnerId,
+                        specificStats: { circlesUsed: p.circlesUsed, guesses: p.guesses.length }
+                    })),
+                    matchMetadata: {}
                 });
-                // =========================================================
             }
-
-            this.io.to(room.id).emit('game:state-update', this.toClientRoom(room));
         }
     }
 
-    /**
-     * 🛡️ SÉCURITÉ : Masque la position exacte des trésors non trouvés aux clients
-     */
-   public toClientRoom(room: SoonArtGameRoom): SoonArtRoomToSend {
-        const clientRoom = { ...room };
+    public toClientRoom(room: SoonArtGameRoom): SoonArtRoomToSend {
+        const clientRoom = { ...room } as SoonArtRoomToSend;
         clientRoom.treasures = room.treasures.map(t => ({
             ...t,
             position: t.isDiscovered ? t.position : { x: -1, y: -1 }
         }));
-        // S'assurer que treasuresCount est bien transmis
-        clientRoom.treasuresCount = room.treasures.length;
         return clientRoom;
     }
 

@@ -1,21 +1,21 @@
+// apps/hub-central/components/games/soonart/SoonArtClient.tsx
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Socket } from 'socket.io-client';
 import { SoonArtRoomToSend } from '@ilot/shared-core';
+import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
 
 interface SoonArtClientProps {
-  socket: Socket;
   roomId: string;
   username: string;
 }
 
 type ToolMode = 'scan' | 'mark';
 
-export default function SoonArtClient({ socket, roomId, username }: SoonArtClientProps) {
+export default function SoonArtClient({ roomId, username }: SoonArtClientProps) {
+  const { socket, isConnected } = useGameSocket();
   const [gameState, setGameState] = useState<SoonArtRoomToSend | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  
   const [toolMode, setToolMode] = useState<ToolMode>('scan');
 
   // Gestion du clic-glissé pour les cercles
@@ -27,14 +27,7 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
   useEffect(() => {
     if (!socket) return;
 
-    if (socket.connected) {
-      socket.emit('room:join', { roomId, username });
-    }
-
-    const handleConnect = () => {
-      socket.emit('room:join', { roomId, username });
-    };
-
+    // 1. Définition des handlers
     const handleStateUpdate = (data: SoonArtRoomToSend) => {
       if (data.gameType === 'SoonArt') {
         setGameState(data);
@@ -42,25 +35,41 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
       }
     };
 
+    const handleErrorMessage = (msg: string) => {
+      setErrorMsg(msg);
+    };
+
+    const handleConnect = () => {
+      console.log('[SoonArt] Connecté au serveur.');
+      socket.emit('room:join', { roomId, username });
+    };
+
+    // 2. Attachement des écouteurs
     socket.on('connect', handleConnect);
     socket.on('room:joined', handleStateUpdate);
     socket.on('game:init', handleStateUpdate);
     socket.on('game:state-update', handleStateUpdate);
-    socket.on('error:message', (msg: string) => setErrorMsg(msg));
+    socket.on('error:message', handleErrorMessage);
 
+    // Initialisation
+    if (socket.connected) {
+      socket.emit('room:join', { roomId, username });
+    }
+
+    // 3. Nettoyage ciblé (Strict Mode safe)
     return () => {
       socket.emit('room:leave', { roomId });
       socket.off('connect', handleConnect);
       socket.off('room:joined', handleStateUpdate);
       socket.off('game:init', handleStateUpdate);
       socket.off('game:state-update', handleStateUpdate);
-      socket.off('error:message');
+      socket.off('error:message', handleErrorMessage);
     };
-  }, [socket, roomId, username]);
+  }, [socket, roomId, username, isConnected]);
 
   // Gestion des interactions SVG (Souris)
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!svgRef.current || gameState?.state !== 'playing') return;
+    if (!socket || !svgRef.current || gameState?.state !== 'playing') return;
     const rect = svgRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -70,7 +79,7 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
       setStartPoint({ x, y });
       setCurrentRadius(0);
     } else if (toolMode === 'mark') {
-      socket?.emit('game:make-move', {
+      socket.emit('game:make-move', {
         roomId,
         playerId: socket.id,
         gameType: 'SoonArt',
@@ -93,13 +102,13 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
   };
 
   const handleMouseUp = () => {
-    if (!isDrawing || !startPoint || currentRadius < 5) {
+    if (!socket || !isDrawing || !startPoint || currentRadius < 5) {
       setIsDrawing(false);
       setStartPoint(null);
       return;
     }
 
-    socket?.emit('game:make-move', {
+    socket.emit('game:make-move', {
       roomId,
       playerId: socket.id,
       gameType: 'SoonArt',
@@ -193,17 +202,10 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
             </defs>
             <rect width="100%" height="100%" fill="url(#grid)" />
 
-            {/* Affichage des cercles tracés par les joueurs */}
+            {/* Affichage des cercles tracés */}
             {gameState.circles?.map((c) => (
               <g key={c.id}>
-                <circle
-                  cx={c.center.x}
-                  cy={c.center.y}
-                  r={c.radius}
-                  fill={c.colorScheme}
-                  stroke="rgba(255,255,255,0.2)"
-                  strokeWidth="1.5"
-                />
+                <circle cx={c.center.x} cy={c.center.y} r={c.radius} fill={c.colorScheme} stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" />
                 <circle cx={c.center.x} cy={c.center.y} r={3} fill="#ffffff" />
                 <text x={c.center.x} y={c.center.y - 8} fill="#ffffff" fontSize="11" textAnchor="middle" fontWeight="bold" className="drop-shadow">
                   {c.treasureCount} 💎
@@ -211,17 +213,9 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
               </g>
             ))}
 
-            {/* Cercle en cours de tracé */}
+            {/* Cercle en cours */}
             {isDrawing && startPoint && currentRadius > 0 && (
-              <circle
-                cx={startPoint.x}
-                cy={startPoint.y}
-                r={currentRadius}
-                fill="rgba(245, 158, 11, 0.15)"
-                stroke="#f59e0b"
-                strokeWidth="2"
-                strokeDasharray="4"
-              />
+              <circle cx={startPoint.x} cy={startPoint.y} r={currentRadius} fill="rgba(245, 158, 11, 0.15)" stroke="#f59e0b" strokeWidth="2" strokeDasharray="4" />
             )}
 
             {/* Trésors découverts */}
@@ -235,7 +229,7 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
               )
             ))}
 
-            {/* Estimations (guesses) des joueurs */}
+            {/* Guesses */}
             {gameState.players?.flatMap(p => p.guesses || []).map((g) => (
               <g key={g.id}>
                 <circle cx={g.position.x} cy={g.position.y} r={6} fill={g.matchedTreasureId ? '#10b981' : '#f43f5e'} stroke="#ffffff" strokeWidth="1.5" />
@@ -244,7 +238,6 @@ export default function SoonArtClient({ socket, roomId, username }: SoonArtClien
           </svg>
         </div>
       </div>
-
     </div>
   );
 }

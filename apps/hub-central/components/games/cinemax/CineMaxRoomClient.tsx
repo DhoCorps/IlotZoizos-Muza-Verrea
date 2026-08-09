@@ -1,8 +1,9 @@
+// apps/hub-central/components/games/cinemax/CineMaxRoomClient.tsx
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
 import CineMaxBoard from './CineMaxBoard'; 
+import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
 
 interface CineMaxRoomClientProps {
   roomId: string;
@@ -11,7 +12,7 @@ interface CineMaxRoomClientProps {
 }
 
 export default function CineMaxRoomClient({ roomId, username, playerId }: CineMaxRoomClientProps) {
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const { socket, isConnected } = useGameSocket();
   const [pelliculeBlur, setPelliculeBlur] = useState<number>(100);
   const [posterUrl, setPosterUrl] = useState<string | null>(null);
   const [errorCount, setErrorCount] = useState<number>(0);
@@ -21,18 +22,15 @@ export default function CineMaxRoomClient({ roomId, username, playerId }: CineMa
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    // 1. Connexion au serveur Socket.IO avec variable d'env
-    const SERVER_URL = process.env.NEXT_PUBLIC_GAME_SERVER_URL || 'http://localhost:3002';
-    const socketIo = io(SERVER_URL);
-    setSocket(socketIo);
+    if (!socket) return;
 
-    socketIo.on('connect', () => {
+    // 1. Déclaration stricte des écouteurs pour pouvoir les retirer
+    const handleConnect = () => {
       console.log('[CineMax Client] Connecté à la canopée, rejoint le salon:', roomId);
-      socketIo.emit('room:join', { roomId, username });
-    });
+      socket.emit('room:join', { roomId, username });
+    };
 
-    // 2. Écoute des mises à jour globales de la salle
-    socketIo.on('game:state-update', (roomData: any) => {
+    const handleStateUpdate = (roomData: any) => {
       if (roomData.gameType === 'CineMax') {
         setPelliculeBlur(roomData.pelliculeBlur);
         setPosterUrl(roomData.targetMoviePoster ? `https://image.tmdb.org/t/p/w500${roomData.targetMoviePoster}` : null);
@@ -48,30 +46,49 @@ export default function CineMaxRoomClient({ roomId, username, playerId }: CineMa
           }
         }
       }
-    });
+    };
 
-    // 3. Écoute des mises à jour personnelles
-    socketIo.on('cinemax:personal-update', (data: any) => {
+    const handlePersonalUpdate = (data: any) => {
       if (data.currentQuestion) setCurrentQuestion(data.currentQuestion);
       setPendingDifficultyChoice(data.pendingDifficultyChoice);
-    });
+    };
 
-    // 4. Déblocage du buzzer après pénalité
-    socketIo.on('cinemax:buzzer-unlocked', () => {
+    const handleBuzzerUnlocked = () => {
       setIsBuzzerLocked(false);
       setErrorMessage(null);
-    });
-
-    // 5. Gestion des erreurs du serveur
-    socketIo.on('error:message', (msg: string) => {
-      setErrorMessage(msg);
-      setTimeout(() => setErrorMessage(null), 4000);
-    });
-
-    return () => {
-      socketIo.disconnect();
     };
-  }, [roomId, username, playerId]);
+
+    const handleErrorMessage = (msg: string) => {
+      setErrorMessage(msg);
+      // Nettoyage automatique du message d'erreur
+      setTimeout(() => setErrorMessage(null), 4000);
+    };
+
+    // 2. Attachement des écouteurs
+    socket.on('connect', handleConnect);
+    socket.on('game:state-update', handleStateUpdate);
+    socket.on('cinemax:personal-update', handlePersonalUpdate);
+    socket.on('cinemax:buzzer-unlocked', handleBuzzerUnlocked);
+    socket.on('error:message', handleErrorMessage);
+
+    // Si le socket est déjà connecté au montage, on rejoint directement
+    if (socket.connected) {
+      socket.emit('room:join', { roomId, username });
+    }
+
+    // 3. Nettoyage chirurgical pour le mode Strict
+    return () => {
+      // Optionnel : avertir le serveur du départ si le composant est démonté
+      socket.emit('room:leave', { roomId });
+
+      // Retrait exclusif des écouteurs de cette instance
+      socket.off('connect', handleConnect);
+      socket.off('game:state-update', handleStateUpdate);
+      socket.off('cinemax:personal-update', handlePersonalUpdate);
+      socket.off('cinemax:buzzer-unlocked', handleBuzzerUnlocked);
+      socket.off('error:message', handleErrorMessage);
+    };
+  }, [socket, roomId, username, playerId, isConnected]);
 
   // --- ACTIONS ENVOYÉES AU SERVEUR ---
 

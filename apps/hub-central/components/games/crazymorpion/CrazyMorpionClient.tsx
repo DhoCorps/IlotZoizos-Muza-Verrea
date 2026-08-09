@@ -1,31 +1,29 @@
+// apps/hub-central/components/games/crazymorpion/CrazyMorpionClient.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Socket } from 'socket.io-client';
 import { 
     CrazyMorpionRoomToSend, 
     CRAZYMORPION_SYMBOL_EMPTY
 } from '@ilot/shared-core';
+import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
 
 interface CrazyMorpionClientProps {
-    socket: Socket;
     roomId: string;
     username: string;
 }
 
-export default function CrazyMorpionClient({ socket, roomId, username }: CrazyMorpionClientProps) {
+export default function CrazyMorpionClient({ roomId, username }: CrazyMorpionClientProps) {
+    const { socket, isConnected } = useGameSocket();
     const [gameState, setGameState] = useState<CrazyMorpionRoomToSend | null>(null);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     useEffect(() => {
         if (!socket) return;
 
-        if (socket.connected) {
-            socket.emit('room:join', { roomId, username });
-        }
-
+        // 1. Définition stricte des écouteurs pour pouvoir les retirer individuellement
         const handleConnect = () => {
-            console.log('[GAMES] Connecté au serveur. ID:', socket.id);
+            console.log('[CRAZY MORPION] Connecté/Reconnecté au serveur.');
             socket.emit('room:join', { roomId, username });
         };
 
@@ -36,44 +34,57 @@ export default function CrazyMorpionClient({ socket, roomId, username }: CrazyMo
             }
         };
 
+        const handleInterrupted = (data: { message: string }) => {
+            setErrorMsg(`Partie interrompue: ${data.message}`);
+        };
+
+        const handleErrorMessage = (message: string) => {
+            setErrorMsg(`Erreur: ${message}`);
+        };
+
+        const handleDisconnect = () => {
+            setErrorMsg('Déconnecté du serveur de jeu.');
+        };
+
+        // 2. Attachement des écouteurs
         socket.on('connect', handleConnect);
         socket.on('room:joined', handleStateUpdate);
         socket.on('game:init', handleStateUpdate);
         socket.on('game:update', handleStateUpdate);
         socket.on('game:over', handleStateUpdate);
         socket.on('game:restart', handleStateUpdate);
+        socket.on('game:interrupted', handleInterrupted);
+        socket.on('error:message', handleErrorMessage);
+        socket.on('disconnect', handleDisconnect);
 
-        socket.on('game:interrupted', (data: { message: string }) => {
-            setErrorMsg(`Partie interrompue: ${data.message}`);
-        });
+        // Si le socket est déjà connecté au montage, on rejoint directement
+        if (socket.connected) {
+            socket.emit('room:join', { roomId, username });
+        }
 
-        socket.on('error:message', (message: string) => {
-            setErrorMsg(`Erreur: ${message}`);
-        });
-
-        socket.on('disconnect', () => {
-            setErrorMsg('Déconnecté du serveur de jeu.');
-        });
-
+        // 3. Nettoyage chirurgical
         return () => {
             socket.emit('room:leave', { roomId });
+            
+            // On retire UNIQUEMENT les écouteurs de ce composant pour ne pas casser le Nexus global
             socket.off('connect', handleConnect);
             socket.off('room:joined', handleStateUpdate);
             socket.off('game:init', handleStateUpdate);
             socket.off('game:update', handleStateUpdate);
             socket.off('game:over', handleStateUpdate);
             socket.off('game:restart', handleStateUpdate);
-            socket.off('game:interrupted');
-            socket.off('error:message');
-            socket.off('disconnect');
+            socket.off('game:interrupted', handleInterrupted);
+            socket.off('error:message', handleErrorMessage);
+            socket.off('disconnect', handleDisconnect);
         };
-    }, [socket, roomId, username]);
+    }, [socket, roomId, username, isConnected]);
 
     const handleCellClick = (x: number, y: number) => {
         if (!socket || !gameState || gameState.state !== 'playing') return;
         if (gameState.currentTurnPlayerId !== socket.id) return;
         
-        if (gameState.grid![y][x] !== CRAZYMORPION_SYMBOL_EMPTY) return; 
+        // Sécurité supplémentaire : on vérifie que la grille existe
+        if (!gameState.grid || gameState.grid[y][x] !== CRAZYMORPION_SYMBOL_EMPTY) return; 
 
         socket.emit('game:make-move', {
             roomId,
@@ -155,7 +166,7 @@ export default function CrazyMorpionClient({ socket, roomId, username }: CrazyMo
                 {/* LA GRILLE */}
                 <div className="flex justify-center mb-4">
                     <div className="grid grid-cols-3 gap-3 bg-slate-800 p-3 rounded-xl border border-white/10 shadow-inner">
-                        {gameState.grid!.map((row, y) => (
+                        {gameState.grid?.map((row, y) => (
                             row.map((symbol, x) => {
                                 const isWinningCell = gameState.winningCells?.some(c => c.x === x && c.y === y);
                                 const isClickable = gameState.state === 'playing' && isMyTurn && symbol === CRAZYMORPION_SYMBOL_EMPTY;
@@ -171,7 +182,7 @@ export default function CrazyMorpionClient({ socket, roomId, username }: CrazyMo
                                             ${isWinningCell ? 'bg-green-500/30 animate-pulse text-green-400 shadow-[0_0_20px_rgba(34,197,94,0.6)]' : 'text-slate-300'}
                                         `}
                                     >
-                                        {symbol}
+                                        {symbol !== CRAZYMORPION_SYMBOL_EMPTY ? symbol : ''}
                                     </div>
                                 );
                             })
