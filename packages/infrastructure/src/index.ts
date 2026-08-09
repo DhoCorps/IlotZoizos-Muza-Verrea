@@ -42,4 +42,10 @@ export * from './database/services/komptaLedgerService';
 
 export * from './database/models/graph/user.graph';
 export * from './database/models/graph/team.graph';
+
 export * from './database/models/nosql/resonance.model';
+
+
+export * from './database/models/nosql/reaction.model';
+export * from './database/models/nosql/reward.model';;
+export * from './database/models/nosql/comment.model';

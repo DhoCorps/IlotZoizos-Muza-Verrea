@@ -9,6 +9,9 @@ export const routing = defineRouting({
     '/': '/',
     // 💬 Messagerie Universelle de la Canopée
     '/message': '/message',
+    // 📊 Bilan Statistique & Kompta (Inception)
+    '/inception/canopy/stats': '/inception/canopy/stats',
+    '/inception/kompta': '/inception/kompta',
     '/le-bordel-de-dho': '/le-bordel-de-dho',
     '/abyss-blog': '/abyss-blog',
     '/abyss-blog/editor': '/abyss-blog/editor',

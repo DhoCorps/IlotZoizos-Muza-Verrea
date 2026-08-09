@@ -1,6 +1,6 @@
 // packages/infrastructure/src/database/models/message.model.ts
 import mongoose from 'mongoose'; 
-import type{ Document, Model } from 'mongoose';
+import type { Document, Model } from 'mongoose';
 
 const { Schema, model } = mongoose;
 import { IUniversalAttachment, IMessageReaction, IMessageReadReceipt } from '@ilot/types';
@@ -15,6 +15,11 @@ export interface IMessageDocument extends Document {
   isEdited: boolean;             // Indique si le message a été modifié après envoi
   reactions: IMessageReaction[]; // Réactions rapides par émojis (ex: ❤️, 🚀, 🪶)
   readBy: IMessageReadReceipt[]; // Suivi granulaire des lectures (Statut Distribué / Lu)
+  
+  // 🦅 EXTENSIONS PHASE 4 : Newsletters & Snapshots Système
+  isSystemBroadcast?: boolean;   // Indique s'il s'agit d'une diffusion globale de la Canopée
+  metadata?: Record<string, any>;  // Pour stocker des snapshots de stats ou données de jeu (Renewall)
+  
   createdAt: Date;
   updatedAt: Date;
 }
@@ -47,7 +52,11 @@ const MessageSchema = new Schema<IMessageDocument>({
   replyToSlug: { type: String, index: true, sparse: true },
   isEdited: { type: Boolean, default: false },
   reactions: [ReactionSubSchema],
-  readBy: [ReadReceiptSubSchema]
+  readBy: [ReadReceiptSubSchema],
+  
+  // Nouveaux champs pour la Phase 4
+  isSystemBroadcast: { type: Boolean, default: false, index: true },
+  metadata: { type: Schema.Types.Mixed, default: null }
 }, {
   timestamps: true,
   collection: 'messages'
@@ -56,6 +65,7 @@ const MessageSchema = new Schema<IMessageDocument>({
 // Tri chronologique ultra-rapide par salon basé sur les slugs
 MessageSchema.index({ conversationSlug: 1, createdAt: -1 });
 MessageSchema.index({ conversationSlug: 1, senderSlug: 1 });
+MessageSchema.index({ isSystemBroadcast: 1 }); // Index pour cibler rapidement les diffusions système
 
 export const MessageModel: Model<IMessageDocument> = 
   mongoose.models.Message || model<IMessageDocument>('Message', MessageSchema);

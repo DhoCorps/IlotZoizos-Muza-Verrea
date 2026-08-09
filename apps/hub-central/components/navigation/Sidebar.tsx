@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { signOut, useSession } from 'next-auth/react'; 
 import { Link } from '../../navigation'; 
-import { LogOut, User, Feather, Music, Type, Heart, Compass, Gamepad2, Activity, Lock, Film, Sparkles, Rocket, Dices, Radiation, MessageSquare, LayoutDashboard, BookOpenCheck } from 'lucide-react'; 
+import { LogOut, User, Feather, Music, Type, Heart, Compass, Gamepad2, Activity, Lock, Film, Sparkles, Rocket, Dices, Radiation, MessageSquare, LayoutDashboard, BookOpenCheck, Calculator, LineChart } from 'lucide-react'; 
 import { CanopyNotificationBadge } from './CanopyNotificationBadge';
 
 export default function Sidebar() {   
@@ -78,6 +78,34 @@ export default function Sidebar() {
             </span>
           </Link>
         )}
+
+        {/* 📊 Navigation vers le Bilan Statistique de la Canopée */}
+        <Link
+          href="/inception/canopy/stats"
+          className="flex flex-col items-center gap-2 group text-slate-500 hover:text-amber-400 transition-all"
+          title="Bilan Statistique de la Canopée"
+        >
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center border border-transparent group-hover:border-amber-500/30 group-hover:bg-amber-500/5 transition-all">
+            <LineChart size={20} />
+          </div>
+          <span className="text-[10px] uppercase tracking-widest font-bold opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0 text-center">
+            Stats Canopée
+          </span>
+        </Link>
+
+        {/* 🧮 Navigation vers Inception Kompta */}
+        <Link
+          href="/inception/kompta"
+          className="flex flex-col items-center gap-2 group text-slate-500 hover:text-emerald-400 transition-all"
+          title="Inception Kompta (Comptabilité)"
+        >
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center border border-transparent group-hover:border-emerald-500/30 group-hover:bg-emerald-500/5 transition-all">
+            <Calculator size={20} />
+          </div>
+          <span className="text-[10px] uppercase tracking-widest font-bold opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0 text-center">
+            Kompta
+          </span>
+        </Link>
 
         {/* 🔭 Navigation vers l'Observatoire des Fréquences */}
         {isVisible('observatoire') && (
@@ -304,19 +332,19 @@ export default function Sidebar() {
         {/* Séparateur */}
         <div className="h-px w-8 bg-white/5" />
 
-        {/* L'Action de Sortie */}      
-        <button       
-          onClick={() => signOut({ callbackUrl: '/' })}      
-          className="flex flex-col items-center gap-2 group text-slate-500 hover:text-[#E5484D] transition-all"      
-          title="Reprendre sa Route"      
-        >        
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center border border-transparent group-hover:border-[#E5484D]/30 group-hover:bg-[#E5484D]/5 transition-all">          
-            <LogOut size={20} />          
-          </div>        
-          <span className="text-[10px] uppercase tracking-widest font-bold opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0 text-center">            
-            Sortir          
-          </span>        
-        </button>      
+        {/* L'Action de Sortie */}     
+        <button     
+          onClick={() => signOut({ callbackUrl: '/' })}     
+          className="flex flex-col items-center gap-2 group text-slate-500 hover:text-[#E5484D] transition-all"     
+          title="Reprendre sa Route"     
+        >       
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center border border-transparent group-hover:border-[#E5484D]/30 group-hover:bg-[#E5484D]/5 transition-all">       
+            <LogOut size={20} />       
+          </div>       
+          <span className="text-[10px] uppercase tracking-widest font-bold opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0 text-center">           
+            Sortir       
+          </span>       
+        </button>     
 
       </div>    
     </aside>  

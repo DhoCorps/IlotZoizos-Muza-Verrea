@@ -1,4 +1,7 @@
 // apps/hub-central/app/api/kompta/ledger/route.ts
+
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { LedgerEntryModel } from '@ilot/infrastructure'; // Ou chemin relatif vers l'infra/model

@@ -95,3 +95,5 @@ export type {
     WikiOracleTheme 
 } from './games/wikiOracle/WikiOracleTypes';
 
+export * from './sync-engine/monthlyStats.orchestrator';
+export * from './sync-engine/komptaStats.orchestrator';
