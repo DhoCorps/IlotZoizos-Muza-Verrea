@@ -15,15 +15,18 @@ export const POST = withAura(async (req: Request, context: ApiContext, _currentU
   try {
     // 1. Rate Limiting par IP
     const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-    let rateLimitResult;
+    let rateLimitResult: { allowed?: boolean } = { allowed: true };
     try {
-      rateLimitResult = await checkRateLimit(`upload-sujet-slug:${clientIp}`, 10, 60);
+      const res = await checkRateLimit(`upload-sujet-slug:${clientIp}`, 10, 60);
+      if (res && typeof res === 'object') {
+        rateLimitResult = res;
+      }
     } catch (rateErr) {
       console.error("⚠️ [RATE LIMIT ERROR ABYSS UPLOAD]", rateErr);
       rateLimitResult = { allowed: true };
     }
 
-    if (!rateLimitResult.allowed) {
+    if (rateLimitResult.allowed === false) {
       return NextResponse.json({ error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
     }
 

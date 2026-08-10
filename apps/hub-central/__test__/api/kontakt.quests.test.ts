@@ -29,15 +29,17 @@ vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb) => cb),
 }));
 
-const mockLean = vi.fn();
-const mockSort = vi.fn().mockImplementation(() => ({ lean: mockLean }));
-const mockFind = vi.fn().mockImplementation(() => ({ sort: mockSort }));
-
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   JobQuestModel: {
-    find: vi.fn((...args) => mockFind(...args)),
-    findOne: vi.fn().mockResolvedValue(null),
+    find: vi.fn().mockReturnValue({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([]),
+      }),
+    }),
+    findOne: vi.fn().mockReturnValue({
+      lean: vi.fn().mockResolvedValue(null),
+    }),
     create: vi.fn(),
   },
 }));
@@ -56,7 +58,11 @@ describe('API Kontakt Job Quests - Gestion des quêtes de recrutement', () => {
   // 🔍 TESTS GET (Recensement)
   // =========================================================================
   it('🟢 doit récupérer la liste des quêtes actives avec succès (200)', async () => {
-    mockLean.mockResolvedValueOnce([{ uid: 'quest_1', title: 'Quête Fullstack' }]);
+    vi.mocked(JobQuestModel.find).mockReturnValueOnce({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([{ uid: 'quest_1', title: 'Quête Fullstack' }]),
+      }),
+    } as any);
 
     const req = new Request('http://localhost/api/kontakt/quests');
     const res = await GET(req as any, {});

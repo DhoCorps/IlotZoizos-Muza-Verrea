@@ -22,12 +22,6 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  ObservatoryEngine: {
-    generateReport: vi.fn().mockReturnValue({ globalVibrationScore: 88, status: 'HARMONIC' }),
-  },
-}));
-
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
@@ -35,6 +29,12 @@ describe('Route API : Observatoire (GET /[slug]/observatory)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur l'ObservatoryEngine
+    vi.spyOn(ObservatoryEngine, 'generateReport').mockReturnValue({
+      globalVibrationScore: 88,
+      status: 'HARMONIC',
+    } as any);
   });
 
   it('doit rejeter (401) si l\'utilisateur n\'a pas d\'Aura', async () => {
@@ -49,7 +49,6 @@ describe('Route API : Observatoire (GET /[slug]/observatory)', () => {
   });
 
   it('doit rejeter (403) si un utilisateur tente d\'ausculter le profil d\'un autre oiseau', async () => {
-    // Visiteur 'intrus' essaie de voir l'observatoire de 'dho'
     vi.mocked(getServerSession).mockResolvedValue({
       user: { uid: 'intrus', capabilities: [] }
     } as any);

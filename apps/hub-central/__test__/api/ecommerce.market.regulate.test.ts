@@ -21,12 +21,6 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  MarketRegulationOrchestrator: vi.fn().mockImplementation(() => ({
-    processConnectedRegulation: vi.fn().mockResolvedValue({ success: true, adjustedValue: 42 }),
-  })),
-}));
-
 declare global {
   var __mockUser: any;
 }
@@ -35,6 +29,12 @@ describe('API Market Regulation POST', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de MarketRegulationOrchestrator
+    vi.spyOn(MarketRegulationOrchestrator.prototype, 'processConnectedRegulation').mockResolvedValue({
+      success: true,
+      adjustedValue: 42,
+    } as any);
   });
 
   it('🔴 [POST] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {

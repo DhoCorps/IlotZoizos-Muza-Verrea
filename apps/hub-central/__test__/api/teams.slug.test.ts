@@ -26,13 +26,6 @@ vi.mock('@ilot/infrastructure', () => ({
   getNeo4jSession: vi.fn(),
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  TeamOrchestrator: vi.fn().mockImplementation(() => ({
-    mutateTeam: vi.fn().mockResolvedValue({ uid: 't-123', name: 'Nid Muté' }),
-    dissolveTeam: vi.fn().mockResolvedValue(true),
-  })),
-}));
-
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
@@ -40,6 +33,14 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de TeamOrchestrator
+    vi.spyOn(TeamOrchestrator.prototype, 'mutateTeam').mockResolvedValue({
+      uid: 't-123',
+      name: 'Nid Muté',
+    } as any);
+
+    vi.spyOn(TeamOrchestrator.prototype, 'dissolveTeam').mockResolvedValue(true as any);
   });
 
   describe('GET - Découverte du Nid', () => {

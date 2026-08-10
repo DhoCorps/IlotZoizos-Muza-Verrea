@@ -4,6 +4,7 @@ import { ProjectModel, getNeo4jSession } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { revalidateTag } from 'next/cache';
+import { NextResponse, NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
@@ -12,7 +13,6 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-// Neutralisation du bouclier withAura pour les tests unitaires
 vi.mock('@/lib/api-guards', () => ({
   withAura: (handler: any) => async (req: any, context: any) => {
     const mockUser = global.__mockUser || { uid: 'u-123', capabilities: ['*'] };
@@ -30,17 +30,12 @@ vi.mock('@ilot/infrastructure', () => ({
   getNeo4jSession: vi.fn(),
 }));
 
-vi.mock('@/modules/storage/storage.service', () => ({
-  storageService: {
-    generateStructuredKey: vi.fn().mockReturnValue('ilot-zoizos/fr/projects/proj-1/attachments/test.pdf'),
-    uploadFile: vi.fn().mockResolvedValue({ publicUrl: 'https://cdn.ilot/doc.pdf', key: 'mock-key' }),
-    extractKeyFromUrl: vi.fn().mockReturnValue('mock-key'),
-    deleteFile: vi.fn().mockResolvedValue(true),
-  },
+vi.mock('@/modules/security/rateLimiter', () => ({
+  checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, remaining: 10 }),
 }));
 
-vi.mock('@/modules/security/rateLimiter', () => ({
-  checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 declare global {
@@ -63,11 +58,21 @@ describe('Route API : Project Attachments (POST / DELETE /api/projects/[slug]/at
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🛡️ Espions actifs sur le StorageService (Pattern validé)
+    vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('ilot-zoizos/fr/projects/proj-1/attachments/test.pdf');
+    vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
+      success: true,
+      publicUrl: 'https://cdn.ilot/doc.pdf',
+      key: 'mock-key',
+    } as any);
+    vi.spyOn(storageService, 'extractKeyFromUrl').mockReturnValue('mock-key');
+    vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
   });
 
   describe('POST - Téléversement d\'un artefact', () => {
     it('doit refuser (429) si le rate limit est dépassé', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false } as any);
+      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0 } as any);
 
       const req = new Request('http://localhost/api/projects/mon-chantier/attachments', {
         method: 'POST',
@@ -95,12 +100,11 @@ describe('Route API : Project Attachments (POST / DELETE /api/projects/[slug]/at
       formData.append('file', new Blob(['pdf content'], { type: 'application/pdf' }), 'test.pdf');
       formData.append('label', 'Schéma technique');
 
-      const req = new Request('http://localhost/api/projects/mon-chantier/attachments', {
-        method: 'POST',
-        body: formData,
-      });
-
-      vi.spyOn(req, 'formData').mockResolvedValue(formData);
+      // 🛡️ Utilisation du format NextRequest blindé pour le formData (Leçon validée)
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: async () => formData,
+      } as unknown as NextRequest;
 
       const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-chantier' }) });
       const json = await response.json();

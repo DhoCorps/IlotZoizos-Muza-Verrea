@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '@/app/api/users/[slug]/upload/route';
-import { getServerSession } from 'next-auth/next';
 import { OiseauModel, getNeo4jSession } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
-import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { revalidateTag } from 'next/cache';
+import { NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
@@ -13,34 +12,29 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
-}));
-
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  OiseauModel: {
-    findOneAndUpdate: vi.fn(),
-    updateOne: vi.fn(),
-  },
-  getNeo4jSession: vi.fn().mockReturnValue({
-    run: vi.fn().mockResolvedValue(true),
-    close: vi.fn().mockResolvedValue(true),
-  }),
-}));
-
-vi.mock('@/modules/storage/storage.service', () => ({
-  storageService: {
-    generateStructuredKey: vi.fn().mockReturnValue('mock-key'),
-    uploadFile: vi.fn().mockResolvedValue({ publicUrl: 'https://cdn.ilot/avatar.jpg' }),
-    extractKeyFromUrl: vi.fn().mockReturnValue('mock-key'),
-    deleteFile: vi.fn().mockResolvedValue(true),
+// Neutralisation du bouclier withAura cohérente
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: any) => async (req: any, context: any) => {
+    const mockUser = global.__mockUser || { uid: 'dho', capabilities: ['*'] };
+    return await handler(req, context, mockUser);
   },
 }));
+
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    getNeo4jSession: vi.fn(),
+  };
+});
 
 vi.mock('@/modules/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
 }));
+
+declare global {
+  var __mockUser: any;
+}
 
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
@@ -49,24 +43,41 @@ describe('Route API : Téléversement & Suppression d\'apparence (POST / DELETE)
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
-  });;
+
+    // Espions actifs sur storageService
+    vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('mock-key');
+    vi.spyOn(storageService, 'uploadFile').mockResolvedValue({ publicUrl: 'https://cdn.ilot/avatar.jpg', key: 'mock-key' } as any);
+    vi.spyOn(storageService, 'extractKeyFromUrl').mockReturnValue('mock-key');
+    vi.spyOn(storageService, 'deleteFile').mockResolvedValue(true as any);
+
+    // Espions actifs sur OiseauModel (Mongoose)
+    vi.spyOn(OiseauModel, 'findOneAndUpdate').mockReturnValue({
+      lean: vi.fn().mockResolvedValue({ uid: 'dho', pseudo: 'DhÖ' }),
+    } as any);
+
+    vi.spyOn(OiseauModel, 'updateOne').mockResolvedValue({ modifiedCount: 1 } as any);
+
+    // Mock Neo4j
+    vi.mocked(getNeo4jSession).mockReturnValue({
+      run: vi.fn().mockResolvedValue({ records: [] }),
+      close: vi.fn().mockResolvedValue(true),
+    } as any);
+  });
 
   describe('POST - Téléversement de brindille', () => {
     it('doit rejeter (403) si le visiteur tente de modifier un autre oiseau', async () => {
-      vi.mocked(getServerSession).mockResolvedValue({
-        user: { uid: 'pirate', capabilities: [] }
-      } as any);
+      global.__mockUser = { uid: 'pirate', capabilities: [] };
 
       const formData = new FormData();
       const fakeFile = new Blob(['dummy content'], { type: 'image/jpeg' });
       formData.append('file', fakeFile, 'avatar.jpg');
       formData.append('imageType', 'avatarUrl');
 
-      const req = new Request('http://localhost/api/users/dho/avatar', {
-        method: 'POST',
-      });
-      // Mock direct du formData pour le test 403 également
-      vi.spyOn(req, 'formData').mockResolvedValue(formData as any);
+      // Loi du multipart souverain
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: async () => formData,
+      } as unknown as NextRequest;
 
       const response = await POST(req as any, { params: Promise.resolve({ slug: 'dho' }) });
       const json = await response.json();
@@ -77,32 +88,21 @@ describe('Route API : Téléversement & Suppression d\'apparence (POST / DELETE)
     });
 
     it('doit réussir (201) le téléversement, mettre à jour MongoDB/Neo4j et invalider le cache', async () => {
-      vi.mocked(getServerSession).mockResolvedValue({
-        user: { uid: 'dho', capabilities: [] }
-      } as any);
-
-      vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 'dho', pseudo: 'DhÖ' }),
-      } as any);
+      global.__mockUser = { uid: 'dho', capabilities: [] };
 
       const formData = new FormData();
       const fakeFile = new Blob(['dummy content'], { type: 'image/jpeg' });
       formData.append('file', fakeFile, 'avatar.jpg');
       formData.append('imageType', 'avatarUrl');
 
-      const req = new Request('http://localhost/api/users/dho/avatar', {
-        method: 'POST',
-      });
-
-      // 🪡 Contournement propre de la sérialisation multipart de Node/undici en test
-      vi.spyOn(req, 'formData').mockResolvedValue(formData as any);
+      // Loi du multipart souverain
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: async () => formData,
+      } as unknown as NextRequest;
 
       const response = await POST(req as any, { params: Promise.resolve({ slug: 'dho' }) });
       const json = await response.json();
-
-      if (response.status !== 201) {
-        console.error("🔍 ERREUR DE LA ROUTE REÇUE :", json);
-      }
 
       expect(response.status).toBe(201);
       expect(json.success).toBe(true);
@@ -117,28 +117,24 @@ describe('Route API : Téléversement & Suppression d\'apparence (POST / DELETE)
 
   describe('DELETE - Désintégration d\'artefact', () => {
     it('doit rejeter (403) si l\'utilisateur tente de supprimer la photo d\'un autre', async () => {
-      vi.mocked(getServerSession).mockResolvedValue({
-        user: { uid: 'intrus', capabilities: [] }
-      } as any);
+      global.__mockUser = { uid: 'intrus', capabilities: [] };
 
       const req = new Request('http://localhost/api/users/dho/avatar', {
         method: 'DELETE',
         body: JSON.stringify({ imageType: 'avatarUrl', url: 'https://cdn.ilot/avatar.jpg' }),
-      });
+      }) as unknown as NextRequest;
 
       const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'dho' }) });
       expect(response.status).toBe(403);
     });
 
     it('doit réussir (200) la suppression physique et en base, puis invalider le cache', async () => {
-      vi.mocked(getServerSession).mockResolvedValue({
-        user: { uid: 'dho', capabilities: [] }
-      } as any);
+      global.__mockUser = { uid: 'dho', capabilities: [] };
 
       const req = new Request('http://localhost/api/users/dho/avatar', {
         method: 'DELETE',
         body: JSON.stringify({ imageType: 'avatarUrl', url: 'https://cdn.ilot/avatar.jpg' }),
-      });
+      }) as unknown as NextRequest;
 
       const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'dho' }) });
       const json = await response.json();

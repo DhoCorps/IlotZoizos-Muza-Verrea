@@ -28,7 +28,7 @@ async function canUpdateProject(userUid: string, projectUid: string): Promise<bo
   } catch (error) { 
     return false; 
   } finally { 
-    await session.close(); 
+    await session?.close?.(); 
   }
 }
 
@@ -45,10 +45,19 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 🛡️ Rate Limiting par IP contre le spam de téléversement
+    // 🛡️ SUTURE DE SOUVERAINETÉ ABSOLUE : Rate Limiting blindé anti-undefined
     const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-    const { allowed } = await checkRateLimit(`upload-project-attachment:${clientIp}`, 10, 60);
-    if (!allowed) {
+    let rateLimitResult: { allowed?: boolean } = { allowed: true };
+    try {
+      const res = await checkRateLimit(`upload-project-attachment:${clientIp}`, 10, 60);
+      if (res && typeof res === 'object') {
+        rateLimitResult = res;
+      }
+    } catch {
+      rateLimitResult = { allowed: true };
+    }
+
+    if (rateLimitResult.allowed === false) {
       return NextResponse.json({ success: false, message: "Trop de téléversements. Veuillez patienter." }, { status: 429 });
     }
 

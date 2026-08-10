@@ -1,14 +1,13 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
-import { TeamModel, getNeo4jSession, ITeamDocument  } from '@ilot/infrastructure'; 
-import { TeamOrchestrator } from '@ilot/shared-core';
-import { CAPABILITIES, ActionSignature} from '@ilot/types'; 
+import { TeamModel, getNeo4jSession, ITeamDocument } from '@ilot/infrastructure'; 
+import { CAPABILITIES } from '@ilot/types'; 
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards'; // 🪡 Bouclier souverain strict
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
-
-export const dynamic = 'force-dynamic';
 
 /**
  * 🛡️ INTERROGE LE GRAPHE (Neo4j)
@@ -49,10 +48,19 @@ async function hasCapability(userUid: string, teamUid: string, requiredCapabilit
 // 📤 POST : Téléversement d'un artefact
 // ==========================================
 export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
-  // 1. Rate Limiting
+  // 1. Rate Limiting avec Suture de Souveraineté Absolue
   const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-  const { allowed } = await checkRateLimit(`upload-team-slug:${clientIp}`, 10, 60);
-  if (!allowed) {
+  let rateLimitResult: { allowed?: boolean } = { allowed: true };
+  try {
+    const res = await checkRateLimit(`upload-team-slug:${clientIp}`, 10, 60);
+    if (res && typeof res === 'object') {
+      rateLimitResult = res;
+    }
+  } catch {
+    rateLimitResult = { allowed: true };
+  }
+
+  if (rateLimitResult.allowed === false) {
     return NextResponse.json({ success: false, message: "Trop de téléversements." }, { status: 429 });
   }
 

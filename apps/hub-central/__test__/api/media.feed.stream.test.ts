@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/media/stream-feed/route';
 import { ProductModel } from '@ilot/infrastructure';
-import { NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DU CACHE
@@ -16,14 +15,11 @@ vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb) => cb),
 }));
 
-const mockLean = vi.fn();
-const mockLimit = vi.fn().mockImplementation(() => ({ lean: mockLean }));
-const mockFind = vi.fn().mockImplementation(() => ({ limit: mockLimit }));
-
+// 🛡️ MOCK MONGOOSE SÉQUENTIEL PLEINEMENT CONTRÔLÉ
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   ProductModel: {
-    find: vi.fn((...args) => mockFind(...args)),
+    find: vi.fn(),
   },
 }));
 
@@ -35,9 +31,16 @@ describe('API Media Stream Feed - Flux Public Agora', () => {
 
   it('🟢 doit récupérer le flux des visuels et des pistes avec succès (200)', async () => {
     // Premier appel (visuals)
-    mockLean.mockResolvedValueOnce([{ uid: 'vis_1', category: 'VIDEO' }]);
+    const mockLeanVisuals = vi.fn().mockResolvedValueOnce([{ uid: 'vis_1', category: 'VIDEO' }]);
+    const mockLimitVisuals = vi.fn().mockReturnValueOnce({ lean: mockLeanVisuals });
+
     // Second appel (tracks)
-    mockLean.mockResolvedValueOnce([{ uid: 'trk_1', category: 'MUSIC' }]);
+    const mockLeanTracks = vi.fn().mockResolvedValueOnce([{ uid: 'trk_1', category: 'MUSIC' }]);
+    const mockLimitTracks = vi.fn().mockReturnValueOnce({ lean: mockLeanTracks });
+
+    vi.mocked(ProductModel.find)
+      .mockReturnValueOnce({ limit: mockLimitVisuals } as any)
+      .mockReturnValueOnce({ limit: mockLimitTracks } as any);
 
     const req = new Request('http://localhost/api/media/stream/feed');
     const res = await GET(req as any, {});

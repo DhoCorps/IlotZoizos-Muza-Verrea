@@ -19,18 +19,18 @@ vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  TeamOrchestrator: vi.fn().mockImplementation(() => ({
-    inviteBird: vi.fn().mockResolvedValue({ success: true, message: "Invitation envoyée avec succès" }),
-  })),
-}));
-
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
 describe('Route API : Membres et Recrutement (POST /api/teams/[slug]/members)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de TeamOrchestrator
+    vi.spyOn(TeamOrchestrator.prototype, 'inviteBird').mockResolvedValue({
+      success: true,
+      message: "Invitation envoyée avec succès",
+    } as any);
   });
 
   it('doit rejeter (401) si l\'utilisateur n\'a pas d\'Aura', async () => {
@@ -72,7 +72,7 @@ describe('Route API : Membres et Recrutement (POST /api/teams/[slug]/members)', 
 
     const req = new Request('http://localhost/api/teams/mon-nid/members', {
       method: 'POST',
-      body: JSON.stringify({ action: 'INVITE' }), // Absence de userUid
+      body: JSON.stringify({ action: 'INVITE' }),
     });
 
     const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-nid' }) });

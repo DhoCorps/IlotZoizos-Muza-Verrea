@@ -1,25 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '../../app/api/ecommerce/barter/route';
+import { POST } from '@/app/api/ecommerce/barter/route';
 import { BarterOfferModel, OiseauModel } from '@ilot/infrastructure';
+import { EcommerceOrchestrator } from '@ilot/shared-core';
 
-// Mock global de l'infrastructure
+// Mock global de l'infrastructure (pleinement chaînable)
 vi.mock('@ilot/infrastructure', () => ({
     BarterOfferModel: {
         create: vi.fn(),
         findOneAndUpdate: vi.fn(),
-        find: vi.fn(),
+        find: vi.fn().mockReturnValue({
+            sort: vi.fn().mockReturnValue({
+                lean: vi.fn().mockResolvedValue([]),
+            }),
+        }),
     },
     OiseauModel: {
-        findOne: vi.fn(),
+        findOne: vi.fn().mockReturnValue({
+            lean: vi.fn().mockResolvedValue(null)
+        }),
     },
-}));
-
-// Mock de l'orchestrateur e-commerce
-vi.mock('@ilot/shared-core', () => ({
-    EcommerceOrchestrator: class {
-        proposeBarter = vi.fn().mockResolvedValue(true);
-        resolveBarter = vi.fn().mockResolvedValue(true);
-    }
 }));
 
 // Mock des gardiens d'API (`withAura`)
@@ -27,26 +26,32 @@ let mockCurrentUser = { uid: 'bird_clean_1', capabilities: ['*'] };
 vi.mock('@/lib/api-guards', () => ({
     withAura: (handler: any) => {
         return async (req: Request, context: any) => {
-            return handler(req, context, mockCurrentUser);
+            return await handler(req, context, mockCurrentUser);
         };
     },
-    withSilice: (handler: any) => handler,
+    withSilice: (handler: any) => async (req: any, context: any) => {
+        return await handler(req, context);
+    },
 }));
 
 vi.mock('next/cache', () => ({
     revalidateTag: vi.fn(),
-    unstable_cache: (fn: any) => fn,
+    unstable_cache: vi.fn((cb) => cb),
 }));
 
 describe('POST /api/ecommerce/barter (Douane Vibratoire du Troc)', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockCurrentUser = { uid: 'bird_clean_1', capabilities: ['*'] };
+
+        // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de EcommerceOrchestrator
+        vi.spyOn(EcommerceOrchestrator.prototype, 'proposeBarter').mockResolvedValue(true as any);
+        vi.spyOn(EcommerceOrchestrator.prototype, 'resolveBarter').mockResolvedValue(true as any);
     });
 
     it('🔴 doit rejeter avec une erreur 403 si l oiseau est classé INDESIRABLE ou banni', async () => {
-        // Simulation de findone().lean() avec un objet retourné par .lean()
-        vi.mocked(OiseauModel.findOne).mockReturnValue({
+        // Simulation de findOne().lean()
+        vi.mocked(OiseauModel.findOne).mockReturnValueOnce({
             lean: vi.fn().mockResolvedValueOnce({
                 uid: 'bird_clean_1',
                 profileStatus: 'INDESIRABLE',
@@ -69,8 +74,8 @@ describe('POST /api/ecommerce/barter (Douane Vibratoire du Troc)', () => {
     });
 
     it('🟢 doit autoriser la proposition de troc si l oiseau est respectueux ou neutre', async () => {
-        // Simulation de findone().lean()
-        vi.mocked(OiseauModel.findOne).mockReturnValue({
+        // Simulation de findOne().lean()
+        vi.mocked(OiseauModel.findOne).mockReturnValueOnce({
             lean: vi.fn().mockResolvedValueOnce({
                 uid: 'bird_clean_1',
                 profileStatus: 'RESPECTABLE',

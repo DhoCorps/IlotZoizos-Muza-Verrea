@@ -19,18 +19,18 @@ vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  TeamOrchestrator: vi.fn().mockImplementation(() => ({
-    leaveTeam: vi.fn().mockResolvedValue({ success: true, message: "L'oiseau a pris son envol avec succès." }),
-  })),
-}));
-
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
 describe('Route API : Envol volontaire d\'un Nid (POST /api/teams/[slug]/leave)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de TeamOrchestrator
+    vi.spyOn(TeamOrchestrator.prototype, 'leaveTeam').mockResolvedValue({
+      success: true,
+      message: "L'oiseau a pris son envol avec succès.",
+    } as any);
   });
 
   it('doit rejeter (401) si l\'utilisateur n\'a pas d\'Aura', async () => {

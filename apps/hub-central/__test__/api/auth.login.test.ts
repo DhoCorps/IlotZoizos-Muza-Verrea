@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/auth/login/route';
 import { OiseauModel } from '@ilot/infrastructure';
-import bcrypt from 'bcryptjs';
+import { compare } from 'bcryptjs';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS
@@ -18,12 +18,12 @@ vi.mock('@ilot/infrastructure', () => ({
 }));
 
 vi.mock('bcryptjs', () => ({
+  compare: vi.fn().mockResolvedValue(true),
+  hash: vi.fn().mockResolvedValue('hashed'),
   default: {
     compare: vi.fn().mockResolvedValue(true),
     hash: vi.fn().mockResolvedValue('hashed'),
   },
-  compare: vi.fn().mockResolvedValue(true),
-  hash: vi.fn().mockResolvedValue('hashed'),
 }));
 
 describe('API Auth Login POST', () => {
@@ -44,7 +44,7 @@ describe('API Auth Login POST', () => {
 
   it('🔴 [POST] doit rejeter (401) si l\'oiseau est introuvable', async () => {
     vi.mocked(OiseauModel.findOne).mockReturnValue({
-        select: vi.fn().mockResolvedValue(null)
+      select: vi.fn().mockResolvedValue(null)
     } as any);
 
     const req = new Request('http://localhost/api/auth/login', {
@@ -58,16 +58,16 @@ describe('API Auth Login POST', () => {
 
   it('🟢 [POST] doit autoriser la connexion (200) avec les bonnes credentials', async () => {
     vi.mocked(OiseauModel.findOne).mockReturnValue({
-        select: vi.fn().mockResolvedValue({ 
-            uid: 'bird_1', 
-            pseudo: 'PiafTest', 
-            email: 'test@ilot.fr',
-            password: 'hashed_password' 
-        })
+      select: vi.fn().mockResolvedValue({ 
+        uid: 'bird_1', 
+        pseudo: 'PiafTest', 
+        email: 'test@ilot.fr',
+        password: 'hashed_password' 
+      })
     } as any);
     
     // On s'assure que compare renvoie bien true
-    vi.mocked(bcrypt.compare).mockResolvedValue(true as any);
+    vi.mocked(compare).mockResolvedValue(true as any);
 
     const req = new Request('http://localhost/api/auth/login', {
       method: 'POST',

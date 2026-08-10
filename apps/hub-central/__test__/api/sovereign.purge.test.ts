@@ -19,18 +19,18 @@ vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  SovereignPurgeOrchestrator: vi.fn().mockImplementation(() => ({
-    executeSovereignPurge: vi.fn().mockResolvedValue({ purged: true, count: 5 }),
-  })),
-}));
-
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
 describe('Route API : Purge Souveraine (POST /api/purge)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de SovereignPurgeOrchestrator
+    vi.spyOn(SovereignPurgeOrchestrator.prototype, 'executeSovereignPurge').mockResolvedValue({
+      purged: true,
+      count: 5,
+    } as any);
   });
 
   it('doit rejeter (401) si l\'utilisateur n\'a pas d\'Aura', async () => {

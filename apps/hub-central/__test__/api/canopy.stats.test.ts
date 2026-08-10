@@ -6,17 +6,17 @@ vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb) => cb),
 }));
 
-vi.mock('@ilot/infrastructure', async (importOriginal) => {
-  const actual: any = await importOriginal();
-  return {
-    ...actual,
-    MessageModel: {
-      findOne: vi.fn().mockReturnThis(),
-      sort: vi.fn().mockReturnThis(),
-      lean: vi.fn(),
-    }
-  };
-});
+// 🛡️ MOCK MONGOOSE PLEINEMENT CHAÎNABLE
+vi.mock('@ilot/infrastructure', () => ({
+  connectToDatabase: vi.fn().mockResolvedValue(true),
+  MessageModel: {
+    findOne: vi.fn().mockReturnValue({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue(null),
+      }),
+    }),
+  }
+}));
 
 vi.mock('@/lib/api-guards', () => ({
   withSilice: (handler: any) => handler,
@@ -34,7 +34,12 @@ describe('GET /api/canopy/stats', () => {
       metadata: { statsSnapshot: { yearMonth: '2026-08', macroTotals: 100 } }
     };
     
-    vi.mocked(MessageModel.findOne().sort().lean).mockResolvedValue(mockSnapshot as any);
+    // On configure le chaînage Mongoose proprement
+    vi.mocked(MessageModel.findOne).mockReturnValue({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue(mockSnapshot),
+      }),
+    } as any);
 
     const req = new Request('http://localhost/api/canopy/stats');
     const res = await GET(req, {} as any);

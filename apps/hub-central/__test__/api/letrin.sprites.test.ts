@@ -27,25 +27,23 @@ vi.mock('@/lib/slugify', () => ({
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
+  unstable_cache: vi.fn((cb) => cb),
 }));
 
-const mockLean = vi.fn();
-const mockSort = vi.fn().mockImplementation(() => ({ lean: mockLean }));
-const mockFind = vi.fn().mockImplementation(() => ({ sort: mockSort }));
-
+// 🛡️ SUTURE CHIRURGICALE : Mocks Mongoose pleinement chaînables
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   LetterSpriteModel: {
-    find: vi.fn((...args) => mockFind(...args)),
-    findOne: vi.fn(() => ({ lean: vi.fn().mockResolvedValue(null) })),
+    find: vi.fn().mockReturnValue({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([]),
+      }),
+    }),
+    findOne: vi.fn().mockReturnValue({
+      lean: vi.fn().mockResolvedValue(null),
+    }),
     create: vi.fn(),
   },
-}));
-
-vi.mock('@ilot/shared-core', () => ({
-  LetrinSpriteOrchestrator: vi.fn().mockImplementation(() => ({
-    publishFontSprite: vi.fn().mockResolvedValue(true),
-  })),
 }));
 
 declare global {
@@ -56,13 +54,21 @@ describe('API Letr\'In Sprites - Gestion des polices', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de LetrinSpriteOrchestrator
+    vi.spyOn(LetrinSpriteOrchestrator.prototype, 'publishFontSprite').mockResolvedValue(true as any);
   });
 
   // =========================================================================
   // 🔍 TESTS GET (Recensement)
   // =========================================================================
   it('🟢 doit récupérer la liste des polices avec succès (200)', async () => {
-    mockLean.mockResolvedValueOnce([{ uid: 'font_1', name: 'CyberFont' }]);
+    // On surcharge le mock pour retourner notre tableau
+    vi.mocked(LetterSpriteModel.find).mockReturnValueOnce({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([{ uid: 'font_1', name: 'CyberFont' }]),
+      }),
+    } as any);
 
     const req = new Request('http://localhost/api/letrin/sprites');
     const res = await GET(req as any, {});
@@ -97,6 +103,11 @@ describe('API Letr\'In Sprites - Gestion des polices', () => {
       slug: 'cyberfont',
       authorUid: 'bird_1'
     };
+
+    // Lors de la validation du slug, on simule que le slug n'existe pas
+    vi.mocked(LetterSpriteModel.findOne).mockReturnValueOnce({
+      lean: vi.fn().mockResolvedValue(null),
+    } as any);
 
     vi.mocked(LetterSpriteModel.create).mockResolvedValueOnce(mockCreatedFont as any);
 

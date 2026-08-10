@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PUT } from '@/app/api/auth/user/update/route';
 import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
 import { NextResponse } from 'next/server';
 
@@ -28,12 +29,6 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  OiseauOrchestrator: vi.fn().mockImplementation(() => ({
-    appliquerFluctuation: vi.fn().mockResolvedValue({ energy: 100, entropy: 0.5 }),
-  })),
-}));
-
 declare global {
   var __mockUser: any;
 }
@@ -42,6 +37,12 @@ describe('API Oiseau Fluctuation PUT', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de OiseauOrchestrator
+    vi.spyOn(OiseauOrchestrator.prototype, 'appliquerFluctuation').mockResolvedValue({
+      energy: 100,
+      entropy: 0.5,
+    } as any);
   });
 
   it('🔴 [PUT] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {

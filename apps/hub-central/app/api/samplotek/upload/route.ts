@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { SampleModel } from '@ilot/infrastructure';
 import { SampleUploadSchema } from '@ilot/types';
 import { storageService } from '@/modules/storage/storage.service';
@@ -12,16 +12,19 @@ import { v4 as uuidv4 } from 'uuid';
 
 export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 1. Rate Limiting par IP
+    // 1. Rate Limiting par IP avec Suture de Souveraineté
     const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-    let rateLimitResult;
+    let rateLimitResult: { allowed?: boolean } = { allowed: true };
     try {
-      rateLimitResult = await checkRateLimit(`upload-sample:${clientIp}`, 10, 60);
+      const res = await checkRateLimit(`upload-sample:${clientIp}`, 10, 60);
+      if (res && typeof res === 'object') {
+        rateLimitResult = res;
+      }
     } catch {
       rateLimitResult = { allowed: true };
     }
 
-    if (!rateLimitResult.allowed) {
+    if (rateLimitResult.allowed === false) {
       return NextResponse.json({ success: false, error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
     }
 

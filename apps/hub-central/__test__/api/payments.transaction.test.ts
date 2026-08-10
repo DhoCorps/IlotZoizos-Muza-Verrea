@@ -1,4 +1,3 @@
-// apps/hub-central/__test__/api/payments.transaction.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/payments/transaction/route';
 import { getServerSession } from 'next-auth/next';
@@ -9,25 +8,18 @@ vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),
 }));
 
-// 2. Mock de l'orchestrateur de paiement Kompta
-vi.mock('@ilot/shared-core', async (importOriginal) => {
-  const actual: any = await importOriginal();
-  return {
-    ...actual,
-    KomptaPaymentOrchestrator: vi.fn().mockImplementation(() => ({
-      executeStoreTransaction: vi.fn().mockResolvedValue({
-        success: true,
-        transactionUid: 'tx_test_chapeau_001',
-        newBuyerBalance: 8500,
-        newRecipientBalance: 6500,
-      }),
-    })),
-  };
-});
-
 describe('API Payments Transaction - POST /api/payments/transaction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct de executeStoreTransaction sur le prototype
+    vi.spyOn(KomptaPaymentOrchestrator.prototype, 'executeStoreTransaction').mockResolvedValue({
+      success: true,
+      transactionUid: 'tx_test_chapeau_001',
+      newBuyerBalance: 8500,
+      newRecipientBalance: 6500,
+    } as any);
   });
 
   it('doit rejeter (401) si l\'oiseau n\'est pas authentifié', async () => {

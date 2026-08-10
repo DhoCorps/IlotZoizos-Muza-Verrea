@@ -2,18 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '../../app/api/kompta/ledger/route';
 import { LedgerEntryModel } from '@ilot/infrastructure';
 
-vi.mock('@ilot/infrastructure', async (importOriginal) => {
-  const actual: any = await importOriginal();
-  return {
-    ...actual,
-    LedgerEntryModel: {
-      find: vi.fn().mockReturnThis(),
-      sort: vi.fn().mockReturnThis(),
-      lean: vi.fn(),
-    }
-  };
-});
-
 vi.mock('@/lib/api-guards', () => ({
   withAura: (handler: any) => async (req: any, context: any) => {
     return handler(req, context, { uid: 'bird_test_123', capabilities: ['*'] });
@@ -32,7 +20,12 @@ describe('GET /api/kompta/ledger', () => {
       { type: 'DEBIT', amountCents: 250 },
     ];
     
-    vi.mocked(LedgerEntryModel.find().sort().lean).mockResolvedValue(mockEntries as any);
+    // 🛡️ SUTURE CHIRURGICALE : On espionne .find() pour qu'il retourne directement l'objet chaîné simulé
+    vi.spyOn(LedgerEntryModel, 'find').mockReturnValue({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue(mockEntries),
+      }),
+    } as any);
 
     const req = new Request('http://localhost/api/kompta/ledger');
     const res = await GET(req, {} as any);

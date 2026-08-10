@@ -21,12 +21,6 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  DemopraxyOrchestrator: vi.fn().mockImplementation(() => ({
-    processDemopraxicEvaluation: vi.fn().mockResolvedValue({ success: true, score: 85 }),
-  })),
-}));
-
 declare global {
   var __mockUser: any;
 }
@@ -35,6 +29,12 @@ describe('API Demopraxy Evaluation POST', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de DemopraxyOrchestrator
+    vi.spyOn(DemopraxyOrchestrator.prototype, 'processDemopraxicEvaluation').mockResolvedValue({
+      success: true,
+      score: 85,
+    } as any);
   });
 
   it('🔴 [POST] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {

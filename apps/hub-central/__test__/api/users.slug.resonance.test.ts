@@ -1,4 +1,3 @@
-// Fichier : app/api/users/[slug]/resonance/route.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/users/[slug]/resonance/route';
 import { getServerSession } from 'next-auth/next';
@@ -25,16 +24,6 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  ResonanceOrchestrator: {
-    weaveResonance: vi.fn().mockResolvedValue(true),
-    severResonance: vi.fn().mockResolvedValue(true),
-  },
-  TaskResonanceOrchestrator: vi.fn().mockImplementation(() => ({
-    processUserTaskResonance: vi.fn().mockResolvedValue({ score: 100 }),
-  })),
-}));
-
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
@@ -42,6 +31,14 @@ describe('Route API : Résonance (POST /[slug]/resonance)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur les prototypes des orchestrateurs
+    vi.spyOn(ResonanceOrchestrator, 'weaveResonance').mockResolvedValue(true as any);
+    vi.spyOn(ResonanceOrchestrator, 'severResonance').mockResolvedValue(true as any);
+
+    vi.spyOn(TaskResonanceOrchestrator.prototype, 'processUserTaskResonance').mockResolvedValue({
+      score: 100,
+    } as any);
   });
 
   it('doit rejeter (401) si l\'utilisateur n\'a pas d\'Aura', async () => {

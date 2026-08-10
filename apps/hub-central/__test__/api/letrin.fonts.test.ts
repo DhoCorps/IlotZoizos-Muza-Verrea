@@ -22,16 +22,18 @@ vi.mock('@/lib/api-guards', () => ({
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
+  unstable_cache: vi.fn((cb) => cb),
 }));
 
-const mockLean = vi.fn();
-const mockSort = vi.fn().mockImplementation(() => ({ lean: mockLean }));
-const mockFind = vi.fn().mockImplementation(() => ({ sort: mockSort }));
-
+// 🛡️ MOCK MONGOOSE PLEINEMENT CHAÎNABLE
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   FontProject: {
-    find: vi.fn((...args) => mockFind(...args)),
+    find: vi.fn().mockReturnValue({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([]),
+      }),
+    }),
     create: vi.fn(),
   },
 }));
@@ -50,7 +52,11 @@ describe('API Letr\'In Font Projects - Gestion des projets de polices', () => {
   // 🔍 TESTS GET (Recensement)
   // =========================================================================
   it('🟢 doit récupérer la liste des projets avec succès (200)', async () => {
-    mockLean.mockResolvedValueOnce([{ _id: 'proj_1', name: 'Matrix Font' }]);
+    vi.mocked(FontProject.find).mockReturnValueOnce({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([{ _id: 'proj_1', name: 'Matrix Font' }]),
+      }),
+    } as any);
 
     const req = new Request('http://localhost/api/letrin/fonts');
     const res = await GET(req as any, {});

@@ -16,7 +16,6 @@ vi.mock('next/cache', () => ({
 // Neutralisation des gardes d'API pour les tests unitaires
 vi.mock('@/lib/api-guards', () => ({
   withOptionalAura: (handler: any) => async (req: any, context: any) => {
-    // Simule optionnellement un utilisateur connecté selon les besoins du test
     return await handler(req, context, global.__mockUser);
   },
   withAura: (handler: any) => async (req: any, context: any) => {
@@ -33,12 +32,6 @@ vi.mock('@ilot/infrastructure', () => ({
   getNeo4jSession: vi.fn(),
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  ProjectOrchestrator: vi.fn().mockImplementation(() => ({
-    fosterProject: vi.fn().mockResolvedValue({ uid: 'proj-new-1', name: 'Nouveau Chantier' }),
-  })),
-}));
-
 // Définition globale pour manipuler l'utilisateur dans les tests
 declare global {
   var __mockUser: any;
@@ -51,6 +44,13 @@ describe('Route API : Projects (GET / POST /api/projects)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de ProjectOrchestrator
+    vi.spyOn(ProjectOrchestrator.prototype, 'fosterProject').mockResolvedValue({
+      success: true,
+      uid: 'proj-new-1',
+      name: 'Nouveau Chantier',
+    } as any);
   });
 
   describe('GET - Consultation de la Clairière (Projets)', () => {
@@ -109,7 +109,7 @@ describe('Route API : Projects (GET / POST /api/projects)', () => {
 
   describe('POST - Fondation d\'un Chantier', () => {
     it('doit refuser (403) si l\'Oiseau n\'a pas la capacité de créer un projet', async () => {
-      global.__mockUser = { uid: 'u-123', capabilities: [] }; // Pas de capacité de création
+      global.__mockUser = { uid: 'u-123', capabilities: [] };
 
       const req = new Request('http://localhost/api/projects', {
         method: 'POST',
@@ -137,7 +137,6 @@ describe('Route API : Projects (GET / POST /api/projects)', () => {
       expect(res.status).toBe(201);
       expect(json.uid).toBe('proj-new-1');
 
-      // 💥 Vérification de l'invalidation chirurgicale du cache
       expect(revalidateTag).toHaveBeenCalledWith('projects');
       expect(revalidateTag).toHaveBeenCalledWith('projects-user-u-123');
     });

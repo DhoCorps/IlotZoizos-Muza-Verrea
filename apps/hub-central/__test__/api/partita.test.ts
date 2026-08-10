@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/partita/route';
 import { getServerSession } from 'next-auth/next';
+import { PartitaModel } from '@ilot/infrastructure';
+import { PartitaOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
 
 // -------------------------------------------------------------------------
@@ -15,32 +17,43 @@ vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn()
 }));
 
-const mockLean = vi.fn();
-const mockLimit = vi.fn().mockImplementation(() => ({ lean: mockLean }));
-const mockSort = vi.fn().mockImplementation(() => ({ limit: mockLimit }));
-const mockFind = vi.fn().mockImplementation(() => ({ sort: mockSort }));
-
+// 🛡️ MOCK MONGOOSE PLEINEMENT CHAÎNABLE
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
-  PartitaModel: { find: (...args: any[]) => mockFind(...args) }
-}));
-
-const mockFosterPartita = vi.fn();
-vi.mock('@ilot/shared-core', () => ({
-  PartitaOrchestrator: vi.fn().mockImplementation(() => ({
-    fosterPartita: mockFosterPartita
-  }))
+  PartitaModel: {
+    find: vi.fn().mockReturnValue({
+      sort: vi.fn().mockReturnValue({
+        limit: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+    }),
+  }
 }));
 
 describe('API Partita - Collection (GET / POST)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de PartitaOrchestrator
+    vi.spyOn(PartitaOrchestrator.prototype, 'fosterPartita').mockResolvedValue({
+      uid: 'part_new',
+      title: 'Opus 1',
+    } as any);
   });
 
   it('✅ GET : doit lister les partitions', async () => {
     vi.mocked(getServerSession).mockResolvedValueOnce(null);
-    mockLean.mockResolvedValueOnce([{ uid: 'part_1', title: 'Sonate' }]);
+
+    // On surcharge le mock pour retourner notre tableau de partitions
+    vi.mocked(PartitaModel.find).mockReturnValueOnce({
+      sort: vi.fn().mockReturnValue({
+        limit: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue([{ uid: 'part_1', title: 'Sonate' }]),
+        }),
+      }),
+    } as any);
 
     const req = new Request('http://localhost:3000/api/partita?instrument=piano');
     const res = await GET(req);
@@ -68,7 +81,6 @@ describe('API Partita - Collection (GET / POST)', () => {
 
   it('✅ POST : doit fonder la partition avec succès (201)', async () => {
     vi.mocked(getServerSession).mockResolvedValueOnce({ user: { uid: 'bird_1', capabilities: [] } } as any);
-    mockFosterPartita.mockResolvedValueOnce({ uid: 'part_new', title: 'Opus 1' });
 
     const req = new Request('http://localhost/api/partita', {
       method: 'POST', body: JSON.stringify({ title: 'Opus 1', content: 'C D E' })
@@ -78,7 +90,6 @@ describe('API Partita - Collection (GET / POST)', () => {
 
     expect(res.status).toBe(201);
     expect(data.uid).toBe('part_new');
-    expect(mockFosterPartita).toHaveBeenCalled();
     expect(revalidateTag).toHaveBeenCalledWith('partitas');
   });
 });

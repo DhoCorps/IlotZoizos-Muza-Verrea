@@ -1,36 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/samplotek/upload/route';
 import { SampleModel } from '@ilot/infrastructure';
+import { storageService } from '@/modules/storage/storage.service';
+import { NextRequest } from 'next/server';
 
 // 🛡️ MOCK GLOBAL : Next Cache
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-// 🛡️ MOCK DE L'INFRASTRUCTURE (Support du chaînage .lean())
-vi.mock('@ilot/infrastructure', async (importOriginal) => {
-  const actual: any = await importOriginal();
-  return {
-    ...actual,
-    SampleModel: {
-      findOne: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue(null) }),
-      create: vi.fn().mockImplementation((doc) => Promise.resolve(doc)),
-    }
-  };
-});
-
 // 🛡️ MOCK DU GARDE D'AURA
 vi.mock('@/lib/api-guards', () => ({
   withAura: (handler: any) => async (req: any, context: any) => {
     return handler(req, context, { uid: 'bird_sampler_1', slug: 'bird-sampler', capabilities: ['*'] });
-  },
-}));
-
-// 🛡️ MOCK DE STORAGE SERVICE
-vi.mock('@/modules/storage/storage.service', () => ({
-  storageService: {
-    generateStructuredKey: vi.fn().mockReturnValue('mock-sample-key'),
-    uploadFile: vi.fn().mockResolvedValue({ publicUrl: 'https://mock-url.com/sample.mp3', key: 'mock-sample-key' }),
   },
 }));
 
@@ -43,6 +25,24 @@ describe('POST /api/samples/upload', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🎯 ESPIONNAGE ACTIF DE STORAGE SERVICE
+    vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('mock-sample-key');
+    vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
+      success: true,
+      publicUrl: 'https://mock-url.com/sample.mp3',
+      key: 'mock-sample-key',
+    } as any);
+
+    // 🎯 ESPIONNAGE ACTIF DE MONGOOSE (SampleModel)
+    vi.spyOn(SampleModel, 'findOne').mockReturnValue({
+      lean: vi.fn().mockResolvedValue(null),
+    } as any);
+
+    vi.spyOn(SampleModel, 'create').mockImplementation((doc: any) => Promise.resolve({
+      ...doc,
+      _id: 'mock_mongo_id_123',
+    }) as any);
   });
 
   it('doit téléverser un sample, valider les métadonnées et le sédimenter', async () => {
@@ -55,11 +55,11 @@ describe('POST /api/samples/upload', () => {
     formData.append('style', 'Techno');
     formData.append('allowRadio', 'true');
 
-    // 🎯 ESPIONNAGE STRICT : Résout proprement le FormData sous Node/Vitest
-    const req = new Request('http://localhost/api/samples/upload', {
-      method: 'POST',
-    });
-    vi.spyOn(req, 'formData').mockResolvedValue(formData);
+    // 🎯 LOI DU MULTIPART SOUVERAIN
+    const req = {
+      headers: { get: () => '127.0.0.1' },
+      formData: async () => formData,
+    } as unknown as NextRequest;
 
     const res = await POST(req, {} as any);
     const json = await res.json();

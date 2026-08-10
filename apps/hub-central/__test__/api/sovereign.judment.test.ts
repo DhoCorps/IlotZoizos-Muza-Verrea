@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '../../app/api/sovereign/judgment/route';
-import { OiseauModel, LedgerEntryModel } from '@ilot/infrastructure';
+import { OiseauModel } from '@ilot/infrastructure';
+import { CanopyJudgeEngine } from '@ilot/shared-core';
 
 // Mock global de l'infrastructure
 vi.mock('@ilot/infrastructure', () => ({
@@ -19,7 +20,7 @@ vi.mock('@/lib/api-guards', () => ({
     withAura: (handler: any) => {
         return async (req: Request, context: any) => {
             const mockCurrentUser = { uid: 'architect_1', capabilities: mockUserCapabilities };
-            return handler(req, context, mockCurrentUser);
+            return await handler(req, context, mockCurrentUser);
         };
     },
 }));
@@ -41,9 +42,12 @@ describe('POST /api/sovereign/judgment (Le Tribunal de la Canopée)', () => {
             isBanned: false,
             ifvScore: 50,
             profileStatus: 'NEUTRAL',
-            moderationPenalties: 2, // 💡 Force l'IFV à descendre à 10 (Indésirable)
+            bannedFingerprint: 'fingerprint-123',
             save: vi.fn().mockResolvedValue(true),
         };
+
+        // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur CanopyJudgeEngine
+        vi.spyOn(CanopyJudgeEngine, 'judgeAndExecute').mockResolvedValue(true);
     });
 
     it('🔴 doit rejeter avec une erreur 403 si l oiseau n a pas l aura d Architecte (*)', async () => {
@@ -64,11 +68,7 @@ describe('POST /api/sovereign/judgment (Le Tribunal de la Canopée)', () => {
     });
 
     it('🟢 doit prononcer le bannissement éternel si le profil est jugé indésirable', async () => {
-        vi.mocked(OiseauModel.findOne)
-            .mockResolvedValueOnce(mockTargetOiseau)
-            .mockResolvedValueOnce(mockTargetOiseau);
-
-        vi.mocked(OiseauModel.updateOne).mockResolvedValueOnce({ modifiedCount: 1 } as any);
+        vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockTargetOiseau);
 
         const req = new Request('http://localhost/api/sovereign/judgment', {
             method: 'POST',
@@ -83,7 +83,7 @@ describe('POST /api/sovereign/judgment (Le Tribunal de la Canopée)', () => {
         expect(json.success).toBe(true);
         expect(json.isBanned).toBe(true);
         expect(json.message).toContain('banni à vie');
-        expect(OiseauModel.updateOne).toHaveBeenCalledTimes(1);
+        expect(CanopyJudgeEngine.judgeAndExecute).toHaveBeenCalledTimes(1);
     });
 
     it('🟢 doit accorder le pardon souverain et lever le bannissement si l action est PARDON', async () => {

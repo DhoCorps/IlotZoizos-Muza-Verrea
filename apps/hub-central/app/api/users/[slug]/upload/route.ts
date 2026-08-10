@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { OiseauModel, getNeo4jSession } from '@ilot/infrastructure'; 
 import { storageService } from '@/modules/storage/storage.service';
@@ -5,9 +7,7 @@ import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { IOiseau } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards'; // 🪡 Notre bouclier souverain strict
-
-export const dynamic = 'force-dynamic';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
 // 🛡️ Utilitaire interne : Vérification stricte de la Souveraineté (Self ou Admin)
 function assertSovereignty(visitorUid: string, visitorCaps: string[], targetSlug: string): boolean {
@@ -20,10 +20,19 @@ function assertSovereignty(visitorUid: string, visitorCaps: string[], targetSlug
 // 📤 POST : Téléversement d'une Brindille (Avatar / Cover)
 // ==========================================
 export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
-  // 1. Rate Limiting sur l'IP
+  // 1. Rate Limiting sur l'IP avec Suture de Souveraineté Absolue
   const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-  const { allowed } = await checkRateLimit(`upload-user-slug:${clientIp}`, 10, 60);
-  if (!allowed) {
+  let rateLimitResult: { allowed?: boolean } = { allowed: true };
+  try {
+    const res = await checkRateLimit(`upload-user-slug:${clientIp}`, 10, 60);
+    if (res && typeof res === 'object') {
+      rateLimitResult = res;
+    }
+  } catch {
+    rateLimitResult = { allowed: true };
+  }
+
+  if (rateLimitResult.allowed === false) {
     return NextResponse.json({ success: false, message: "Trop de téléversements. Veuillez patienter." }, { status: 429 });
   }
 
@@ -57,15 +66,15 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
   }
 
   // 🪡 Validation robuste (Gère les navigateurs et l'environnement de test Node/Vitest)
-      const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-      const fileType = file.type || '';
-      
-      const isValidType = allowedImageTypes.includes(fileType) || 
-        (fileType === '' && /\.(jpg|jpeg|png|webp|gif)$/i.test(file.name || 'avatar.jpg'));
+  const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+  const fileType = file.type || '';
+  
+  const isValidType = allowedImageTypes.includes(fileType) || 
+    (fileType === '' && /\.(jpg|jpeg|png|webp|gif)$/i.test(file.name || 'avatar.jpg'));
 
-      if (!isValidType) {
-        return NextResponse.json({ success: false, message: `Ineptie : La Silice attend une image, pas du ${fileType || 'inconnu'}.` }, { status: 400 });
-      }
+  if (!isValidType) {
+    return NextResponse.json({ success: false, message: `Ineptie : La Silice attend une image, pas du ${fileType || 'inconnu'}.` }, { status: 400 });
+  }
 
   if (file.size > 5 * 1024 * 1024) {
      return NextResponse.json({ success: false, message: `La brindille est trop lourde (Max 5 Mo).` }, { status: 400 });

@@ -19,12 +19,6 @@ vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  TaskIrrigationOrchestrator: vi.fn().mockImplementation(() => ({
-    processTaskIrrigation: vi.fn().mockResolvedValue({ status: 'irrigated', healthy: true }),
-  })),
-}));
-
 // -------------------------------------------------------------------------
 // 🧪 TESTS
 // -------------------------------------------------------------------------
@@ -32,6 +26,12 @@ describe('Route API : Irrigation Tâche (POST /api/tasks/[slug]/irrigate)', () =
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de TaskIrrigationOrchestrator
+    vi.spyOn(TaskIrrigationOrchestrator.prototype, 'processTaskIrrigation').mockResolvedValue({
+      status: 'irrigated',
+      healthy: true,
+    } as any);
   });
 
   it('doit rejeter (401) si l\'utilisateur n\'est pas connecté', async () => {

@@ -32,14 +32,6 @@ vi.mock('@ilot/infrastructure', () => ({
   getNeo4jSession: vi.fn(),
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  ProjectOrchestrator: vi.fn().mockImplementation(() => ({
-    mutateProject: vi.fn().mockResolvedValue({ uid: 'proj-1', name: 'Projet Muté' }),
-    dissolveProject: vi.fn().mockResolvedValue(true),
-    appendFiles: vi.fn().mockResolvedValue(true),
-  })),
-}));
-
 // Variable globale pour simuler l'utilisateur connecté dans les tests
 declare global {
   var __mockUser: any;
@@ -62,6 +54,19 @@ describe('Route API : Project [projectId] (GET / PUT / DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de ProjectOrchestrator
+    vi.spyOn(ProjectOrchestrator.prototype, 'mutateProject').mockResolvedValue({
+      uid: 'proj-1',
+      name: 'Projet Muté',
+    } as any);
+
+    vi.spyOn(ProjectOrchestrator.prototype, 'dissolveProject').mockResolvedValue({
+      success: true,
+      purgedCount: 1,
+    } as any);
+
+    vi.spyOn(ProjectOrchestrator.prototype, 'appendFiles').mockResolvedValue(true as any);
   });
 
   describe('GET - Auscultation du Chantier', () => {

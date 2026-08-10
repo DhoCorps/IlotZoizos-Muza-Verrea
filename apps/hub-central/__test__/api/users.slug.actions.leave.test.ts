@@ -21,16 +21,16 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  TeamOrchestrator: vi.fn().mockImplementation(() => ({
-    leaveTeam: vi.fn().mockResolvedValue({ success: true }),
-  })),
-}));
-
 describe('Route API : Miroir & Envol (GET / POST)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de TeamOrchestrator
+    vi.spyOn(TeamOrchestrator.prototype, 'leaveTeam').mockResolvedValue({
+      success: true,
+      message: "Envol réussi.",
+    } as any);
   });
 
   describe('GET - Miroir', () => {
@@ -65,7 +65,7 @@ describe('Route API : Miroir & Envol (GET / POST)', () => {
 
   describe('POST - Envol', () => {
     it('doit rejeter (403) si l\'utilisateur tente de forcer l\'exil d\'un autre', async () => {
-      vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'intrus' } } as any);
+      vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'intrus', capabilities: [] } } as any);
 
       const req = new Request('http://localhost/api/users/dho', {
         method: 'POST',

@@ -1,15 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/graph/context/route';
+import { getNeo4jSession } from '@ilot/infrastructure';
 
 const mockRun = vi.fn();
 const mockClose = vi.fn().mockResolvedValue(true);
 
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
-  getNeo4jSession: vi.fn().mockImplementation(() => ({
-    run: (...args: any[]) => mockRun(...args),
-    close: (...args: any[]) => mockClose(...args)
-  }))
+  getNeo4jSession: vi.fn(() => ({
+    run: mockRun,
+    close: mockClose,
+  })),
 }));
 
 vi.mock('next/cache', () => ({

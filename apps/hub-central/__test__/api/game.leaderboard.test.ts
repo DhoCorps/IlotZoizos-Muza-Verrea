@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/games/leaderboard/route';
 import { GameResultModel } from '@ilot/infrastructure';
-import { NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
@@ -14,21 +13,19 @@ vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb) => cb),
 }));
 
-vi.mock('@ilot/infrastructure', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
-  const mockLean = vi.fn().mockResolvedValue([{ username: 'Oiseau', score: 10 }]);
-  const mockLimit = vi.fn().mockReturnValue({ lean: mockLean });
-  const mockSort = vi.fn().mockReturnValue({ limit: mockLimit });
-  const mockFind = vi.fn().mockReturnValue({ sort: mockSort });
-
-  return {
-    ...actual,
-    connectToDatabase: vi.fn().mockResolvedValue(true),
-    GameResultModel: {
-      find: mockFind,
-    },
-  };
-});
+// 🛡️ MOCK MONGOOSE PLEINEMENT CHAÎNABLE
+vi.mock('@ilot/infrastructure', () => ({
+  connectToDatabase: vi.fn().mockResolvedValue(true),
+  GameResultModel: {
+    find: vi.fn().mockReturnValue({
+      sort: vi.fn().mockReturnValue({
+        limit: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue([{ username: 'Oiseau', score: 10 }]),
+        }),
+      }),
+    }),
+  },
+}));
 
 describe('GET /api/games/leaderboard', () => {
   beforeEach(() => {
@@ -36,6 +33,14 @@ describe('GET /api/games/leaderboard', () => {
   });
 
   it('🟢 devrait retourner les scores avec succès (200)', async () => {
+    vi.mocked(GameResultModel.find).mockReturnValueOnce({
+      sort: vi.fn().mockReturnValue({
+        limit: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue([{ username: 'Oiseau', score: 10 }]),
+        }),
+      }),
+    } as any);
+
     const req = new Request('http://localhost/api/games/leaderboard?gameType=KoOonTreez&limit=5');
     const res = await GET(req as any, {});
     const data = await res.json();

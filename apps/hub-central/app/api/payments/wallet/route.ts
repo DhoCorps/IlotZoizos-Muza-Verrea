@@ -1,4 +1,3 @@
-// apps/hub-central/app/api/payments/wallet/route.ts
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { PaymentTokenizationOrchestrator } from '@ilot/shared-core';
@@ -40,7 +39,6 @@ export async function POST(req: Request) {
 
   } catch (error: any) {
     console.error('[API Payment Wallet Error] :', error);
-    // 👈 Utiliser 'error.status' puisque c'est la propriété définie dans IlotError
     const statusCode = error instanceof IlotError ? error.status : 500;
     return NextResponse.json(
       { success: false, error: error.message || 'Erreur interne de la matrice de paiement.' },

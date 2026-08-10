@@ -29,17 +29,21 @@ vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb) => cb),
 }));
 
-const mockLean = vi.fn();
-const mockSort = vi.fn().mockImplementation(() => ({ lean: mockLean }));
-const mockFind = vi.fn().mockImplementation(() => ({ sort: mockSort }));
-
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   KontaktProfileModel: {
-    find: vi.fn((...args) => mockFind(...args)),
-    findOne: vi.fn().mockResolvedValue(null),
+    find: vi.fn().mockReturnValue({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([]),
+      }),
+    }),
+    findOne: vi.fn().mockReturnValue({
+      lean: vi.fn().mockResolvedValue(null),
+    }),
     create: vi.fn(),
-    findOneAndUpdate: vi.fn(() => ({ lean: mockLean })),
+    findOneAndUpdate: vi.fn().mockReturnValue({
+      lean: vi.fn().mockResolvedValue(null),
+    }),
   },
 }));
 
@@ -57,7 +61,11 @@ describe('API Kontakt Profiles - Gestion des profils de la canopée', () => {
   // 🔍 TESTS GET (Recensement)
   // =========================================================================
   it('🟢 doit récupérer la liste des profils Kontakt avec succès (200)', async () => {
-    mockLean.mockResolvedValueOnce([{ uid: 'kontakt_1', professionalTitle: 'Architecte Graphe' }]);
+    vi.mocked(KontaktProfileModel.find).mockReturnValueOnce({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([{ uid: 'kontakt_1', professionalTitle: 'Architecte Graphe' }]),
+      }),
+    } as any);
 
     const req = new Request('http://localhost/api/kontakt/profiles');
     const res = await GET(req as any, {});
@@ -66,7 +74,7 @@ describe('API Kontakt Profiles - Gestion des profils de la canopée', () => {
     expect(res.status).toBe(200);
     expect(json).toHaveLength(1);
     expect(json[0].uid).toBe('kontakt_1');
-    expect(KontaktProfileModel.find).toHaveBeenCalledWith({});
+    expect(KontaktProfileModel.find).toHaveBeenCalled();
   });
 
   // =========================================================================

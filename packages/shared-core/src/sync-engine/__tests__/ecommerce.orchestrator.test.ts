@@ -1,50 +1,9 @@
-// packages/shared-core/src/sync-engine/__tests__/ecommerce.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EcommerceOrchestrator } from '../ecommerce.orchestrator';
+import { TransactionManager } from '../transactionManager';
 
-// 1. 🛡️ SUTURE : Le mock Mongoose hybride (Conserve Schema et surcharge startSession)
-vi.mock('mongoose', async (importOriginal) => {
-  const actual: any = await importOriginal();
-  return {
-    ...actual,
-    startSession: vi.fn().mockResolvedValue({
-      startTransaction: vi.fn(),
-      commitTransaction: vi.fn(),
-      abortTransaction: vi.fn(),
-      endSession: vi.fn(),
-    }),
-    default: {
-      ...actual,
-      startSession: vi.fn().mockResolvedValue({
-        startTransaction: vi.fn(),
-        commitTransaction: vi.fn(),
-        abortTransaction: vi.fn(),
-        endSession: vi.fn(),
-      }),
-    },
-  };
-});
-
-// 2. 🪡 SUTURE : Correction du chemin (../ au lieu de ../../)
-vi.mock('../transactionManager', () => ({
-  TransactionManager: {
-    execute: vi.fn().mockImplementation(async (name, callback) => {
-      const mockNeo4jTx = { run: vi.fn().mockResolvedValue({ records: [] }) };
-      
-      // On intercepte et simule l'exécution de la transaction
-      try {
-        return await callback({} as any, mockNeo4jTx as any);
-      } catch (err) {
-        // En test unitaire pur, si les modèles internes ne sont pas mockés,
-        // on évite que ça crashe en renvoyant directement un mock de succès générique.
-        if (name.includes('Boutique')) return { success: true, storeUid: 'store-1' };
-        if (name.includes('Commande')) return { success: true, orderUid: 'ord-1' };
-        if (name.includes('Troc') || name.includes('Offre')) return { success: true, barterUid: 'barter-1', status: 'ACCEPTED' };
-        throw err;
-      }
-    })
-  }
-}));
+// On arrête de mocker mongoose globalement, on laisse l'infrastructure réelle charger ses modèles.
+// On ne mock que le gestionnaire de transactions qui fait le pont avec Neo4j/Mongo.
 
 describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', () => {
   let orchestrator: EcommerceOrchestrator;
@@ -53,6 +12,15 @@ describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', (
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new EcommerceOrchestrator();
+
+    // 🛡️ Espionnage direct de la méthode statique : 
+    // On simule l'exécution de la transaction sans toucher à Mongoose globalement.
+    vi.spyOn(TransactionManager, 'execute').mockImplementation(async (_name, callback) => {
+      // On injecte un mock de session et de transaction Neo4j
+      const mockMongoSession = {} as any;
+      const mockNeo4jTx = { run: vi.fn().mockResolvedValue({ records: [] }) };
+      return await callback(mockMongoSession, mockNeo4jTx as any);
+    });
   });
 
   it('🟢 doit créer une boutique et lier l\'Oiseau dans le graphe', async () => {
@@ -92,9 +60,6 @@ describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', (
   });
 
   it('🔴 doit rejeter la création de boutique si l\'Oiseau n\'est pas authentifié (401)', async () => {
-    // On simule une erreur en forçant l'orchestrateur à rejeter l'acteur vide
-    vi.spyOn(orchestrator, 'createStore').mockRejectedValueOnce(new Error('Non autorisé'));
-    
     await expect(
       orchestrator.createStore(
         { uid: 'store-1', ownerUid: '', storeName: 'Test', slug: 'test' },

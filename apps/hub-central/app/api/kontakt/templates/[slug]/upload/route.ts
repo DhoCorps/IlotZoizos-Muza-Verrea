@@ -13,9 +13,19 @@ import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 export const POST = withAura(async (req: Request, context: ApiContext, _currentUser: OiseauUser) => {
   try {
     const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-    const rateLimitResult = await checkRateLimit(`upload-kontakt:${clientIp}`, 10, 60).catch(() => ({ allowed: true }));
     
-    if (!rateLimitResult.allowed) {
+    // 🛡️ SUTURE DE SOUVERAINETÉ ABSOLUE : Protection anti-undefined et anti-plantage
+    let rateLimitResult: { allowed?: boolean } = { allowed: true };
+    try {
+      const res = await checkRateLimit(`upload-kontakt:${clientIp}`, 10, 60);
+      if (res && typeof res === 'object') {
+        rateLimitResult = res;
+      }
+    } catch {
+      rateLimitResult = { allowed: true };
+    }
+    
+    if (rateLimitResult.allowed === false) {
       return NextResponse.json({ error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
     }
 

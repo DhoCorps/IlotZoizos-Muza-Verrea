@@ -1,15 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '../../app/api/messages/route';
 import { MessageModel, OiseauModel } from '@ilot/infrastructure';
+import { SendMessageBodySchema } from '@ilot/types';
 
 // Mock global de l'infrastructure
 vi.mock('@ilot/infrastructure', () => ({
     MessageModel: {
         create: vi.fn(),
-        find: vi.fn(),
+        find: vi.fn().mockReturnValue({
+            sort: vi.fn().mockReturnValue({
+                limit: vi.fn().mockReturnValue({
+                    lean: vi.fn().mockResolvedValue([]),
+                }),
+            }),
+        }),
     },
     OiseauModel: {
-        findOne: vi.fn(),
+        findOne: vi.fn().mockReturnValue({
+            lean: vi.fn().mockResolvedValue(null),
+        }),
     },
 }));
 
@@ -20,18 +29,10 @@ vi.mock('@ilot/shared-core', () => ({
     }
 }));
 
-// Mock du validateur Zod pour éviter les faux positifs de format dans les tests de douane
+// Mock du validateur Zod
 vi.mock('@ilot/types', () => ({
     SendMessageBodySchema: {
-        safeParse: vi.fn().mockReturnValue({
-            success: true,
-            data: {
-                conversationSlug: 'general',
-                content: 'Chant synaptique de test',
-                rawAttachments: [],
-                replyToSlug: null
-            }
-        })
+        safeParse: vi.fn(),
     }
 }));
 
@@ -40,7 +41,7 @@ let mockCurrentUser = { uid: 'bird_clean_1', slug: 'bird_clean_1', capabilities:
 vi.mock('@/lib/api-guards', () => ({
     withAura: (handler: any) => {
         return async (req: Request, context: any) => {
-            return handler(req, context, mockCurrentUser);
+            return await handler(req, context, mockCurrentUser);
         };
     },
     withOptionalAura: (handler: any) => handler,
@@ -54,17 +55,22 @@ vi.mock('next/cache', () => ({
 describe('POST /api/messages (Douane Vibratoire de la Messagerie)', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        global.__mockUser = undefined;
         mockCurrentUser = { uid: 'bird_clean_1', slug: 'bird_clean_1', capabilities: ['*'] };
     });
 
     it('🔴 doit rejeter avec une erreur 403 si l oiseau est classé INDESIRABLE ou banni', async () => {
-        // Simulation d'un profil jugé indésirable via .lean()
-        vi.mocked(OiseauModel.findOne).mockReturnValue({
+        vi.mocked(OiseauModel.findOne).mockReturnValueOnce({
             lean: vi.fn().mockResolvedValueOnce({
                 uid: 'bird_clean_1',
                 profileStatus: 'INDESIRABLE',
                 isBanned: false,
             })
+        } as any);
+
+        vi.mocked(SendMessageBodySchema.safeParse).mockReturnValueOnce({
+            success: true,
+            data: { conversationSlug: 'general', content: 'Message toxique', rawAttachments: [], replyToSlug: null }
         } as any);
 
         const req = new Request('http://localhost/api/messages', {
@@ -82,13 +88,17 @@ describe('POST /api/messages (Douane Vibratoire de la Messagerie)', () => {
     });
 
     it('🟢 doit autoriser la propagation du message si l oiseau est respectueux ou neutre', async () => {
-        // 1. Simulation d'un profil sain via .lean()
-        vi.mocked(OiseauModel.findOne).mockReturnValue({
+        vi.mocked(OiseauModel.findOne).mockReturnValueOnce({
             lean: vi.fn().mockResolvedValueOnce({
                 uid: 'bird_clean_1',
                 profileStatus: 'RESPECTABLE',
                 isBanned: false,
             })
+        } as any);
+
+        vi.mocked(SendMessageBodySchema.safeParse).mockReturnValueOnce({
+            success: true,
+            data: { conversationSlug: 'general', content: 'Chant synaptique de test', rawAttachments: [], replyToSlug: null }
         } as any);
 
         vi.mocked(MessageModel.create).mockResolvedValueOnce({

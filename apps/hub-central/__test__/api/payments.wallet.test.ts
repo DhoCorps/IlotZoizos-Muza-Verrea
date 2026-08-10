@@ -1,31 +1,24 @@
-// apps/hub-central/__test__/api/payments.wallet.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/payments/wallet/route';
 import { getServerSession } from 'next-auth/next';
+import { PaymentTokenizationOrchestrator } from '@ilot/shared-core';
 
 // 1. Mock de NextAuth pour contrôler la session
 vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),
 }));
 
-// 2. Mock de l'orchestrateur de tokenisation
-vi.mock('@ilot/shared-core', async (importOriginal) => {
-  const actual: any = await importOriginal();
-  return {
-    ...actual,
-    PaymentTokenizationOrchestrator: vi.fn().mockImplementation(() => ({
-      linkExternalPaymentProfile: vi.fn().mockResolvedValue({
-        success: true,
-        userUid: 'bird_test_123',
-        hasActiveWallet: true,
-      }),
-    })),
-  };
-});
-
 describe('API Payments Wallet - POST /api/payments/wallet', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de l'orchestrateur
+    vi.spyOn(PaymentTokenizationOrchestrator.prototype, 'linkExternalPaymentProfile').mockResolvedValue({
+      success: true,
+      userUid: 'bird_test_123',
+      hasActiveWallet: true,
+    } as any);
   });
 
   it('doit rejeter (401) si l\'oiseau n\'est pas authentifié', async () => {

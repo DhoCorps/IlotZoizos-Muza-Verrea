@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PATCH } from '@/app/api/ecommerce/barter/[slug]/route';
 import { BarterOfferModel } from '@ilot/infrastructure';
+import { EcommerceOrchestrator } from '@ilot/shared-core';
 import { NextResponse } from 'next/server';
 
 // On mock api-guards pour éviter les erreurs de getServerSession et headers
@@ -19,16 +20,16 @@ vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   BarterOfferModel: { findOne: vi.fn() },
 }));
-vi.mock('@ilot/shared-core', () => ({
-  EcommerceOrchestrator: vi.fn().mockImplementation(() => ({
-    resolveBarter: vi.fn().mockResolvedValue({ status: 'ACCEPTED' }),
-  })),
-}));
 
 describe('API Barter Slug', () => {
   beforeEach(() => { 
     vi.clearAllMocks(); 
     global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de EcommerceOrchestrator
+    vi.spyOn(EcommerceOrchestrator.prototype, 'resolveBarter').mockResolvedValue({
+      status: 'ACCEPTED',
+    } as any);
   });
 
   it('🟢 [GET] doit retourner 200', async () => {

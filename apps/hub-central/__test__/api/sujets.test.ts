@@ -24,18 +24,20 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  SujetOrchestrator: vi.fn().mockImplementation(() => ({
-    fosterSujet: vi.fn().mockResolvedValue({ uid: 'sujet-new', title: 'Nouvelle Pensée' }),
-  })),
-}));
-
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
 describe('Route API : Bibliothèque & Sujets (GET / POST /api/sujets)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de SujetOrchestrator
+    vi.spyOn(SujetOrchestrator.prototype, 'fosterSujet').mockResolvedValue({
+      success: true,
+      uid: 'sujet-new',
+      title: 'Nouvelle Pensée',
+    } as any);
   });
 
   describe('GET - Consultation de la Bibliothèque', () => {

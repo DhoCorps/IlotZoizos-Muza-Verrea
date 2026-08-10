@@ -1,56 +1,38 @@
-// packages/shared-core/src/sync-engine/__tests__/project.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProjectOrchestrator } from '../project.orchestrator';
 import { TransactionManager } from '../transactionManager';
+import { ProjectModel } from '@ilot/infrastructure';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 
-// 🛡️ SUTURE 1 : Mock des modèles Silice (MongoDB)
-vi.mock('../../../../infrastructure/src/database/models/nosql/project.model', () => ({
-  ProjectModel: {
-    findOne: vi.fn().mockImplementation(() => {
-      const m: any = Promise.resolve({ uid: 'proj_123', creatorUid: 'bird-alpha-777', ownerUid: 'team-777', name: 'Ancien Nom' });
-      m.lean = vi.fn().mockResolvedValue({ uid: 'proj_123', creatorUid: 'bird-alpha-777', ownerUid: 'team-777', name: 'Ancien Nom' });
-      m.session = vi.fn().mockResolvedValue({ uid: 'proj_123', creatorUid: 'bird-alpha-777', ownerUid: 'team-777', documents: [] });
-      return m;
-    }),
-    create: vi.fn().mockImplementation((data) => Promise.resolve(Array.isArray(data) ? data : [data])),
-    findOneAndUpdate: vi.fn().mockImplementation(() => {
-      const m: any = Promise.resolve({ uid: 'proj_123', name: 'Mutation OK', status: 'CONCEPT' });
-      m.lean = vi.fn().mockResolvedValue({ uid: 'proj_123', name: 'Mutation OK', status: 'CONCEPT' });
-      m.exec = vi.fn().mockResolvedValue({ uid: 'proj_123', name: 'Mutation OK', status: 'CONCEPT' });
-      return m;
-    }),
-    find: vi.fn().mockImplementation(() => {
-      const m: any = Promise.resolve([]);
-      m.session = vi.fn().mockResolvedValue([]);
-      m.lean = vi.fn().mockResolvedValue([]);
-      return m;
-    }),
-    deleteOne: vi.fn().mockResolvedValue({ deletedCount: 1 }),
-    deleteMany: vi.fn().mockResolvedValue({ deletedCount: 1 })
-  }
-}));
-
-// Mock du Driver Neo4j
-vi.mock('../../../../infrastructure/src/database/neo4j', () => ({
-  getNeo4jSession: vi.fn().mockReturnValue({
-    run: vi.fn().mockResolvedValue({ records: [] }),
-    close: vi.fn().mockResolvedValue(true)
-  })
-}));
-
-// Mock du Storage (S3/R2)
-vi.mock('../../../../../apps/hub-central/modules/storage/storage.service', () => ({
+// 🛡️ MOCK GLOBAL : Storage Service
+vi.mock('../../../../apps/hub-central/modules/storage/storage.service', () => ({
   storageService: {
     extractKeyFromUrl: vi.fn().mockReturnValue('mock-key'),
-    deleteFile: vi.fn().mockResolvedValue(true)
-  }
+    deleteFile: vi.fn().mockResolvedValue(true),
+  },
 }));
 
-// 🛡️ SUTURE 2 : Mock du TransactionManager
-vi.mock('../transactionManager', () => ({
-  TransactionManager: {
-    execute: vi.fn().mockImplementation(async (name, callback) => {
+// 🛡️ MOCK GLOBAL : Neo4j Driver
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    getNeo4jSession: vi.fn().mockReturnValue({
+      run: vi.fn().mockResolvedValue({ records: [] }),
+      close: vi.fn().mockResolvedValue(true),
+    }),
+  };
+});
+
+describe('ProjectOrchestrator - Fondation de Chantier', () => {
+  let orchestrator: ProjectOrchestrator;
+  
+  beforeEach(() => { 
+    vi.clearAllMocks(); 
+    orchestrator = new ProjectOrchestrator(); 
+
+    // 🛡️ SUTURE TRANSACTION : Garantit le retour du résultat du callback
+    vi.spyOn(TransactionManager, 'execute').mockImplementation(async (_name, callback) => {
       const mockNeo = { 
         run: vi.fn().mockImplementation((query) => {
           if (query.includes('RETURN r.capabilities AS caps')) {
@@ -60,23 +42,37 @@ vi.mock('../transactionManager', () => ({
         })
       };
       return await callback({} as any, mockNeo as any);
-    })
-  }
-}));
+    });
 
-describe('ProjectOrchestrator - Fondation de Chantier', () => {
-  let orchestrator: ProjectOrchestrator;
-  
-  beforeEach(() => { 
-    vi.clearAllMocks(); 
-    orchestrator = new ProjectOrchestrator(); 
+    // 🛡️ SUTURE MONGOOSE : Simulation fidèle des requêtes Mongoose (findOne et create)
+    vi.spyOn(ProjectModel, 'create').mockImplementation((data: any) => 
+      Promise.resolve(Array.isArray(data) ? data : [data]) as any
+    );
+
+    const mockProjectDoc = { 
+      uid: 'proj_123', 
+      creatorUid: 'bird-alpha-777', 
+      ownerUid: 'team-777', 
+      name: 'Ancien Nom', 
+      documents: [],
+      session: vi.fn().mockReturnThis(),
+      lean: vi.fn().mockResolvedValue({ uid: 'proj_123', creatorUid: 'bird-alpha-777', ownerUid: 'team-777', name: 'Ancien Nom', documents: [] })
+    };
+
+    vi.spyOn(ProjectModel, 'findOne').mockReturnValue(mockProjectDoc as any);
+
+    vi.spyOn(ProjectModel, 'findOneAndUpdate').mockReturnValue({
+      lean: vi.fn().mockResolvedValue({ uid: 'proj_123', name: 'Mutation OK', status: 'CONCEPT' }),
+      exec: vi.fn().mockResolvedValue({ uid: 'proj_123', name: 'Mutation OK', status: 'CONCEPT' }),
+    } as any);
+
+    vi.spyOn(ProjectModel, 'deleteOne').mockResolvedValue({ deletedCount: 1 } as any);
   });
 
   it("✅ doit fonder un chantier", async () => {
     const payload = { name: 'Renewall', ownerUid: 'team-777' };
     const signature: ActionSignature = { actorUid: 'bird-alpha-777', capabilities: [CAPABILITIES.PROJECT.CREATE] };
     
-    // 🪡 SUTURE : Cast en any car ton implémentation retourne 'mongo' et 'neo4j' 
     const result = await orchestrator.fosterProject(payload as any, signature) as any; 
     
     expect(result.success).toBe(true);

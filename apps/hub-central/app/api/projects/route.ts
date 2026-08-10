@@ -71,18 +71,14 @@ export const GET = withOptionalAura(async (req: Request, _context: ApiContext, c
           RETURN DISTINCT uid
         `;
       
-      let myProjectUids: string[] = [];
-
-      try {
         const result = await neo4jSession.run(cypher, { userUid });
         
         myProjectUids = result.records
           .map((record: { get: (key: string) => unknown }) => record.get('uid'))
-          .filter((id: unknown): id is string => typeof id === 'string'); // 👈 Typé en unknown
+          .filter((id: unknown): id is string => typeof id === 'string');
 
-      } catch (neoErr: unknown) { // 👈 Déclaré proprement dans le catch
+      } catch (neoErr: unknown) {
         console.error("🔥 [NEO4J ERROR PROJECTS GET]", neoErr);
-      }
       } finally {
         if (neo4jSession) await neo4jSession.close();
       }

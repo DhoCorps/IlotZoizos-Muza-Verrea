@@ -1,4 +1,3 @@
-// Fichier : app/api/teams/route.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/teams/route';
 import { getServerSession } from 'next-auth/next';
@@ -30,12 +29,6 @@ vi.mock('@ilot/infrastructure', () => ({
   }),
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  TeamOrchestrator: vi.fn().mockImplementation(() => ({
-    fosterTeam: vi.fn().mockResolvedValue({ success: true, uid: 'team-new' }),
-  })),
-}));
-
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
@@ -43,6 +36,12 @@ describe('Route API : Nids / Escouades (GET / POST /api/teams)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
+
+    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de TeamOrchestrator
+    vi.spyOn(TeamOrchestrator.prototype, 'fosterTeam').mockResolvedValue({
+      success: true,
+      uid: 'team-new',
+    } as any);
   });
 
   describe('GET - Recensement des Nids (Neo4j + Mongo)', () => {
@@ -118,7 +117,6 @@ describe('Route API : Nids / Escouades (GET / POST /api/teams)', () => {
         user: { uid: 'u-123', capabilities: [CAPABILITIES.TEAM.CREATE] }
       } as any);
 
-      // 🪡 Payload complet respectant scrupuleusement le TeamSchema (avec members et invitations)
       const payload = { 
         name: 'Nid Céleste', 
         description: 'Un nouveau refuge',

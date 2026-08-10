@@ -25,14 +25,15 @@ vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb) => cb),
 }));
 
-const mockLean = vi.fn();
-const mockSort = vi.fn().mockImplementation(() => ({ lean: mockLean }));
-const mockFind = vi.fn().mockImplementation(() => ({ sort: mockSort }));
-
+// 🛡️ MOCK MONGOOSE PLEINEMENT CHAÎNABLE
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   CVTemplateModel: {
-    find: vi.fn((...args) => mockFind(...args)),
+    find: vi.fn().mockReturnValue({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([]),
+      }),
+    }),
     create: vi.fn(),
   },
 }));
@@ -51,7 +52,11 @@ describe('API CV Templates - Gestion des modèles de CV', () => {
   // 🔍 TESTS GET (Recensement)
   // =========================================================================
   it('🟢 doit récupérer la liste des modèles de CV avec succès (200)', async () => {
-    mockLean.mockResolvedValueOnce([{ uid: 'tmpl_1', title: 'Parchemin Cyber' }]);
+    vi.mocked(CVTemplateModel.find).mockReturnValueOnce({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([{ uid: 'tmpl_1', title: 'Parchemin Cyber' }]),
+      }),
+    } as any);
 
     const req = new Request('http://localhost/api/cv-templates');
     const res = await GET(req as any, {});

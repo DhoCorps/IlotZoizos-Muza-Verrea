@@ -2,11 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/auth/forgot-password/route';
 import { OiseauModel } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS
 // -------------------------------------------------------------------------
+process.env.RESEND_API_KEY = 're_test_key';
+
 vi.mock('@/lib/api-guards', () => ({
   withSilice: (handler: any) => handler,
 }));
@@ -22,18 +23,21 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-vi.mock('resend', () => ({
-  Resend: vi.fn().mockImplementation(() => ({
-    emails: {
-      send: vi.fn().mockResolvedValue({ data: { id: 'msg_123' }, error: null }),
+// 🛡️ MOCK RESEND ROBUSTE : Garantit que 'emails.send' existe toujours sur l'instance
+vi.mock('resend', () => {
+  return {
+    Resend: class {
+      emails = {
+        send: vi.fn().mockResolvedValue({ data: { id: 'msg_123' }, error: null }),
+      };
     },
-  })),
-}));
+  };
+});
 
 describe('API Forgot Password POST', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.RESEND_API_KEY = 're_test_key';
+    global.__mockUser = undefined;
   });
 
   it('🔴 [POST] doit rejeter (400) si l\'email est invalide ou absent', async () => {
