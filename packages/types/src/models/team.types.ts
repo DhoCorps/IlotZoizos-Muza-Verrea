@@ -69,6 +69,7 @@ export type ITeam = z.infer<typeof TeamSchema>;
  * 🛡️ LA RELATION DE NIDIFICATION (Neo4j)
  * C'est ici que l'absurdité du rôle est remplacée par la fluidité de l'Aura.
  */
+
 export interface INestingRelation {
   since: Date;
   // 🕊️ SUTURE : On ne stocke plus de "role" figé, mais l'aura (capabilities)

@@ -1,4 +1,4 @@
-import { syncService } from './sync.service';
+import { syncService } from './sync.services';
 import { IlotError } from '../../../../shared-core/src/errors/ilot.errors'; 
 import { MoralChecker } from '../../../../shared-core/src/integrity/moral.checker';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';

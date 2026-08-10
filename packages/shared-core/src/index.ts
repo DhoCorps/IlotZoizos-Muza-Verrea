@@ -99,3 +99,6 @@ export * from './sync-engine/monthlyStats.orchestrator';
 export * from './sync-engine/komptaStats.orchestrator';
 
 export * from './sync-engine/showcase.orchestrator';
+
+export * from '../src/security/canopyJudgeEngine';
+export * from '../src/security/ipTracker';

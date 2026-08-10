@@ -1,5 +1,3 @@
-// packages/infrastructure/src/database/models/graph/sujet.graph.ts
-
 /**
  * 🕸️ LA STRUCTURE DU NŒUD SUJET DANS NEO4J (Le Graphe Muet)
  */
@@ -44,5 +42,7 @@ export interface ISujetGraphContext {
   status: string;
   relatedProjects?: string[];
   relatedTasks?: string[];
+  relatedProducts?: string[];
+  relatedGames?: string[];
   productId?: string | null;
 }

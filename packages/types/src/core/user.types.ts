@@ -8,7 +8,12 @@ import { z } from 'zod';
 // 🌱 I. LA GRAINE (Ce qui est incompressible et identitaire)
 export const OiseauSeedSchema = z.object({
   uid: z.string(), 
-  pseudo: z.string().min(3).max(30), // L'identité chantée
+  pseudo: z.string().min(3).max(30), // L'identité chantée d'origine
+  
+  // 🌿 Le Nom d'Usage Souverain (Modifiable uniquement via le tribut de l'Alvéole)
+  nickname: z.string().min(3).max(30).optional().nullable(),
+  nicknameIsLocked: z.boolean().default(true),
+
   email: z.string().email(),
   password: z.string().min(8).optional(),
   signature: z.string(),
@@ -27,8 +32,8 @@ export const OiseauSeedSchema = z.object({
 // 🌿 II. LE SANCTUAIRE (La Liberté Polymorphe et l'État d'Âme)
 export const OiseauLeafSchema = z.object({
   // Fini le CV, le profil RPG ou l'autel pré-formaté. 
-  // L'utilisateur injecte l'objet JSON qu'il veut.
-  sanctuaire: z.record(z.any()).default({}), 
+  // L'utilisateur injecte l'objet JSON qu'il veut, typé proprement en record de données sérialisables.
+  sanctuaire: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).default({}), 
   
   // --- NOUVEL ATTRIBUT (Le Verrou) ---
   // L'Anneau de Sauron : Protection ultime de la santé mentale de l'utilisateur
@@ -42,7 +47,11 @@ export const OiseauLeafSchema = z.object({
   isOpenToInvitations: z.boolean().default(true),
 
   // 🪡 SUTURE DU MAILLON MANQUANT : Collection des Références de Nids rattachés à l'Oiseau
-  teams: z.array(z.any()).default([]),
+  teams: z.array(z.object({
+     id: z.string(),
+     name: z.string(),
+     role: z.string().optional()
+  })).default([]),
 
   // 🔑 SUTURE POUR LE CHANT OUBLIÉ : Jetons de réinitialisation
   resetPasswordToken: z.string().optional(),
@@ -50,12 +59,12 @@ export const OiseauLeafSchema = z.object({
 
   // 🪡 SUTURE : Alignement avec la structure globale des artefacts (Fichiers de l'Oiseau)
   documents: z.array(z.object({
-      uid: z.string(),
-      name: z.string(),
-      label: z.string(),
-      url: z.string(),
-      mimeType: z.string(),
-      createdAt: z.date().default(() => new Date())
+     uid: z.string(),
+     name: z.string(),
+     label: z.string(),
+     url: z.string(),
+     mimeType: z.string(),
+     createdAt: z.date().default(() => new Date())
   })).default([])
 });
 
@@ -64,6 +73,6 @@ export const OiseauLeafSchema = z.object({
 export const OiseauSchema = OiseauSeedSchema.merge(OiseauLeafSchema);
 
 // ✨ TYPESCRIPT : Extraction automatique !
-// Plus besoin de taper les interfaces à la main, Zod s'en charge.
 export type IOiseau = z.infer<typeof OiseauSchema>;
 export type ISeed = z.infer<typeof OiseauSeedSchema>;
+export type ILeaf = z.infer<typeof OiseauLeafSchema>;

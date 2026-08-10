@@ -1,6 +1,6 @@
 // packages/infrastructure/src/database/models/graph/__tests__/partita.sync.test.ts
 import { describe, it, expect, vi } from 'vitest';
-import { ancrerPartitaDansGraphe } from '../partita.sync.graph';
+import { ancrerPartitaDansGraphe } from '../../graph/partita.sync.graph';
 
 // Mock de la session Neo4j pour isoler les tests de la base de données physique
 vi.mock('../../../neo4j', () => ({

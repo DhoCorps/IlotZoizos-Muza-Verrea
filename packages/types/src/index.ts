@@ -21,7 +21,8 @@ export * from './models/quizz.types';
 export * from './core/payment.types';
 export * from './core/showcase.types';
 export * from './models/sample.types';
-export * from './validation/sampleSchema'
+export * from './validation/sampleSchema';
+export * from './core/lexiconEntry.types';
 
 export interface ActionSignature {
   actorUid: string;       

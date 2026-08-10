@@ -1,7 +1,7 @@
 import { NextAuthOptions, DefaultSession, DefaultUser } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
-import { connectToDatabase, OiseauModel, franchirLaPorte } from "@ilot/infrastructure"; 
+import { connectToDatabase, OiseauModel, OiseauInventoryModel, franchirLaPorte } from "@ilot/infrastructure"; 
 
 /**
  * 🛡️ HARMONISATION GLOBALE DES TYPES
@@ -46,7 +46,7 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Mot de passe", type: "password" }
       },
-      async authorize(credentials) {
+      async authorize(credentials): Promise<any> {
         try {
           if (!credentials?.email || !credentials?.password) {
             throw new Error("Identifiants manquants.");
@@ -72,7 +72,30 @@ export const authOptions: NextAuthOptions = {
 
           console.log(`🦅 [Auth] Identification réussie : ${user.pseudo || user.username}`);
 
-          // 4. 🌟 L'ÉCHO NEO4J (SÉCURISÉ & NON-BLOQUANT)
+          // 2. 🌿 L'ALVÉOLE DE L'OISEAU (Vérification et Initialisation du Portefeuille)
+          try {
+            let alveole = await OiseauInventoryModel.findOne({ ownerUid: user.uid });
+            if (!alveole) {
+              await OiseauInventoryModel.create({
+                ownerUid: user.uid,
+                email: user.email,
+                brindilles: 100, // Pécule de départ de ressources
+                parchemins: 10,
+                inventaireElements: {
+                  essenceVent: 10,
+                  gluonFeu: 5,
+                  atomeAir: 5,
+                  oceanNeant: 1,
+                },
+                createdAt: new Date(),
+              });
+              console.log(`🌿 [Auth] Alvéole créée pour ${user.pseudo || user.username} avec le pécule initial.`);
+            }
+          } catch (inventoryError) {
+            console.error(`🔥 [Auth] Erreur lors de la synchronisation de l'Alvéole (Non-bloquant):`, inventoryError);
+          }
+
+          // 3. 🌟 L'ÉCHO NEO4J (SÉCURISÉ & NON-BLOQUANT)
           try {
             franchirLaPorte({
               uid: user.uid,
@@ -80,10 +103,10 @@ export const authOptions: NextAuthOptions = {
               frequenceHEX: user.frequenceHEX
             }).then(() => {
               console.log(`✨ [Auth] ${user.pseudo || user.username} a franchi la porte Neo4j en tâche de fond.`);
-            }).catch((graphError) => {
+            }).catch((graphError: unknown) => {
               console.error(`🔥 [Auth] Erreur de résonance Neo4j (Non-bloquant):`, graphError);
             });
-          } catch (graphSyncError) {
+          } catch (graphSyncError: unknown) {
             console.error(`🔥 [Auth] Erreur synchrone inattendue au lancement de Neo4j:`, graphSyncError);
           }
 
@@ -98,9 +121,10 @@ export const authOptions: NextAuthOptions = {
               ? user.capabilities 
               : (user.aura && user.aura.length > 0 ? user.aura : []), 
           };
-        } catch (error: any) {
-          console.error("🔥 [AUTH ERROR]", error.message);
-          throw new Error(error.message || "Erreur lors de l'authentification.");
+        } catch (error: unknown) {
+          const errMessage = error instanceof Error ? error.message : "Erreur lors de l'authentification.";
+          console.error("🔥 [AUTH ERROR]", errMessage);
+          throw new Error(errMessage);
         }
       }
     }),

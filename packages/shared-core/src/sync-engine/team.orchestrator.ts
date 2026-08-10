@@ -1,13 +1,18 @@
-// packages/shared-core/src/sync-engine/team.orchestrator.ts
 import { OiseauModel, TeamModel, ProjectModel, TaskModel } from '@ilot/infrastructure';
 import { ITeam, CAPABILITIES, ActionSignature } from '@ilot/types';
 import { MoralChecker } from '../integrity/moral.checker';
 import { TransactionManager } from './transactionManager';
-import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
 
+// 🛡️ SUTURE UNIQUE : Utilisation d'un type minimaliste pour éviter la duplication d'import storage
+interface IStorageManager {
+  deleteFile(key: string): Promise<any>;
+  extractKeyFromUrl(url: string): string;
+}
+
 export interface TeamSyncResult {
+  uid: string;
   success: boolean;
   status: string;
   mongo: any;
@@ -16,9 +21,19 @@ export interface TeamSyncResult {
 
 /**
  * 🛰️ TEAM ORCHESTRATOR 
- * L'Architecte des liens. Assure la coherence entre la Silice (Mongo) et le Graphe (Neo4j).
+ * L'Architecte des liens. Assure la cohérence entre la Silice (Mongo) et le Graphe (Neo4j).
  */
 export class TeamOrchestrator {
+  private storageService: IStorageManager;
+
+  constructor(customStorageService?: IStorageManager) {
+    // Injection de dépendance optionnelle pour isoler les tests ou utilisation d'un mock par défaut
+    this.storageService = customStorageService || {
+      deleteFile: async () => ({ success: true }),
+      extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
+    };
+  }
+
   async fosterTeam(
     teamData: { 
       name: string, 
@@ -105,6 +120,7 @@ export class TeamOrchestrator {
       });
 
       return { 
+        uid: teamUid,        
         success: true, 
         status: 'success', 
         mongo: newTeam, 
@@ -167,7 +183,13 @@ export class TeamOrchestrator {
         caps: data.capabilities || [CAPABILITIES.PROJECT.READ, CAPABILITIES.TASK.CREATE] 
       });
 
-      return { success: true, status: 'success', mongo: target, neo4j: neoResult };
+      return { 
+        uid: target.uid,      
+        success: true, 
+        status: 'success', 
+        mongo: target, 
+        neo4j: neoResult 
+      };
     });
   }
 
@@ -208,6 +230,7 @@ export class TeamOrchestrator {
       }
       
       return { 
+        uid: existingTeam.uid,  
         success: true, 
         status: 'success', 
         mongo: updatedTeam, 
@@ -234,14 +257,14 @@ export class TeamOrchestrator {
       for (const task of tasks) {
         if (task.documents) {
           for (const doc of task.documents) {
-            try { await storageService.deleteFile(storageService.extractKeyFromUrl(doc.url)); } catch {}
+            try { await this.storageService.deleteFile(this.storageService.extractKeyFromUrl(doc.url)); } catch {}
           }
         }
       }
       for (const project of projects) {
         if (project.documents) {
           for (const doc of project.documents) {
-            try { await storageService.deleteFile(storageService.extractKeyFromUrl(doc.url)); } catch {}
+            try { await this.storageService.deleteFile(this.storageService.extractKeyFromUrl(doc.url)); } catch {}
           }
         }
       }

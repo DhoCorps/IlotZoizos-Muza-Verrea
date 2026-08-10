@@ -38,6 +38,7 @@ vi.mock('@/modules/security/rateLimiter', () => ({
 describe('Route API : Abyss Upload & Delete Sujet Media (POST / DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
   it('POST - doit téléverser un média, respecter la structure et invalider le cache', async () => {

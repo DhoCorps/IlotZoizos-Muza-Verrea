@@ -1,111 +1,97 @@
 import { describe, it, expect } from 'vitest';
-import { OiseauSchema, OiseauSeedSchema } from '../core/user.types'; 
+import { OiseauSchema, OiseauSeedSchema, OiseauLeafSchema } from '../core/user.types';
 
-describe('OiseauSchema - Validation de l\'Essence et du Sanctuaire', () => {
-  
-  // L'Oiseau complet tel qu'il doit sortir de la matrice
-  const validBird = {
-    uid: 'bird-777',
-    pseudo: 'Albatros_Serein',
-    email: 'contact@ilot-zoizos.fr',
-    password: 'Password123!',
-    frequenceHEX: '#2F4F4F', // Fréquence par défaut (Dark Slate Gray)
-    capabilities: ['TypeScript', 'Poésie'], // 🪡 CORRECTION : "aura" remplacé par "capabilities"
-    avatarUrl: 'https://cdn.ilot.io/avatars/bird-777.png',
-    coverPicture: null,
-    signature: 'Oiseau libre de la matrice', 
-    // Partie Sanctuaire
-    sanctuaire: { livrePrefere: 'Le Petit Prince', météoIntérieure: 'Calme' },
-    sanctuaireVerrouille: false,
-    entropieActive: 100,
-    isGhostMode: false,
-    isOpenToInvitations: true
-  };
+describe('Oiseau Zod Schemas (L\'Identité et le Sanctuaire)', () => {
+    it('🟢 doit valider un profil d Oiseau complet et correct avec les valeurs par défaut', () => {
+        const validData = {
+            uid: 'bird_123',
+            pseudo: 'Faucon Sélénite',
+            email: 'oiseau@ilot.co',
+            signature: 'sig_abcxyz',
+        };
 
-  it('✅ doit valider un Oiseau complet (Graine + Sanctuaire)', () => {
-    const result = OiseauSchema.safeParse(validBird);
-    expect(result.success).toBe(true);
-  });
+        const result = OiseauSchema.safeParse(validData);
 
-  describe('🌱 La Graine (Identité Incompressible)', () => {
-    it('❌ doit rejeter un pseudo trop court (Identité inaudible)', () => {
-      const invalid = { ...validBird, pseudo: 'Al' };
-      const result = OiseauSchema.safeParse(invalid);
-      expect(result.success).toBe(false);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.frequenceHEX).toBe('#2F4F4F'); // Valeur par défaut
+            expect(result.data.entropieActive).toBe(100);
+            expect(result.data.sanctuaireVerrouille).toBe(false);
+            expect(result.data.teams).toEqual([]);
+            expect(result.data.documents).toEqual([]);
+        }
     });
 
-    it('🎨 doit valider une fréquence HEX courte ou longue', () => {
-      const shortHex = { ...validBird, frequenceHEX: '#ABC' };
-      const longHex = { ...validBird, frequenceHEX: '#AABBCC' };
-      expect(OiseauSchema.safeParse(shortHex).success).toBe(true);
-      expect(OiseauSchema.safeParse(longHex).success).toBe(true);
-    });
-  });
+    it('🔴 doit rejeter un pseudo trop court ou non conforme dans la Graine', () => {
+        const invalidSeed = {
+            uid: 'bird_123',
+            pseudo: 'Fi', // Trop court (< 3 caractères)
+            email: 'oiseau@ilot.co',
+            signature: 'sig_abc',
+        };
 
-  describe('🌿 Le Sanctuaire (Liberté et Protection)', () => {
-    it('🔓 doit accepter n\'importe quel format JSON dans le sanctuaire', () => {
-      const complexSanctuary = { 
-        ...validBird, 
-        sanctuaire: { 
-          tags: [1, 2, 3], 
-          meta: { deep: { nesting: true } } 
-        } 
-      };
-      const result = OiseauSchema.safeParse(complexSanctuary);
-      expect(result.success).toBe(true);
-    });
-
-    it('🛑 doit limiter l\'Entropie entre 0 et 100', () => {
-      const highEntropie = { ...validBird, entropieActive: 150 };
-      const negativeEntropie = { ...validBird, entropieActive: -10 };
-      
-      expect(OiseauSchema.safeParse(highEntropie).success).toBe(false);
-      expect(OiseauSchema.safeParse(negativeEntropie).success).toBe(false);
-    });
-    
-    it('🔑 doit accepter les jetons de récupération de chant temporaires', () => {
-      const birdWithTokens = { 
-        ...validBird, 
-        resetPasswordToken: 'hex_string_temporaire',
-        resetPasswordExpires: 1735689600000 // Timestamp
-      };
-      const result = OiseauSchema.safeParse(birdWithTokens);
-      expect(result.success).toBe(true);
-    });
-  });
-
-  describe('🌌 Équilibre et Anti-Gamification', () => {
-    it('🐣 doit appliquer les valeurs par défaut lors de la création d\'une Graine', () => {
-      // On ne donne que le strict nécessaire + la signature requise
-      const minimalSeed = {
-        uid: 'bird-001',
-        pseudo: 'Nouveau_Venu',
-        email: 'new@ilot.io',
-        signature: 'Graine d\'Oiseau'
-      };
-
-      const result = OiseauSchema.parse(minimalSeed);
-      
-      expect(result.frequenceHEX).toBe('#2F4F4F'); // Fréquence neutre
-      expect(result.entropieActive).toBe(100);    // Énergie pleine
-      expect(result.sanctuaire).toEqual({});      // Sanctuaire vierge
-      expect(result.capabilities).toEqual([]);    // Aura vide
-    });
-
-    it('🛡️ ne doit pas tolérer de propriétés étrangères (Protection du Sanctuaire)', () => {
-      const intrusiveData = {
-        ...validBird,
-        level: 50, // Gamification proscrite
-        xp: 1000,  // Compétition bannie
-        mentalLoadScore: 85 // Ingerence médicale interdite
-      };
-
-      // Si le schéma utilise .strict(), ces champs feront échouer la validation
-      const result = OiseauSchema.safeParse(intrusiveData);
-      
-      if (OiseauSchema.description?.includes('strict')) {
+        const result = OiseauSeedSchema.safeParse(invalidSeed);
         expect(result.success).toBe(false);
-      }
     });
-  });
+
+    it('🔴 doit rejeter un format de couleur HEX invalide pour frequenceHEX', () => {
+        const invalidColor = {
+            uid: 'bird_123',
+            pseudo: 'Faucon Sélénite',
+            email: 'oiseau@ilot.co',
+            signature: 'sig_abc',
+            frequenceHEX: 'invalid_color', // Pas un hexadécimal valide
+        };
+
+        const result = OiseauSeedSchema.safeParse(invalidColor);
+        expect(result.success).toBe(false);
+    });
+
+    it('🟢 doit accepter un code HEX valide (court ou long)', () => {
+        const validColorShort = {
+            uid: 'bird_123',
+            pseudo: 'Faucon Sélénite',
+            email: 'oiseau@ilot.co',
+            signature: 'sig_abc',
+            frequenceHEX: '#FFF',
+        };
+
+        const validColorLong = {
+            uid: 'bird_123',
+            pseudo: 'Faucon Sélénite',
+            email: 'oiseau@ilot.co',
+            signature: 'sig_abc',
+            frequenceHEX: '#2D3748',
+        };
+
+        expect(OiseauSeedSchema.safeParse(validColorShort).success).toBe(true);
+        expect(OiseauSeedSchema.safeParse(validColorLong).success).toBe(true);
+    });
+
+    it('🟢 doit valider correctement le Sanctuaire polymorphe et ses nouveaux attributs', () => {
+        const leafData = {
+            sanctuaire: { citation: 'Libre comme l\'air', niveau: 42, actif: true, rien: null },
+            sanctuaireVerrouille: true,
+            entropieActive: 75,
+            teams: [{ id: 'team_1', name: 'Canopée Principale', role: 'Architecte' }],
+        };
+
+        const result = OiseauLeafSchema.safeParse(leafData);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.sanctuaireVerrouille).toBe(true);
+            expect(result.data.entropieActive).toBe(75);
+            expect(result.data.teams[0].name).toBe('Canopée Principale');
+        }
+    });
+
+    it('🔴 doit rejeter une entropie hors limites (supérieure à 100 ou inférieure à 0)', () => {
+        const leafDataOutOfRange = {
+            entropieActive: 150, // Max 100
+        };
+
+        const result = OiseauLeafSchema.safeParse(leafDataOutOfRange);
+        expect(result.success).toBe(false);
+    });
 });

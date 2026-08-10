@@ -5,6 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { IRawAttachmentPointer } from '@ilot/types';
 import { AttachmentPicker } from './AttachmentPicker';
 import { io, Socket } from 'socket.io-client';
+import { toast } from 'sonner';
 
 interface ChatRoomProps {
   conversationSlug: string;
@@ -82,6 +83,13 @@ export function ChatRoom({ conversationSlug, currentUserSlug }: ChatRoomProps) {
       });
 
       const data = await res.json();
+
+      // 🛡️ DOUANE VIBRATOIRE : Gestion du refus d'accès pour les profils indésirables ou bannis
+      if (res.status === 403) {
+        toast.error(data.error || "Souveraineté restreinte : Le salon vous est fermé.");
+        return;
+      }
+
       if (res.ok && data.success) {
         // Optionnel : Ajout immédiat local ou diffusion manuelle par socket si l'API ne le fait pas déjà
         setMessages(prev => {
@@ -97,9 +105,12 @@ export function ChatRoom({ conversationSlug, currentUserSlug }: ChatRoomProps) {
 
         setContent('');
         setRawAttachments([]);
+      } else {
+        toast.error(data.error || "Impossible de propager le message.");
       }
     } catch (err) {
       console.error("Erreur d'envoi du message", err);
+      toast.error("La tempête a étouffé votre message.");
     }
   };
 

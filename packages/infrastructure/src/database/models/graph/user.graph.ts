@@ -1,5 +1,5 @@
 import { getNeo4jSession } from '../../neo4j';
-import { ISeed } from '@ilot/types'; // Assure-toi que c'est le bon chemin
+import { ISeed } from '@ilot/types';
 
 // 💎 L'Alchimie TypeScript : On extrait uniquement ce dont le Graphe a besoin.
 // Cela empêche l'email (donnée privée) de se retrouver accidentellement dans Neo4j.
@@ -9,7 +9,7 @@ export type OiseauEssence = Pick<ISeed, 'uid' | 'pseudo' | 'frequenceHEX'>;
  * 🔗 FRANCHIR LA PORTE
  * Le Graphe ne voit que l'Alias et la Couleur. Il ne lit pas le Sanctuaire (email, etc).
  */
-export const franchirLaPorte = async (oiseau: OiseauEssence) => { // 👈 On utilise l'Essence ici
+export const franchirLaPorte = async (oiseau: OiseauEssence) => {
   const session = getNeo4jSession();
   
   const cypher = `
@@ -37,6 +37,11 @@ export const franchirLaPorte = async (oiseau: OiseauEssence) => { // 👈 On uti
     });
     
     console.log(`✨ [Neo4j] La porte s'ouvre pour ${oiseau.pseudo}.`);
+    
+    if (!result.records || result.records.length === 0) {
+      throw new Error("Neo4j n'a renvoyé aucun enregistrement lors du franchissement de la porte.");
+    }
+
     return result.records[0].get('o').properties;
   } finally {
     await session.close();

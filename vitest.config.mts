@@ -6,17 +6,19 @@ import { resolve } from 'path';
 export default defineConfig({
   plugins: [
     react(),
-    // 🪄 Magie : Résout les alias de base comme @/* pour hub-central
+    // 🪄 Résout les alias du tsconfig
     tsconfigPaths(),
-  ] as any[], // 👈 Contournement radical du conflit de types entre Vite et Vitest
+  ] as any, // 👈 Neutralise définitivement le conflit de types entre Vite et Vitest
+  
   resolve: {
     alias: {
-      // 🛡️ SUTURE MANUELLE : On force Vitest à pointer sur les fichiers index.ts des packages
-      '@ilot/infrastructure': resolve(__dirname, './packages/infrastructure/src/index.ts'),
-      '@ilot/types': resolve(__dirname, './packages/types/src/index.ts'),
-      '@ilot/shared-core': resolve(__dirname, './packages/shared-core/src/index.ts'),
-    }
+      // 🛡️ SUTURE MONOREPO : Pointage direct vers les sources des packages
+      '@ilot/infrastructure': resolve(process.cwd(), 'packages/infrastructure/src/index.ts'),
+      '@ilot/types': resolve(process.cwd(), 'packages/types/src/index.ts'),
+      '@ilot/shared-core': resolve(process.cwd(), 'packages/shared-core/src/index.ts'),
+    },
   },
+  
   test: {
     globals: true,
     
@@ -30,5 +32,8 @@ export default defineConfig({
     environment: 'node', 
     exclude: ['**/node_modules/**', '**/e2e/**', '**/dist/**', '**/.next/**'],
     testTimeout: 15000,
+    
+    clearMocks: true,
+    restoreMocks: true,
   },
 });

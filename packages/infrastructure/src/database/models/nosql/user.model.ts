@@ -31,6 +31,9 @@ const OiseauSchema = new Schema<OiseauDocument>(
     password: { type: String, select: false },
     frequenceHEX: { type: String, default: '#2F4F4F' },
 
+    nickname: { type: String, sparse: true, trim: true },
+    nicknameIsLocked: { type: Boolean, default: true },
+
     // 🔑 SUTURE : Les champs vitaux pour la réinitialisation du mot de passe
     resetPasswordToken: { type: String },
     resetPasswordExpires: { type: Number },

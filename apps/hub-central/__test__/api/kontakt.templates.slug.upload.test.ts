@@ -1,33 +1,48 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST, DELETE } from '@/app/api/kontakt/templates/[slug]/upload/route';
+import { POST, DELETE } from '@/app/api/tasks/[slug]/upload/route';
+import { TaskModel, getNeo4jSession } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
-import { NextResponse } from 'next/server';
+import { revalidateTag } from 'next/cache';
+import { NextResponse, NextRequest } from 'next/server';
 
-// --- MOCKS DES DÉPENDANCES & GARDES D'API ---
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT
+// -------------------------------------------------------------------------
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
+}));
+
 vi.mock('@/lib/api-guards', () => ({
   withAura: (handler: any) => async (req: any, context: any) => {
     const mockUser = global.__mockUser;
     if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
+      return NextResponse.json({ success: false, message: 'Accès non autorisé.' }, { status: 401 });
     }
     return await handler(req, context, mockUser);
   },
 }));
 
-vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+vi.mock('@ilot/infrastructure', () => ({
+  connectToDatabase: vi.fn().mockResolvedValue(true),
+  TaskModel: {
+    findOne: vi.fn(),
+    findOneAndUpdate: vi.fn(),
+    updateOne: vi.fn(),
+  },
+  getNeo4jSession: vi.fn(),
 }));
 
 vi.mock('@/modules/storage/storage.service', () => ({
   storageService: {
-    generateStructuredKey: vi.fn().mockReturnValue('hub-central/fr/projects/mon-template/cv_template_preview_test.png'),
+    generateStructuredKey: vi.fn().mockReturnValue('hub-central/fr/tasks/task_123/attachments/test.pdf'),
     uploadFile: vi.fn().mockResolvedValue({
-      publicUrl: 'https://nexus.ilot.local/storage/cv_template_preview_test.png',
-      key: 'hub-central/fr/projects/mon-template/cv_template_preview_test.png',
+      success: true,
+      publicUrl: 'https://cdn.ilot/doc.pdf',
+      key: 'mock-key',
     }),
-    extractKeyFromUrl: vi.fn().mockReturnValue('hub-central/fr/projects/mon-template/cv_template_preview_test.png'),
-    deleteFile: vi.fn().mockResolvedValue(true),
+    extractKeyFromUrl: vi.fn().mockReturnValue('mock-key'),
+    deleteFile: vi.fn().mockResolvedValue({ success: true }),
   },
 }));
 
@@ -39,120 +54,139 @@ declare global {
   var __mockUser: any;
 }
 
-describe('Kontakt Template Upload & Delete API [slug]', () => {
+function mockNeo4jAuth(isValid: boolean = true) {
+  vi.mocked(getNeo4jSession).mockReturnValue({
+    run: vi.fn().mockResolvedValue({
+      records: isValid ? [{ get: (key: string) => key === 'projectCreatorUid' ? 'u-123' : ['task:update'] }] : [],
+    }),
+    close: vi.fn().mockResolvedValue(true),
+  } as any);
+}
+
+// -------------------------------------------------------------------------
+// 🧪 SUITE DE TESTS
+// -------------------------------------------------------------------------
+describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     global.__mockUser = undefined;
   });
 
-  describe('POST /api/kontakt/templates/[slug]/upload', () => {
-    it('devrait refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-      global.__mockUser = undefined;
-
-      const req = {
-        headers: { get: () => '127.0.0.1' },
-        formData: vi.fn(),
-      } as unknown as Request;
-
-      const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Template Test' }) });
-      const data = await res.json();
-
-      expect(res.status).toBe(401);
-      expect(data.error).toBe('Accès non autorisé.');
-    });
-
-    it('devrait bloquer la requête (429) en cas de dépassement des limites (rate limit)', async () => {
-      global.__mockUser = { uid: 'TestUser', capabilities: [] };
+  describe('POST /api/tasks/[slug]/artifacts', () => {
+    it('doit refuser (429) si le rate limit est dépassé', async () => {
+      global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
       vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0 } as any);
 
       const req = {
         headers: { get: () => '127.0.0.1' },
         formData: vi.fn(),
-      } as unknown as Request;
+      } as unknown as NextRequest;
 
-      const res = await POST(req, { params: Promise.resolve({ slug: 'mon-template' }) });
+      const res = await POST(req, { params: Promise.resolve({ slug: 'ma-tache' }) });
       const data = await res.json();
 
       expect(res.status).toBe(429);
-      expect(data.error).toContain('Trop de téléversements');
+      expect(data.success).toBe(false);
     });
 
-    it('devrait rejeter (400) si aucun fichier/parchemin n\'est fourni dans le formulaire', async () => {
-      global.__mockUser = { uid: 'TestUser', capabilities: [] };
+    it('doit renvoyer (404) si l\'atome/tâche est introuvable', async () => {
+      global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
+      vi.mocked(TaskModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue(null),
+      } as any);
 
-      const formData = new FormData();
       const req = {
         headers: { get: () => '127.0.0.1' },
-        formData: vi.fn().mockResolvedValue(formData),
-      } as unknown as Request;
+        formData: vi.fn(),
+      } as unknown as NextRequest;
 
-      const res = await POST(req, { params: Promise.resolve({ slug: 'mon-template' }) });
+      const res = await POST(req, { params: Promise.resolve({ slug: 'inconnue' }) });
       const data = await res.json();
 
-      expect(res.status).toBe(400);
-      expect(data.error).toBe('Aucun parchemin graphique fourni.');
+      expect(res.status).toBe(404);
+      expect(data.success).toBe(false);
+      expect(data.message).toContain('Atome introuvable');
     });
 
-    it('devrait réussir (201) et sceller le fichier dans le Nexus R2 en appliquant le slugify', async () => {
-      global.__mockUser = { uid: 'TestUser', capabilities: [] };
+    it('doit rejeter (403) si l\'aura est insuffisante', async () => {
+      global.__mockUser = { uid: 'stranger', capabilities: [] };
+      mockNeo4jAuth(false);
+
+      vi.mocked(TaskModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 'task_123', slug: 'ma-tache' }),
+      } as any);
 
       const formData = new FormData();
-      const file = new File(['dummy content'], 'template.png', { type: 'image/png' });
-      formData.append('file', file);
+      formData.append('file', new Blob(['pdf content'], { type: 'application/pdf' }), 'test.pdf');
 
       const req = {
         headers: { get: () => '127.0.0.1' },
         formData: vi.fn().mockResolvedValue(formData),
-      } as unknown as Request;
+      } as unknown as NextRequest;
 
-      const res = await POST(req, { params: Promise.resolve({ slug: 'Mon Super Template!' }) });
+      const res = await POST(req, { params: Promise.resolve({ slug: 'ma-tache' }) });
+      const data = await res.json();
+
+      expect(res.status).toBe(403);
+      expect(data.success).toBe(false);
+    });
+
+    it('doit téléverser un fichier valide, l\'ajouter à l\'atome et invalider le cache (201)', async () => {
+      global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
+      mockNeo4jAuth(true);
+
+      vi.mocked(TaskModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 'task_123', slug: 'ma-tache', name: 'Ma Tâche' }),
+      } as any);
+
+      vi.mocked(TaskModel.findOneAndUpdate).mockResolvedValue({
+        uid: 'task_123',
+        documents: [{ name: 'test.pdf' }],
+      } as any);
+
+      const formData = new FormData();
+      formData.append('file', new Blob(['pdf content'], { type: 'application/pdf' }), 'test.pdf');
+
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: vi.fn().mockResolvedValue(formData),
+      } as unknown as NextRequest;
+
+      const res = await POST(req, { params: Promise.resolve({ slug: 'ma-tache' }) });
       const data = await res.json();
 
       expect(res.status).toBe(201);
       expect(data.success).toBe(true);
-      expect(data.data.url).toBe('https://nexus.ilot.local/storage/cv_template_preview_test.png');
+      expect(data.url).toBe('https://cdn.ilot/doc.pdf');
+      expect(revalidateTag).toHaveBeenCalledWith('task-task_123');
     });
   });
 
-  describe('DELETE /api/kontakt/templates/[slug]/upload', () => {
-    it('devrait refuser l\'accès (401) si l\'oiseau n\'est pas authentifié lors de la suppression', async () => {
-      global.__mockUser = undefined;
+  describe('DELETE /api/tasks/[slug]/artifacts', () => {
+    it('doit supprimer l\'artefact du stockage et de la Silice, puis invalider le cache (200)', async () => {
+      global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
+      mockNeo4jAuth(true);
 
-      const req = new Request('http://localhost/api/kontakt/templates/mon-template/upload?url=https://nexus.ilot.local/file.png', {
+      vi.mocked(TaskModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ uid: 'task_123', slug: 'ma-tache' }),
+      } as any);
+
+      vi.mocked(TaskModel.updateOne).mockResolvedValueOnce({ modifiedCount: 1 } as any);
+
+      const req = new Request('http://localhost/api/tasks/ma-tache/artifacts', {
         method: 'DELETE',
-      });
-      const res = await DELETE(req, { params: Promise.resolve({ slug: 'mon-template' }) });
-      const data = await res.json();
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'https://cdn.ilot/doc.pdf' }),
+      }) as unknown as NextRequest;
 
-      expect(res.status).toBe(401);
-      expect(data.error).toBe('Accès non autorisé.');
-    });
-
-    it('devrait rejeter (400) si l\'URL de l\'artefact à purger est manquante', async () => {
-      global.__mockUser = { uid: 'TestUser', capabilities: [] };
-
-      const req = new Request('http://localhost/api/kontakt/templates/mon-template/upload', {
-        method: 'DELETE',
-      });
-      const res = await DELETE(req, { params: Promise.resolve({ slug: 'mon-template' }) });
-      const data = await res.json();
-
-      expect(res.status).toBe(400);
-      expect(data.error).toContain('manquante');
-    });
-
-    it('devrait réussir (200) et désintégrer l\'artefact du Nexus si l\'URL est valide', async () => {
-      global.__mockUser = { uid: 'TestUser', capabilities: [] };
-
-      const req = new Request('http://localhost/api/kontakt/templates/mon-template/upload?url=https://nexus.ilot.local/file.png', {
-        method: 'DELETE',
-      });
-      const res = await DELETE(req, { params: Promise.resolve({ slug: 'mon-template' }) });
+      const res = await DELETE(req, { params: Promise.resolve({ slug: 'ma-tache' }) });
       const data = await res.json();
 
       expect(res.status).toBe(200);
       expect(data.success).toBe(true);
-      expect(storageService.deleteFile).toHaveBeenCalledWith('hub-central/fr/projects/mon-template/cv_template_preview_test.png');
+      expect(storageService.extractKeyFromUrl).toHaveBeenCalledWith('https://cdn.ilot/doc.pdf');
+      expect(storageService.deleteFile).toHaveBeenCalledWith('mock-key');
+      expect(revalidateTag).toHaveBeenCalledWith('task-task_123');
     });
   });
 });

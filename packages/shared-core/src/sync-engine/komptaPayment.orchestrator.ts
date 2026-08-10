@@ -1,10 +1,9 @@
-// packages/shared-core/src/sync-engine/kompta.payment.orchestrator.ts
 import mongoose from 'mongoose';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
 import { WalletModel } from '../../../infrastructure/src/database/models/nosql/wallet.model';
-import { KomptaLedgerService } from '../../../infrastructure/src/database/services/komptaLedger.service';
+import { KomptaLedgerService } from '../../../infrastructure/src/database/services/komptaLedger.services';
 
 export interface DirectTransferPayload {
   transferUid: string;
@@ -138,7 +137,7 @@ export class KomptaPaymentOrchestrator {
         description: payload.description || 'Transfert direct 1-clic'
       });
 
-      if (neoResult.records.length === 0) {
+      if (!neoResult.records || neoResult.records.length === 0) {
         throw new IlotError("Échec du scellement de la transaction financière dans le Graphe.", "INTERNAL_ERROR", 500);
       }
 
@@ -264,7 +263,7 @@ export class KomptaPaymentOrchestrator {
         description: payload.description || 'Paiement direct 1-clic'
       });
 
-      if (neoResult.records.length === 0) {
+      if (!neoResult.records || neoResult.records.length === 0) {
         throw new IlotError("Échec de la synchronisation de la transaction dans la matrice Neo4j.", "INTERNAL_ERROR", 500);
       }
 
@@ -304,7 +303,7 @@ export class KomptaPaymentOrchestrator {
         counterpartyUid: payload.recipientUid,
         amountCents: 0,
         currency: 'EUR',
-        type: 'DEBIT', // Consignation du don/troc de l'actif sortant
+        type: 'DEBIT',
         category: 'BARTER',
         referenceUid: payload.exchangeUid,
         description: `Troc de l'artefact [${payload.offeredItemUid}] contre "${payload.targetTitle}"`,
@@ -335,7 +334,7 @@ export class KomptaPaymentOrchestrator {
         description: payload.description || 'Troc universel via le Chapeau'
       });
 
-      if (neoResult.records.length === 0) {
+      if (!neoResult.records || neoResult.records.length === 0) {
         throw new IlotError("Échec de l'enregistrement du troc dans la matrice Neo4j.", "INTERNAL_ERROR", 500);
       }
 

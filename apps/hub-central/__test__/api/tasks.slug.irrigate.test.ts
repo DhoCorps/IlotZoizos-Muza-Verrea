@@ -31,6 +31,7 @@ vi.mock('@ilot/shared-core', () => ({
 describe('Route API : Irrigation Tâche (POST /api/tasks/[slug]/irrigate)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    global.__mockUser = undefined;
   });
 
   it('doit rejeter (401) si l\'utilisateur n\'est pas connecté', async () => {

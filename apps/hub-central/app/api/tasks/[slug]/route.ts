@@ -4,7 +4,7 @@ import { TaskOrchestrator } from '@ilot/shared-core';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { unstable_cache, revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards'; // 🪡 Notre bouclier souverain strict
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,6 +15,8 @@ export const dynamic = 'force-dynamic';
 async function getTaskCapabilities(userUid: string, taskUid: string): Promise<string[]> {
   const session = getNeo4jSession();
   try {
+    if (!session) return [];
+    
     const cypher = `
       MATCH (t:Task {uid: $taskUid})
       OPTIONAL MATCH (t)-[:TASK_OF]->(p:Project)
@@ -29,12 +31,12 @@ async function getTaskCapabilities(userUid: string, taskUid: string): Promise<st
       RETURN 
         rDirect IS NOT NULL AS isDirectlyInvolved,
         rProj.capabilities AS projectCaps,
-        tTeam.defaultProjectCapabilities AS teamDefaultCaps,
+        rTeam.defaultProjectCapabilities AS teamDefaultCaps,
         type(rTeam) AS teamRel
     `;
     
     const result = await session.run(cypher, { userUid, taskUid });
-    if (result.records.length === 0) return []; 
+    if (!result || result.records.length === 0) return []; 
 
     const record = result.records[0];
     const isDirectlyInvolved = record.get('isDirectlyInvolved');
@@ -59,7 +61,8 @@ async function getTaskCapabilities(userUid: string, taskUid: string): Promise<st
     console.error("🔥 Fracture lors de la compilation d'Aura sur l'Atome :", error);
     return [];
   } finally {
-    await session.close();
+    // 🛡️ SUTURE DE SÉCURITÉ : Optional chaining pour éviter les erreurs de session vide
+    await session?.close?.();
   }
 }
 
@@ -135,7 +138,6 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
         parentUid: taskId
       }, signature);
 
-      // 💥 Invalidation du cache
       revalidateTag('tasks');
       revalidateTag(`task-${taskId}`);
 
@@ -186,7 +188,6 @@ export const PATCH = withAura(async (req: Request, context: ApiContext, currentU
     return NextResponse.json({ error: orchErr.message || "Échec de la mutation de l'Atome." }, { status });
   }
 
-  // 💥 Invalidation du cache
   revalidateTag('tasks');
   revalidateTag(`task-${taskId}`);
 
@@ -221,7 +222,6 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
     return NextResponse.json({ error: orchErr.message || "Échec du rituel de désintégration." }, { status });
   }
   
-  // 💥 Invalidation du cache
   revalidateTag('tasks');
   revalidateTag(`task-${taskId}`);
 

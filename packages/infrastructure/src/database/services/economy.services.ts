@@ -1,4 +1,4 @@
-import { OiseauInventoryModel } from '../models/nosql/user.inventory.model';
+import { OiseauInventoryModel } from '../models/nosql/userInventory.model';
 
 // Coûts d'évolution des lieux de stockage (L'Alvéole)
 const ALVEOLE_UPGRADE_COSTS: Record<number, { parchemins: number; plumes: number; vinyles: number; totamtoes: number }> = {

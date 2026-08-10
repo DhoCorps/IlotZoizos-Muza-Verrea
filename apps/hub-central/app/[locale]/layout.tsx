@@ -1,4 +1,3 @@
-// apps/hub-central/app/[locale]/(app)/layout.tsx
 'use client';
 
 import React from 'react';

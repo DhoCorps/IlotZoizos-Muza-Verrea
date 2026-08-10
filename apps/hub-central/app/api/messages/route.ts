@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { MessageModel } from '@ilot/infrastructure';
+import { MessageModel, OiseauModel } from '@ilot/infrastructure';
 import { attachmentRegistry } from '@ilot/shared-core';
 import { SendMessageBodySchema } from '@ilot/types';
 import { randomUUID } from 'crypto';
@@ -11,7 +11,7 @@ import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-gu
 // 🧠 CACHE SÉCURISÉ : Bypass automatique en mode test pour éviter les crashs Next.js
 async function getCachedMessages(conversationSlug: string, limit: number, before?: string | null) {
   const fetcher = async () => {
-    const query: any = { conversationSlug };
+    const query: Record<string, any> = { conversationSlug };
     if (before) {
       query.createdAt = { $lt: new Date(before) };
     }
@@ -53,8 +53,9 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
 
     return NextResponse.json(messages, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🌊 [MESSAGES GET ERROR] :", error);
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error("🌊 [MESSAGES GET ERROR] :", err);
     return NextResponse.json({ error: "La tempête a brouillé l'écoute des messages." }, { status: 500 });
   }
 });
@@ -66,10 +67,18 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
   try {
     const senderSlug = currentUser.slug || currentUser.uid;
 
-    let rawBody;
+    // 🛡️ DOUANE VIBRATOIRE : Vérification du Tribunal de la Canopée
+    const oiseauProfile = await OiseauModel.findOne({ uid: senderSlug }).lean() as Record<string, any> | null;
+    if (oiseauProfile && (oiseauProfile.isBanned || oiseauProfile.profileStatus === 'INDESIRABLE')) {
+      return NextResponse.json({ 
+        error: "Souveraineté restreinte : Votre fréquence est jugée indésirable. Le salon vous est fermé." 
+      }, { status: 403 });
+    }
+
+    let rawBody: unknown;
     try {
       rawBody = await req.json();
-    } catch (parseErr) {
+    } catch {
       return NextResponse.json({ error: "Le chant (requête) est illisible." }, { status: 400 });
     }
 
@@ -87,12 +96,12 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       return NextResponse.json({ error: "Un message ne peut pas être entièrement vide." }, { status: 400 });
     }
 
-    const resolvedAttachments = [];
+    const resolvedAttachments: any[] = [];
     for (const raw of rawAttachments) {
       try {
         const fullAttachment = await attachmentRegistry.resolve(raw.sourceType, raw.entitySlug);
         resolvedAttachments.push(fullAttachment);
-      } catch (err) {
+      } catch (err: unknown) {
         console.warn(`⚠️ [ATTACHMENT WARNING] Impossible de résoudre ${raw.sourceType}:${raw.entitySlug}`, err);
       }
     }
@@ -118,8 +127,9 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       message: newMessage
     }, { status: 201 });
 
-  } catch (error: any) {
-    console.error("🌋 [MESSAGES POST ERROR] :", error);
-    return NextResponse.json({ error: error.message || "Impossible de propager le message." }, { status: 500 });
+  } catch (error: unknown) {
+    const err = error as Error;
+    console.error("🌋 [MESSAGES POST ERROR] :", err);
+    return NextResponse.json({ error: err.message || "Impossible de propager le message." }, { status: 500 });
   }
 });

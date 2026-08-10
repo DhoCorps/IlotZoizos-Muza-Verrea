@@ -1,13 +1,13 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { ProductModel } from '@ilot/infrastructure';
+import { ProductModel, OiseauModel } from '@ilot/infrastructure';
 import { v4 as uuidv4 } from 'uuid';
 import { slugify } from '@/lib/slugify';
 import { unstable_cache, revalidateTag } from 'next/cache';
 import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-// 🧠 CACHE SÉCURISÉ : Récupération des artefacts filtrés (30s) avec bypass en mode test
+// 🧠 CACHE SÉCURISÉ : Récupération des artefacts filtrés (30s) with bypass en mode test
 async function getCachedProducts(storeUid?: string | null, category?: string | null) {
   const fetcher = async () => {
     const query: any = {};
@@ -54,12 +54,21 @@ export const GET = withSilice(async (req: Request, _context: ApiContext) => {
 // ==========================================
 export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
+    const userUid = currentUser.uid || currentUser.id;
+
+    // 🛡️ DOUANE VIBRATOIRE : Vérification du Tribunal de la Canopée
+    const oiseauProfile = await OiseauModel.findOne({ uid: userUid }).lean() as any;
+    if (oiseauProfile && (oiseauProfile.isBanned || oiseauProfile.profileStatus === 'INDESIRABLE')) {
+      return NextResponse.json({ 
+        error: "Souveraineté restreinte : Votre fréquence est jugée indésirable. Le dépôt d'artefacts vous est interdit." 
+      }, { status: 403 });
+    }
+
     const body = await req.json().catch(() => null);
     if (!body) {
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
-    const userUid = currentUser.uid || currentUser.id;
     const productUid = `prod_${uuidv4()}`;
 
     // 1. Génération sécurisée et unique du Slug avec garde-fou anti-boucle

@@ -1,6 +1,6 @@
 // packages/infrastructure/src/database/models/graph/__tests__/letrin.sync.test.ts
 import { describe, it, expect, vi } from 'vitest';
-import { ancrerLetrinDansGraphe } from '../letrin.sync.graph';
+import { ancrerLetrinDansGraphe } from '../../graph/letrin.sync.graph';
 
 // Mock de la session Neo4j pour valider le contrat d'ancrage typographique
 vi.mock('../../../neo4j', () => ({

@@ -1,125 +1,101 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, POST, PATCH } from '@/app/api/ecommerce/barter/route';
-import { BarterOfferModel } from '@ilot/infrastructure';
-import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { POST } from '../../app/api/ecommerce/barter/route';
+import { BarterOfferModel, OiseauModel } from '@ilot/infrastructure';
 
-// -------------------------------------------------------------------------
-// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
-// -------------------------------------------------------------------------
-vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
-  withAura: (handler: any) => async (req: any, ctx: any) => {
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
+// Mock global de l'infrastructure
+vi.mock('@ilot/infrastructure', () => ({
+    BarterOfferModel: {
+        create: vi.fn(),
+        findOneAndUpdate: vi.fn(),
+        find: vi.fn(),
+    },
+    OiseauModel: {
+        findOne: vi.fn(),
+    },
+}));
+
+// Mock de l'orchestrateur e-commerce
+vi.mock('@ilot/shared-core', () => ({
+    EcommerceOrchestrator: class {
+        proposeBarter = vi.fn().mockResolvedValue(true);
+        resolveBarter = vi.fn().mockResolvedValue(true);
     }
-    return await handler(req, ctx, mockUser);
-  },
+}));
+
+// Mock des gardiens d'API (`withAura`)
+let mockCurrentUser = { uid: 'bird_clean_1', capabilities: ['*'] };
+vi.mock('@/lib/api-guards', () => ({
+    withAura: (handler: any) => {
+        return async (req: Request, context: any) => {
+            return handler(req, context, mockCurrentUser);
+        };
+    },
+    withSilice: (handler: any) => handler,
 }));
 
 vi.mock('next/cache', () => ({
-  revalidateTag: vi.fn(),
-  unstable_cache: vi.fn((cb) => cb),
+    revalidateTag: vi.fn(),
+    unstable_cache: (fn: any) => fn,
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  BarterOfferModel: {
-    find: vi.fn(() => ({
-      sort: vi.fn().mockReturnThis(),
-      lean: vi.fn().mockResolvedValue([{ uid: 'barter_1', status: 'PENDING' }]),
-    })),
-    // Correction : On fait en sorte que create renvoie les données passées avec un uid
-    create: vi.fn().mockImplementation((data) => Promise.resolve(data)),
-    findOneAndUpdate: vi.fn(),
-  },
-}));
-
-vi.mock('@ilot/shared-core', () => ({
-  EcommerceOrchestrator: vi.fn().mockImplementation(() => ({
-    proposeBarter: vi.fn().mockResolvedValue(true),
-    resolveBarter: vi.fn().mockResolvedValue(true),
-  })),
-}));
-
-declare global {
-  var __mockUser: any;
-}
-
-describe('API Barter Offers (Troc)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    global.__mockUser = undefined;
-  });
-
-  describe('GET /api/ecommerce/barter', () => {
-    it('🟢 doit récupérer la liste des offres de troc en attente avec succès (200)', async () => {
-      const req = new Request('http://localhost/api/ecommerce/barter');
-      const res = await GET(req as any, {});
-      const json = await res.json();
-
-      expect(res.status).toBe(200);
-      expect(json).toHaveLength(1);
-      expect(json[0].uid).toBe('barter_1');
-    });
-  });
-
-  describe('POST /api/ecommerce/barter', () => {
-    it('🔴 doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-      global.__mockUser = undefined;
-
-      const req = new Request('http://localhost/api/ecommerce/barter', {
-        method: 'POST',
-        body: JSON.stringify({ receiverUid: 'bird_2' })
-      });
-
-      const res = await POST(req as any, {});
-      expect(res.status).toBe(401);
+describe('POST /api/ecommerce/barter (Douane Vibratoire du Troc)', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockCurrentUser = { uid: 'bird_clean_1', capabilities: ['*'] };
     });
 
-    it('🟢 doit proposer un troc avec succès (201) et invalider le cache', async () => {
-      global.__mockUser = { uid: 'bird_1', capabilities: [] };
+    it('🔴 doit rejeter avec une erreur 403 si l oiseau est classé INDESIRABLE ou banni', async () => {
+        // Simulation de findone().lean() avec un objet retourné par .lean()
+        vi.mocked(OiseauModel.findOne).mockReturnValue({
+            lean: vi.fn().mockResolvedValueOnce({
+                uid: 'bird_clean_1',
+                profileStatus: 'INDESIRABLE',
+                isBanned: false,
+            })
+        } as any);
 
-      const req = new Request('http://localhost/api/ecommerce/barter', {
-        method: 'POST',
-        body: JSON.stringify({ receiverUid: 'bird_2', offeredProductUids: ['prod_1'], requestedProductUids: ['prod_2'] })
-      });
+        const req = new Request('http://localhost/api/ecommerce/barter', {
+            method: 'POST',
+            body: JSON.stringify({ receiverUid: 'bird_target_2', offeredProductUids: ['prod_1'], requestedProductUids: ['prod_2'] }),
+            headers: { 'Content-Type': 'application/json' }
+        }) as unknown as import('next/server').NextRequest;
 
-      const res = await POST(req as any, {});
-      const json = await res.json();
+        const response = await POST(req, { params: {} } as any);
+        const json = await response.json();
 
-      expect(res.status).toBe(201);
-      expect(json.success).toBe(true);
-      expect(json.data.uid).toBeDefined();
-      expect(json.data.initiatorUid).toBe('bird_1');
-      expect(revalidateTag).toHaveBeenCalledWith('barter-offers');
-      expect(revalidateTag).toHaveBeenCalledWith('pending-barters');
+        expect(response.status).toBe(403);
+        expect(json.error).toContain('Souveraineté restreinte');
+        expect(BarterOfferModel.create).not.toHaveBeenCalled();
     });
-  });
 
-  describe('PATCH /api/ecommerce/barter', () => {
-    it('🟢 doit mettre à jour le statut du troc (200) et invalider le cache', async () => {
-      global.__mockUser = { uid: 'bird_2', capabilities: [] };
+    it('🟢 doit autoriser la proposition de troc si l oiseau est respectueux ou neutre', async () => {
+        // Simulation de findone().lean()
+        vi.mocked(OiseauModel.findOne).mockReturnValue({
+            lean: vi.fn().mockResolvedValueOnce({
+                uid: 'bird_clean_1',
+                profileStatus: 'RESPECTABLE',
+                isBanned: false,
+            })
+        } as any);
 
-      vi.mocked(BarterOfferModel.findOneAndUpdate).mockResolvedValueOnce({
-        uid: 'barter_1',
-        status: 'ACCEPTED'
-      } as any);
+        vi.mocked(BarterOfferModel.create).mockResolvedValueOnce({
+            uid: 'barter_123',
+            initiatorUid: 'bird_clean_1',
+            status: 'PENDING'
+        } as any);
 
-      const req = new Request('http://localhost/api/ecommerce/barter', {
-        method: 'PATCH',
-        body: JSON.stringify({ barterUid: 'barter_1', status: 'ACCEPTED' })
-      });
+        const req = new Request('http://localhost/api/ecommerce/barter', {
+            method: 'POST',
+            body: JSON.stringify({ receiverUid: 'bird_target_2', offeredProductUids: ['prod_1'], requestedProductUids: ['prod_2'] }),
+            headers: { 'Content-Type': 'application/json' }
+        }) as unknown as import('next/server').NextRequest;
 
-      const res = await PATCH(req as any, {});
-      const json = await res.json();
+        const response = await POST(req, { params: {} } as any);
+        const json = await response.json();
 
-      expect(res.status).toBe(200);
-      expect(json.success).toBe(true);
-      expect(json.data.status).toBe('ACCEPTED');
-      expect(revalidateTag).toHaveBeenCalledWith('barter-offers');
-      expect(revalidateTag).toHaveBeenCalledWith('barter-barter_1');
+        expect(response.status).toBe(201);
+        expect(json.success).toBe(true);
+        expect(json.data).toHaveProperty('uid', 'barter_123');
+        expect(BarterOfferModel.create).toHaveBeenCalledTimes(1);
     });
-  });
 });

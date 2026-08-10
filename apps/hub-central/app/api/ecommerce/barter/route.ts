@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { BarterOfferModel } from '@ilot/infrastructure';
+import { BarterOfferModel, OiseauModel } from '@ilot/infrastructure';
 import { EcommerceOrchestrator } from '@ilot/shared-core';
 import { v4 as uuidv4 } from 'uuid';
 import { unstable_cache, revalidateTag } from 'next/cache';
@@ -43,12 +43,21 @@ export const GET = withSilice(async (_req: Request, _context: ApiContext) => {
 // ==========================================
 export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
+    const initiatorUid = currentUser.uid || currentUser.id;
+
+    // 🛡️ DOUANE VIBRATOIRE : Vérification du statut de l'Oiseau dans le Tribunal de la Canopée
+    const oiseauProfile = await OiseauModel.findOne({ uid: initiatorUid }).lean() as any;
+    if (oiseauProfile && (oiseauProfile.isBanned || oiseauProfile.profileStatus === 'INDESIRABLE')) {
+      return NextResponse.json({ 
+        error: "Souveraineté restreinte : Votre fréquence est jugée indésirable. Le Grand Bazar vous est fermé." 
+      }, { status: 403 });
+    }
+
     const body = await req.json().catch(() => null);
     if (!body) {
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
-    const initiatorUid = currentUser.uid || currentUser.id;
     const barterUid = `barter_${uuidv4()}`;
 
     const newOffer = await BarterOfferModel.create({
@@ -92,13 +101,22 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
 // ==========================================
 export const PATCH = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
+    const acceptorUid = currentUser.uid || currentUser.id;
+
+    // 🛡️ DOUANE VIBRATOIRE : Vérification du statut de l'Oiseau pour la résolution
+    const oiseauProfile = await OiseauModel.findOne({ uid: acceptorUid }).lean() as any;
+    if (oiseauProfile && (oiseauProfile.isBanned || oiseauProfile.profileStatus === 'INDESIRABLE')) {
+      return NextResponse.json({ 
+        error: "Souveraineté restreinte : Votre fréquence est jugée indésirable." 
+      }, { status: 403 });
+    }
+
     const body = await req.json().catch(() => null);
     if (!body) {
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
     const { barterUid, status } = body; 
-    const acceptorUid = currentUser.uid || currentUser.id;
 
     if (!barterUid || !status) {
       return NextResponse.json({ error: "Identifiant de troc ou statut manquant." }, { status: 400 });
