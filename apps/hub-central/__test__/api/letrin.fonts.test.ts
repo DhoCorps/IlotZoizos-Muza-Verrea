@@ -45,7 +45,7 @@ declare global {
 describe('API Letr\'In Font Projects - Gestion des projets de polices', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   // =========================================================================
@@ -72,7 +72,7 @@ describe('API Letr\'In Font Projects - Gestion des projets de polices', () => {
   // 🚀 TESTS POST (Sédimentation)
   // =========================================================================
   it('🔴 doit rejeter l’envoi si l’oiseau n’est pas connecté (401)', async () => {
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     const req = new Request('http://localhost/api/letrin/fonts', {
       method: 'POST',

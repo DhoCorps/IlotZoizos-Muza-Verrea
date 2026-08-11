@@ -35,7 +35,7 @@ vi.mock('@/lib/slugify', () => ({
 describe('Route API : Miroir (GET /[slug])', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
   const mockOiseauDb = {
     uid: 'dho-123',

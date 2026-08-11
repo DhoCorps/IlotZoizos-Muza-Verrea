@@ -41,7 +41,7 @@ declare global {
 describe('Route API : Abyss Upload & Delete Sujet Media (POST / DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ Espions actifs sur le StorageService (Méthode validée)
     vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('hub-central/fr/projects/mon-sujet/sujet_media/test.jpg');

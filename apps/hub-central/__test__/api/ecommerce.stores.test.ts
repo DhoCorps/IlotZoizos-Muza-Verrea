@@ -49,7 +49,7 @@ declare global {
 describe('API Stores (Boutiques)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   describe('GET /api/stores', () => {
@@ -71,7 +71,7 @@ describe('API Stores (Boutiques)', () => {
 
   describe('POST /api/stores', () => {
     it('🔴 [POST] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-      global.__mockUser = undefined;
+      delete (global as any).__mockUser;
 
       const req = new Request('http://localhost/api/stores', {
         method: 'POST',

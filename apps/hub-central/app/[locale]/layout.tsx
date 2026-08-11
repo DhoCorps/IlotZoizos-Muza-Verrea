@@ -5,6 +5,7 @@ import { Sparkles } from 'lucide-react';
 import { Link } from '@/navigation';
 import { ChapeauProvider } from '@/context/ChapeauContext';
 import { FloatingChapeau } from '@/components/chapeau/FloatingChapeau';
+import CanopyAwardsWidget from '@/components/canopy/CanopyAwardsWidget'; // 🏆 Import du widget Panthéon
 
 export default function AppRootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -41,8 +42,14 @@ export default function AppRootLayout({ children }: { children: React.ReactNode 
           </div>
         </footer>
 
-        {/* 🎩 Le Chapeau Magique Contextuel (toujours présent en bas à droite) */}
-        <FloatingChapeau />
+        {/* 🪄 Zone des éléments flottants globaux (Bas de page) */}
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3">
+          {/* 🏆 Le Widget Panthéon de la Canopée */}
+          <CanopyAwardsWidget />
+          
+          {/* 🎩 Le Chapeau Magique Contextuel */}
+          <FloatingChapeau />
+        </div>
 
       </div>
     </ChapeauProvider>

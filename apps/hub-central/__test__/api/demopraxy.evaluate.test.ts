@@ -28,7 +28,7 @@ declare global {
 describe('API Demopraxy Evaluation POST', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de DemopraxyOrchestrator
     vi.spyOn(DemopraxyOrchestrator.prototype, 'processDemopraxicEvaluation').mockResolvedValue({
@@ -38,7 +38,7 @@ describe('API Demopraxy Evaluation POST', () => {
   });
 
   it('🔴 [POST] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     const req = new Request('http://localhost/api/demopraxy', {
       method: 'POST',

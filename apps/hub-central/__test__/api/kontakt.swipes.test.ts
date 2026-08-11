@@ -34,11 +34,11 @@ declare global {
 describe('API Kontakt Swipes - Enregistrement des affinités', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('doit rejeter (401) si l\'oiseau n\'est pas connecté', async () => {
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     const req = new Request('http://localhost/api/kontakt/swipes', {
       method: 'POST',

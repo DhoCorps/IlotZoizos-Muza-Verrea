@@ -35,11 +35,11 @@ declare global {
 describe('API Orders (Commandes)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('🔴 [POST] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     const req = new Request('http://localhost/api/orders', {
       method: 'POST',

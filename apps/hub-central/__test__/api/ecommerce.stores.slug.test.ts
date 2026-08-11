@@ -48,7 +48,7 @@ declare global {
 describe('API Store [slug] (GET & DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   describe('GET /api/stores/[slug]', () => {
@@ -79,7 +79,7 @@ describe('API Store [slug] (GET & DELETE)', () => {
 
   describe('DELETE /api/stores/[slug]', () => {
     it('🔴 doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-      global.__mockUser = undefined;
+      delete (global as any).__mockUser;
 
       const req = new Request('http://localhost/api/stores/ma-boutique', { method: 'DELETE' });
       const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'ma-boutique' }) });

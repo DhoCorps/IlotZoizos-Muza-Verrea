@@ -24,7 +24,7 @@ vi.mock('@/modules/security/rateLimiter', () => ({
 describe('POST /api/samples/upload', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🎯 ESPIONNAGE ACTIF DE STORAGE SERVICE
     vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('mock-sample-key');

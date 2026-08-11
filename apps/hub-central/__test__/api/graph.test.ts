@@ -19,7 +19,7 @@ vi.mock('next/cache', () => ({
 describe('API Graph Neo4j', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
   it('🟢 doit renvoyer les nœuds et liens formatés', async () => {
     const mockSession = {

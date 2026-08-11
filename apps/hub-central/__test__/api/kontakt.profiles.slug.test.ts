@@ -28,7 +28,7 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('API Kontakt Profiles - Tests incrémentaux', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   // TEST GET (Déjà validé)

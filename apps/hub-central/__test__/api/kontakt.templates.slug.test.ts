@@ -46,7 +46,7 @@ declare global {
 describe('API Kontakt Template Slug - Gestion d\'un template spécifique', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   // =========================================================================
@@ -86,7 +86,7 @@ describe('API Kontakt Template Slug - Gestion d\'un template spécifique', () =>
   // =========================================================================
   describe('PUT /api/kontakt/templates/[slug]', () => {
     it('doit rejeter (401) si l\'oiseau n\'est pas connecté', async () => {
-      global.__mockUser = undefined;
+      delete (global as any).__mockUser;
 
       const req = new Request('http://localhost/api/kontakt/templates/cyberpunk', {
         method: 'PUT',
@@ -124,7 +124,7 @@ describe('API Kontakt Template Slug - Gestion d\'un template spécifique', () =>
   // =========================================================================
   describe('DELETE /api/kontakt/templates/[slug]', () => {
     it('doit rejeter (401) si l\'oiseau n\'est pas connecté', async () => {
-      global.__mockUser = undefined;
+      delete (global as any).__mockUser;
 
       const req = new Request('http://localhost/api/kontakt/templates/cyberpunk', {
         method: 'DELETE',

@@ -18,7 +18,7 @@ vi.mock('next/cache', () => ({ revalidateTag: vi.fn() }));
 describe('API Market Regulation - Régulation de l’Îlot', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('❌ doit rejeter les requêtes non authentifiées (401)', async () => {

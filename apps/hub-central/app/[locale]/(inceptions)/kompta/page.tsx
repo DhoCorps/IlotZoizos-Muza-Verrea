@@ -1,8 +1,8 @@
-// apps/hub-central/app/[locale]/(inceptions)/kompta/page.tsx
 'use client';
 
 import React from 'react';
 import { KomptaDashboard } from '@/components/kompta/DashBoard';
+import { CanopySubsidySection } from '@/components/canopy/CanopySubsidySection';
 import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
 
 export default function KomptaInceptionPage() {
@@ -15,7 +15,13 @@ export default function KomptaInceptionPage() {
 
   return (
     <main className="min-h-screen bg-[#05070A] text-slate-100 py-8 px-4">
-      <KomptaDashboard />
+      <div className="max-w-7xl mx-auto space-y-12">
+        {/* Tableau de bord financier / Grand Livre */}
+        <KomptaDashboard />
+
+        {/* Guichet des subventions de la Canopée */}
+        <CanopySubsidySection />
+      </div>
     </main>
   );
 }

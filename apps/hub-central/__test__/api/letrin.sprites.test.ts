@@ -53,7 +53,7 @@ declare global {
 describe('API Letr\'In Sprites - Gestion des polices', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de LetrinSpriteOrchestrator
     vi.spyOn(LetrinSpriteOrchestrator.prototype, 'publishFontSprite').mockResolvedValue(true as any);
@@ -83,7 +83,7 @@ describe('API Letr\'In Sprites - Gestion des polices', () => {
   // 🚀 TESTS POST (Sédimentation)
   // =========================================================================
   it('🔴 doit rejeter l’envoi si l’oiseau n’est pas connecté (401)', async () => {
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     const req = new Request('http://localhost/api/letrin/sprites', {
       method: 'POST',

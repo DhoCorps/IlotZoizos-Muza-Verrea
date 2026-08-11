@@ -33,7 +33,7 @@ declare global {
 describe('Route API : Nid Artefacts (POST / DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // Espions actifs sur le storageService
     vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('mock-key');

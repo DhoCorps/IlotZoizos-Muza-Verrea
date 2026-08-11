@@ -61,7 +61,7 @@ function mockNeo4jAuth(isOwner: boolean = true) {
 describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('hub-central/fr/tasks/task_123/attachments/test.pdf');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({

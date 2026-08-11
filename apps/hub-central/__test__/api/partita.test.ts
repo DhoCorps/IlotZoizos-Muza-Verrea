@@ -34,7 +34,7 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('API Partita - Collection (GET / POST)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de PartitaOrchestrator
     vi.spyOn(PartitaOrchestrator.prototype, 'fosterPartita').mockResolvedValue({

@@ -41,7 +41,7 @@ declare global {
 describe('API Letr\'In Font Project Slug - Gestion d\'un projet spécifique', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   // =========================================================================
@@ -49,7 +49,7 @@ describe('API Letr\'In Font Project Slug - Gestion d\'un projet spécifique', ()
   // =========================================================================
   describe('PUT /api/letrin/fonts/[slug]', () => {
     it('doit rejeter (401) si l\'oiseau n\'est pas connecté', async () => {
-      global.__mockUser = undefined;
+      delete (global as any).__mockUser;
 
       const req = new Request('http://localhost/api/letrin/fonts/matrix-font', {
         method: 'PUT',
@@ -101,7 +101,7 @@ describe('API Letr\'In Font Project Slug - Gestion d\'un projet spécifique', ()
   // =========================================================================
   describe('DELETE /api/letrin/fonts/[slug]', () => {
     it('doit rejeter (401) si l\'oiseau n\'est pas connecté', async () => {
-      global.__mockUser = undefined;
+      delete (global as any).__mockUser;
 
       const req = new Request('http://localhost/api/letrin/fonts/matrix-font', {
         method: 'DELETE',

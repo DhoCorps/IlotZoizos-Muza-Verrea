@@ -36,12 +36,12 @@ declare global {
 describe('API Order [slug] (GET & PATCH)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   describe('GET /api/orders/[slug]', () => {
     it('🔴 doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-      global.__mockUser = undefined;
+      delete (global as any).__mockUser;
 
       const req = new Request('http://localhost/api/orders/ord_123');
       const res = await GET(req as any, { params: Promise.resolve({ slug: 'ord_123' }) });

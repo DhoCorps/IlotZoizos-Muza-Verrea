@@ -51,7 +51,7 @@ declare global {
 describe('API Kontakt Job Quests - Gestion des quêtes de recrutement', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   // =========================================================================
@@ -78,7 +78,7 @@ describe('API Kontakt Job Quests - Gestion des quêtes de recrutement', () => {
   // 🚀 TESTS POST (Publication)
   // =========================================================================
   it('🔴 doit rejeter la publication (401) si l\'oiseau n\'est pas connecté', async () => {
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     const req = new Request('http://localhost/api/kontakt/quests', {
       method: 'POST',

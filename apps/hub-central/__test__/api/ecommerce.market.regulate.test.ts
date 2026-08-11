@@ -28,7 +28,7 @@ declare global {
 describe('API Market Regulation POST', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de MarketRegulationOrchestrator
     vi.spyOn(MarketRegulationOrchestrator.prototype, 'processConnectedRegulation').mockResolvedValue({
@@ -38,7 +38,7 @@ describe('API Market Regulation POST', () => {
   });
 
   it('🔴 [POST] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     const req = new Request('http://localhost/api/market/regulate', {
       method: 'POST',

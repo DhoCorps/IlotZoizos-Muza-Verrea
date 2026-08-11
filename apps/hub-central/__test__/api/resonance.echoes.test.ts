@@ -41,7 +41,7 @@ vi.mock('@ilot/shared-core', () => ({
 describe('Route API : Resonance Echoes (GET / POST /api/resonance/echoes)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   describe('GET - Écouter les résonances', () => {

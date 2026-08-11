@@ -50,7 +50,7 @@ declare global {
 describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   // =========================================================================
@@ -122,7 +122,7 @@ describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
   // =========================================================================
   describe('PUT /api/partitas/[slug]', () => {
     it('doit rejeter (401) si l\'oiseau n\'est pas connecté', async () => {
-      global.__mockUser = undefined;
+      delete (global as any).__mockUser;
 
       const req = new Request('http://localhost/api/partitas/ma-partition', {
         method: 'PUT',

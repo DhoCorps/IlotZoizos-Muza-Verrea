@@ -15,7 +15,7 @@ describe('Oiseau Graph Service (franchirLaPorte & propagerCouleur)', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        global.__mockUser = undefined;
+        delete (global as any).__mockUser;
         mockSession = {
             run: vi.fn(),
             close: vi.fn().mockResolvedValue(undefined),

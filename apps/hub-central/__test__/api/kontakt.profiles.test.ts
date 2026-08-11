@@ -54,7 +54,7 @@ declare global {
 describe('API Kontakt Profiles - Gestion des profils de la canopée', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   // =========================================================================
@@ -81,7 +81,7 @@ describe('API Kontakt Profiles - Gestion des profils de la canopée', () => {
   // 🚀 TESTS POST (Sédimentation / Mise à jour)
   // =========================================================================
   it('🔴 doit rejeter la sédimentation (401) si l\'oiseau n\'est pas connecté', async () => {
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     const req = new Request('http://localhost/api/kontakt/profiles', {
       method: 'POST',

@@ -25,7 +25,7 @@ vi.mock('@/lib/api-guards', () => ({
 describe('GET /api/showcase/stream', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('doit générer un flux personnalisé pour l\'utilisateur authentifié', async () => {

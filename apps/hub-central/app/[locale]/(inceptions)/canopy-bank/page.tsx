@@ -1,7 +1,7 @@
 import React from 'react';
 import { RESOURCE_REGISTRY } from '@/constants/resources.config';
 import { AssetType } from '@ilot/types';
-import { CanopySubsidySection } from '@/components/canopy/canopySubsidySection';
+import { CanopySubsidySection } from '@/components/canopy/CanopySubsidySection';
 import { KomptaLedgerService } from '@ilot/infrastructure';
 import { SubsidyModel } from '@ilot/infrastructure';
 
@@ -14,6 +14,7 @@ async function getTreasuryData() {
   const reserves = Object.entries(rawBalances).map(([type, amount]) => ({
     type: type as AssetType,
     amount: Number(amount) || 0
+    
   }));
 
   // 3. Comptage dynamique des paris absorbés (récupéré depuis les références du grand livre ou le modèle)

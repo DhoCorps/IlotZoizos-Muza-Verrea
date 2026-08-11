@@ -38,12 +38,12 @@ declare global {
 describe('API Ecommerce Wishlists', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   describe('GET /api/ecommerce/wishlist', () => {
     it('🔴 doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-      global.__mockUser = undefined;
+      delete (global as any).__mockUser;
 
       const req = new Request('http://localhost/api/ecommerce/wishlist');
       const res = await GET(req as any, {});

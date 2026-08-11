@@ -55,7 +55,7 @@ vi.mock('next/cache', () => ({
 describe('POST /api/messages (Douane Vibratoire de la Messagerie)', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        global.__mockUser = undefined;
+        delete (global as any).__mockUser;
         mockCurrentUser = { uid: 'bird_clean_1', slug: 'bird_clean_1', capabilities: ['*'] };
     });
 

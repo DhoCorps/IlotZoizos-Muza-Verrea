@@ -42,7 +42,7 @@ declare global {
 describe('Route API : Téléversement & Suppression d\'apparence (POST / DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // Espions actifs sur storageService
     vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('mock-key');

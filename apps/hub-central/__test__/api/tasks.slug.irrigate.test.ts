@@ -25,7 +25,7 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('Route API : Irrigation Tâche (POST /api/tasks/[slug]/irrigate)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de TaskIrrigationOrchestrator
     vi.spyOn(TaskIrrigationOrchestrator.prototype, 'processTaskIrrigation').mockResolvedValue({

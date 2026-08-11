@@ -24,7 +24,7 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('Route API : Taxonomie (GET / POST)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('GET - doit renvoyer les taxonomies et les valeurs statiques', async () => {

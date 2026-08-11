@@ -43,7 +43,7 @@ declare global {
 describe('Route API : Projects (GET / POST /api/projects)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de ProjectOrchestrator
     vi.spyOn(ProjectOrchestrator.prototype, 'fosterProject').mockResolvedValue({
@@ -55,7 +55,7 @@ describe('Route API : Projects (GET / POST /api/projects)', () => {
 
   describe('GET - Consultation de la Clairière (Projets)', () => {
     it('doit renvoyer les projets publics pour un visiteur anonyme', async () => {
-      global.__mockUser = undefined;
+      delete (global as any).__mockUser;
 
       const mockLean = vi.fn().mockResolvedValue([{ uid: 'p-1', name: 'Projet Public', visibility: 'PUBLIC' }]);
       vi.mocked(ProjectModel.find).mockReturnValue({

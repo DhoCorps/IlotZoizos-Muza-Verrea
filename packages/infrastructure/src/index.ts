@@ -60,3 +60,7 @@ export * from './database/models/nosql/sample.model';
 export * from './database/models/nosql/lexiconEntry.model';
 
 export * from '../../infrastructure/src/database/services/identityGenerator.services';
+
+export * from './database/models/nosql/canopyAward.model';
+
+export * from './database/models/nosql/systemGraphDql.model';

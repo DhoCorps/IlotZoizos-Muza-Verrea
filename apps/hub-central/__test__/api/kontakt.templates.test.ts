@@ -45,7 +45,7 @@ declare global {
 describe('API CV Templates - Gestion des modèles de CV', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   // =========================================================================
@@ -72,7 +72,7 @@ describe('API CV Templates - Gestion des modèles de CV', () => {
   // 🚀 TESTS POST (Sédimentation)
   // =========================================================================
   it('🔴 doit rejeter la publication si l’oiseau n’est pas connecté (401)', async () => {
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     const req = new Request('http://localhost/api/cv-templates', {
       method: 'POST',

@@ -22,7 +22,7 @@ vi.mock('next/cache', () => ({
 describe('GET /api/sovereign/leaderboard (Le Hall of Fame)', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        global.__mockUser = undefined;
+        delete (global as any).__mockUser;
     });
 
     it('🟢 doit retourner la liste des oiseaux les plus respectables triés par IFV', async () => {

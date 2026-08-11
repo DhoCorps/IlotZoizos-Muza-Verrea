@@ -28,7 +28,7 @@ declare global { var __mockUser: any; }
 describe('POST /api/kontakt/templates/[slug]/upload', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ Espionnage du Service de Stockage
     vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('mock-key');

@@ -11,7 +11,7 @@ vi.mock('@/lib/api-guards', () => ({
 describe('GET /api/kompta/ledger', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('doit retourner le grand livre et calculer les métriques exactes', async () => {

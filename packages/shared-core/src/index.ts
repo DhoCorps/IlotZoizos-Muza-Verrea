@@ -24,7 +24,8 @@ export * from '../src/ecommerce/useCartStore';
 export * from '../src/ecommerce/useWishListStore';
 export * from './sync-engine/revenueSplit.orchestrator';
 export * from './sync-engine/canopyEvolution.orchestrator';
-export * from '../src/sync-engine/canopySubsidy.orchestrator'
+export * from '../src/sync-engine/canopySubsidy.orchestrator';
+export * from '../src/sync-engine/canopyCron.orchestrator';
 
 
 // --- 5. SYNCHRONISATION & ORCHESTRATEURS ---
@@ -107,3 +108,5 @@ export * from './sync-engine/showcase.orchestrator';
 
 export * from '../src/security/canopyJudgeEngine';
 export * from '../src/security/ipTracker';
+
+export * from '../src/sync-engine/dqlRetry.orchestrator';

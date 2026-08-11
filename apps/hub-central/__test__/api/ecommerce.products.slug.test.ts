@@ -49,7 +49,7 @@ describe('API Product [slug] (GET & DELETE)', () => {
   
   beforeEach(() => {
       vi.clearAllMocks();
-      global.__mockUser = undefined;
+      delete (global as any).__mockUser;
   });  
 
   describe('GET /api/products/[slug]', () => {
@@ -80,7 +80,7 @@ describe('API Product [slug] (GET & DELETE)', () => {
 
   describe('DELETE /api/products/[slug]', () => {
     it('🔴 doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-      global.__mockUser = undefined;
+      delete (global as any).__mockUser;
 
       const req = new Request('http://localhost/api/products/artefact-ancien', { method: 'DELETE' });
       const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'artefact-ancien' }) });

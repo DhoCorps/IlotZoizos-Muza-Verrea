@@ -19,6 +19,7 @@ vi.mock('@/lib/api-guards', () => ({
 describe('GET /api/canopy/stats', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete (global as any).__mockUser;
   });
 
   it('🟢 doit retourner les statistiques de la dernière diffusion', async () => {

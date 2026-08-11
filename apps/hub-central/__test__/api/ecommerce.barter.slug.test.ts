@@ -24,7 +24,7 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('API Barter Slug', () => {
   beforeEach(() => { 
     vi.clearAllMocks(); 
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de EcommerceOrchestrator
     vi.spyOn(EcommerceOrchestrator.prototype, 'resolveBarter').mockResolvedValue({

@@ -41,7 +41,7 @@ describe('Route API : Atomes (Tasks) /api/tasks', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        global.__mockUser = undefined;
+        delete (global as any).__mockUser;
         mockNeoSession = {
             run: vi.fn().mockResolvedValue({ records: [] }),
             close: vi.fn().mockResolvedValue(undefined),

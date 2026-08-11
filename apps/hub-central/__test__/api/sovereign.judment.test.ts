@@ -34,7 +34,7 @@ describe('POST /api/sovereign/judgment (Le Tribunal de la Canopée)', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        global.__mockUser = undefined;
+        delete (global as any).__mockUser;
         mockUserCapabilities = ['*'];
 
         mockTargetOiseau = {

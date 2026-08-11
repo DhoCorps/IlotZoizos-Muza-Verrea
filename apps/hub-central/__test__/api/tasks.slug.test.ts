@@ -38,7 +38,7 @@ describe('Route API : Atome Individuel ([slug])', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        global.__mockUser = undefined;
+        delete (global as any).__mockUser;
         mockNeoSession = {
             run: vi.fn().mockResolvedValue({ records: [] }),
             close: vi.fn().mockResolvedValue(undefined),

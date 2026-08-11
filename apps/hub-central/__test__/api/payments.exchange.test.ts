@@ -11,7 +11,7 @@ vi.mock('next-auth/next', () => ({
 describe('API Payments Exchange - POST /api/payments/exchange', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct de la méthode de l'orchestrateur
     vi.spyOn(KomptaPaymentOrchestrator.prototype, 'executeItemExchange').mockResolvedValue({
       success: true,

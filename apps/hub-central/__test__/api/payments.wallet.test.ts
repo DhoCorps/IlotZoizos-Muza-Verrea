@@ -11,7 +11,7 @@ vi.mock('next-auth/next', () => ({
 describe('API Payments Wallet - POST /api/payments/wallet', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de l'orchestrateur
     vi.spyOn(PaymentTokenizationOrchestrator.prototype, 'linkExternalPaymentProfile').mockResolvedValue({

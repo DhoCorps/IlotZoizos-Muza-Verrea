@@ -35,7 +35,7 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('Route API : Nids / Escouades (GET / POST /api/teams)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de TeamOrchestrator
     vi.spyOn(TeamOrchestrator.prototype, 'fosterTeam').mockResolvedValue({

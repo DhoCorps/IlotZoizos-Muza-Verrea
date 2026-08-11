@@ -30,7 +30,7 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('Route API : Bibliothèque & Sujets (GET / POST /api/sujets)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de SujetOrchestrator
     vi.spyOn(SujetOrchestrator.prototype, 'fosterSujet').mockResolvedValue({

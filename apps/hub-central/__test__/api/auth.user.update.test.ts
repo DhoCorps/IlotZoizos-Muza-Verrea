@@ -36,7 +36,7 @@ declare global {
 describe('API Oiseau Fluctuation PUT', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de OiseauOrchestrator
     vi.spyOn(OiseauOrchestrator.prototype, 'appliquerFluctuation').mockResolvedValue({
@@ -46,7 +46,7 @@ describe('API Oiseau Fluctuation PUT', () => {
   });
 
   it('🔴 [PUT] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     const req = new Request('http://localhost/api/oiseau', {
       method: 'PUT',

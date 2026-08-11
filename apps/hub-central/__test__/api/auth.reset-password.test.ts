@@ -32,7 +32,7 @@ vi.mock('bcryptjs', () => ({
 describe('API Reset Password POST', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('🔴 [POST] doit rejeter (400) si le schéma Zod est invalide', async () => {

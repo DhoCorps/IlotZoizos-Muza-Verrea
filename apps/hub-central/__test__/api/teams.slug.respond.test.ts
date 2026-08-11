@@ -44,7 +44,7 @@ vi.mock('@ilot/shared-core', () => ({
 describe('Route API : Réponse au Pacte d\'Adhésion (POST /api/teams/[slug]/respond)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('doit rejeter (401) si l\'utilisateur n\'a pas d\'Aura', async () => {

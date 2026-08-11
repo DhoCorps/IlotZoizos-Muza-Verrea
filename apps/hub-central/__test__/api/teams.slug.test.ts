@@ -32,7 +32,7 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de TeamOrchestrator
     vi.spyOn(TeamOrchestrator.prototype, 'mutateTeam').mockResolvedValue({

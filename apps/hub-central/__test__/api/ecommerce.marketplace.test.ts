@@ -27,7 +27,7 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('API Marketplace (GET)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('🟢 doit récupérer la liste des produits enrichis avec succès (200)', async () => {

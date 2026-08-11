@@ -40,11 +40,11 @@ declare global {
 describe('API Ecommerce Wishlist DELETE [slug]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('🔴 doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     const req = new Request('http://localhost/api/ecommerce/wishlist/mon-slug', { method: 'DELETE' });
     const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'mon-slug' }) });

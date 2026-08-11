@@ -37,7 +37,7 @@ vi.mock('resend', () => {
 describe('API Forgot Password POST', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('🔴 [POST] doit rejeter (400) si l\'email est invalide ou absent', async () => {

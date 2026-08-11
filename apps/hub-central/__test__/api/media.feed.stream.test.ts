@@ -26,7 +26,7 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('API Media Stream Feed - Flux Public Agora', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('🟢 doit récupérer le flux des visuels et des pistes avec succès (200)', async () => {

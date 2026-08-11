@@ -28,7 +28,7 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('Route API : Observatoire (GET /[slug]/observatory)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur l'ObservatoryEngine
     vi.spyOn(ObservatoryEngine, 'generateReport').mockReturnValue({

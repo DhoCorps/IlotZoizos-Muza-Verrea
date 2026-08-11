@@ -57,7 +57,7 @@ function mockNeo4jAuth(isValid: boolean = true) {
 describe('Route API : Project Attachments (POST / DELETE /api/projects/[slug]/attachments)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ Espions actifs sur le StorageService (Pattern validé)
     vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('ilot-zoizos/fr/projects/proj-1/attachments/test.pdf');

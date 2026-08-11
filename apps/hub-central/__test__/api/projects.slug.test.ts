@@ -53,7 +53,7 @@ function mockNeo4jCaps(hasAccess: boolean = true, caps: string[] = [], rels: str
 describe('Route API : Project [projectId] (GET / PUT / DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de ProjectOrchestrator
     vi.spyOn(ProjectOrchestrator.prototype, 'mutateProject').mockResolvedValue({
@@ -71,7 +71,7 @@ describe('Route API : Project [projectId] (GET / PUT / DELETE)', () => {
 
   describe('GET - Auscultation du Chantier', () => {
     it('doit autoriser (200) la lecture d\'un projet public pour un visiteur anonyme', async () => {
-      global.__mockUser = undefined;
+      delete (global as any).__mockUser;
 
       vi.mocked(ProjectModel.findOne).mockReturnValue({
         select: () => ({

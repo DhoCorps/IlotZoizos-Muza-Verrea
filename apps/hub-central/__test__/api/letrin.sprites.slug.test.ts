@@ -45,7 +45,7 @@ declare global {
 describe('API Letr\'In Sprite Slug - Gestion d\'une police spécifique', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   // =========================================================================
@@ -84,7 +84,7 @@ describe('API Letr\'In Sprite Slug - Gestion d\'une police spécifique', () => {
   // =========================================================================
   describe('PUT /api/letrin/sprites/[slug]', () => {
     it('doit rejeter (401) si l\'oiseau n\'est pas connecté', async () => {
-      global.__mockUser = undefined;
+      delete (global as any).__mockUser;
 
       const req = new Request('http://localhost/api/letrin/sprites/cyberfont', {
         method: 'PUT',

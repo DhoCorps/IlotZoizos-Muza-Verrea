@@ -38,7 +38,7 @@ vi.mock('@ilot/shared-core', () => ({
 describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   describe('GET - Auscultation du Sujet', () => {

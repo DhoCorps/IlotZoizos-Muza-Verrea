@@ -50,7 +50,7 @@ declare global {
 describe('POST /ecommerce/[slug]/upload', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('hub-central/fr/projects/mon-produit/product_image_123.jpg');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({

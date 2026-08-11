@@ -34,11 +34,11 @@ declare global {
 describe('API Messages Unread - Comptage des murmures non lus', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('🔴 doit rejeter l’accès (401) si l’oiseau n’est pas connecté', async () => {
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
 
     const req = new Request('http://localhost/api/messages/unread');
     const res = await GET(req as any, {});

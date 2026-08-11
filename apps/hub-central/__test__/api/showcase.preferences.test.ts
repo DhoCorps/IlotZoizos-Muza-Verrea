@@ -29,7 +29,7 @@ vi.mock('@/lib/api-guards', () => ({
 describe('POST /api/showcase/preferences - Route API de Configuration Granulaire', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('doit mettre à jour les préférences de consentement avec succès (200)', async () => {

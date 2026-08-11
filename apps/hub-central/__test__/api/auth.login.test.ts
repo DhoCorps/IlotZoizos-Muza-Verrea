@@ -29,7 +29,7 @@ vi.mock('bcryptjs', () => ({
 describe('API Auth Login POST', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('🔴 [POST] doit rejeter (400) si les champs sont manquants', async () => {

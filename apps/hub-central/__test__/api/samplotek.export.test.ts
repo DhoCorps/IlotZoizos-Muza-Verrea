@@ -35,7 +35,7 @@ vi.mock('@/lib/api-guards', () => ({
 describe('POST /api/studio/export', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.__mockUser = undefined;
+    delete (global as any).__mockUser;
   });
 
   it('doit exporter le projet et restreindre les permissions si un sample est bloqué', async () => {

@@ -30,7 +30,7 @@ describe('POST /api/oiseau/onboarding (Attribution d\'Identité Organique)', () 
 
     beforeEach(() => {
         vi.clearAllMocks();
-        global.__mockUser = undefined;
+        delete (global as any).__mockUser;
 
         mockOiseauDoc = {
             uid: 'bird_new_123',
