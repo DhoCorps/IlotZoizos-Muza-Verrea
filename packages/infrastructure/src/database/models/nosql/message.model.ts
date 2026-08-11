@@ -54,8 +54,8 @@ const MessageSchema = new Schema<IMessageDocument>({
   reactions: [ReactionSubSchema],
   readBy: [ReadReceiptSubSchema],
   
-  // Nouveaux champs pour la Phase 4
-  isSystemBroadcast: { type: Boolean, default: false, index: true },
+  // Nouveaux champs pour la Phase 4 (index: true retiré ici pour éviter le doublon avec le schéma d'index plus bas)
+  isSystemBroadcast: { type: Boolean, default: false },
   metadata: { type: Schema.Types.Mixed, default: null }
 }, {
   timestamps: true,
@@ -65,7 +65,7 @@ const MessageSchema = new Schema<IMessageDocument>({
 // Tri chronologique ultra-rapide par salon basé sur les slugs
 MessageSchema.index({ conversationSlug: 1, createdAt: -1 });
 MessageSchema.index({ conversationSlug: 1, senderSlug: 1 });
-MessageSchema.index({ isSystemBroadcast: 1 }); // Index pour cibler rapidement les diffusions système
+MessageSchema.index({ isSystemBroadcast: 1 }); // Index unique et propre pour cibler rapidement les diffusions système
 
 export const MessageModel: Model<IMessageDocument> = 
   mongoose.models.Message || model<IMessageDocument>('Message', MessageSchema);
