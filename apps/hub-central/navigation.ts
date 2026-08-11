@@ -90,7 +90,12 @@ export const routing = defineRouting({
     
     // 🔮 ROUTES DE L'ORACLE DE WIKIPÉDIA
     '/games/wikioracle': '/games/wikioracle',
-    '/games/wikioracle/[slug]': '/games/wikioracle/[slug]'
+    '/games/wikioracle/[slug]': '/games/wikioracle/[slug]',
+
+    // ROUTE DE LA CANOPEE
+
+    '/canopy-bank': '/canopy-bank',
+    '/canopy': '/canopy',
   }
 });
 

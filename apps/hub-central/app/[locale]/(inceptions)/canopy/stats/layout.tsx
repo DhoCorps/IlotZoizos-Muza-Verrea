@@ -1,5 +1,6 @@
 // apps/hub-central/app/inception/canopy/stats/layout.tsx
 import React, { ReactNode } from 'react';
+import { ResourceBadge } from '@/components/global/ResourceBadge';
 
 export interface CanopyStatsLayoutProps {
   children: ReactNode;
@@ -15,8 +16,16 @@ export default function CanopyStatsLayout({ children }: CanopyStatsLayoutProps) 
         <p className="text-sm text-slate-400 mt-2">
           Observation des flux, des résonances et des moissons mensuelles de l'Îlot Zoizos.
         </p>
+
+        {/* 🌿 Ruban des Actifs Souverains de la Canopée (Intégration du ResourceBadge) */}
+        <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
+          <ResourceBadge type="TOX" amount={14250} size="sm" />
+          <ResourceBadge type="DHO" amount={890} size="sm" />
+          <ResourceBadge type="KAOS" amount={53200} size="sm" />
+        </div>
       </header>
-      <main>{children}</main>
+
+      <main className="max-w-5xl mx-auto">{children}</main>
     </div>
   );
 }

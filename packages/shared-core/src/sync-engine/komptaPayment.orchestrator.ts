@@ -3,8 +3,9 @@ import mongoose from 'mongoose';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
-import { WalletModel } from '../../../infrastructure/src/database/models/nosql/wallet.model';
-import { KomptaLedgerService } from '../../../infrastructure/src/database/services/komptaLedger.services';
+import { WalletModel } from '@ilot/infrastructure/';
+import { KomptaLedgerService } from '@ilot/infrastructure/';
+import { SovereignCurrency } from '@ilot/infrastructure/';
 
 export interface DirectTransferPayload {
   transferUid: string;
@@ -97,8 +98,9 @@ export class KomptaPaymentOrchestrator {
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.senderUid,
         counterpartyUid: payload.recipientUid,
+        amount: payload.amountCents / 100,
         amountCents: payload.amountCents,
-        currency: payload.currency,
+        currency: payload.currency as SovereignCurrency,
         type: 'DEBIT',
         category: 'SYSTEM_TRANSFER',
         referenceUid: payload.transferUid,
@@ -110,8 +112,9 @@ export class KomptaPaymentOrchestrator {
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.recipientUid,
         counterpartyUid: payload.senderUid,
+        amount: payload.amountCents / 100,
         amountCents: payload.amountCents,
-        currency: payload.currency,
+        currency: payload.currency as SovereignCurrency,
         type: 'CREDIT',
         category: 'SYSTEM_TRANSFER',
         referenceUid: payload.transferUid,
@@ -232,8 +235,9 @@ export class KomptaPaymentOrchestrator {
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.buyerUid,
         counterpartyUid: payload.recipientUid,
+        amount: payload.amountCents / 100,
         amountCents: payload.amountCents,
-        currency: payload.currency,
+        currency: payload.currency as SovereignCurrency,
         type: 'DEBIT',
         category: 'STORE_PURCHASE',
         referenceUid: payload.transactionUid,
@@ -245,8 +249,9 @@ export class KomptaPaymentOrchestrator {
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.recipientUid,
         counterpartyUid: payload.buyerUid,
+        amount: payload.amountCents / 100,
         amountCents: netMerchantAmountCents,
-        currency: payload.currency,
+        currency: payload.currency as SovereignCurrency,
         type: 'CREDIT',
         category: 'STORE_SALE',
         referenceUid: payload.transactionUid,
@@ -259,8 +264,9 @@ export class KomptaPaymentOrchestrator {
         await KomptaLedgerService.recordEntry({
           ownerUid: KomptaPaymentOrchestrator.CANOPY_TREASURY_UID,
           counterpartyUid: payload.buyerUid,
+          amount: payload.amountCents / 100,
           amountCents: canopyTaxCents,
-          currency: payload.currency,
+          currency: payload.currency as SovereignCurrency,
           type: 'CREDIT',
           category: 'CANOPY_TAX_REVENUE',
           referenceUid: payload.transactionUid,
@@ -346,6 +352,7 @@ export class KomptaPaymentOrchestrator {
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.senderUid,
         counterpartyUid: payload.recipientUid,
+        amount: 0,
         amountCents: 0,
         currency: 'EUR',
         type: 'DEBIT',

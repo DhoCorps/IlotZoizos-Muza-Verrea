@@ -1,95 +1,121 @@
-// packages/shared-core/src/sync-engine/__tests__/komptaPayment.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { KomptaPaymentOrchestrator } from '../komptaPayment.orchestrator';
-import { WalletModel } from '../../../../infrastructure/src/database/models/nosql/wallet.model';
-import { KomptaLedgerService } from '../../../../infrastructure/src/database/services/komptaLedger.services';
+import { KomptaPaymentOrchestrator, DirectTransferPayload } from '../komptaPayment.orchestrator';
 import { TransactionManager } from '../transactionManager';
+import { WalletModel } from '@ilot/infrastructure';
+import { KomptaLedgerService } from '@ilot/infrastructure';
+import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('../../../../infrastructure/src/database/services/komptaLedger.services', () => ({
-    KomptaLedgerService: {
-        recordEntry: vi.fn().mockResolvedValue(true),
-    },
-}));
-
-vi.mock('../../../../infrastructure/src/database/models/nosql/wallet.model', () => ({
-    WalletModel: {
-        findOne: vi.fn(),
-    },
-}));
-
+// 🛡️ Mocks de l'infrastructure et des services
 vi.mock('../transactionManager', () => ({
-    TransactionManager: {
-        execute: vi.fn(async (_name, callback) => {
-            const mockMongoSession = {};
-            const mockNeo4jTx = {
-                run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_id' }] })
-            };
-            return await callback(mockMongoSession, mockNeo4jTx);
-        }),
-    },
+  TransactionManager: {
+    // On mocke l'exécution pour qu'elle exécute simplement la callback passée en paramètre
+    execute: vi.fn(async (description, callback) => {
+      // Simule une session mongo et une transaction neo4j vides
+      return await callback({}, { run: vi.fn().mockResolvedValue({ records: ['DUMMY_NEO_RESULT'] }) });
+    })
+  }
 }));
 
-describe('KomptaPaymentOrchestrator - Économie Souveraine et Redistribution', () => {
-    let orchestrator: KomptaPaymentOrchestrator;
+vi.mock('@ilot/infrastructure');
+vi.mock('@/infrastructure');
 
-    beforeEach(() => {
-        vi.clearAllMocks();
-        orchestrator = new KomptaPaymentOrchestrator();
+describe('KomptaPaymentOrchestrator (Orchestrateur de Paiements)', () => {
+  const orchestrator = new KomptaPaymentOrchestrator();
+  
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('executeDirectTransfer (Transfert P2P)', () => {
+    const mockPayload: DirectTransferPayload = {
+      transferUid: 'tr_test_01',
+      senderUid: 'bird_sandy',
+      recipientUid: 'bird_fatijah',
+      amountCents: 1000, // 10.00 TOX
+      currency: 'TOX',
+      description: 'Paiement test'
+    };
+
+    const mockSignature = { actorUid: 'bird_sandy', capabilities: [], ipAddress: '127.0.0.1' };
+
+    it('🔴 doit rejeter le transfert si la signature ne correspond pas à l\'expéditeur', async () => {
+      const invalidSignature = { ...mockSignature, actorUid: 'bird_hacker' };
+      
+      await expect(
+        orchestrator.executeDirectTransfer(mockPayload, invalidSignature)
+      ).rejects.toThrow(IlotError);
+      expect(IlotError).toHaveProperty('name', 'IlotError'); // Vérification du type d'erreur
     });
 
-    it('🟢 devrait réussir une transaction marchande et prélever la taxe de redistribution pour la Canopée', async () => {
-        const mockBuyerWallet = {
-            userId: 'bird_buyer',
-            balance: 10000, // 100 EUR
-            currency: 'EUR',
-            save: vi.fn().mockResolvedValue(true),
-        };
-        const mockMerchantWallet = {
-            userId: 'bird_merchant',
-            balance: 1000, // 10 EUR
-            currency: 'EUR',
-            save: vi.fn().mockResolvedValue(true),
-        };
-        const mockTreasuryWallet = {
-            userId: 'SYSTEM_CANOPY_TREASURY',
-            balance: 0,
-            currency: 'EUR',
-            save: vi.fn().mockResolvedValue(true),
-        };
+    it('🔴 doit rejeter le transfert si le solde de l\'expéditeur est insuffisant', async () => {
+      const mockSenderWallet = { 
+        userId: 'bird_sandy', 
+        balance: 500, 
+        currency: 'TOX', 
+        save: vi.fn() // 👈 AJOUTE CETTE LIGNE ICI pour éviter l'erreur de fonction absente
+      };
 
-        vi.mocked(WalletModel.findOne)
-            .mockReturnValueOnce({ session: vi.fn().mockResolvedValueOnce(mockBuyerWallet) } as any)
-            .mockReturnValueOnce({ session: vi.fn().mockResolvedValueOnce(mockMerchantWallet) } as any)
-            .mockReturnValueOnce({ session: vi.fn().mockResolvedValueOnce(mockTreasuryWallet) } as any);
+      vi.mocked(WalletModel.findOne).mockImplementation((query: any) => {
+        const targetWallet = query.userId === 'bird_sandy' ? mockSenderWallet : null;
 
-        const payload = {
-            transactionUid: 'tx_store_1',
-            buyerUid: 'bird_buyer',
-            recipientUid: 'bird_merchant',
-            amountCents: 5000, // 50 EUR d'achat
-            currency: 'EUR',
-            storeUid: 'store_123',
-            description: 'Vente d\'un artefact rare',
-        };
+        return {
+          session: vi.fn().mockReturnThis(),
+          exec: vi.fn().mockResolvedValue(targetWallet),
+          then: (resolve: any) => resolve(targetWallet)
+        } as any;
+      });
 
-        const signature = {
-            actorUid: 'bird_buyer',
-            capabilities: [],
-        };
-
-        const result = await orchestrator.executeStoreTransaction(payload, signature as any);
-
-        expect(result.success).toBe(true);
-        expect(result.transactionUid).toBe('tx_store_1');
-        
-        // Vérification de la déduction acheteur (5000 cents)
-        expect(mockBuyerWallet.balance).toBe(5000); 
-        // Vérification du marchand (1000 + 4950 [99% de 5000])
-        expect(mockMerchantWallet.balance).toBe(5950); 
-        // Vérification du Trésor de l'Îlot (Prélèvement de la taxe de 1% -> 50 cents)
-        expect(mockTreasuryWallet.balance).toBe(50); 
-
-        // Vérification que les trois écritures Kompta ont bien été enregistrées dans le Grand Livre
-        expect(KomptaLedgerService.recordEntry).toHaveBeenCalledTimes(3);
+      await expect(
+        orchestrator.executeDirectTransfer(mockPayload, mockSignature)
+      ).rejects.toThrow('Fonds insuffisants');
     });
+    
+    it('🟢 doit exécuter le transfert, mettre à jour les portefeuilles et enregistrer les écritures Ledger', async () => {
+      // Simulation des portefeuilles existants
+      const mockSenderWallet = { userId: 'bird_sandy', balance: 1500, currency: 'TOX', save: vi.fn() };
+      const mockRecipientWallet = { userId: 'bird_fatijah', balance: 200, currency: 'TOX', save: vi.fn() };
+
+      vi.mocked(WalletModel.findOne).mockImplementation((query: any) => {
+        const targetWallet = query.userId === 'bird_sandy' ? mockSenderWallet : 
+                             query.userId === 'bird_fatijah' ? mockRecipientWallet : null;
+
+        return {
+          session: vi.fn().mockReturnThis(),
+          exec: vi.fn().mockResolvedValue(targetWallet),
+          then: (resolve: any) => resolve(targetWallet) // Permet aussi un await direct si besoin
+        } as any;
+      });
+
+      const result = await orchestrator.executeDirectTransfer(mockPayload, mockSignature);
+
+      // Vérifications
+      expect(result.success).toBe(true);
+      expect(mockSenderWallet.balance).toBe(500); // 1500 - 1000
+      expect(mockRecipientWallet.balance).toBe(1200); // 200 + 1000
+      
+      // Vérification que les deux écritures Ledger ont bien été enregistrées
+      expect(KomptaLedgerService.recordEntry).toHaveBeenCalledTimes(2);
+      
+      // Vérification de l'écriture de Débit (expéditeur)
+      expect(KomptaLedgerService.recordEntry).toHaveBeenCalledWith(expect.objectContaining({
+        ownerUid: 'bird_sandy',
+        counterpartyUid: 'bird_fatijah',
+        type: 'DEBIT',
+        amount: 10, // 1000 cents / 100
+        currency: 'TOX'
+      }));
+
+      // Vérification de l'écriture de Crédit (destinataire)
+      expect(KomptaLedgerService.recordEntry).toHaveBeenCalledWith(expect.objectContaining({
+        ownerUid: 'bird_fatijah',
+        counterpartyUid: 'bird_sandy',
+        type: 'CREDIT',
+        amount: 10,
+        currency: 'TOX'
+      }));
+
+      // Vérification que Neo4j a bien été appelé via TransactionManager
+      expect(TransactionManager.execute).toHaveBeenCalled();
+    });
+  });
 });

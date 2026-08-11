@@ -1,15 +1,6 @@
 // apps/hub-central/app/[locale]/(inceptions)/games/layout.tsx
 import React from 'react';
-import { getTranslations } from 'next-intl/server';
-import { GameSocketProvider } from '@/components/games/providers/GameSocketProvider'; // 👈 Import du Provider
-
-export async function generateMetadata({ params: { locale } }: { params: { locale: string } }) {
-  const t = await getTranslations({ locale, namespace: 'metadata' });
-  return {
-    title: 'Le Nexus des Jeux | L\'Îlot Zoizos',
-    description: 'Rejoignez les instances et affrontez d\'autres oiseaux dans la Matrice.',
-  };
-}
+import { GlobalBarterDrawer } from '@/components/global/GlobalBarterDrawer';
 
 export default function GamesLayout({
   children,
@@ -17,19 +8,14 @@ export default function GamesLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative min-h-screen bg-[#05070A] overflow-hidden">
-      {/* Effet visuel de fond : Nébuleuse subtile pour l'immersion */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
-        <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-blue-900/10 blur-[120px]"></div>
-        <div className="absolute top-[60%] -right-[10%] w-[40%] h-[60%] rounded-full bg-purple-900/10 blur-[120px]"></div>
-      </div>
+    <div className="relative min-h-screen bg-slate-950 text-white">
+      {/* Contenu de la zone des jeux */}
+      <main className="container mx-auto px-4 py-8">
+        {children}
+      </main>
 
-      {/* 🕸️ Le Provider maintient la connexion WebSocket ouverte pour toutes les routes enfants */}
-      <GameSocketProvider>
-        <main className="relative z-10 w-full h-full">
-          {children}
-        </main>
-      </GameSocketProvider>
+      {/* Le Comptoir de Barter global pour tous les mini-jeux de la zone */}
+      <GlobalBarterDrawer currentGameId="games-canopy-hub" />
     </div>
   );
 }

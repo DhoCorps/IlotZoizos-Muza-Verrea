@@ -28,3 +28,5 @@ export * from './database/services/resonance.service';
 export * from './database/models/graph/user.graph';
 export * from './database/models/graph/team.graph';
 export * from './database/models/nosql/resonance.model';
+export * from './database/models/nosql/beneficiary.model;';
+export * from './database/models/nosql/subsidy.model';

@@ -22,6 +22,9 @@ export { UniversalGridCanvas } from '../src/bloc-engine/UniversalGridCanvas';
 // --- 4. ECOMMERCE STORES ---
 export * from '../src/ecommerce/useCartStore';
 export * from '../src/ecommerce/useWishListStore';
+export * from './sync-engine/revenueSplit.orchestrator';
+export * from './sync-engine/canopyEvolution.orchestrator';
+export * from '../src/sync-engine/canopySubsidy.orchestrator'
 
 
 // --- 5. SYNCHRONISATION & ORCHESTRATEURS ---
@@ -94,6 +97,8 @@ export type {
     WikiOracleChoicesMode, 
     WikiOracleTheme 
 } from './games/wikiOracle/WikiOracleTypes';
+
+export * from './sync-engine/game.betting.orchestrator';
 
 export * from './sync-engine/monthlyStats.orchestrator';
 export * from './sync-engine/komptaStats.orchestrator';
