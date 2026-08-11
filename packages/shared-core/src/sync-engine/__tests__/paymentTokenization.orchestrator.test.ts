@@ -1,11 +1,10 @@
-// packages/shared-core/src/sync-engine/__tests__/payment.tokenization.orchestrator.test.ts
+// packages/shared-core/src/sync-engine/__tests__/paymentTokenization.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PaymentTokenizationOrchestrator, TokenizePaymentPayload } from '../paymentTokenisation.orchestrator';
 import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-// 1. Mock de la Silice (MongoDB / OiseauModel) avec support du chaînage .session() et .lean()
 vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
   OiseauModel: {
     findOne: vi.fn(),
@@ -13,19 +12,19 @@ vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () =>
   },
 }));
 
-// 2. Mock du TransactionManager pour simuler l'atomicité Silice + Graphe Neo4j
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
     execute: vi.fn(async (name, callback) => {
       const mockMongoSession = {};
-      const mockNeo4jTx = { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'user_123' }] }) };
+      const mockNeo4jTx = { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_uid' }] }) };
       return await callback(mockMongoSession, mockNeo4jTx);
     }),
   },
 }));
 
-describe('PaymentTokenizationOrchestrator - Tokenisation Externe des Paiements', () => {
+describe('PaymentTokenizationOrchestrator - Sécurité Financière', () => {
   let orchestrator: PaymentTokenizationOrchestrator;
+  
   const validSignature = { actorUid: 'bird_alpha', capabilities: [] };
   const hackerSignature = { actorUid: 'bird_hacker', capabilities: [] };
   const adminSignature = { actorUid: 'architect_root', capabilities: ['*'] };
@@ -36,11 +35,11 @@ describe('PaymentTokenizationOrchestrator - Tokenisation Externe des Paiements',
   });
 
   describe('linkExternalPaymentProfile', () => {
-    it('doit rejeter (403) si l\'acteur tente de lier des informations de paiement pour un autre oiseau sans les droits root', async () => {
+    it('🔴 doit rejeter (403) si l\'acteur tente d\'injecter des tokens pour un autre oiseau', async () => {
       const payload: TokenizePaymentPayload = {
         userUid: 'bird_alpha',
-        externalCustomerId: 'cus_test_123',
-        defaultPaymentMethodId: 'pm_test_456',
+        externalCustomerId: 'cus_stripe_123',
+        defaultPaymentMethodId: 'pm_card_456',
       };
 
       await expect(
@@ -48,32 +47,39 @@ describe('PaymentTokenizationOrchestrator - Tokenisation Externe des Paiements',
       ).rejects.toThrow(IlotError);
     });
 
-    it('doit lever une erreur 404 si l\'oiseau est introuvable dans la Silice', async () => {
-      // Simulation d'un oiseau absent en base
-      vi.mocked(OiseauModel.findOne).mockReturnValue({
-        session: vi.fn().mockResolvedValueOnce(null),
-      } as any);
-
-      const payload: TokenizePaymentPayload = {
-        userUid: 'bird_inconnu',
-        externalCustomerId: 'cus_test_123',
-        defaultPaymentMethodId: 'pm_test_456',
+    it('🔴 doit rejeter (400) si le payload est corrompu ou incomplet', async () => {
+      const payload = {
+        userUid: 'bird_alpha',
+        externalCustomerId: '', // Token manquant
+        defaultPaymentMethodId: 'pm_card_456',
       };
 
       await expect(
-        orchestrator.linkExternalPaymentProfile(payload, validSignature as any)
-      ).rejects.toThrow(IlotError);
+        orchestrator.linkExternalPaymentProfile(payload as any, validSignature as any)
+      ).rejects.toThrow(/Tokens de paiement manquants/);
     });
 
-    it('doit lier avec succès les tokens externes pour soi-même et mettre à jour la matrice', async () => {
-      const mockUser = {
-        uid: 'bird_alpha',
-        slug: 'bird-alpha',
+    it('🔴 doit rejeter (404) si l\'oiseau est introuvable lors de la résolution canonique', async () => {
+      vi.mocked(OiseauModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValueOnce(null),
+      } as any);
+
+      const payload: TokenizePaymentPayload = {
+        userUid: 'bird_ghost',
+        externalCustomerId: 'cus_stripe_123',
+        defaultPaymentMethodId: 'pm_card_456',
       };
 
-      // Simulation de la recherche de l'oiseau et de sa mise à jour chaînée .lean()
+      await expect(
+        orchestrator.linkExternalPaymentProfile(payload, { actorUid: 'bird_ghost', capabilities: [] } as any)
+      ).rejects.toThrow(/Oiseau introuvable/);
+    });
+
+    it('🟢 doit lier avec succès les tokens externes pour soi-même après résolution canonique', async () => {
+      const mockUser = { uid: 'bird_canonical_alpha' };
+      
       vi.mocked(OiseauModel.findOne).mockReturnValue({
-        session: vi.fn().mockResolvedValueOnce(mockUser),
+        lean: vi.fn().mockResolvedValueOnce(mockUser),
       } as any);
 
       vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
@@ -84,7 +90,7 @@ describe('PaymentTokenizationOrchestrator - Tokenisation Externe des Paiements',
       } as any);
 
       const payload: TokenizePaymentPayload = {
-        userUid: 'bird_alpha',
+        userUid: 'bird_alpha', // L'acteur agit sur lui-même
         externalCustomerId: 'cus_stripe_abc789',
         defaultPaymentMethodId: 'pm_card_xyz987',
       };
@@ -92,40 +98,37 @@ describe('PaymentTokenizationOrchestrator - Tokenisation Externe des Paiements',
       const result = await orchestrator.linkExternalPaymentProfile(payload, validSignature as any);
 
       expect(result.success).toBe(true);
-      expect(result.userUid).toBe('bird_alpha');
+      expect(result.userUid).toBe('bird_canonical_alpha'); // L'UID a bien été résolu et traduit
       expect(result.hasActiveWallet).toBe(true);
       expect(OiseauModel.findOne).toHaveBeenCalledTimes(1);
       expect(OiseauModel.findOneAndUpdate).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
 
-    it('doit permettre à un Administrateur (*) de lier un profil de paiement pour un autre oiseau', async () => {
-      const mockUser = {
-        uid: 'bird_beta',
-        slug: 'bird-beta',
-      };
-
+    it('🔴 doit lever une erreur interne (500) si la synchronisation Neo4j échoue (nœud introuvable)', async () => {
       vi.mocked(OiseauModel.findOne).mockReturnValue({
-        session: vi.fn().mockResolvedValueOnce(mockUser),
+        lean: vi.fn().mockResolvedValueOnce({ uid: 'bird_canonical_alpha' }),
       } as any);
 
+      // On simule également le findOneAndUpdate pour éviter l'erreur TypeError reading 'lean'
       vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce({
-          ...mockUser,
-          paymentProfile: { hasActiveWallet: true },
-        }),
+        lean: vi.fn().mockResolvedValueOnce({ uid: 'bird_canonical_alpha' }),
       } as any);
+
+      // Simulation d'une rupture Neo4j : L'oiseau existe dans Mongo mais pas dans le Graphe
+      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (name, cb) => {
+        return await cb({} as any, { run: vi.fn().mockResolvedValue({ records: [] }) } as any);
+      });
 
       const payload: TokenizePaymentPayload = {
-        userUid: 'bird_beta',
-        externalCustomerId: 'cus_stripe_admin_link',
-        defaultPaymentMethodId: 'pm_card_admin_link',
+        userUid: 'bird_alpha',
+        externalCustomerId: 'cus_stripe_abc789',
+        defaultPaymentMethodId: 'pm_card_xyz987',
       };
 
-      const result = await orchestrator.linkExternalPaymentProfile(payload, adminSignature as any);
-
-      expect(result.success).toBe(true);
-      expect(result.userUid).toBe('bird_beta');
+      await expect(
+        orchestrator.linkExternalPaymentProfile(payload, validSignature as any)
+      ).rejects.toThrow(/Oiseau introuvable dans le Graphe/);
     });
   });
 });

@@ -46,7 +46,7 @@ export class DemopraxyOrchestrator {
 
     /**
      * 🌀 ÉVALUATION ET APPLICATION DE LA STASE D'EXCLUSION
-     * Enregistre l'évaluation dans MongoDB et applique l'exclusion/verrouillage dans Neo4j si nécessaire.
+     * Enregistre l'évaluation dans MongoDB et applique l'exclusion/verrouillage indexé dans Neo4j.
      */
     public async processDemopraxicEvaluation(
         userIdentifier: string, 
@@ -58,18 +58,20 @@ export class DemopraxyOrchestrator {
             throw new IlotError("Aura insuffisante pour invoquer le vortex démopraxique.", "FORBIDDEN", 403);
         }
 
+        // 1. Résolution de l'identité : La Silice traduit le pseudo/slug en UID canonique
         const user = await OiseauModel.findOne({ 
             $or: [{ slug: userIdentifier }, { uid: userIdentifier }, { pseudo: userIdentifier }] 
         });
         
         if (!user) throw new IlotError("Oiseau introuvable dans la Silice.", "NOT_FOUND", 404);
 
+        const canonicalUid = user.uid; // L'UID strict et indexé à passer au Graphe
         const evaluation = DemopraxyOrchestrator.evaluateSanctuarySafety(metrics);
 
         return await TransactionManager.execute("Stase Démopraxique", async (mongoSession, neo4jTx) => {
-            // 1. Mise à jour dans la Silice (MongoDB) : Verrouillage du sanctuaire ou stase active
+            // 2. Mise à jour documentaire dans la Silice (MongoDB)
             const updatedUser = await OiseauModel.findOneAndUpdate(
-                { uid: user.uid },
+                { uid: canonicalUid },
                 { 
                     $set: { 
                         sanctuaireVerrouille: evaluation.isExcluded,
@@ -84,9 +86,9 @@ export class DemopraxyOrchestrator {
                 { new: true, session: mongoSession }
             ).lean();
 
-            // 2. Propagation dans le Graphe (Neo4j)
+            // 3. Propagation ultra-rapide dans le Graphe (Neo4j) via Index Strict
             const cypher = `
-                MATCH (u:User {uid: $uid})
+                MATCH (u:User {uid: $canonicalUid})
                 SET u.sanctuaireVerrouille = $isExcluded,
                     u.demopraxyExScore = $exScore,
                     u.updatedAt = datetime()
@@ -94,14 +96,14 @@ export class DemopraxyOrchestrator {
             `;
 
             await neo4jTx.run(cypher, {
-                uid: user.uid,
+                canonicalUid,
                 isExcluded: evaluation.isExcluded,
                 exScore: evaluation.exScore
             });
 
             return {
                 success: true,
-                targetUid: user.uid,
+                targetUid: canonicalUid,
                 targetSlug: (user as any).slug || null,
                 ...evaluation,
                 user: updatedUser

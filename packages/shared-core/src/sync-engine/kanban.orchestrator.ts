@@ -13,7 +13,7 @@ export interface KanbanSyncResult {
 export class KanbanOrchestrator {
   /**
    * 🌀 MISE À JOUR GÉNÉRIQUE (Atome)
-   * Synchronise le changement d'état entre la Silice (Mongo) et le Graphe (Neo4j) en supportant slug et uid.
+   * Résout l'identifiant par MongoDB puis propage l'état dans Neo4j via UID canonique indexé.
    */
   async updateTask(
     taskIdentifier: string, 
@@ -33,6 +33,7 @@ export class KanbanOrchestrator {
         ...(updateData.status === 'DONE' ? { "dates.completedAt": new Date() } : {})
       };
 
+      // 1. Résolution stricte dans la Silice (MongoDB)
       const updatedTask = await TaskModel.findOneAndUpdate(
         { $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] },
         { $set: mongoUpdate },
@@ -59,6 +60,10 @@ export class KanbanOrchestrator {
           newStatus: updateData.status,
           completedAt: mongoUpdate["dates.completedAt"] ? mongoUpdate["dates.completedAt"].toISOString() : null
         });
+
+        if (neoResult.records.length === 0) {
+          throw new IlotError("Atome introuvable dans la Matrice Neo4j.", "NOT_FOUND", 404);
+        }
       }
 
       return { 
@@ -109,13 +114,18 @@ export class KanbanOrchestrator {
         { session: mongoSession }
       );
 
-      await neo4jTx.run(
+      const neoResult = await neo4jTx.run(
         `MATCH (u:User {uid: $memberUid}), (t:Task {uid: $taskUid})
          MERGE (u)-[r:ASSIGNED_TO]->(t)
          SET r.assignedAt = datetime()
          RETURN r`,
         { memberUid, taskUid }
       );
+
+      if (neoResult.records.length === 0) {
+        throw new IlotError("Impossible de lier l'Oiseau à l'Atome dans le Graphe (Cibles introuvables).", "NOT_FOUND", 404);
+      }
+
       return { success: true };
     });
   }

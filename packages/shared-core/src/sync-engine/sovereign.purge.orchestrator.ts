@@ -22,7 +22,7 @@ export class SovereignPurgeOrchestrator {
      */
     public static buildPurgePayload(context: PurgeContext) {
         console.log(`🌀 [Évanescence] Déclenchement de la procédure de dissolution pour l'entité : ${context.entityId} (${context.reason})`);
-        
+                 
         return {
             targetUid: context.entityId,
             action: 'PURGE_COMPLETE',
@@ -34,7 +34,7 @@ export class SovereignPurgeOrchestrator {
 
     /**
      * 💨 EXÉCUTION DE LA PURGE SOUVERAINE
-     * Efface définitivement l'entité de MongoDB et détruit son nœud ainsi que ses relations dans Neo4j (support uid ou slug).
+     * Résout l'entité via MongoDB pour obtenir son UID canonique strict, puis nettoie la Silice et la Matrice Neo4j sans Full Graph Scan.
      */
     public async executeSovereignPurge(context: PurgeContext, signature: ActionSignature) {
         const isSelf = signature.actorUid === context.entityId;
@@ -47,7 +47,7 @@ export class SovereignPurgeOrchestrator {
         const payload = SovereignPurgeOrchestrator.buildPurgePayload(context);
 
         return await TransactionManager.execute("Dissolution Souveraine", async (mongoSession, neo4jTx) => {
-            // 1. Résolution préalable de l'entité dans la Silice (MongoDB) via uid ou slug
+            // 1. Résolution préalable stricte dans la Silice (MongoDB) via uid, slug ou pseudo
             const targetUser = await OiseauModel.findOne({
                 $or: [{ uid: context.entityId }, { slug: context.entityId }, { pseudo: context.entityId }]
             }).session(mongoSession);
@@ -63,14 +63,14 @@ export class SovereignPurgeOrchestrator {
             await TaskModel.deleteMany({ creatorUid: canonicalUid }, { session: mongoSession });
             await ProjectModel.deleteMany({ creatorUid: canonicalUid }, { session: mongoSession });
 
-            // 3. Dissolution totale dans le Graphe Neo4j (support uid ou slug)
+            // 3. Dissolution totale dans le Graphe Neo4j via l'index strict sur le canonicalUid (Phase 2)
             const cypher = `
-                MATCH (u:User) WHERE u.uid = $entityId OR u.slug = $entityId
+                MATCH (u:User {uid: $canonicalUid})
                 DETACH DELETE u
                 RETURN count(u) AS deletedCount
             `;
 
-            const neoResult = await neo4jTx.run(cypher, { entityId: context.entityId });
+            const neoResult = await neo4jTx.run(cypher, { canonicalUid });
 
             const deletedCountRaw = neoResult.records[0]?.get('deletedCount');
             const neo4jDeletedCount = typeof deletedCountRaw?.toNumber === 'function' 

@@ -11,6 +11,22 @@ export interface TokenizePaymentPayload {
 }
 
 export class PaymentTokenizationOrchestrator {
+  
+  /**
+   * Utilitaire de résolution stricte pour prévenir les injections 
+   * et éradiquer les scans complets dans le Graphe (Phase 2).
+   */
+  private async resolveCanonicalUid(identifier: string): Promise<string> {
+    const user = await OiseauModel.findOne({ 
+      $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
+    }).lean();
+    
+    if (!user) {
+      throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
+    }
+    return (user as any).uid;
+  }
+
   /**
    * 🛡️ ENREGISTREMENT SÉCURISÉ DES RÉFÉRENCES DE PAIEMENT (Tokenisation Externe)
    * Associe les identifiants tokenisés de la passerelle de paiement à l'Oiseau, 
@@ -21,7 +37,7 @@ export class PaymentTokenizationOrchestrator {
     signature: ActionSignature
   ): Promise<{ success: boolean; userUid: string; hasActiveWallet: boolean }> {
 
-    // Sécurité : Seul l'Oiseau concerné ou un Administrateur suprême peut lier ses paiements
+    // 1. Barrière d'Aura : Seul l'Oiseau concerné ou l'Architecte peut forger ce lien
     const isSelf = signature.actorUid === payload.userUid;
     const isArchitect = signature.capabilities.includes('*');
 
@@ -29,17 +45,18 @@ export class PaymentTokenizationOrchestrator {
       throw new IlotError("Aura insuffisante pour lier un profil de paiement externe.", "FORBIDDEN", 403);
     }
 
+    if (!payload.externalCustomerId || !payload.defaultPaymentMethodId) {
+      throw new IlotError("Tokens de paiement manquants ou corrompus.", "BAD_REQUEST", 400);
+    }
+
+    // 2. Résolution Canonique avant ouverture de transaction
+    const canonicalUid = await this.resolveCanonicalUid(payload.userUid);
+
     return await TransactionManager.execute("Tokenisation de Paiement Externe", async (mongoSession, neo4jTx) => {
       
-      // 1. Recherche de l'oiseau dans la Silice
-      const user = await OiseauModel.findOne({ uid: payload.userUid }).session(mongoSession);
-      if (!user) {
-        throw new IlotError("Oiseau introuvable dans la Silice.", "NOT_FOUND", 404);
-      }
-
-      // 2. Mise à jour sécurisée avec uniquement les tokens de référence externe
+      // 3. Sédimentation Documentaire : Mise à jour sécurisée avec uniquement les tokens
       const updatedUser = await OiseauModel.findOneAndUpdate(
-        { uid: payload.userUid },
+        { uid: canonicalUid },
         {
           $set: {
             'paymentProfile': {
@@ -53,25 +70,31 @@ export class PaymentTokenizationOrchestrator {
         { new: true, session: mongoSession }
       ).lean();
 
-      // 3. Propagation optionnelle dans le Graphe Neo4j pour lier l'entité de paiement si nécessaire
+      // 4. Propagation dans le Graphe Neo4j via l'index strict
       const cypher = `
-        MATCH (u:User {uid: $userUid})
+        MATCH (u:User {uid: $canonicalUid})
         SET u.hasActiveWallet = true,
             u.externalCustomerId = $externalCustomerId,
             u.updatedAt = datetime()
         RETURN u.uid AS uid
       `;
 
-      await neo4jTx.run(cypher, {
-        userUid: payload.userUid,
+      const neoResult = await neo4jTx.run(cypher, {
+        canonicalUid,
         externalCustomerId: payload.externalCustomerId
       });
 
-      console.log(`[Kompta/Payment] 🔒 Références de paiement tokenisées enregistrées avec succès pour l'oiseau : ${payload.userUid}`);
+      // 🛡️ VERROU DE SÉCURITÉ : Vérification de l'existence dans la Matrice
+      if (neoResult.records.length === 0) {
+        throw new IlotError("Échec du scellement : Oiseau introuvable dans le Graphe.", "INTERNAL_ERROR", 500);
+      }
+
+      // Censure des logs : On ne loggue JAMAIS les tokens, même externes
+      console.log(`[Kompta/Payment] 🔒 Profil de paiement tokenisé enregistré avec succès pour l'oiseau : ${canonicalUid}`);
 
       return {
         success: true,
-        userUid: payload.userUid,
+        userUid: canonicalUid,
         hasActiveWallet: true
       };
     });

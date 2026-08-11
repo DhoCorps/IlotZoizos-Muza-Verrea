@@ -21,12 +21,15 @@ vi.mock('../../../../infrastructure/src/database/models/nosql/task.model', () =>
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [] }) })),
+    execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { 
+      run: vi.fn().mockResolvedValue({ records: [{ get: () => 'node_mock' }] }) 
+    })),
   },
 }));
 
-describe('TaskResonanceOrchestrator', () => {
+describe('TaskResonanceOrchestrator - Résonance des Atomes (Phase 2)', () => {
   let orchestrator: TaskResonanceOrchestrator;
+  
   const selfSignature = { actorUid: 'bird_1', capabilities: [] };
   const adminSignature = { actorUid: 'admin_bird', capabilities: ['*'] };
   const strangerSignature = { actorUid: 'bird_stranger', capabilities: [] };
@@ -37,7 +40,7 @@ describe('TaskResonanceOrchestrator', () => {
   });
 
   describe('calculateTaskResonance', () => {
-    it('🟢 doit calculer correctement la résonance d’une tâche', () => {
+    it('🟢 doit calculer correctement la résonance d\'une tâche', () => {
       const res = TaskResonanceOrchestrator.calculateTaskResonance({ estimatedTime: 2, realTime: 1, weight: 3 });
       expect(res).toBe(6); // (2 / 1) * 3 = 6
     });
@@ -49,7 +52,7 @@ describe('TaskResonanceOrchestrator', () => {
   });
 
   describe('processUserTaskResonance', () => {
-    it('🔴 doit rejeter (404) si l’Oiseau est introuvable', async () => {
+    it('🔴 doit rejeter (404) si l\'Oiseau est introuvable', async () => {
       vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(null);
 
       await expect(
@@ -57,7 +60,7 @@ describe('TaskResonanceOrchestrator', () => {
       ).rejects.toThrow(IlotError);
     });
 
-    it('🔴 doit rejeter (403) si l’acteur n’est ni l’oiseau concerné ni admin', async () => {
+    it('🔴 doit rejeter (403) si l\'acteur n\'est ni l\'oiseau concerné ni admin', async () => {
       const mockUser = { uid: 'bird_1', slug: 'bird-1' };
       vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockUser as any);
 
@@ -66,14 +69,17 @@ describe('TaskResonanceOrchestrator', () => {
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit calculer et persister la résonance avec succès si l’Oiseau est lui-même l’acteur', async () => {
+    it('🟢 doit calculer et persister la résonance via canonicalUid avec succès', async () => {
       const mockUser = { uid: 'bird_1', slug: 'bird-1' };
+      
       vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockUser as any);
+      
       vi.mocked(TaskModel.find).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce([
           { pomodoros: { estimated: 2, completed: 1 }, metrics: { complexity: 2 } }
         ])
       } as any);
+
       vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce({ ...mockUser, metrics: { totalResonance: 4 } })
       } as any);

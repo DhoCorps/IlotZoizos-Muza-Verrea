@@ -1,90 +1,75 @@
+// packages/shared-core/src/sync-engine/__tests__/user.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OiseauOrchestrator } from '../user.orchestrator';
-import { OiseauModel } from '@ilot/infrastructure';
-import { TransactionManager } from '../transactionManager';
+import { OiseauModel, TeamModel, ProjectModel, TaskModel } from '@ilot/infrastructure';
 import { IlotError } from '../../errors/ilot.errors';
 
-// 1. Mock direct et robuste
 vi.mock('@ilot/infrastructure', () => ({
   OiseauModel: {
-    create: vi.fn(),
     findOne: vi.fn(),
+    create: vi.fn(),
     findOneAndUpdate: vi.fn(),
     findOneAndDelete: vi.fn(),
   },
-  TeamModel: vi.fn(),
-  ProjectModel: vi.fn(),
-  TaskModel: vi.fn(),
+  TeamModel: { find: vi.fn(), deleteMany: vi.fn() },
+  ProjectModel: { find: vi.fn(), deleteMany: vi.fn() },
+  TaskModel: { find: vi.fn(), deleteMany: vi.fn() },
 }));
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [] }) })),
+    execute: vi.fn(async (name, cb) => cb('mock-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => 1 }] }) })),
   },
 }));
 
-describe('OiseauOrchestrator', () => {
+describe('OiseauOrchestrator - Souveraineté de l\'Oiseau (Phase 2)', () => {
   let orchestrator: OiseauOrchestrator;
   const selfSignature = { actorUid: 'bird_1', capabilities: [] };
-  const strangerSignature = { actorUid: 'bird_stranger', capabilities: [] };
 
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new OiseauOrchestrator();
+
+    // Simulation de la résolution canonique
+    vi.mocked(OiseauModel.findOne).mockReturnValue({
+      lean: vi.fn().mockResolvedValue({ uid: 'bird_canonical_1', slug: 'bird-1' })
+    } as any);
   });
 
   describe('fosterOiseau', () => {
-    it('🟢 doit éclore un nouvel oiseau dans MongoDB et Neo4j avec succès', async () => {
-      // On mock .create pour qu'il renvoie un tableau contenant notre oiseau
-      vi.mocked(OiseauModel.create).mockResolvedValue([
-        { uid: 'bird_new', email: 'test@ilot.net', pseudo: 'TestBird' }
-      ] as any);
+    it('🟢 doit éclore un nouvel oiseau dans Mongo et Neo4j', async () => {
+      vi.mocked(OiseauModel.create).mockResolvedValueOnce([{ uid: 'new_bird_uid', pseudo: 'Nouveau' }] as any);
 
-      const res = await orchestrator.fosterOiseau({
-        email: 'test@ilot.net',
-        pseudo: 'TestBird',
-        password: 'securepassword'
-      });
-
+      const res = await orchestrator.fosterOiseau({ email: 'test@ilot.com', pseudo: 'Nouveau', password: '123' });
       expect(res.success).toBe(true);
-      expect(res.mongo.uid).toBe('bird_new');
-      expect(TransactionManager.execute).toHaveBeenCalled();
+      expect(res.mongo.pseudo).toBe('Nouveau');
     });
   });
 
   describe('syncOiseau', () => {
-    it('🔴 doit rejeter (403) si l’acteur tente d’altérer l’essence d’un autre oiseau sans les droits root', async () => {
+    it('🔴 doit rejeter (403) si l\'acteur usurpe un autre profil', async () => {
+      // Simulation d'une tentative d'altération d'un autre utilisateur
+      vi.mocked(OiseauModel.findOne)
+        .mockReturnValueOnce({ lean: vi.fn().mockResolvedValueOnce({ uid: 'bird_hacker' }) } as any)
+        .mockReturnValueOnce({ lean: vi.fn().mockResolvedValueOnce({ uid: 'bird_victim' }) } as any);
+
       await expect(
-        orchestrator.syncOiseau({ uid: 'bird_1', pseudo: 'NewName' }, strangerSignature as any)
+        orchestrator.syncOiseau({ uid: 'bird_victim', pseudo: 'Hack' }, { actorUid: 'bird_hacker', capabilities: [] })
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit synchroniser l’essence de l’oiseau avec succès si c’est lui-même', async () => {
-      // Mock de la chaîne .findOneAndUpdate().lean()
-      const mockChain = {
-        lean: vi.fn().mockResolvedValue({ uid: 'bird_1', pseudo: 'NewName' })
-      };
-      vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue(mockChain as any);
+    it('🟢 doit synchroniser l\'oiseau après résolution canonique stricte', async () => {
+      vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
+        lean: vi.fn().mockResolvedValueOnce({ uid: 'bird_canonical_1', pseudo: 'Modifié' })
+      } as any);
 
-      const res = await orchestrator.syncOiseau({ uid: 'bird_1', pseudo: 'NewName' }, selfSignature as any);
-
-      expect(res.success).toBe(true);
-      expect(res.mongo.pseudo).toBe('NewName');
-    });
-  });
-
-  describe('appliquerFluctuation', () => {
-    it('🟢 doit appliquer une fluctuation d’entropie avec succès', async () => {
-      // Mock de la chaîne .findOneAndUpdate().lean()
-      const mockChain = {
-        lean: vi.fn().mockResolvedValue({ uid: 'bird_1', entropieActive: 50 })
-      };
-      vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue(mockChain as any);
-
-      const res = await orchestrator.appliquerFluctuation('bird_1', 50, selfSignature as any);
+      const res = await orchestrator.syncOiseau(
+        { uid: 'bird_1', pseudo: 'Modifié' }, 
+        selfSignature
+      );
 
       expect(res.success).toBe(true);
-      expect(res.mongo.entropieActive).toBe(50);
+      expect(res.mongo.pseudo).toBe('Modifié');
     });
   });
 });

@@ -18,8 +18,9 @@ const generateSlug = (text: string) => {
 };
 
 /**
- * SUJET ORCHESTRATOR
+ * ✍️ SUJET ORCHESTRATOR
  * Gère la sédimentation d'une pensée dans la Silice et son tissage dans le Graphe.
+ * Phase 2 : Utilisation d'un index strict sur l'auteur canonique dans Neo4j.
  */
 export class SujetOrchestrator {
   
@@ -68,7 +69,7 @@ export class SujetOrchestrator {
       // 1. SILICE (MongoDB)
       const [newSujet] = await SujetModel.create([newSujetData], { session: mongoSession });
 
-      // 2. GRAPHE (Neo4j)
+      // 2. GRAPHE (Neo4j) - MATCH indexé strict sur l'auteur canonique
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (s:Sujet { 
@@ -119,6 +120,10 @@ export class SujetOrchestrator {
         productId: newSujet.merchLink?.productId || null
       });
 
+      if (neoResult.records.length === 0) {
+        throw new IlotError("Échec du tissage : Auteur introuvable dans le Graphe.", "NOT_FOUND", 404);
+      }
+
       return {
         success: true,
         status: 'success',
@@ -129,7 +134,7 @@ export class SujetOrchestrator {
   }
 
   /**
-   * MUTATION : METTRE À JOUR UN SUJET (Supporte uid ou slug)
+   * MUTATION : METTRE À JOUR UN SUJET (Résolution Silice -> Propagation Graphe)
    */
   async updateSujet(sujetIdentifier: string, updates: any, signature: ActionSignature): Promise<SujetSyncResult> {
     const existing = await SujetModel.findOne({ $or: [{ uid: sujetIdentifier }, { slug: sujetIdentifier }] });
@@ -137,7 +142,7 @@ export class SujetOrchestrator {
 
     const isAuthor = existing.authorUid === signature.actorUid;
     if (!isAuthor && !signature.capabilities.includes('*')) {
-      throw new IlotError("Tu ne modifier que tes propres pensées.", "FORBIDDEN", 403);
+      throw new IlotError("Tu ne peux modifier que tes propres pensées.", "FORBIDDEN", 403);
     }
 
     return await TransactionManager.execute("Mutation de Sujet", async (mongoSession, neo4jTx) => {
@@ -189,7 +194,7 @@ export class SujetOrchestrator {
   }
 
   /**
-   * DÉSINTÉGRATION : PURGER UN SUJET (Supporte uid ou slug)
+   * DÉSINTÉGRATION : PURGER UN SUJET
    */
   async disintegrateSujet(sujetIdentifier: string, signature: ActionSignature) {
     const existing = await SujetModel.findOne({ $or: [{ uid: sujetIdentifier }, { slug: sujetIdentifier }] });

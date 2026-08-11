@@ -32,14 +32,17 @@ export class TaskResonanceOrchestrator {
 
     /**
      * 🎶 CALCUL CONNECTÉ DE LA RÉSONANCE D'UN OISEAU
-     * Vérifie l'aura, récupère les tâches terminées, calcule la résonance et met à jour Mongo et Neo4j.
+     * Résout l'identité dans MongoDB pour obtenir le canonicalUid, puis met à jour Mongo et Neo4j sans Full Graph Scan.
      */
     public async processUserTaskResonance(userIdentifier: string, signature: ActionSignature) {
+        // 1. Résolution stricte de l'Oiseau dans la Silice
         const user = await OiseauModel.findOne({ 
             $or: [{ slug: userIdentifier }, { uid: userIdentifier }, { pseudo: userIdentifier }] 
         });
 
         if (!user) throw new IlotError("Oiseau introuvable dans la Silice.", "NOT_FOUND", 404);
+
+        const canonicalUid = user.uid;
 
         // 🛡️ Barrière de sécurité : Vérification de l'aura (soi-même ou admin root)
         const isSelf = signature.actorUid === user.uid || signature.actorUid === user.slug || signature.actorUid === user.pseudo;
@@ -51,7 +54,7 @@ export class TaskResonanceOrchestrator {
 
         // Récupération des tâches complétées assignées ou créées par l'oiseau
         const completedTasks = await TaskModel.find({
-            $or: [{ creatorUid: user.uid }, { assigneeUids: user.uid }],
+            $or: [{ creatorUid: canonicalUid }, { assigneeUids: canonicalUid }],
             status: 'COMPLETED'
         }).lean();
 
@@ -64,9 +67,9 @@ export class TaskResonanceOrchestrator {
         const totalResonance = TaskResonanceOrchestrator.calculateBatchResonance(taskInputs);
 
         return await TransactionManager.execute("Résonance d'Atomes", async (mongoSession, neo4jTx) => {
-            // 1. Mise à jour dans MongoDB
+            // 2. Mise à jour dans MongoDB
             const updatedUser = await OiseauModel.findOneAndUpdate(
-                { uid: user.uid },
+                { uid: canonicalUid },
                 { 
                     $set: { 
                         'metrics.totalResonance': totalResonance,
@@ -76,22 +79,26 @@ export class TaskResonanceOrchestrator {
                 { new: true, session: mongoSession }
             ).lean();
 
-            // 2. Propagation dans Neo4j (support uid ou slug)
+            // 3. Propagation dans Neo4j via l'index strict sur le canonicalUid (Phase 2)
             const cypher = `
-                MATCH (u:User) WHERE u.uid = $userUid OR u.slug = $userUid
+                MATCH (u:User {uid: $canonicalUid})
                 SET u.totalResonance = $totalResonance,
                     u.updatedAt = datetime()
                 RETURN u
             `;
 
-            await neo4jTx.run(cypher, {
-                userUid: user.uid,
+            const neoResult = await neo4jTx.run(cypher, {
+                canonicalUid,
                 totalResonance
             });
 
+            if (neoResult.records.length === 0) {
+                throw new IlotError("Oiseau introuvable dans la Matrice Neo4j.", "NOT_FOUND", 404);
+            }
+
             return {
                 success: true,
-                userUid: user.uid,
+                userUid: canonicalUid,
                 completedTasksCount: completedTasks.length,
                 totalResonance,
                 user: updatedUser

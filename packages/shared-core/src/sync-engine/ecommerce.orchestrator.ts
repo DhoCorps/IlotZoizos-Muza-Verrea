@@ -1,3 +1,4 @@
+// packages/shared-core/src/sync-engine/ecommerce.orchestrator.ts
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
@@ -16,18 +17,24 @@ export class EcommerceOrchestrator {
     }
 
     return await TransactionManager.execute("Création de boutique", async (mongoSession, neo4jTx) => {
+      // Utilisation d'un MATCH strict : L'utilisateur DOIT exister, on ne crée pas de fantôme avec MERGE
       const query = `
-        MERGE (u:User { uid: $ownerUid })
+        MATCH (u:User { uid: $ownerUid })
         CREATE (s:Store { uid: $uid, storeName: $storeName, slug: $slug, createdAt: datetime() })
         CREATE (u)-[:OWNS_STORE]->(s)
         RETURN s
       `;
-      await neo4jTx.run(query, { 
+      
+      const neoResult = await neo4jTx.run(query, { 
         ownerUid: data.ownerUid, 
         uid: data.uid, 
         storeName: data.storeName,
         slug: data.slug
       });
+
+      if (neoResult.records.length === 0) {
+        throw new IlotError("Oiseau propriétaire introuvable dans le Graphe.", "NOT_FOUND", 404);
+      }
 
       return { success: true, storeUid: data.uid };
     });
@@ -53,12 +60,17 @@ export class EcommerceOrchestrator {
         CREATE (o)-[:FULFILLED_BY]->(store)
         RETURN o
       `;
-      await neo4jTx.run(query, {
+      
+      const neoResult = await neo4jTx.run(query, {
         buyerUid: data.buyerUid,
         storeUid: data.storeUid,
         uid: data.uid,
         totalAmountCents: data.totalAmountCents
       });
+
+      if (neoResult.records.length === 0) {
+        throw new IlotError("Acheteur ou Boutique introuvable dans le Graphe.", "NOT_FOUND", 404);
+      }
 
       return { success: true, orderUid: data.uid };
     });
@@ -66,7 +78,7 @@ export class EcommerceOrchestrator {
 
   /**
    * 🔄 PROPOSITION DE TROC
-   * Enregistre une offre d'échange et crée un lien dans le Graphe Neo4j.
+   * Enregistre une offre d'échange et crée un lien indexé dans le Graphe Neo4j.
    */
   async proposeBarter(
     data: { uid: string; initiatorUid: string; receiverUid?: string; offeredUids: string[]; requestedUids: string[] },
@@ -84,11 +96,16 @@ export class EcommerceOrchestrator {
         ${data.receiverUid ? 'WITH b MATCH (receiver:User { uid: $receiverUid }) CREATE (b)-[:TARGETS_USER]->(receiver)' : ''}
         RETURN b
       `;
-      await neo4jTx.run(query, {
+      
+      const neoResult = await neo4jTx.run(query, {
         uid: data.uid,
         initiatorUid: signature.actorUid,
         receiverUid: data.receiverUid || null
       });
+
+      if (neoResult.records.length === 0) {
+        throw new IlotError("Initiateur du troc introuvable dans le Graphe.", "NOT_FOUND", 404);
+      }
 
       return { success: true, barterUid: data.uid };
     });
@@ -114,11 +131,16 @@ export class EcommerceOrchestrator {
         ${data.status === 'ACCEPTED' ? 'CREATE (initiator)-[:TRADED_WITH]->(acceptor)' : ''}
         RETURN b
       `;
-      await neo4jTx.run(query, {
+      
+      const neoResult = await neo4jTx.run(query, {
         barterUid: data.barterUid,
         acceptorUid: signature.actorUid,
         status: data.status
       });
+
+      if (neoResult.records.length === 0) {
+        throw new IlotError("Offre de troc ou Oiseau cible introuvable dans le Graphe.", "NOT_FOUND", 404);
+      }
 
       return { success: true, status: data.status };
     });

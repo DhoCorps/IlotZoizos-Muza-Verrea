@@ -1,11 +1,6 @@
 // packages/shared-core/src/sync-engine/project.orchestrator.ts
-
-import { ProjectModel } from '@ilot/infrastructure';
-import { TaskOrchestrator } from './task.orchestrator';
-import { getNeo4jSession } from '@ilot/infrastructure';
-import { IProject } from '@ilot/types';
-import { CAPABILITIES, ActionSignature } from '@ilot/types';
-import { MoralChecker } from '../integrity/moral.checker';
+import { ProjectModel, TaskModel, getNeo4jSession } from '@ilot/infrastructure';
+import { IProject, CAPABILITIES, ActionSignature } from '@ilot/types';
 import { TransactionManager } from './transactionManager';
 import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
 import { randomUUID } from 'crypto';
@@ -14,7 +9,10 @@ import { v4 as uuidv4 } from 'uuid';
 
 export interface ProjectSyncResult {
   success: boolean;
+  status: string;
   project?: IProject; 
+  mongo?: any;
+  neo4j?: any;
   purgedCount?: number;
 }
 
@@ -24,14 +22,11 @@ const generateSlug = (text: string) => {
 
 /**
  * 🛰️ PROJECT ORCHESTRATOR 
- * Modèle : "Zero-Identity" - L'Orchestrateur exécute selon la Signature.
+ * Phase 2 (UID Canonique) & Phase 3 (Éradication des verrous longs en cascade).
  */
 export class ProjectOrchestrator {
 
-  private taskOrch = new TaskOrchestrator();
-
   // --- 🌟 FONDATION : CRÉATION DU CHANTIER (ANCRAGE DOUBLE) ---
-
   async fosterProject(
     projectData: IProject, 
     signature: ActionSignature
@@ -87,6 +82,10 @@ export class ProjectOrchestrator {
         status: newProject.status || 'CONCEPT'
       });
 
+      if (neoResult.records.length === 0) {
+        throw new IlotError("Échec du scellement : Utilisateur ou Nid introuvable dans le Graphe.", "NOT_FOUND", 404);
+      }
+
       return { 
         success: true, 
         status: 'success', 
@@ -98,9 +97,9 @@ export class ProjectOrchestrator {
 
   // --- 🎨 MUTATION (Update) ---
   async mutateProject(projectIdentifier: string, updates: any, signature: ActionSignature): Promise<ProjectSyncResult> {
-    // Résolution universelle du projet par son slug ou son uid
+    // 1. Résolution universelle vers UID canonique strict (Phase 2)
     const project = await ProjectModel.findOne({ $or: [{ slug: projectIdentifier }, { uid: projectIdentifier }] });
-    if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
+    if (!project) throw new IlotError("Chantier introuvable dans la Silice.", "NOT_FOUND", 404);
 
     const projectUid = project.uid;
 
@@ -109,6 +108,7 @@ export class ProjectOrchestrator {
       const isCreator = project.creatorUid === signature.actorUid;
       const isArchitect = signature.capabilities.includes('*');
 
+      // Vérification des droits via le graphe en cascade
       if (!isCreator && !isArchitect) {
         const check = await neo4jTx.run(`
           MATCH (u:User {uid: $actorUid})-[r:MEMBER_OF|OWNER_OF]->(t:Team)-[:HAS_PROJECT]->(p:Project {uid: $pUid})
@@ -129,85 +129,87 @@ export class ProjectOrchestrator {
         { uid: projectUid }, { $set: updates }, { new: true, session: mongoSession }
       ).lean();
 
+      // Mutation légère Neo4j
       await neo4jTx.run(`
         MATCH (p:Project {uid: $projectUid})
-        SET p.name = $name, p.status = $status, p.updatedAt = datetime()
-      `, { projectUid, name: updatedProject!.name, status: updatedProject!.status });
+        SET p.name = coalesce($name, p.name), 
+            p.status = coalesce($status, p.status), 
+            p.updatedAt = datetime()
+      `, { projectUid, name: updates.name || null, status: updates.status || null });
 
       return { success: true, status: 'success', mongo: updatedProject, neo4j: null };
     });
   }
 
-  private async getFullDeletionOrder(projectUid: string) {
-    const session = getNeo4jSession();
-    try {
-      const result = await session.run(`
-        MATCH (root:Project {uid: $projectUid})
-        
-        // 1. Tâches et leur profondeur
-        MATCH path = (root)-[:CONTAINS*0..]->(p:Project)-[:TASK_OF]-(t:Task)
-        RETURN t.uid as uid, 'TASK' as type, length(path) + 10 as sortDepth
-        
-        UNION
-        
-        // 2. Projets et leur profondeur
-        MATCH path = (root)-[:CONTAINS*0..]->(p:Project)
-        RETURN p.uid as uid, 'PROJECT' as type, length(path) as sortDepth
-        
-        ORDER BY sortDepth DESC
-      `, { projectUid });
-      
-      return result.records.map(r => ({ uid: r.get('uid'), type: r.get('type') }));
-    } finally {
-      await session.close();
-    }
-  }
-
-  // 2. MÉTHODE DE SUPPRESSION D'UN PROJET (Unité)
-  async disintegrateProject(projectUid: string, session: any, neo4jTx: any) {
-    await ProjectModel.deleteOne({ uid: projectUid }, { session });
-    await neo4jTx.run(`MATCH (p:Project {uid: $uid}) DETACH DELETE p`, { uid: projectUid });
-  }
-
   /**
-   * 🧨 DISSOUS LE CHANTIER ET TOUTES SES TRACES (Fichiers + Atomes)
+   * 🧨 DISSOLUTION GLOBALE DU CHANTIER (Phase 3 : Éradication des verrous longs)
+   * Supprime l'intégralité de l'arbre (Sous-projets, Tâches) en une seule transaction massive 
+   * plutôt que de boucler individuellement.
    */
   async dissolveProject(projectIdentifier: string, signature: ActionSignature) {
     const project = await ProjectModel.findOne({ $or: [{ slug: projectIdentifier }, { uid: projectIdentifier }] });
     if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
 
     const projectUid = project.uid;
-    const nodesToDestroy = await this.getFullDeletionOrder(projectUid);
 
     return await TransactionManager.execute("Désintégration Totale", async (mongoSession, neo4jTx) => {
       
-      for (const node of nodesToDestroy) {
-        if (node.type === 'TASK') {
-          await this.taskOrch.disintegrateTask(node.uid, signature);
-        } else if (node.type === 'PROJECT') {
-          const targetProject = await ProjectModel.findOne({ uid: node.uid }).session(mongoSession);
-          if (targetProject && targetProject.documents) {
-            for (const doc of targetProject.documents) {
-              try {
-                const key = storageService.extractKeyFromUrl(doc.url);
-                await storageService.deleteFile(key);
-              } catch (err) {
-                console.error(`⚠️ [Orchestrator] Échec purge fichier ${doc.url} :`, err);
-              }
-            }
-          }
+      // 1. Identification de l'arbre complet DANS la transaction
+      const hierarchyResult = await neo4jTx.run(`
+        MATCH (root:Project {uid: $projectUid})
+        OPTIONAL MATCH (root)-[:CONTAINS*0..]->(sub:Project)
+        OPTIONAL MATCH (sub)<-[:TASK_OF]-(t:Task)
+        RETURN collect(DISTINCT sub.uid) AS projUids, collect(DISTINCT t.uid) AS taskUids
+      `, { projectUid });
 
-          await ProjectModel.deleteOne({ uid: node.uid }, { session: mongoSession });
-          await neo4jTx.run(`MATCH (p:Project {uid: $uid}) DETACH DELETE p`, { uid: node.uid });
+      const record = hierarchyResult.records[0];
+      const projUids: string[] = record ? record.get('projUids') : [];
+      const taskUids: string[] = record ? record.get('taskUids') : [];
+      
+      const allUids = [...projUids, ...taskUids];
+      if (allUids.length === 0) return { success: true, purgedCount: 0 };
+
+      // 2. Récupération des documents pour purge du stockage physique
+      const tasksWithDocs = await TaskModel.find({ uid: { $in: taskUids } }).select('documents').session(mongoSession).lean();
+      const projsWithDocs = await ProjectModel.find({ uid: { $in: projUids } }).select('documents').session(mongoSession).lean();
+      
+      const filesToDelete: string[] = [];
+      [...tasksWithDocs, ...projsWithDocs].forEach((entity: any) => {
+        if (entity.documents && Array.isArray(entity.documents)) {
+          entity.documents.forEach((doc: any) => {
+            if (doc.url) filesToDelete.push(storageService.extractKeyFromUrl(doc.url));
+          });
+        }
+      });
+
+      // 3. Purge Documentaire Massive (Silice)
+      if (taskUids.length > 0) {
+        await TaskModel.deleteMany({ uid: { $in: taskUids } }, { session: mongoSession });
+      }
+      if (projUids.length > 0) {
+        await ProjectModel.deleteMany({ uid: { $in: projUids } }, { session: mongoSession });
+      }
+
+      // 4. Purge Relationnelle Massive (Matrice)
+      await neo4jTx.run(`
+        MATCH (n) WHERE n.uid IN $allUids
+        DETACH DELETE n
+      `, { allUids });
+
+      // 5. Nettoyage asynchrone du stockage S3/R2 (Best effort)
+      for (const key of filesToDelete) {
+        try {
+          await storageService.deleteFile(key);
+        } catch (err) {
+          console.error(`⚠️ [Orchestrator] Échec purge fichier ${key} :`, err);
         }
       }
       
-      return { success: true, purgedCount: nodesToDestroy.length };
+      return { success: true, status: 'success', purgedCount: allUids.length };
     });
   }
 
   // --- 📎 ATTACHEMENT : AJOUT DE FICHIERS ---
-
   async appendFiles(
     projectIdentifier: string, 
     fileUrls: string[], 

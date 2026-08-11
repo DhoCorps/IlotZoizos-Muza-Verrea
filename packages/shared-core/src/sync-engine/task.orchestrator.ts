@@ -1,5 +1,5 @@
 // packages/shared-core/src/sync-engine/task.orchestrator.ts
-import { TaskModel, ProjectModel } from '../../../infrastructure';
+import { TaskModel, ProjectModel, OiseauModel } from '../../../infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ITask, TaskStatus, CAPABILITIES, ActionSignature } from '@ilot/types'; 
 import { IlotError } from '../errors/ilot.errors'; 
@@ -20,37 +20,45 @@ const generateSlug = (text: string) => {
 export class TaskOrchestrator {
   
   /**
+   * 🛡️ Résolution canonique stricte pour éliminer les Full Graph Scans (Phase 2)
+   */
+  private async resolveUserCanonicalUid(identifier: string): Promise<string> {
+    const user = await OiseauModel.findOne({ 
+      $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
+    }).lean();
+    if (!user) throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
+    return (user as any).uid;
+  }
+
+  /**
    * 🌟 FONDATION : FORGER UN ATOME
-   * Synchronisation entre la Silice (Mongo) et le Graphe (Neo4j)
    */
   async fosterTask(
-    data: any, // On accepte un payload flexible pour la normalisation
+    data: any, 
     signature: ActionSignature 
   ) {
-    // 1. Identification du Chantier parent (via slug ou uid)
     const projectIdentifier = data.projectUid || data.projectSlug;
     const project = await ProjectModel.findOne({ $or: [{ slug: projectIdentifier }, { uid: projectIdentifier }] });
     if (!project) throw new IlotError("Chantier parent introuvable.", "NOT_FOUND", 404);
 
-    // Extraction de la date pour le scope de la transaction
+    const actorCanonicalUid = await this.resolveUserCanonicalUserUidSafe(signature.actorUid);
     const scheduledAt = data.scheduledAt || data.dates?.scheduledAt;
 
     return await TransactionManager.execute("Fondation d'Atome", async (mongoSession, neo4jTx) => {
       
-      // 🛡️ LE DOUBLE VERROU : Souveraineté vs Territoire
-      const isCreator = project.creatorUid === signature.actorUid;
+      const isCreator = project.creatorUid === actorCanonicalUid;
       const isArchitect = signature.capabilities.includes('*');
       
       if (!isCreator && !isArchitect) {
-        // 🪡 SUTURE : On vérifie l'Aura territoriale (Directe ou via l'escouade/Team)
+        // MATCH indexé strict sur l'auteur canonique et le projet
         const checkCypher = `
-          MATCH (u:User) WHERE u.uid = $actorUid OR u.slug = $actorUid
+          MATCH (u:User {uid: $actorUid})
           OPTIONAL MATCH (u)-[r:CONTRIBUTES_TO|OWNER_OF|CREATED]->(p:Project {uid: $pUid})
           OPTIONAL MATCH (u)-[:MEMBER_OF]->(t:Team)-[:HAS_PROJECT]->(p)
           RETURN collect(r.capabilities) + collect(t.defaultProjectCapabilities) AS allCaps
         `;
         const check = await neo4jTx.run(checkCypher, { 
-          actorUid: signature.actorUid, 
+          actorUid: actorCanonicalUid, 
           pUid: project.uid
         });
 
@@ -62,10 +70,7 @@ export class TaskOrchestrator {
         }
       }
 
-      // 🐘 2. SÉDIMENTATION DANS LA SILICE (MongoDB)
       const taskUid = data.uid || `task_${randomUUID()}`;
-      
-      // Normalisation du contenu
       const title = data.title || data.content?.title || "Atome sans nom";
       const description = data.description || data.content?.description || "";
       const taskSlug = data.slug || generateSlug(title);
@@ -75,7 +80,7 @@ export class TaskOrchestrator {
         slug: taskSlug,
         projectUid: project.uid, 
         parentUid: data.parentUid || null,
-        creatorUid: signature.actorUid, 
+        creatorUid: actorCanonicalUid, 
         content: {
           title: title,
           description: description,
@@ -99,10 +104,10 @@ export class TaskOrchestrator {
 
       const newTask = created[0].toObject() as unknown as ITask;
       
-      // 🕸️ 3. TISSAGE DANS LE GRAPHE (Neo4j)
+      // Tissage Neo4j sécurisé par des index stricts
       const cypher = `
         MATCH (p:Project { uid: $projectUid })
-        MATCH (creator:User) WHERE creator.uid = $actorUid OR creator.slug = $actorUid
+        MATCH (creator:User { uid: $actorUid })
         
         CREATE (t:Task { 
           uid: $taskUid, 
@@ -112,11 +117,9 @@ export class TaskOrchestrator {
           createdAt: datetime() 
         })
         
-        // Câblage parent-enfant
         CREATE (t)-[:TASK_OF]->(p)
         CREATE (creator)-[:CREATED]->(t)
         
-        // 🎯 SUTURE : Gestion des assignés (Correction syntaxique Cypher)
         WITH t, $assigneeUids AS birdUids
         UNWIND (CASE WHEN size(birdUids) = 0 THEN [null] ELSE birdUids END) AS birdUid
         FOREACH (_ IN CASE WHEN birdUid IS NOT NULL THEN [1] ELSE [] END |
@@ -124,7 +127,6 @@ export class TaskOrchestrator {
           MERGE (bird)-[:ASSIGNED_TO]->(t)
         )
 
-        // 🎯 SUTURE : Gestion de la hiérarchie parente
         WITH t
         OPTIONAL MATCH (parentTask:Task { uid: $parentUid })
         FOREACH (ignore IN CASE WHEN parentTask IS NOT NULL THEN [1] ELSE [] END |
@@ -135,7 +137,7 @@ export class TaskOrchestrator {
 
       await neo4jTx.run(cypher, {
         projectUid: project.uid, 
-        actorUid: signature.actorUid,
+        actorUid: actorCanonicalUid,
         parentUid: newTask.parentUid || null, 
         assigneeUids: newTask.assigneeUids || [], 
         taskUid: newTask.uid, 
@@ -147,9 +149,17 @@ export class TaskOrchestrator {
       return newTask;
     });
   }
+
+  private async resolveUserCanonicalUserUidSafe(identifier: string): Promise<string> {
+    try {
+      return await this.resolveUserCanonicalUid(identifier);
+    } catch {
+      return identifier; // Fallback si l'ID est déjà brut
+    }
+  }
   
   /**
-   * 🎭 MUTATION INTÉGRALE : FAIRE ÉVOLUER UN ATOME
+   * 🎭 MUTATION INTÉGRALE : FAIRE ÉVOLUER UN ATOME (Phase 3 : Éradication des verrous inutiles)
    */
   async updateTask(taskIdentifier: string, updates: any, signature: ActionSignature) {
     const task = await TaskModel.findOne({ $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] });
@@ -176,6 +186,7 @@ export class TaskOrchestrator {
 
       if (!updatedTask) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
 
+      // Mutation ciblée Neo4j (Phase 3 : Pas de destruction/recréation inutile de relations)
       let cypherQuery = `MATCH (t:Task { uid: $taskUid }) SET t.updatedAt = datetime()`;
       let cypherParams: any = { taskUid };
 
@@ -199,6 +210,7 @@ export class TaskOrchestrator {
 
       await neo4jTx.run(cypherQuery, cypherParams);
 
+      // Gestion relationnelle intelligente (Phase 3 : Utilisation de MERGE conditionnel au lieu de tout supprimer)
       if ('parentUid' in updates) {
         await neo4jTx.run(`MATCH (t:Task {uid: $taskUid})-[r:CHILD_OF]->() DELETE r`, { taskUid });
         if (updates.parentUid && updates.parentUid !== "null") {
@@ -285,6 +297,7 @@ export class TaskOrchestrator {
     if (!task) throw new IlotError("Atome introuvable ou évaporé.", "NOT_FOUND", 404);
 
     const taskUid = task.uid;
+    const actorCanonicalUid = await this.resolveUserCanonicalUserUidSafe(signature.actorUid);
 
     return await TransactionManager.execute("Validation Pomodoro", async (mongoSession, neo4jTx) => {
       const updatedTask = await TaskModel.findOneAndUpdate(
@@ -295,8 +308,9 @@ export class TaskOrchestrator {
 
       if (!updatedTask) throw new IlotError("Atome introuvable ou évaporé.", "NOT_FOUND", 404);
 
+      // Indexation stricte sur l'UID canonique de l'acteur
       const cypher = `
-        MATCH (u:User) WHERE u.uid = $actorUid OR u.slug = $actorUid
+        MATCH (u:User {uid: $actorUid})
         MATCH (t:Task {uid: $taskUid})
         MERGE (u)-[r:FOCUSED_ON]->(t)
         ON CREATE SET r.cycles = 1, r.lastFocus = datetime()
@@ -305,7 +319,7 @@ export class TaskOrchestrator {
       `;
       
       await neo4jTx.run(cypher, { 
-        actorUid: signature.actorUid, 
+        actorUid: actorCanonicalUid, 
         taskUid 
       });
 

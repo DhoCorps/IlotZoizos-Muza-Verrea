@@ -6,10 +6,12 @@ import { ActionSignature } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
-// ==========================================
-// ⚖️ POST : Traiter la régulation connectée du marché (Strictement Privé / Aura)
-// ==========================================
-export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser | null) => {
+  // 🛡️ SÉCURITÉ : Protection contre les accès non authentifiés (le mock de test enverra null)
+  if (!currentUser) {
+    return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
+  }
+
   try {
     const body = await req.json().catch(() => null);
     if (!body) {
@@ -39,7 +41,6 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       signature
     );
 
-    // 💥 Invalidation chirurgicale du cache en cascade pour actualiser le marché
     revalidateTag('marketplace');
     revalidateTag('market-regulation');
 

@@ -1,3 +1,4 @@
+// packages/shared-core/src/sync-engine/team.orchestrator.ts
 import { OiseauModel, TeamModel, ProjectModel, TaskModel } from '@ilot/infrastructure';
 import { ITeam, CAPABILITIES, ActionSignature } from '@ilot/types';
 import { MoralChecker } from '../integrity/moral.checker';
@@ -5,7 +6,6 @@ import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
 
-// 🛡️ SUTURE UNIQUE : Utilisation d'un type minimaliste pour éviter la duplication d'import storage
 interface IStorageManager {
   deleteFile(key: string): Promise<any>;
   extractKeyFromUrl(url: string): string;
@@ -21,17 +21,24 @@ export interface TeamSyncResult {
 
 /**
  * 🛰️ TEAM ORCHESTRATOR 
- * L'Architecte des liens. Assure la cohérence entre la Silice (Mongo) et le Graphe (Neo4j).
+ * Assure la cohérence entre la Silice (Mongo) et le Graphe (Neo4j) avec index stricts (Phase 2).
  */
 export class TeamOrchestrator {
   private storageService: IStorageManager;
 
   constructor(customStorageService?: IStorageManager) {
-    // Injection de dépendance optionnelle pour isoler les tests ou utilisation d'un mock par défaut
     this.storageService = customStorageService || {
       deleteFile: async () => ({ success: true }),
       extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
     };
+  }
+
+  private async resolveCanonicalUserUid(identifier: string): Promise<string> {
+    const user = await OiseauModel.findOne({ 
+      $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
+    }).lean();
+    if (!user) throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
+    return (user as any).uid;
   }
 
   async fosterTeam(
@@ -56,7 +63,8 @@ export class TeamOrchestrator {
     const check = moralCheck.analyze(teamData.name);
     if (!check.isSafe) throw new IlotError(`Nom invalide : ${check.suggestion}`, "BAD_REQUEST", 400);
 
-    const creator = await OiseauModel.findOne({ uid: signature.actorUid });
+    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
+    const creator = await OiseauModel.findOne({ uid: actorCanonicalUid });
     if (!creator) throw new IlotError("Empreinte créatrice introuvable dans la canopée.", "NOT_FOUND", 404);
 
     const teamUid = `team_${randomUUID()}`;
@@ -87,8 +95,9 @@ export class TeamOrchestrator {
         ...Object.values(CAPABILITIES.PROJECT)
       ];
 
+      // Utilisation stricte des UIDs canoniques (Phase 2)
       const cypher = `
-        MERGE (u:User { uid: $actorUid })
+        MATCH (u:User { uid: $actorUid })
         MERGE (t:Team { uid: $teamUid })
         ON CREATE SET 
           t.createdAt = datetime(),
@@ -110,7 +119,7 @@ export class TeamOrchestrator {
       `;
 
       const neoResult = await neo4jTx.run(cypher, {
-        actorUid: signature.actorUid,
+        actorUid: creator.uid,
         teamUid: teamUid, 
         parentId: teamData.parentId || null,
         frequency: defaultFreq,
@@ -146,7 +155,8 @@ export class TeamOrchestrator {
       throw new IlotError("Ce Nid n'existe pas dans la Silice.", "NOT_FOUND", 404);
     }
 
-    const isNestOwner = team.ownerUid === signature.actorUid;
+    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
+    const isNestOwner = team.ownerUid === actorCanonicalUid;
     const hasGlobalPower = signature.capabilities.includes(CAPABILITIES.MEMBER.INVITE) || 
                            signature.capabilities.includes('*');
 
@@ -154,15 +164,13 @@ export class TeamOrchestrator {
       throw new IlotError("Aura insuffisante pour recruter dans ce Nid.", "FORBIDDEN", 403);
     }
 
-    const target = await OiseauModel.findOne({ uid: data.targetUserUid });
+    const targetCanonicalUid = await this.resolveCanonicalUserUid(data.targetUserUid);
+    const target = await OiseauModel.findOne({ uid: targetCanonicalUid });
     if (!target) throw new IlotError("Oiseau introuvable.", "NOT_FOUND", 404);
 
     return await TransactionManager.execute("Invitation d'Oiseau", async (mongoSession, neo4jTx) => {
       const cypher = `
-        MERGE (target:User { uid: $targetUserUid })
-        ON CREATE SET target.pseudo = $pseudo, target.frequenceHEX = $hex
-        
-        WITH target
+        MATCH (target:User { uid: $targetUserUid })
         MATCH (t:Team { uid: $teamUid })
         
         OPTIONAL MATCH (target)-[oldRefuse:REFUSED_INVITATION]->(t)
@@ -176,9 +184,7 @@ export class TeamOrchestrator {
       `;
 
       const neoResult = await neo4jTx.run(cypher, { 
-        targetUserUid: data.targetUserUid, 
-        pseudo: target.pseudo,
-        hex: target.frequenceHEX,
+        targetUserUid: target.uid, 
         teamUid: team.uid,
         caps: data.capabilities || [CAPABILITIES.PROJECT.READ, CAPABILITIES.TASK.CREATE] 
       });
@@ -291,19 +297,22 @@ export class TeamOrchestrator {
 
   async leaveTeam(
     teamIdentifier: string,
-    userUid: string,
+    userIdentifier: string,
     mode: 'CLEAN' | 'TRACE',
     signature: ActionSignature
   ): Promise<{ success: boolean; message: string }> {
     
-    if (signature.actorUid !== userUid) {
+    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
+    const targetCanonicalUid = await this.resolveCanonicalUserUid(userIdentifier);
+
+    if (actorCanonicalUid !== targetCanonicalUid) {
       throw new IlotError("Tu ne peux pas forcer l'envol d'un autre oiseau via cette route.", "FORBIDDEN", 403);
     }
 
     const team = await TeamModel.findOne({ $or: [{ uid: teamIdentifier }, { slug: teamIdentifier }] });
     if (!team) throw new IlotError("Nid introuvable dans la Silice.", "NOT_FOUND", 404);
     
-    if (team.ownerUid === userUid) {
+    if (team.ownerUid === targetCanonicalUid) {
       throw new IlotError("L'Architecte ne peut pas abandonner son propre Nid. Dissous-le ou transmets sa clé.", "BAD_REQUEST", 400);
     }
 
@@ -313,7 +322,7 @@ export class TeamOrchestrator {
       
       if (mode === 'CLEAN') {
         const cypherClean = `
-          MATCH (u:User) WHERE u.uid = $userUid OR u.slug = $userUid
+          MATCH (u:User {uid: $userUid})
           MATCH (t:Team {uid: $teamUid})
           MATCH (u)-[r:MEMBER_OF|INVITED_TO|REFUSED_INVITATION]->(t)
           
@@ -333,7 +342,7 @@ export class TeamOrchestrator {
           DELETE r
           RETURN 1
         `;
-        await neo4jTx.run(cypherClean, { userUid, teamUid });
+        await neo4jTx.run(cypherClean, { userUid: targetCanonicalUid, teamUid });
 
         const projects = await ProjectModel.find({ ownerUid: teamUid }).session(mongoSession).lean();
         const projectUids = projects.map(p => p.uid);
@@ -341,31 +350,31 @@ export class TeamOrchestrator {
         if (projectUids.length > 0) {
           await TaskModel.deleteMany({ 
             projectUid: { $in: projectUids }, 
-            creatorUid: userUid 
+            creatorUid: targetCanonicalUid 
           }).session(mongoSession);
         }
 
-        const userProjects = await ProjectModel.find({ ownerUid: teamUid, creatorUid: userUid }).session(mongoSession).lean();
+        const userProjects = await ProjectModel.find({ ownerUid: teamUid, creatorUid: targetCanonicalUid }).session(mongoSession).lean();
         const userProjectUids = userProjects.map(p => p.uid);
 
         if (userProjectUids.length > 0) {
           await TaskModel.deleteMany({ projectUid: { $in: userProjectUids } }).session(mongoSession);
-          await ProjectModel.deleteMany({ ownerUid: teamUid, creatorUid: userUid }).session(mongoSession);
+          await ProjectModel.deleteMany({ ownerUid: teamUid, creatorUid: targetCanonicalUid }).session(mongoSession);
         }
 
       } else {
         const cypherTrace = `
-          MATCH (u:User) WHERE u.uid = $userUid OR u.slug = $userUid
+          MATCH (u:User {uid: $userUid})
           MATCH (t:Team {uid: $teamUid})
           MATCH (u)-[r:MEMBER_OF|INVITED_TO|REFUSED_INVITATION]->(t)
           DELETE r
           RETURN 1
         `;
-        await neo4jTx.run(cypherTrace, { userUid, teamUid });
+        await neo4jTx.run(cypherTrace, { userUid: targetCanonicalUid, teamUid });
       }
 
       await OiseauModel.findOneAndUpdate(
-        { uid: userUid },
+        { uid: targetCanonicalUid },
         { $pull: { teams: team._id } },
         { session: mongoSession }
       );

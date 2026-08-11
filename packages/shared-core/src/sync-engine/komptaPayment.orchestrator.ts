@@ -1,3 +1,4 @@
+// packages/shared-core/src/sync-engine/komptaPayment.orchestrator.ts
 import mongoose from 'mongoose';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
@@ -28,16 +29,23 @@ export interface DirectStoreTransactionPayload {
 
 export interface ItemExchangeTransactionPayload {
   exchangeUid: string;
-  senderUid: string;       // Celui qui offre l'objet/création de son inventaire
-  recipientUid: string;    // Le propriétaire de la page visitée
-  offeredItemUid: string;  // L'ID de l'objet ou de la création de l'inventaire troqué
-  targetTitle: string;     // Le nom de l'œuvre en face
+  senderUid: string;       
+  recipientUid: string;    
+  offeredItemUid: string;  
+  targetTitle: string;     
   description?: string;
 }
 
 export class KomptaPaymentOrchestrator {
   /**
-   * 🦅 TRANSFERT DIRECT P2P SÉCURISÉ (Inclus : Écritures Kompta Grand Livre)
+   * 🏛️ CONSTANTE DE REDISTRIBUTION (La Sève de l'Îlot)
+   * Prélèvement automatique de 1% sur les flux marchands pour alimenter le Trésor de la Canopée
+   */
+  private static readonly CANOPY_TAX_RATE = 0.01; 
+  private static readonly CANOPY_TREASURY_UID = 'SYSTEM_CANOPY_TREASURY';
+
+  /**
+   * 🦅 TRANSFERT DIRECT P2P SÉCURISÉ (Zéro taxe sur le P2P pur, traçabilité Grand Livre)
    */
   public async executeDirectTransfer(
     payload: DirectTransferPayload,
@@ -85,7 +93,7 @@ export class KomptaPaymentOrchestrator {
       await senderWallet.save({ session: mongoSession });
       await recipientWallet.save({ session: mongoSession });
 
-      // 📊 KOMPTA HOOK : Enregistrement de l'écriture de Débit pour l'expéditeur
+      // 📊 KOMPTA HOOK : Écriture de Débit pour l'expéditeur
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.senderUid,
         counterpartyUid: payload.recipientUid,
@@ -98,7 +106,7 @@ export class KomptaPaymentOrchestrator {
         session: mongoSession
       });
 
-      // 📊 KOMPTA HOOK : Enregistrement de l'écriture de Crédit pour le destinataire
+      // 📊 KOMPTA HOOK : Écriture de Crédit pour le destinataire
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.recipientUid,
         counterpartyUid: payload.senderUid,
@@ -150,7 +158,7 @@ export class KomptaPaymentOrchestrator {
   }
 
   /**
-   * 🦅 MOTEUR DE TRANSACTION DIRECTE (Client ➔ Vendeur) (Inclus : Écritures Kompta Grand Livre)
+   * 🦅 MOTEUR DE TRANSACTION MARCHANDE (Client ➔ Vendeur avec Redistribution Canopée)
    */
   public async executeStoreTransaction(
     payload: DirectStoreTransactionPayload,
@@ -172,7 +180,7 @@ export class KomptaPaymentOrchestrator {
       throw new IlotError("Un oiseau ne peut pas effectuer une transaction marchande avec lui-même.", "BAD_REQUEST", 400);
     }
 
-    return await TransactionManager.execute("Transaction Directe Client ➔ Vendeur", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Transaction Marchande & Redistribution", async (mongoSession, neo4jTx) => {
       const buyerWallet = await WalletModel.findOne({ userId: payload.buyerUid }).session(mongoSession);
       if (!buyerWallet) {
         throw new IlotError("Portefeuille de l'acheteur introuvable dans la Silice.", "NOT_FOUND", 404);
@@ -192,16 +200,35 @@ export class KomptaPaymentOrchestrator {
         });
       }
 
+      // 🏛️ Calcul de la Sève de redistribution (Trésor de l'Îlot)
+      const canopyTaxCents = Math.floor(payload.amountCents * KomptaPaymentOrchestrator.CANOPY_TAX_RATE);
+      const netMerchantAmountCents = payload.amountCents - canopyTaxCents;
+
+      // Récupération ou initialisation du portefeuille du Trésor de l'Îlot
+      let treasuryWallet = await WalletModel.findOne({ userId: KomptaPaymentOrchestrator.CANOPY_TREASURY_UID }).session(mongoSession);
+      if (!treasuryWallet) {
+        treasuryWallet = new WalletModel({
+          userId: KomptaPaymentOrchestrator.CANOPY_TREASURY_UID,
+          balance: 0,
+          currency: payload.currency,
+          linkedAccounts: []
+        });
+      }
+
+      // Mouvements comptables Silice
       buyerWallet.balance -= payload.amountCents;
-      recipientWallet.balance += payload.amountCents;
+      recipientWallet.balance += netMerchantAmountCents;
+      treasuryWallet.balance += canopyTaxCents;
 
       buyerWallet.updatedAt = new Date();
       recipientWallet.updatedAt = new Date();
+      treasuryWallet.updatedAt = new Date();
 
       await buyerWallet.save({ session: mongoSession });
       await recipientWallet.save({ session: mongoSession });
+      await treasuryWallet.save({ session: mongoSession });
 
-      // 📊 KOMPTA HOOK : Écriture de Débit (Achat) pour l'acheteur
+      // 📊 KOMPTA HOOK : Débit total de l'acheteur
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.buyerUid,
         counterpartyUid: payload.recipientUid,
@@ -214,18 +241,33 @@ export class KomptaPaymentOrchestrator {
         session: mongoSession
       });
 
-      // 📊 KOMPTA HOOK : Écriture de Crédit (Vente) pour le vendeur
+      // 📊 KOMPTA HOOK : Crédit net pour le vendeur
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.recipientUid,
         counterpartyUid: payload.buyerUid,
-        amountCents: payload.amountCents,
+        amountCents: netMerchantAmountCents,
         currency: payload.currency,
         type: 'CREDIT',
         category: 'STORE_SALE',
         referenceUid: payload.transactionUid,
-        description: payload.description || 'Vente d\'artefact sur la boutique',
+        description: `Vente d'artefact (Net après taxe de redistribution)`,
         session: mongoSession
       });
+
+      // 📊 KOMPTA HOOK : Crédit de la taxe pour le Trésor de l'Îlot
+      if (canopyTaxCents > 0) {
+        await KomptaLedgerService.recordEntry({
+          ownerUid: KomptaPaymentOrchestrator.CANOPY_TREASURY_UID,
+          counterpartyUid: payload.buyerUid,
+          amountCents: canopyTaxCents,
+          currency: payload.currency,
+          type: 'CREDIT',
+          category: 'CANOPY_TAX_REVENUE',
+          referenceUid: payload.transactionUid,
+          description: 'Prélèvement souverain de redistribution (1%)',
+          session: mongoSession
+        });
+      }
 
       let cypher = `
         MATCH (buyer:User {uid: $buyerUid})
@@ -233,6 +275,8 @@ export class KomptaPaymentOrchestrator {
         CREATE (tx:StoreTransaction {
           uid: $transactionUid,
           amountCents: $amountCents,
+          netMerchantAmountCents: $netMerchantAmountCents,
+          canopyTaxCents: $canopyTaxCents,
           currency: $currency,
           sourcePage: $sourcePage,
           description: $description,
@@ -257,10 +301,12 @@ export class KomptaPaymentOrchestrator {
         buyerUid: payload.buyerUid,
         recipientUid: payload.recipientUid,
         amountCents: payload.amountCents,
+        netMerchantAmountCents,
+        canopyTaxCents,
         currency: payload.currency,
         storeUid: payload.storeUid || null,
         sourcePage: payload.sourcePage || 'canopy_store',
-        description: payload.description || 'Paiement direct 1-clic'
+        description: payload.description || 'Paiement souverain 1-clic'
       });
 
       if (!neoResult.records || neoResult.records.length === 0) {
@@ -277,7 +323,7 @@ export class KomptaPaymentOrchestrator {
   }
 
   /**
-   * 📦 MOTEUR DE TROC & DON D'OBJET / CRÉATION VIA LE CHAPEAU (Inclus : Écriture Grand Livre)
+   * 📦 MOTEUR DE TROC & DON D'OBJET VIA LE CHAPEAU
    */
   public async executeItemExchange(
     payload: ItemExchangeTransactionPayload,
@@ -297,7 +343,6 @@ export class KomptaPaymentOrchestrator {
 
     return await TransactionManager.execute("Troc d'Objet / Création - Chapeau", async (mongoSession, neo4jTx) => {
       
-      // 📊 KOMPTA HOOK : Enregistrement de l'écriture de troc (valeur 0 monétaire mais traçabilité d'inventaire)
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.senderUid,
         counterpartyUid: payload.recipientUid,

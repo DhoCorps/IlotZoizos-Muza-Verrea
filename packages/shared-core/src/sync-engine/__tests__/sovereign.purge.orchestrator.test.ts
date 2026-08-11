@@ -1,4 +1,4 @@
-// packages/shared-core/src/sync-engine/__test__/sovereign.purge.orchestrator.test.ts
+// packages/shared-core/src/sync-engine/__tests__/sovereign.purge.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SovereignPurgeOrchestrator } from '../sovereign.purge.orchestrator';
 import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
@@ -34,7 +34,7 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-describe('SovereignPurgeOrchestrator', () => {
+describe('SovereignPurgeOrchestrator - Dissolution Souveraine (Phase 2)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -53,21 +53,20 @@ describe('SovereignPurgeOrchestrator', () => {
   });
 
   describe('executeSovereignPurge', () => {
-    it('🔴 doit rejeter (403) si l’acteur n’est ni l’entité elle-même ni root (*)', async () => {
+    it('🔴 doit rejeter (403) si l\'acteur n\'est ni l\'entité elle-même ni root (*)', async () => {
       const orchestrator = new SovereignPurgeOrchestrator();
       const unauthorizedSignature = { actorUid: 'other_bird', capabilities: [] };
-
       await expect(
         orchestrator.executeSovereignPurge({ entityId: 'bird_1', reason: 'VITAL_COLLAPSE' }, unauthorizedSignature as any)
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit exécuter la purge souveraine avec succès si l’acteur est l’entité elle-même', async () => {
+    it('🟢 doit exécuter la purge souveraine avec succès en résolvant l\'UID canonique', async () => {
       const orchestrator = new SovereignPurgeOrchestrator();
       const selfSignature = { actorUid: 'bird_1', capabilities: [] };
 
       vi.mocked(OiseauModel.findOne).mockReturnValue({
-        session: vi.fn().mockResolvedValueOnce({ uid: 'bird_1', slug: 'bird-slug' })
+        session: vi.fn().mockResolvedValueOnce({ uid: 'bird_canonical_1', slug: 'bird-slug' })
       } as any);
 
       const res = await orchestrator.executeSovereignPurge(
@@ -77,6 +76,7 @@ describe('SovereignPurgeOrchestrator', () => {
 
       expect(res.success).toBe(true);
       expect(res.neo4jDeletedCount).toBe(1);
+      expect(OiseauModel.findOne).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });

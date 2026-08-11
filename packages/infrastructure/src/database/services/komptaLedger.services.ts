@@ -7,7 +7,7 @@ export interface RecordLedgerParams {
   amountCents: number;
   currency: string;
   type: 'CREDIT' | 'DEBIT';
-  category: 'TIP' | 'STORE_SALE' | 'STORE_PURCHASE' | 'BARTER' | 'SYSTEM_TRANSFER';
+  category: 'TIP' | 'STORE_SALE' | 'STORE_PURCHASE' | 'BARTER' | 'SYSTEM_TRANSFER' | 'CANOPY_TAX_REVENUE';
   referenceUid: string;
   description: string;
   session?: any;

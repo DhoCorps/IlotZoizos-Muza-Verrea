@@ -1,3 +1,4 @@
+// packages/shared-core/src/sync-engine/partita.orchestrator.ts
 import { PartitaModel } from '../../../infrastructure/src/database/models/nosql/partita.model';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
@@ -18,11 +19,15 @@ const generateSlug = (text: string) => {
 };
 
 /**
- * PARTITA ORCHESTRATOR
+ * 🎸 PARTITA ORCHESTRATOR
  * Gère la sédimentation d'une partition et son tissage dans le Graphe (Neo4j).
+ * Applique la résolution stricte par UID Canonique (Phase 2).
  */
 export class PartitaOrchestrator {
   
+  /**
+   * 🎼 FONDATION : FORGER UNE PARTITION
+   */
   async fosterPartita(data: any, signature: ActionSignature): Promise<PartitaSyncResult> {
     const isSelf = signature.actorUid === data.authorUid;
     if (!isSelf && !signature.capabilities.includes('*')) {
@@ -33,7 +38,7 @@ export class PartitaOrchestrator {
       const partitaUid = data.uid || `partita_${randomUUID()}`;
       const title = data.title || "Partition sans nom";
       
-      // 🪡 Sécurisation de l'unicité du slug
+      // 🪡 Sécurisation de l'unicité du slug dans la Silice
       let baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
       let finalSlug = baseSlug;
       let slugExists = await PartitaModel.findOne({ slug: finalSlug }).session(mongoSession);
@@ -52,7 +57,7 @@ export class PartitaOrchestrator {
         instrument: data.instrument || 'BASS',
         format: data.format || 'ABC',
         tuning: data.tuning || 'E1-A1-D2-G2',
-        authorUid: signature.actorUid,
+        authorUid: signature.actorUid, // UID canonique strict garanti par l'auth
         status: data.status || 'DRAFT',
         tags: data.tags || [],
         connections: data.connections || {},
@@ -61,10 +66,10 @@ export class PartitaOrchestrator {
         settings: data.settings || {},
       };
 
-      // 1. Silice (MongoDB)
+      // 1. Sédimentation dans la Silice (MongoDB)
       const [newPartita] = await PartitaModel.create([newPartitaData], { session: mongoSession });
 
-      // 2. Graphe (Neo4j)
+      // 2. Tissage dans le Graphe (Neo4j) avec MATCH strict
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (p:Partita { 
@@ -107,6 +112,11 @@ export class PartitaOrchestrator {
         productId: newPartita.merchLink?.productId || null
       });
 
+      // 🛡️ VERROU DE SÉCURITÉ : Vérification de la création effective
+      if (neoResult.records.length === 0) {
+        throw new IlotError("Échec du tissage : Oiseau créateur introuvable dans le Graphe.", "NOT_FOUND", 404);
+      }
+
       return {
         success: true,
         status: 'success',
@@ -116,7 +126,12 @@ export class PartitaOrchestrator {
     });
   }
 
+  /**
+   * 🔄 MUTATION : MISE À JOUR DE PARTITION
+   * Résolution Silice (MongoDB) -> Propagation indexée Matrice (Neo4j)
+   */
   async updatePartita(partitaUidOrSlug: string, updates: any, signature: ActionSignature): Promise<PartitaSyncResult> {
+    // 1. Résolution stricte de l'UID canonique via la Silice
     const existing = await PartitaModel.findOne({ $or: [{ uid: partitaUidOrSlug }, { slug: partitaUidOrSlug }] });
     if (!existing) throw new IlotError("Partition introuvable dans la Silice.", "NOT_FOUND", 404);
 
@@ -134,6 +149,7 @@ export class PartitaOrchestrator {
 
       let neoResult = null;
       if (updates.status || updates.instrument || updates.title || updates.merchLink) {
+        // MATCH indexé rapide sur l'UID canonique
         neoResult = await neo4jTx.run(`
           MATCH (p:Partita { uid: $partitaUid })
           SET p.title = coalesce($title, p.title),
@@ -162,6 +178,10 @@ export class PartitaOrchestrator {
           instrument: updates.instrument || null,
           productId: updates.merchLink?.productId || null
         });
+
+        if (neoResult.records.length === 0) {
+          throw new IlotError("Échec de la mutation : Partition introuvable dans le Graphe Neo4j.", "INTERNAL_ERROR", 500);
+        }
       }
 
       return {
@@ -173,6 +193,9 @@ export class PartitaOrchestrator {
     });
   }
 
+  /**
+   * 🔥 DÉSINTÉGRATION : PURGE D'UNE PARTITION
+   */
   async disintegratePartita(partitaUidOrSlug: string, signature: ActionSignature) {
     const existing = await PartitaModel.findOne({ $or: [{ uid: partitaUidOrSlug }, { slug: partitaUidOrSlug }] });
     if (!existing) throw new IlotError("Partition introuvable.", "NOT_FOUND", 404);
@@ -194,10 +217,10 @@ export class PartitaOrchestrator {
         filesToDelete.push(existing.media.audioTrackUrl);
       }
 
+      // Détachement propre via l'UID canonique
       await neo4jTx.run(`MATCH (p:Partita { uid: $partitaUid }) DETACH DELETE p`, { partitaUid: existing.uid });
       await PartitaModel.deleteOne({ uid: existing.uid }, { session: mongoSession });
 
-      // On renvoie le tableau à l'application hôte
       return { success: true, purgedCount: 1, filesToDelete };
     });
   }

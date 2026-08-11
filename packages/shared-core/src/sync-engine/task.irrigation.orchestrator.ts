@@ -34,7 +34,7 @@ export class TaskIrrigationOrchestrator {
 
     /**
      * 💧 TRAITEMENT CONNECTÉ DE L'IRRIGATION D'UNE TÂCHE
-     * Vérifie les capacités de l'acteur, récupère la tâche, évalue son irrigation et met à jour Mongo et Neo4j.
+     * Résout l'atome par son uid ou slug dans MongoDB, puis propage l'irrigation dans Neo4j via l'UID canonique.
      */
     public async processTaskIrrigation(taskIdentifier: string, signature: ActionSignature) {
         // 🛡️ Barrière de sécurité : Vérification des capacités de l'Oiseau
@@ -42,9 +42,14 @@ export class TaskIrrigationOrchestrator {
             throw new IlotError("Aura insuffisante pour irriguer cet Atome.", "FORBIDDEN", 403);
         }
 
-        const task = await TaskModel.findOne({ uid: taskIdentifier });
+        // 1. Résolution universelle (uid ou slug) dans la Silice
+        const task = await TaskModel.findOne({ 
+            $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] 
+        });
 
         if (!task) throw new IlotError("Atome introuvable dans la Silice.", "NOT_FOUND", 404);
+
+        const canonicalUid = task.uid;
 
         const payload: TaskPayload = {
             title: task.content?.title || "Tâche sans nom",
@@ -56,7 +61,7 @@ export class TaskIrrigationOrchestrator {
 
         return await TransactionManager.execute("Irrigation d'Atome", async (mongoSession, neo4jTx) => {
             const updatedTask = await TaskModel.findOneAndUpdate(
-                { uid: task.uid },
+                { uid: canonicalUid },
                 { 
                     $set: { 
                         status: evaluated.status,
@@ -67,23 +72,28 @@ export class TaskIrrigationOrchestrator {
                 { new: true, session: mongoSession }
             ).lean();
 
+            // Propagation rapide et indexée dans Neo4j par l'UID canonique strict
             const cypher = `
-                MATCH (t:Task { uid: $taskUid })
+                MATCH (t:Task { uid: $canonicalUid })
                 SET t.status = $status,
                     t.isIrrigated = $isIrrigated,
                     t.updatedAt = datetime()
                 RETURN t
             `;
 
-            await neo4jTx.run(cypher, {
-                taskUid: task.uid,
+            const neoResult = await neo4jTx.run(cypher, {
+                canonicalUid,
                 status: evaluated.status,
                 isIrrigated: evaluated.isIrrigated
             });
 
+            if (neoResult.records.length === 0) {
+                throw new IlotError("Atome introuvable dans la Matrice Neo4j.", "NOT_FOUND", 404);
+            }
+
             return {
                 success: true,
-                taskUid: task.uid,
+                taskUid: canonicalUid,
                 ...evaluated,
                 updatedTask
             };
