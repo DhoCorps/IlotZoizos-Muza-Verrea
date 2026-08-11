@@ -64,3 +64,5 @@ export * from '../../infrastructure/src/database/services/identityGenerator.serv
 export * from './database/models/nosql/canopyAward.model';
 
 export * from './database/models/nosql/systemGraphDql.model';
+
+export * from './database/models/nosql/systemPurgeJob.model';

@@ -1,22 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/sovereign/purge/route';
 import { getServerSession } from 'next-auth/next';
-import { SovereignPurgeOrchestrator } from '@ilot/shared-core';
-import { revalidateTag } from 'next/cache';
+import { SystemPurgeJobModel } from '@ilot/infrastructure';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
 // -------------------------------------------------------------------------
-vi.mock('next/cache', () => ({
-  revalidateTag: vi.fn(),
-}));
-
 vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
+  SystemPurgeJobModel: {
+    create: vi.fn().mockResolvedValue(true),
+  },
 }));
 
 // -------------------------------------------------------------------------
@@ -25,12 +23,6 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('Route API : Purge Souveraine (POST /api/purge)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-
-    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de SovereignPurgeOrchestrator
-    vi.spyOn(SovereignPurgeOrchestrator.prototype, 'executeSovereignPurge').mockResolvedValue({
-      purged: true,
-      count: 5,
-    } as any);
   });
 
   it('doit rejeter (401) si l\'utilisateur n\'a pas d\'Aura', async () => {
@@ -65,9 +57,9 @@ describe('Route API : Purge Souveraine (POST /api/purge)', () => {
     expect(json.error).toBe("Contexte de purge incomplet.");
   });
 
-  it('doit réussir (200) la purge souveraine, exécuter l\'orchestrateur et invalider le cache', async () => {
+  it('doit planifier la purge souveraine avec succès (202) et consigner le job dans la Silice', async () => {
     vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'u-123', capabilities: ['*'] }
+      user: { uid: 'u-123', capabilities: ['ROLE_SOVEREIGN'] }
     } as any);
 
     const req = new Request('http://localhost/api/purge', {
@@ -78,14 +70,18 @@ describe('Route API : Purge Souveraine (POST /api/purge)', () => {
     const response = await POST(req as any, {});
     const json = await response.json();
 
-    expect(response.status).toBe(200);
+    // 🕊️ La route répond désormais en 202 Accepted (asynchrone)
+    expect(response.status).toBe(202);
     expect(json.success).toBe(true);
-    expect(json.result.purged).toBe(true);
+    expect(json.message).toContain("abysses");
 
-    // 💥 Vérification de l'invalidation chirurgicale et globale du cache
-    expect(revalidateTag).toHaveBeenCalledWith('sujets');
-    expect(revalidateTag).toHaveBeenCalledWith('tasks');
-    expect(revalidateTag).toHaveBeenCalledWith('teams');
-    expect(revalidateTag).toHaveBeenCalledWith('entity-ent-1');
+    // ⏳ Vérification que l'ordre a bien été enfilé dans la base NoSQL
+    expect(SystemPurgeJobModel.create).toHaveBeenCalledWith({
+      entityId: 'ent-1',
+      reason: 'Nettoyage cosmique',
+      actorUid: 'u-123',
+      capabilities: ['ROLE_SOVEREIGN'],
+      status: 'PENDING'
+    });
   });
 });

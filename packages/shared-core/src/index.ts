@@ -45,6 +45,7 @@ export * from './sync-engine/task.resonance.orchestrator';
 export * from './sync-engine/resonance.orchestrator';
 export * from './sync-engine/demopraxy.orchestrator';
 export * from './sync-engine/sovereign.purge.orchestrator';
+export * from './sync-engine/sovereign.purge.worker';
 export * from './sync-engine/market.regulation.orchestrator';
 export * from './sync-engine/consciousness.salon.orchestrator';
 export * from './sync-engine/paymentTokenisation.orchestrator';
