@@ -10,7 +10,7 @@ export interface RecordLedgerParams {
   amountCents?: number; // 👈 AJOUTE CETTE LIGNE ICI (Pour la gestion des paiements fiat/Stripe)
   currency: SovereignCurrency;
   type: 'CREDIT' | 'DEBIT';
-  category: 'TIP' | 'STORE_SALE' | 'STORE_PURCHASE' | 'BARTER' | 'SYSTEM_TRANSFER' | 'CANOPY_TAX_REVENUE' | 'BET_WIN' | 'BET_LOSS' | 'SUBSIDY';
+  category: 'TIP' | 'STORE_SALE' | 'STORE_PURCHASE' | 'BARTER' | 'SYSTEM_TRANSFER' | 'CANOPY_TAX_REVENUE' | 'BET_WIN' | 'BET_LOSS' |'SUBSIDY' | 'EXTERNAL_DEPOSIT';
   referenceUid: string;
   description: string;
   session?: any;

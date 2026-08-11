@@ -1,35 +1,40 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
 import { KomptaPaymentOrchestrator } from '@ilot/shared-core';
 import { IlotError } from '@ilot/shared-core';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { revalidateTag } from 'next/cache';
 
 const komptaOrchestrator = new KomptaPaymentOrchestrator();
 
-export async function POST(req: Request) {
+// ==========================================
+// 📦 POST : Troc d'Objet / Création (Le Chapeau)
+// ==========================================
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const session = await getServerSession();
-    if (!session || !session.user) {
-      return NextResponse.json({ success: false, error: 'Oiseau non authentifié.' }, { status: 401 });
+    let body;
+    try {
+      body = await req.json();
+    } catch (parseErr) {
+      return NextResponse.json({ success: false, error: 'Paramètres d\'échange illisibles.' }, { status: 400 });
     }
 
-    const body = await req.json();
     const { exchangeUid, recipientUid, offeredItemUid, targetTitle, description } = body;
     
-    const senderUid = (session.user as any).uid || session.user.email;
-
     if (!recipientUid || !offeredItemUid) {
       return NextResponse.json({ success: false, error: 'Paramètres d\'échange manquants.' }, { status: 400 });
     }
 
     const signature = {
-      actorUid: senderUid,
-      capabilities: (session.user as any).capabilities || []
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
     };
 
     const result = await komptaOrchestrator.executeItemExchange(
       {
         exchangeUid: exchangeUid || `ex_${Date.now()}`,
-        senderUid,
+        senderUid: currentUser.uid,
         recipientUid,
         offeredItemUid,
         targetTitle: targetTitle || 'Création de la canopée',
@@ -37,6 +42,11 @@ export async function POST(req: Request) {
       },
       signature
     );
+
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade suite au troc
+    revalidateTag('barter-offers');
+    revalidateTag(`user-inventory-${currentUser.uid}`);
+    revalidateTag(`user-inventory-${recipientUid}`);
 
     return NextResponse.json(result, { status: 201 });
 
@@ -48,4 +58,4 @@ export async function POST(req: Request) {
       { status: statusCode }
     );
   }
-}
+});

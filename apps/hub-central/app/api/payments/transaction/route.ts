@@ -1,31 +1,40 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
 import { KomptaPaymentOrchestrator } from '@ilot/shared-core';
 import { IlotError } from '@ilot/shared-core';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { revalidateTag } from 'next/cache';
 
 const komptaOrchestrator = new KomptaPaymentOrchestrator();
 
-export async function POST(req: Request) {
+// ==========================================
+// 🛍️ POST : Transaction Marchande (Le Chapeau)
+// ==========================================
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const session = await getServerSession();
-    if (!session || !session.user) {
-      return NextResponse.json({ success: false, error: 'Oiseau non authentifié.' }, { status: 401 });
+    let body;
+    try {
+      body = await req.json();
+    } catch (parseErr) {
+      return NextResponse.json({ success: false, error: 'Paramètres de transaction illisibles.' }, { status: 400 });
     }
 
-    const body = await req.json();
     const { transactionUid, recipientUid, amountCents, currency, storeUid, description } = body;
     
-    const buyerUid = (session.user as any).uid || session.user.email;
+    if (!transactionUid || !recipientUid || !amountCents) {
+      return NextResponse.json({ success: false, error: 'Paramètres de transaction manquants.' }, { status: 400 });
+    }
 
     const signature = {
-      actorUid: buyerUid,
-      capabilities: (session.user as any).capabilities || []
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
     };
 
     const result = await komptaOrchestrator.executeStoreTransaction(
       {
         transactionUid,
-        buyerUid,
+        buyerUid: currentUser.uid,
         recipientUid,
         amountCents,
         currency: currency || 'EUR',
@@ -35,6 +44,15 @@ export async function POST(req: Request) {
       },
       signature
     );
+
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade suite au paiement
+    revalidateTag('kompta-ledger');
+    revalidateTag('user-wallet');
+    revalidateTag(`user-wallet-${currentUser.uid}`);
+    revalidateTag(`user-wallet-${recipientUid}`);
+    if (storeUid) {
+      revalidateTag(`store-products-${storeUid}`);
+    }
 
     return NextResponse.json(result, { status: 201 });
 
@@ -46,4 +64,4 @@ export async function POST(req: Request) {
       { status: statusCode }
     );
   }
-}
+});

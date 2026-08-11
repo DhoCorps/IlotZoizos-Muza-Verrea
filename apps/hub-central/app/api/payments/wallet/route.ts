@@ -1,39 +1,49 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
 import { PaymentTokenizationOrchestrator } from '@ilot/shared-core';
 import { IlotError } from '@ilot/shared-core';
+import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { revalidateTag } from 'next/cache';
 
 const paymentOrchestrator = new PaymentTokenizationOrchestrator();
 
-export async function POST(req: Request) {
+// ==========================================
+// 💳 POST : Liaison de Profil de Paiement Externe
+// ==========================================
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const session = await getServerSession();
-    if (!session || !session.user) {
-      return NextResponse.json({ success: false, error: 'Oiseau non authentifié.' }, { status: 401 });
+    let body;
+    try {
+      body = await req.json();
+    } catch (parseErr) {
+      return NextResponse.json({ success: false, error: 'Paramètres de tokenisation illisibles.' }, { status: 400 });
     }
 
-    const body = await req.json();
     const { externalCustomerId, defaultPaymentMethodId } = body;
     
-    const actorUid = (session.user as any).uid || session.user.email;
-
     if (!externalCustomerId || !defaultPaymentMethodId) {
       return NextResponse.json({ success: false, error: 'Paramètres de tokenisation manquants.' }, { status: 400 });
     }
 
     const signature = {
-      actorUid,
-      capabilities: (session.user as any).capabilities || []
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
     };
 
     const result = await paymentOrchestrator.linkExternalPaymentProfile(
       {
-        userUid: actorUid,
+        userUid: currentUser.uid,
         externalCustomerId,
         defaultPaymentMethodId
       },
       signature
     );
+
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade suite à la liaison du wallet
+    revalidateTag('user-wallet');
+    revalidateTag(`user-wallet-${currentUser.uid}`);
+    revalidateTag(`payment-profile-${currentUser.uid}`);
 
     return NextResponse.json(result, { status: 201 });
 
@@ -45,4 +55,4 @@ export async function POST(req: Request) {
       { status: statusCode }
     );
   }
-}
+});

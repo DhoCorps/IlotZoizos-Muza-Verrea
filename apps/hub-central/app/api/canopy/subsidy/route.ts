@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { SubsidyModel } from '@ilot/infrastructure';
-import { unstable_cache } from 'next/cache';
+import { unstable_cache, revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
 // 🛡️ CACHE SÉCURISÉ : Bypass automatique en mode test pour les subventions
@@ -71,6 +71,9 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       isRented: Boolean(isRented),
       status: 'PENDING'
     });
+
+    // 💥 BOOM ! Invalidation chirurgicale du cache des subventions suite au dépôt
+    revalidateTag('canopy-subsidies');
 
     return NextResponse.json({
       success: true,

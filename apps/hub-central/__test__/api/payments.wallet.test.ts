@@ -2,10 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/payments/wallet/route';
 import { getServerSession } from 'next-auth/next';
 import { PaymentTokenizationOrchestrator } from '@ilot/shared-core';
+import { revalidateTag } from 'next/cache';
 
-// 1. Mock de NextAuth pour contrôler la session
+// 1. Mocks de NextAuth et du Cache Next.js
 vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),
+}));
+
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
+  unstable_cache: vi.fn((fn) => fn),
 }));
 
 describe('API Payments Wallet - POST /api/payments/wallet', () => {
@@ -36,7 +42,8 @@ describe('API Payments Wallet - POST /api/payments/wallet', () => {
     const data = await res.json();
 
     expect(res.status).toBe(401);
-    expect(data.success).toBe(false);
+    // Vérification du message standardisé de notre garde "withAura"
+    expect(data.error).toBe("Le Nexus est invisible aux étrangers.");
   });
 
   it('doit rejeter (400) si les paramètres de tokenisation sont manquants', async () => {
@@ -59,7 +66,7 @@ describe('API Payments Wallet - POST /api/payments/wallet', () => {
     expect(data.error).toContain('Paramètres de tokenisation manquants');
   });
 
-  it('doit réussir (201) et lier les références de paiement de l\'oiseau connecté', async () => {
+  it('doit réussir (201), lier les références de paiement et invalider le cache', async () => {
     vi.mocked(getServerSession).mockResolvedValueOnce({
       user: { name: 'Oiseau Test', email: 'bird@ilot.fr', uid: 'bird_test_123', capabilities: ['*'] },
     } as any);
@@ -79,5 +86,10 @@ describe('API Payments Wallet - POST /api/payments/wallet', () => {
     expect(data.success).toBe(true);
     expect(data.userUid).toBe('bird_test_123');
     expect(data.hasActiveWallet).toBe(true);
+
+    // 💥 Vérification de l'invalidation chirurgicale du cache
+    expect(revalidateTag).toHaveBeenCalledWith('user-wallet');
+    expect(revalidateTag).toHaveBeenCalledWith('user-wallet-bird_test_123');
+    expect(revalidateTag).toHaveBeenCalledWith('payment-profile-bird_test_123');
   });
 });

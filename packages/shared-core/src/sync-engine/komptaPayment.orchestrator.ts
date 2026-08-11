@@ -1,4 +1,3 @@
-// packages/shared-core/src/sync-engine/komptaPayment.orchestrator.ts
 import mongoose from 'mongoose';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
@@ -35,6 +34,16 @@ export interface ItemExchangeTransactionPayload {
   offeredItemUid: string;  
   targetTitle: string;     
   description?: string;
+}
+
+export interface ExternalPaymentPayload {
+  id: string;
+  amount: number; // Montant brut en centimes reçu par le webhook
+  currency: string;
+  metadata?: {
+    recipientUid?: string;
+  };
+  customer?: string;
 }
 
 export class KomptaPaymentOrchestrator {
@@ -394,6 +403,85 @@ export class KomptaPaymentOrchestrator {
         success: true,
         exchangeUid: payload.exchangeUid,
         offeredItemUid: payload.offeredItemUid
+      };
+    });
+  }
+
+  /**
+   * 🏦 MOTEUR D'ENTRÉE DES FONDS EXTERNES (Webhook Stripe/Trésorerie)
+   */
+  public async processExternalPayment(
+    payload: ExternalPaymentPayload
+  ): Promise<{ success: boolean; depositUid: string }> {
+    
+    // Le bénéficiaire est soit identifié via les métadonnées de l'intention de paiement, soit via l'ID client
+    const recipientUid = payload.metadata?.recipientUid || payload.customer;
+
+    if (!recipientUid) {
+      throw new IlotError("Impossible de déterminer l'oiseau destinataire des fonds externes.", "BAD_REQUEST", 400);
+    }
+
+    if (payload.amount <= 0) {
+      throw new IlotError("Le montant du dépôt externe doit être supérieur à zéro.", "BAD_REQUEST", 400);
+    }
+
+    return await TransactionManager.execute("Dépôt Externe (Webhook) & Kompta", async (mongoSession, neo4jTx) => {
+      let recipientWallet = await WalletModel.findOne({ userId: recipientUid }).session(mongoSession);
+      
+      // Si l'oiseau n'a pas encore de compte, on l'initialise
+      if (!recipientWallet) {
+        recipientWallet = new WalletModel({
+          userId: recipientUid,
+          balance: 0,
+          currency: payload.currency.toUpperCase(),
+          linkedAccounts: []
+        });
+      }
+
+      recipientWallet.balance += payload.amount;
+      recipientWallet.updatedAt = new Date();
+      await recipientWallet.save({ session: mongoSession });
+
+      // 📊 KOMPTA HOOK : Écriture de Crédit pour l'entrée des fonds réels
+      await KomptaLedgerService.recordEntry({
+        ownerUid: recipientUid,
+        counterpartyUid: 'EXTERNAL_SYSTEM',
+        amount: payload.amount / 100,
+        amountCents: payload.amount,
+        currency: payload.currency.toUpperCase() as SovereignCurrency,
+        type: 'CREDIT',
+        category: 'EXTERNAL_DEPOSIT',
+        referenceUid: payload.id,
+        description: `Dépôt externe validé via Webhook (Réf: ${payload.id})`,
+        session: mongoSession
+      });
+
+      const cypher = `
+        MATCH (recipient:User {uid: $recipientUid})
+        CREATE (d:FiatDeposit {
+          uid: $depositUid,
+          amountCents: $amountCents,
+          currency: $currency,
+          createdAt: datetime()
+        })
+        CREATE (d)-[:DEPOSITED_TO]->(recipient)
+        RETURN d.uid AS txUid
+      `;
+
+      const neoResult = await neo4jTx.run(cypher, {
+        depositUid: payload.id,
+        recipientUid: recipientUid,
+        amountCents: payload.amount,
+        currency: payload.currency.toUpperCase()
+      });
+
+      if (!neoResult.records || neoResult.records.length === 0) {
+        throw new IlotError("Échec de la consignation du dépôt externe dans le Graphe.", "INTERNAL_ERROR", 500);
+      }
+
+      return {
+        success: true,
+        depositUid: payload.id
       };
     });
   }
