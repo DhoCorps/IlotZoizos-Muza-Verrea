@@ -9,6 +9,7 @@ export type ResonanceType =
   | 'ILLUMINATES'       // Ex: Blog -> Projet (Le texte explique le projet)
   | 'MENTIONS'          // Ex: Blog -> E-commerce (Le texte cite un produit)
   | 'INSPIRED_BY'       // Ex: Jeu -> Task (Le jeu est né de cette tâche)
+  | 'RELATES_TO'        // Lien Transversal : Atome/Oeuvre
   | 'ECHOES'            // Ex: User -> N'importe quoi (Un commentaire / retour texte)
   | 'VIBRATES'          // Ex: User -> N'importe quoi (Un Like / Emoji / Réaction)
   | 'EMBEDDED_IN'       // Ex: Produit -> Letr'In (Le produit est intégré dans une lettre)

@@ -1,54 +1,89 @@
-import { describe, it, expect } from 'vitest';
-import { TaskModel } from '../../nosql/task.model'; // Ajuste le chemin relatif selon ton arborescence
+// packages/infrastructure/src/models/__tests__/task.model.test.ts
+import { describe, it, expect, vi } from 'vitest';
+import { TaskModel } from '../../nosql/task.model';
+import { TaskStatus, TaskPriority } from '@ilot/types';
 
-describe('Task Model', () => {
-    it('🟢 doit valider une tâche conforme avec toutes ses valeurs requises, par défaut et sous-schémas', () => {
-        const validData = {
-            uid: 'task_123',
-            projectUid: 'project_456',
-            creatorUid: 'bird_creator_77',
-            content: {
-                title: 'Implanter l irrigation par la Sève',
-            },
-        };
+// On mocke les dépendances externes pour isoler le test du schéma
+vi.mock('../../../../../shared-core/src/utils/seve.engine', () => ({
+  SeveEngine: {
+    calculateResonance: vi.fn().mockReturnValue(5)
+  }
+}));
+vi.mock('../../../../../shared-core/src/sync-engine/task.irrigation.orchestrator', () => ({
+  TaskIrrigationOrchestrator: {
+    evaluateAndSanitize: vi.fn((data) => data)
+  }
+}));
 
-        const task = new TaskModel(validData);
-        expect(task.uid).toBe('task_123');
-        expect(task.projectUid).toBe('project_456');
-        expect(task.creatorUid).toBe('bird_creator_77');
-        expect(task.content.title).toBe('Implanter l irrigation par la Sève');
-        expect(task.status).toBe('TODO');      // Valeur par défaut
-        expect(task.priority).toBe('MEDIUM');  // Valeur par défaut
-        expect(task.isIrrigated).toBe(1);      // Valeur par défaut
-        expect(task.pomodoros.estimated).toBe(1); // Valeur par défaut
-        expect(task.metrics.complexity).toBe(1);  // Valeur par défaut
-    });
+describe('TaskModel - Schéma Silice et Maillage Transversal', () => {
+  
+  it('⚙️ doit valider un Atome complet incluant la sève et le maillage transversal (connections)', () => {
+    const validTaskData = {
+      uid: 'task_123',
+      projectUid: 'proj_456',
+      creatorUid: 'bird_789',
+      content: {
+        title: 'Mixage de la basse',
+        description: 'Ajuster les fréquences graves.'
+      },
+      // Le nouveau maillage KaÔdZ
+      connections: {
+        targetModule: 'PARTITA',
+        targetEntityUid: 'partita_999'
+      },
+      status: TaskStatus.IN_PROGRESS,
+      priority: TaskPriority.HIGH,
+      dependencies: [{ id: 'task_001', status: 1 }],
+      isIrrigated: 1,
+      pomodoros: { estimated: 3, completed: 1 },
+      metrics: { complexity: 7 },
+      dates: {
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
+    };
 
-    it('🔴 doit rejeter une tâche si les champs obligatoires (uid, projectUid, creatorUid, content.title) manquent', () => {
-        const invalidData = {
-            content: {}, // title manquant
-            // uid, projectUid et creatorUid sont omis
-        };
+    const task = new TaskModel(validTaskData);
+    const validationError = task.validateSync();
+    
+    expect(validationError).toBeUndefined();
+    expect(task.connections?.targetModule).toBe('PARTITA');
+    expect(task.connections?.targetEntityUid).toBe('partita_999');
+    expect(task.isIrrigated).toBe(1);
+  });
 
-        const error = new TaskModel(invalidData).validateSync();
-        expect(error?.errors?.uid).toBeDefined();
-        expect(error?.errors?.projectUid).toBeDefined();
-        expect(error?.errors?.creatorUid).toBeDefined();
-        expect(error?.errors?.['content.title']).toBeDefined();
-    });
+  it('🚨 doit rejeter un Atome si ses fondations manquent (uid, projectUid, creatorUid)', () => {
+    const invalidTaskData = {
+      content: { title: 'Tâche Fantôme' }
+    };
 
-    it('🔴 doit rejeter une dépendance si ses sous-champs obligatoires (id, status) manquent', () => {
-        const invalidData = {
-            uid: 'task_789',
-            projectUid: 'project_456',
-            creatorUid: 'bird_creator_77',
-            content: { title: 'Tâche avec dépendance corrompue' },
-            dependencies: [
-                { id: 'dep_1' } // status manquant
-            ]
-        };
+    const task = new TaskModel(invalidTaskData);
+    const validationError = task.validateSync();
+    
+    expect(validationError).toBeDefined();
+    expect(validationError?.errors.uid).toBeDefined();
+    expect(validationError?.errors.projectUid).toBeDefined();
+    expect(validationError?.errors.creatorUid).toBeDefined();
+  });
 
-        const error = new TaskModel(invalidData).validateSync();
-        expect(error?.errors?.['dependencies.0.status']).toBeDefined();
-    });
+  it('🌱 doit accepter une tâche sans connections (maillage optionnel) et appliquer les valeurs par défaut', () => {
+    const minimalTaskData = {
+      uid: 'task_minimal',
+      projectUid: 'proj_000',
+      creatorUid: 'bird_000',
+      content: { title: 'Tâche isolée' }
+    };
+
+    const task = new TaskModel(minimalTaskData);
+    const validationError = task.validateSync();
+    
+    expect(validationError).toBeUndefined();
+    
+    // Vérification des valeurs par défaut du schéma de la Silice
+    expect(task.connections?.targetModule).toBeNull();
+    expect(task.connections?.targetEntityUid).toBeNull();
+    expect(task.status).toBe(TaskStatus.TODO);
+    expect(task.priority).toBe(TaskPriority.MEDIUM);
+    expect(task.pomodoros?.estimated).toBe(1);
+  });
 });

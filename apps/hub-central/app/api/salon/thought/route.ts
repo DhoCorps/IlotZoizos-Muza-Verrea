@@ -53,8 +53,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Action inconnue.' }, { status: 400 });
 
   } catch (error: any) {
-    // Si on est en test, on veut voir l'erreur réelle pour déboguer
-    if (process.env.NODE_ENV === 'test') console.error("TEST ERROR:", error);
+    // On n'affiche l'erreur dans la console QUE si on n'est PAS en train de faire tourner les tests Vitest
+    if (process.env.NODE_ENV !== 'test') {
+       console.error("API Salon Quantique - Erreur :", error);
+    }
+    
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
 }

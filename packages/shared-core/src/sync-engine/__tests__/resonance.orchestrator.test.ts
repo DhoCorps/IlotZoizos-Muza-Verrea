@@ -1,4 +1,4 @@
-// packages/shared-core/src/sync-engine/__test__/resonance.orchestrator.test.ts
+// packages/shared-core/src/sync-engine/__tests__/resonance.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ResonanceOrchestrator } from '../resonance.orchestrator';
 import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
@@ -27,7 +27,6 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('ResonanceOrchestrator - Tissage du Graphe & Scans Stricts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-
     // Simule la résolution canonique
     vi.mocked(OiseauModel.findOne).mockReturnValue({
       lean: vi.fn().mockResolvedValue({ uid: 'bird_canonical_uid' })
@@ -35,32 +34,40 @@ describe('ResonanceOrchestrator - Tissage du Graphe & Scans Stricts', () => {
   });
 
   describe('weaveCrossDomainLink', () => {
-    it('🔴 doit rejeter (403) si l\'Oiseau n\'a pas la capacité requise', async () => {
+    it('⚡ doit rejeter (403) si la requête Neo4j échoue à prouver la souveraineté de l\'acteur (0 records retournés)', async () => {
       const restrictedSignature = { actorUid: 'b1', capabilities: [] };
+      
+      // On simule un refus du graphe (le MATCH de vérification de création ne trouve rien)
+      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (name, cb) => {
+        return await cb({} as any, { run: vi.fn().mockResolvedValue({ records: [] }) } as any);
+      });
+
       await expect(
         ResonanceOrchestrator.weaveCrossDomainLink('s1', 'Project', 't1', 'Task', 'ILLUMINATES', restrictedSignature as any)
-      ).rejects.toThrow(IlotError);
+      ).rejects.toThrow(/Échec du tissage : Entités introuvables ou Aura insuffisante/);
     });
 
-    it('🟢 doit tisser un lien transdisciplinaire avec succès en exigeant les UIDs canoniques', async () => {
+    it('🕸️ doit tisser un lien transdisciplinaire avec succès en exigeant les UIDs canoniques (Root ou Créateur légitime)', async () => {
       const adminSignature = { actorUid: 'architect_1', capabilities: ['*'] };
+      
       const res = await ResonanceOrchestrator.weaveCrossDomainLink(
-        'project_canonical_1', 'Project', 'task_canonical_1', 'Task', 'ILLUMINATES', adminSignature as any
+        'project_canonical_1', 'Project', 'task_canonical_1', 'Task', 'RELATES_TO', adminSignature as any
       );
+      
       expect(res.success).toBe(true);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('addSocialEcho', () => {
-    it('🔴 doit rejeter (401) si l\'Oiseau est un acteur fantôme', async () => {
+    it('🚨 doit rejeter (401) si l\'Oiseau est un acteur fantôme', async () => {
       const ghostSignature = { capabilities: [] };
       await expect(
         ResonanceOrchestrator.addSocialEcho('target-1', 'Partita', 'TEXT', 'Salut', ghostSignature as any)
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit résoudre l\'acteur via la Silice et ajouter un écho social (texte) avec succès', async () => {
+    it('🗣️ doit résoudre l\'acteur via la Silice et ajouter un écho social (texte) avec succès', async () => {
       const validSignature = { actorUid: 'bird_slug', capabilities: [] };
       const res = await ResonanceOrchestrator.addSocialEcho(
         'partita-slug', 'Partita', 'TEXT', 'Belle composition !', validSignature as any
@@ -68,13 +75,13 @@ describe('ResonanceOrchestrator - Tissage du Graphe & Scans Stricts', () => {
       
       expect(res.success).toBe(true);
       expect(res.content).toBe('Belle composition !');
-      expect(OiseauModel.findOne).toHaveBeenCalledTimes(1); // Résolution Silice appelée !
+      expect(OiseauModel.findOne).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('weaveResonance & severResonance', () => {
-    it('🟢 doit résoudre les deux oiseaux, tisser une résonance et valider l\'harmonie mutuelle', async () => {
+    it('🤝 doit résoudre les deux oiseaux, tisser une résonance et valider l\'harmonie mutuelle', async () => {
       const mockNeo4jTx = {
         run: vi.fn()
           .mockResolvedValueOnce({ records: [] }) // Merge RESONATES_WITH
@@ -88,22 +95,21 @@ describe('ResonanceOrchestrator - Tissage du Graphe & Scans Stricts', () => {
       const isHarmonic = await ResonanceOrchestrator.weaveResonance({
         sourceUid: 'bird_slug_a',
         targetUid: 'bird_slug_b',
-        type: 'FOLLOWS_GLOBAL'
+        type: 'FOLLOWS_GLOBAL' as any
       });
 
       expect(isHarmonic).toBe(true);
-      expect(OiseauModel.findOne).toHaveBeenCalledTimes(2); // Les deux oiseaux résolus
+      expect(OiseauModel.findOne).toHaveBeenCalledTimes(2);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
 
-    it('🟢 doit résoudre les identités et couper une résonance avec succès', async () => {
+    it('✂️ doit résoudre les identités et couper une résonance avec succès', async () => {
       await ResonanceOrchestrator.severResonance({
         sourceUid: 'bird_slug_a',
         targetUid: 'bird_slug_b',
-        type: 'FOLLOWS_GLOBAL'
+        type: 'FOLLOWS_GLOBAL' as any
       });
-
-      expect(OiseauModel.findOne).toHaveBeenCalledTimes(2); // Résolution ok
+      expect(OiseauModel.findOne).toHaveBeenCalledTimes(2);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });

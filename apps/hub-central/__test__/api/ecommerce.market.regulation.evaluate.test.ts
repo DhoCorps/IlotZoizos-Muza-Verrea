@@ -33,7 +33,7 @@ describe('API Market Regulation - Régulation de l’Îlot', () => {
     const res = await POST(req);
     expect(res.status).toBe(401);
     const data = await res.json();
-    expect(data.error).toBe("Oiseau non identifié");
+    expect(data.error).toBe("Oiseau non identifié.");
   });
 
   it('🟢 doit traiter la régulation avec succès (200) pour un utilisateur authentifié', async () => {

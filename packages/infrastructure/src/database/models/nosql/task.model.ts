@@ -30,6 +30,12 @@ const TaskSchema = new Schema<TaskDocument>({
 
   fileUploads: [{ type: String }],
 
+  // 🕸️ MAILLAGE TRANSVERSAL (KaÔdZ)
+  connections: {
+    targetModule: { type: String, default: null },
+    targetEntityUid: { type: String, default: null }
+  },
+
   // ⚙️ ÉTATS
   status: { type: String, enum: Object.values(TaskStatus), default: TaskStatus.TODO, index: true },
   priority: { type: String, enum: Object.values(TaskPriority), default: TaskPriority.MEDIUM },
@@ -124,5 +130,7 @@ TaskSchema.pre('save', async function (next) {
 
 TaskSchema.index({ assigneeUids: 1 });
 TaskSchema.index({ projectUid: 1, status: 1 });
+// Nouvel index pour optimiser les requêtes transversales
+TaskSchema.index({ 'connections.targetEntityUid': 1 }); 
 
 export const TaskModel = mongoose.models.Task || mongoose.model<TaskDocument>('Task', TaskSchema);

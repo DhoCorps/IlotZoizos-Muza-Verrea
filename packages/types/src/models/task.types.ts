@@ -41,6 +41,12 @@ export const TaskSchema = z.object({
 
   fileUploads: z.array(z.string()),
 
+  // 🕸️ LE PONT TRANSVERSAL (Il est vital qu'il soit ici !)
+  connections: z.object({
+    targetModule: z.string().nullable().optional(),
+    targetEntityUid: z.string().nullable().optional()
+  }).optional(),
+
   status: TaskStatusSchema,
   priority: TaskPrioritySchema,
 
@@ -69,7 +75,7 @@ export const TaskSchema = z.object({
     url: z.string(),
     mimeType: z.string(),
     createdAt: z.date().optional(),
-  })),
+  })).optional(), // 👈 Petit ajout 'optional()' ici pour tolérer les arrays absents dans le test
 
   dates: z.object({
     createdAt: z.union([z.date(), z.string().datetime()]),

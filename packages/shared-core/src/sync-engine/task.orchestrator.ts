@@ -15,23 +15,28 @@ export interface TaskSyncResult {
 
 const generateSlug = (text: string) => {
   return text.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
-};
+}
 
 export class TaskOrchestrator {
-  
-  /**
-   * 🛡️ Résolution canonique stricte pour éliminer les Full Graph Scans (Phase 2)
-   */
+
   private async resolveUserCanonicalUid(identifier: string): Promise<string> {
     const user = await OiseauModel.findOne({ 
-      $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
-    }).lean();
+       $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
+     }).lean();
     if (!user) throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
     return (user as any).uid;
   }
 
+  private async resolveUserCanonicalUserUidSafe(identifier: string): Promise<string> {
+    try {
+      return await this.resolveUserCanonicalUid(identifier);
+    } catch {
+      return identifier;
+    }
+  }
+
   /**
-   * 🌟 FONDATION : FORGER UN ATOME
+   * 🧱 FONDATION : FORGER UN ATOME (Avec Maillage Transversal)
    */
   async fosterTask(
     data: any, 
@@ -40,17 +45,26 @@ export class TaskOrchestrator {
     const projectIdentifier = data.projectUid || data.projectSlug;
     const project = await ProjectModel.findOne({ $or: [{ slug: projectIdentifier }, { uid: projectIdentifier }] });
     if (!project) throw new IlotError("Chantier parent introuvable.", "NOT_FOUND", 404);
-
+    
     const actorCanonicalUid = await this.resolveUserCanonicalUserUidSafe(signature.actorUid);
     const scheduledAt = data.scheduledAt || data.dates?.scheduledAt;
 
+    // 🔗 Extraction des liens transversaux potentiels pour la Matrice
+    const targetModule = data.connections?.targetModule;
+    const targetEntityUid = data.connections?.targetEntityUid;
+
+    let targetLabel = '';
+    if (targetModule === 'PARTITA') targetLabel = 'Partita';
+    else if (targetModule === 'LETRIN') targetLabel = 'Letter';
+    else if (targetModule === 'SAMPLOTEK') targetLabel = 'Sample';
+    else if (targetModule === 'ABYSS') targetLabel = 'Sujet';
+
     return await TransactionManager.execute("Fondation d'Atome", async (mongoSession, neo4jTx) => {
-      
+             
       const isCreator = project.creatorUid === actorCanonicalUid;
       const isArchitect = signature.capabilities.includes('*');
-      
+             
       if (!isCreator && !isArchitect) {
-        // MATCH indexé strict sur l'auteur canonique et le projet
         const checkCypher = `
           MATCH (u:User {uid: $actorUid})
           OPTIONAL MATCH (u)-[r:CONTRIBUTES_TO|OWNER_OF|CREATED]->(p:Project {uid: $pUid})
@@ -58,13 +72,11 @@ export class TaskOrchestrator {
           RETURN collect(r.capabilities) + collect(t.defaultProjectCapabilities) AS allCaps
         `;
         const check = await neo4jTx.run(checkCypher, { 
-          actorUid: actorCanonicalUid, 
-          pUid: project.uid
+           actorUid: actorCanonicalUid, 
+           pUid: project.uid 
         });
-
         const caps = check.records[0]?.get('allCaps').flat() || [];
         const isAuthorized = caps.includes(CAPABILITIES.TASK.CREATE) || caps.includes('*');
-
         if (!isAuthorized) {
           throw new IlotError("Ton Aura ne résonne pas assez fort sur ce territoire.", "FORBIDDEN", 403);
         }
@@ -86,52 +98,67 @@ export class TaskOrchestrator {
           description: description,
           tags: data.content?.tags || []
         },
+        connections: {
+          targetModule: targetModule || null,
+          targetEntityUid: targetEntityUid || null
+        },
         status: data.status || TaskStatus.TODO,
         priority: data.priority || 'MEDIUM',
         documents: data.documents || [],
         assigneeUids: data.assigneeUids || [],
         pomodoros: { 
-          estimated: Number(data.pomoEst || data.pomodoros?.estimated || 1), 
-          completed: 0 
-        },
+           estimated: Number(data.pomoEst || data.pomodoros?.estimated || 1), 
+           completed: 0 
+         },
         metrics: { complexity: Number(data.complexity || 1) },
         dates: { 
-          createdAt: new Date(), 
-          updatedAt: new Date(),
+           createdAt: new Date(), 
+           updatedAt: new Date(),
           scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined
         }
       }], { session: mongoSession });
 
       const newTask = created[0].toObject() as unknown as ITask;
-      
-      // Tissage Neo4j sécurisé par des index stricts
+             
+      // 🕸️ Tissage Neo4j sécurisé avec lien transversal éventuel
+      const targetCypher = targetLabel && targetEntityUid ? `
+        WITH t
+        CALL {
+          WITH t
+          WITH t WHERE $targetEntityUid IS NOT NULL
+          MATCH (target:${targetLabel} {uid: $targetEntityUid})
+          MERGE (t)-[:RELATES_TO]->(target)
+          RETURN count(*) as crossCount
+        }
+      ` : '';
+
       const cypher = `
         MATCH (p:Project { uid: $projectUid })
         MATCH (creator:User { uid: $actorUid })
-        
+                 
         CREATE (t:Task { 
-          uid: $taskUid, 
-          slug: $slug,
+           uid: $taskUid, 
+           slug: $slug,
           name: $name, 
-          status: $status, 
-          createdAt: datetime() 
-        })
-        
+           status: $status, 
+           createdAt: datetime() 
+         })
+                 
         CREATE (t)-[:TASK_OF]->(p)
         CREATE (creator)-[:CREATED]->(t)
-        
+                 
         WITH t, $assigneeUids AS birdUids
         UNWIND (CASE WHEN size(birdUids) = 0 THEN [null] ELSE birdUids END) AS birdUid
         FOREACH (_ IN CASE WHEN birdUid IS NOT NULL THEN [1] ELSE [] END |
           MERGE (bird:User {uid: birdUid})
           MERGE (bird)-[:ASSIGNED_TO]->(t)
         )
-
         WITH t
         OPTIONAL MATCH (parentTask:Task { uid: $parentUid })
         FOREACH (ignore IN CASE WHEN parentTask IS NOT NULL THEN [1] ELSE [] END |
           MERGE (t)-[:CHILD_OF]->(parentTask)
         )
+        ${targetCypher}
         RETURN t.uid
       `;
 
@@ -143,34 +170,27 @@ export class TaskOrchestrator {
         taskUid: newTask.uid, 
         slug: (newTask as any).slug || taskSlug,
         name: title,
-        status: newTask.status
+        status: newTask.status,
+        targetEntityUid: targetEntityUid || null
       });
 
       return newTask;
     });
   }
 
-  private async resolveUserCanonicalUserUidSafe(identifier: string): Promise<string> {
-    try {
-      return await this.resolveUserCanonicalUid(identifier);
-    } catch {
-      return identifier; // Fallback si l'ID est déjà brut
-    }
-  }
-  
   /**
-   * 🎭 MUTATION INTÉGRALE : FAIRE ÉVOLUER UN ATOME (Phase 3 : Éradication des verrous inutiles)
+   * 🧬 MUTATION INTÉGRALE : FAIRE ÉVOLUER UN ATOME (Avec Maillage Transversal)
    */
   async updateTask(taskIdentifier: string, updates: any, signature: ActionSignature) {
     const task = await TaskModel.findOne({ $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] });
     if (!task) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
-
+    
     const taskUid = task.uid;
 
     return await TransactionManager.execute("Mutation Atome (Atomique)", async (mongoSession, neo4jTx) => {
-      
+             
       const mongoUpdate: any = { $set: { ...updates, "dates.updatedAt": new Date() } };
-      
+             
       if (updates.dates) {
         delete mongoUpdate.$set.dates;
         for (const [key, value] of Object.entries(updates.dates)) {
@@ -186,7 +206,7 @@ export class TaskOrchestrator {
 
       if (!updatedTask) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
 
-      // Mutation ciblée Neo4j (Phase 3 : Pas de destruction/recréation inutile de relations)
+      // Mutation ciblée Neo4j
       let cypherQuery = `MATCH (t:Task { uid: $taskUid }) SET t.updatedAt = datetime()`;
       let cypherParams: any = { taskUid };
 
@@ -194,7 +214,7 @@ export class TaskOrchestrator {
         cypherQuery += `, t.status = $status`;
         cypherParams.status = updates.status;
       }
-      
+             
       const title = updates.content?.title || updates.title;
       if (title) {
         cypherQuery += `, t.name = $name, t.slug = $slug`;
@@ -210,7 +230,7 @@ export class TaskOrchestrator {
 
       await neo4jTx.run(cypherQuery, cypherParams);
 
-      // Gestion relationnelle intelligente (Phase 3 : Utilisation de MERGE conditionnel au lieu de tout supprimer)
+      // Gestion relationnelle parentale
       if ('parentUid' in updates) {
         await neo4jTx.run(`MATCH (t:Task {uid: $taskUid})-[r:CHILD_OF]->() DELETE r`, { taskUid });
         if (updates.parentUid && updates.parentUid !== "null") {
@@ -221,6 +241,7 @@ export class TaskOrchestrator {
         }
       }
 
+      // Gestion relationnelle des membres
       if ('assigneeUids' in updates) {
          await neo4jTx.run(
            `MATCH (u:User)-[r:ASSIGNED_TO]->(t:Task {uid: $taskUid}) DELETE r`,
@@ -237,23 +258,45 @@ export class TaskOrchestrator {
            );
          }
       }
-      
-      return updatedTask; 
-    });
+
+      // 🕸️ Gestion relationnelle transversale
+      if (updates.connections && ('targetModule' in updates.connections || 'targetEntityUid' in updates.connections)) {
+        const tModule = updates.connections.targetModule;
+        const tEntityUid = updates.connections.targetEntityUid;
+
+        let tLabel = '';
+        if (tModule === 'PARTITA') tLabel = 'Partita';
+        else if (tModule === 'LETRIN') tLabel = 'Letter';
+        else if (tModule === 'SAMPLOTEK') tLabel = 'Sample';
+        else if (tModule === 'ABYSS') tLabel = 'Sujet';
+
+        // Nettoyage de l'ancien lien
+        await neo4jTx.run(`MATCH (t:Task {uid: $taskUid})-[r:RELATES_TO]->() DELETE r`, { taskUid });
+
+        // Tissage du nouveau lien si applicable
+        if (tLabel && tEntityUid) {
+           await neo4jTx.run(
+             `MATCH (t:Task {uid: $taskUid}), (target:${tLabel} {uid: $targetEntityUid}) MERGE (t)-[:RELATES_TO]->(target)`,
+             { taskUid, targetEntityUid: tEntityUid }
+           );
+        }
+      }
+             
+      return updatedTask;
+     });
   }
 
   /**
-   * 💀 DÉSINTÉGRATION EN CASCADE RECURSIVE
+   * 🌋 DÉSINTÉGRATION EN CASCADE RECURSIVE
    */
   async disintegrateTask(taskIdentifier: string, signature: ActionSignature) {
     const hasPower = signature.capabilities.includes(CAPABILITIES.TASK.DELETE) || 
-                     signature.capabilities.includes('*');
-
+                      signature.capabilities.includes('*');
     if (!hasPower) throw new IlotError("Aura insuffisante.", "FORBIDDEN", 403);
 
     const taskTarget = await TaskModel.findOne({ $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] });
     if (!taskTarget) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
-
+    
     const taskUid = taskTarget.uid;
 
     return await TransactionManager.execute("Désintégration d'Atome", async (mongoSession, neo4jTx) => {
@@ -280,7 +323,7 @@ export class TaskOrchestrator {
             const key = storageService.extractKeyFromUrl(doc.url);
             await storageService.deleteFile(key);
           } catch (err) {
-            console.error(`🚨 Échec de purge physique pour le document :`, err);
+            console.error(`Échec de purge physique pour le document :`, err);
           }
         }
       }
@@ -290,12 +333,12 @@ export class TaskOrchestrator {
   }
 
   /**
-   * ⏱️ SÉDIMENTATION TEMPORELLE : VALIDER UN POMODORO
+   * 🍅 SÉDIMENTATION TEMPORELLE : VALIDER UN POMODORO
    */
   async completePomodoro(taskIdentifier: string, signature: ActionSignature) {
     const task = await TaskModel.findOne({ $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] });
     if (!task) throw new IlotError("Atome introuvable ou évaporé.", "NOT_FOUND", 404);
-
+    
     const taskUid = task.uid;
     const actorCanonicalUid = await this.resolveUserCanonicalUserUidSafe(signature.actorUid);
 
@@ -308,7 +351,6 @@ export class TaskOrchestrator {
 
       if (!updatedTask) throw new IlotError("Atome introuvable ou évaporé.", "NOT_FOUND", 404);
 
-      // Indexation stricte sur l'UID canonique de l'acteur
       const cypher = `
         MATCH (u:User {uid: $actorUid})
         MATCH (t:Task {uid: $taskUid})
@@ -317,11 +359,11 @@ export class TaskOrchestrator {
         ON MATCH SET r.cycles = r.cycles + 1, r.lastFocus = datetime()
         RETURN r.cycles AS totalCycles
       `;
-      
+             
       await neo4jTx.run(cypher, { 
-        actorUid: actorCanonicalUid, 
-        taskUid 
-      });
+         actorUid: actorCanonicalUid, 
+         taskUid 
+       });
 
       return updatedTask;
     });

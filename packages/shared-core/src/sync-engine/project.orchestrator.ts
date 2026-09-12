@@ -2,15 +2,20 @@
 import { ProjectModel, TaskModel, getNeo4jSession } from '@ilot/infrastructure';
 import { IProject, CAPABILITIES, ActionSignature } from '@ilot/types';
 import { TransactionManager } from './transactionManager';
-import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
 import { randomUUID } from 'crypto';
 import { IlotError } from '../errors/ilot.errors';
 import { v4 as uuidv4 } from 'uuid';
 
+// Interface d'injection pour isoler le shared-core du service cloud de l'application
+export interface IStorageManager {
+  deleteFile(key: string): Promise<any>;
+  extractKeyFromUrl(url: string): string;
+}
+
 export interface ProjectSyncResult {
   success: boolean;
   status: string;
-  project?: IProject; 
+  project?: IProject;
   mongo?: any;
   neo4j?: any;
   purgedCount?: number;
@@ -18,17 +23,26 @@ export interface ProjectSyncResult {
 
 const generateSlug = (text: string) => {
   return text.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
-};
+}
 
 /**
- * 🛰️ PROJECT ORCHESTRATOR 
+ * PROJECT ORCHESTRATOR 
  * Phase 2 (UID Canonique) & Phase 3 (Éradication des verrous longs en cascade).
  */
 export class ProjectOrchestrator {
+  private storageService: IStorageManager;
 
-  // --- 🌟 FONDATION : CRÉATION DU CHANTIER (ANCRAGE DOUBLE) ---
+  constructor(customStorageService?: IStorageManager) {
+    // Par défaut (pour les tests), on injecte un mock silencieux
+    this.storageService = customStorageService || {
+      deleteFile: async () => ({ success: true }),
+      extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
+    };
+  }
+
+  // --- 🧱 FONDATION : CRÉATION DU CHANTIER (ANCRAGE DOUBLE) ---
   async fosterProject(
-    projectData: IProject, 
+    projectData: IProject,
     signature: ActionSignature
   ): Promise<ProjectSyncResult> {
     
@@ -36,11 +50,11 @@ export class ProjectOrchestrator {
       throw new IlotError("Aura insuffisante pour sceller un chantier", "FORBIDDEN", 403);
     }
 
-    const teamUid = projectData.ownerUid; 
+    const teamUid = projectData.ownerUid;
     const actorUid = signature.actorUid;
     
     if (!teamUid) {
-        throw new IlotError("Un chantier doit être ancré à un Nid (ownerUid manquant).", "BAD_REQUEST", 400);
+      throw new IlotError("Un chantier doit être ancré à un Nid (ownerUid manquant).", "BAD_REQUEST", 400);
     }
 
     const uid = projectData.uid || uuidv4();
@@ -61,22 +75,22 @@ export class ProjectOrchestrator {
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         MATCH (t:Team { uid: $teamUid })
-        CREATE (p:Project { 
-          uid: $uid, 
-          name: $name, 
+        CREATE (p:Project {
+          uid: $uid,
+          name: $name,
           slug: $slug,
           createdAt: datetime(),
-          status: $status 
+          status: $status
         })
         CREATE (u)-[:CREATED { at: datetime() }]->(p)
         CREATE (t)-[:HAS_PROJECT]->(p)
         RETURN p
       `;
       
-      const neoResult = await neo4jTx.run(cypher, { 
+      const neoResult = await neo4jTx.run(cypher, {
         actorUid: actorUid,
         teamUid: teamUid,
-        uid: uid, 
+        uid: uid,
         name: newProject.name,
         slug: newProject.slug,
         status: newProject.status || 'CONCEPT'
@@ -86,16 +100,16 @@ export class ProjectOrchestrator {
         throw new IlotError("Échec du scellement : Utilisateur ou Nid introuvable dans le Graphe.", "NOT_FOUND", 404);
       }
 
-      return { 
-        success: true, 
-        status: 'success', 
-        mongo: newProject, 
-        neo4j: neoResult 
+      return {
+        success: true,
+        status: 'success',
+        mongo: newProject,
+        neo4j: neoResult
       };
     });
   }
 
-  // --- 🎨 MUTATION (Update) ---
+  // --- 🧬 MUTATION (Update) ---
   async mutateProject(projectIdentifier: string, updates: any, signature: ActionSignature): Promise<ProjectSyncResult> {
     // 1. Résolution universelle vers UID canonique strict (Phase 2)
     const project = await ProjectModel.findOne({ $or: [{ slug: projectIdentifier }, { uid: projectIdentifier }] });
@@ -117,9 +131,10 @@ export class ProjectOrchestrator {
 
         const record = check.records[0];
         const capsFromGraph = record ? record.get('caps') : [];
-        const userCapsOnTeam = Array.isArray(capsFromGraph) ? capsFromGraph : []; 
+        const userCapsOnTeam = Array.isArray(capsFromGraph) ? capsFromGraph : [];
 
         const hasTeamRight = userCapsOnTeam.includes(CAPABILITIES.PROJECT.UPDATE) || userCapsOnTeam.includes('*');
+
         if (!hasTeamRight) {
           throw new IlotError("Aura insuffisante sur ce territoire.", "FORBIDDEN", 403);
         }
@@ -132,8 +147,8 @@ export class ProjectOrchestrator {
       // Mutation légère Neo4j
       await neo4jTx.run(`
         MATCH (p:Project {uid: $projectUid})
-        SET p.name = coalesce($name, p.name), 
-            p.status = coalesce($status, p.status), 
+        SET p.name = coalesce($name, p.name),
+            p.status = coalesce($status, p.status),
             p.updatedAt = datetime()
       `, { projectUid, name: updates.name || null, status: updates.status || null });
 
@@ -142,14 +157,14 @@ export class ProjectOrchestrator {
   }
 
   /**
-   * 🧨 DISSOLUTION GLOBALE DU CHANTIER (Phase 3 : Éradication des verrous longs)
+   * 🌋 DISSOLUTION GLOBALE DU CHANTIER (Phase 3 : Éradication des verrous longs)
    * Supprime l'intégralité de l'arbre (Sous-projets, Tâches) en une seule transaction massive 
    * plutôt que de boucler individuellement.
    */
   async dissolveProject(projectIdentifier: string, signature: ActionSignature) {
     const project = await ProjectModel.findOne({ $or: [{ slug: projectIdentifier }, { uid: projectIdentifier }] });
     if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
-
+    
     const projectUid = project.uid;
 
     return await TransactionManager.execute("Désintégration Totale", async (mongoSession, neo4jTx) => {
@@ -177,7 +192,7 @@ export class ProjectOrchestrator {
       [...tasksWithDocs, ...projsWithDocs].forEach((entity: any) => {
         if (entity.documents && Array.isArray(entity.documents)) {
           entity.documents.forEach((doc: any) => {
-            if (doc.url) filesToDelete.push(storageService.extractKeyFromUrl(doc.url));
+            if (doc.url) filesToDelete.push(this.storageService.extractKeyFromUrl(doc.url));
           });
         }
       });
@@ -199,9 +214,9 @@ export class ProjectOrchestrator {
       // 5. Nettoyage asynchrone du stockage S3/R2 (Best effort)
       for (const key of filesToDelete) {
         try {
-          await storageService.deleteFile(key);
+          await this.storageService.deleteFile(key);
         } catch (err) {
-          console.error(`⚠️ [Orchestrator] Échec purge fichier ${key} :`, err);
+          console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
         }
       }
       
@@ -209,10 +224,10 @@ export class ProjectOrchestrator {
     });
   }
 
-  // --- 📎 ATTACHEMENT : AJOUT DE FICHIERS ---
+  // --- 🖇️ ATTACHEMENT : AJOUT DE FICHIERS ---
   async appendFiles(
-    projectIdentifier: string, 
-    fileUrls: string[], 
+    projectIdentifier: string,
+    fileUrls: string[],
     signature: ActionSignature
   ) {
     if (!signature.capabilities.includes(CAPABILITIES.PROJECT.UPDATE) && !signature.capabilities.includes('*')) {
@@ -223,8 +238,8 @@ export class ProjectOrchestrator {
     if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
 
     const updated = await ProjectModel.findOneAndUpdate(
-      { uid: project.uid }, 
-      { $push: { fileUploads: { $each: fileUrls } }, $set: { "dates.lastActivity": new Date() } }, 
+      { uid: project.uid },
+      { $push: { fileUploads: { $each: fileUrls } }, $set: { "dates.lastActivity": new Date() } },
       { new: true }
     );
     

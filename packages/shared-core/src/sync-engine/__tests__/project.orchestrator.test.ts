@@ -4,17 +4,9 @@ import { ProjectOrchestrator } from '../project.orchestrator';
 import { TransactionManager } from '../transactionManager';
 import { ProjectModel, TaskModel } from '@ilot/infrastructure';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
-import { storageService } from '../../../../../apps/hub-central/modules/storage/storage.service';
 import { IlotError } from '../../errors/ilot.errors';
 
 // MOCKS GLOBAUX
-vi.mock('../../../../../apps/hub-central/modules/storage/storage.service', () => ({
-  storageService: {
-    extractKeyFromUrl: vi.fn((url) => `key_${url}`),
-    deleteFile: vi.fn().mockResolvedValue(true),
-  },
-}));
-
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
@@ -46,14 +38,13 @@ vi.mock('../transactionManager', () => ({
             return Promise.resolve({ records: [{ get: () => [CAPABILITIES.PROJECT.UPDATE] }] });
           }
           if (query.includes('RETURN collect(DISTINCT sub.uid) AS projUids')) {
-            // Mock de l'arbre hiérarchique pour la dissolution
             return Promise.resolve({ 
-              records: [{ 
-                get: (field: string) => field === 'projUids' ? ['proj_123'] : ['task_1'] 
+              records: [{
+                get: (field: string) => field === 'projUids' ? ['proj_123'] : ['task_1']
               }] 
             });
           }
-          return Promise.resolve({ records: [{ get: () => 'mock_node' }] }); // Match général
+          return Promise.resolve({ records: [{ get: () => 'mock_node' }] }); 
         })
       };
       return await callback({} as any, mockNeo as any);
@@ -63,19 +54,26 @@ vi.mock('../transactionManager', () => ({
 
 describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
   let orchestrator: ProjectOrchestrator;
+  
+  // 💉 Injection de notre faux gestionnaire de stockage
+  const mockStorageManager = {
+    extractKeyFromUrl: vi.fn((url) => `key_${url}`),
+    deleteFile: vi.fn().mockResolvedValue(true),
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
-    orchestrator = new ProjectOrchestrator();
+    // Instanciation propre avec notre dépendance
+    orchestrator = new ProjectOrchestrator(mockStorageManager);
   });
 
   describe('fosterProject (Création)', () => {
-    it("🔴 doit rejeter (403) si l'Oiseau n'a pas les droits de création", async () => {
+    it("⚡ doit rejeter (403) si l'Oiseau n'a pas les droits de création", async () => {
       const signature: ActionSignature = { actorUid: 'bird_1', capabilities: [] };
       await expect(orchestrator.fosterProject({ ownerUid: 'team_1' } as any, signature)).rejects.toThrow(IlotError);
     });
 
-    it("🟢 doit fonder un chantier et le lier au nid et au créateur dans le graphe", async () => {
+    it("🧱 doit fonder un chantier et le lier au nid et au créateur dans le graphe", async () => {
       const payload = { name: 'Renewall', ownerUid: 'team-777' };
       const signature: ActionSignature = { actorUid: 'bird-alpha-777', capabilities: [CAPABILITIES.PROJECT.CREATE] };
       
@@ -90,7 +88,7 @@ describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
   });
 
   describe('mutateProject (Mise à jour)', () => {
-    it("🟢 doit valider le Double Verrou territorial via Neo4j et mettre à jour", async () => {
+    it("🧬 doit valider le Double Verrou territorial via Neo4j et mettre à jour", async () => {
       const signature: ActionSignature = { actorUid: 'bird-invite', capabilities: [] }; // Pas root, pas creator
       
       vi.mocked(ProjectModel.findOne).mockResolvedValueOnce({ uid: 'proj_123', creatorUid: 'other_bird' } as any);
@@ -106,7 +104,7 @@ describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
   });
 
   describe('dissolveProject (Purge Récursive en Masse)', () => {
-    it("🟢 doit désintégrer le chantier entier (Projets + Tâches) sans boucles de sous-transactions", async () => {
+    it("🌋 doit désintégrer le chantier entier (Projets + Tâches) sans boucles de sous-transactions", async () => {
       const signature: ActionSignature = { actorUid: 'architect_root', capabilities: ['*'] };
       
       vi.mocked(ProjectModel.findOne).mockResolvedValueOnce({ uid: 'proj_123' } as any);
@@ -127,15 +125,13 @@ describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
       const result = await orchestrator.dissolveProject('proj_123', signature);
 
       expect(result.success).toBe(true);
-      expect(result.purgedCount).toBe(2); // 1 proj_123 + 1 task_1 identifiés par le mock Neo4j
-
-      // Vérification que les opérations massives Mongoose ont bien été appelées
+      expect(result.purgedCount).toBe(2);
       expect(TaskModel.deleteMany).toHaveBeenCalledWith({ uid: { $in: ['task_1'] } }, expect.any(Object));
       expect(ProjectModel.deleteMany).toHaveBeenCalledWith({ uid: { $in: ['proj_123'] } }, expect.any(Object));
       
-      // Vérification du nettoyage asynchrone du stockage
-      expect(storageService.extractKeyFromUrl).toHaveBeenCalledTimes(2);
-      expect(storageService.deleteFile).toHaveBeenCalledTimes(2);
+      // Vérification du nettoyage asynchrone du stockage via notre mock injecté
+      expect(mockStorageManager.extractKeyFromUrl).toHaveBeenCalledTimes(2);
+      expect(mockStorageManager.deleteFile).toHaveBeenCalledTimes(2);
     });
   });
 });

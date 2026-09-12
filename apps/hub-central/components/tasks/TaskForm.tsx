@@ -144,6 +144,39 @@ export function TaskForm({
         <textarea name="description" defaultValue={initialData?.content?.description} placeholder="Précise l'intention..." className="w-full bg-black/40 border border-white/10 p-4 rounded-xl text-sm text-slate-300 outline-none focus:border-[#E5484D] h-24 resize-none" />
       </div>
 
+      {/* 🕸️ MAILLAGE TRANSVERSAL (KaÔdZ) */}
+      <div className="p-5 bg-white/[0.02] rounded-2xl border border-white/5 space-y-4">
+        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+          <Layers size={12} /> Maillage Transversal (KaÔdZ)
+        </label>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-[9px] uppercase text-slate-400">Module Cible</label>
+            <select 
+              name="connections.targetModule" 
+              defaultValue={initialData?.connections?.targetModule || ""} 
+              className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]"
+            >
+              <option value="">Aucun maillage</option>
+              <option value="PARTITA">Partita</option>
+              <option value="LETRIN">Letr'in</option>
+              <option value="SAMPLOTEK">Samplotek</option>
+              <option value="ABYSS">Abyss</option>
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[9px] uppercase text-slate-400">UID de l'Entité Cible</label>
+            <input 
+              type="text" 
+              name="connections.targetEntityUid" 
+              defaultValue={initialData?.connections?.targetEntityUid || ""} 
+              placeholder="ex: partita_999" 
+              className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]"
+            />
+          </div>
+        </div>
+      </div>
+
       {isEdit && (
         <div className="p-4 bg-white/[0.02] border border-white/5 rounded-xl space-y-4">
            <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-2"><Paperclip size={10} /> Artefacts de l'Atome</label>
