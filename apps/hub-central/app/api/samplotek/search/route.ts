@@ -1,28 +1,10 @@
+// Fichier : app/api/samplotek/search/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { SampleModel } from '@ilot/infrastructure';
 import { ISample } from '@ilot/types';
-import { unstable_cache } from 'next/cache';
 import { withSilice, ApiContext } from '@/lib/api-guards';
-
-// 🛡️ CACHE SÉCURISÉ : Récupération rapide de la banque de sons (30s)
-async function getCachedSamples(): Promise<ISample[]> {
-  const fetcher = async (): Promise<ISample[]> => {
-    const rawSamples = await SampleModel.find({}).sort({ createdAt: -1 }).lean();
-    return rawSamples as unknown as ISample[];
-  };
-
-  if (process.env.NODE_ENV === 'test') {
-    return await fetcher();
-  }
-
-  return await unstable_cache(
-    fetcher,
-    ['samplotek-samples-library'],
-    { revalidate: 30, tags: ['samples'] }
-  )();
-}
+import { getCachedSamples } from '@/lib/cache/samplotek.cache';
 
 // ==========================================
 // 🔍 GET : Rechercher et filtrer les samples de la banque

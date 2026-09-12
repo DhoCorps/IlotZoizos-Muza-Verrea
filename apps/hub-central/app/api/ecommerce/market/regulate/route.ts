@@ -1,3 +1,4 @@
+// Fichier : app/api/market/regulate/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -6,10 +7,13 @@ import { ActionSignature } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
+// ==========================================
+// POST : Régulation du marché (Strictement Privé / Aura)
+// ==========================================
 export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser | null) => {
-  // 🛡️ SÉCURITÉ : Protection contre les accès non authentifiés (le mock de test enverra null)
+  // SÉCURITÉ : Protection contre les accès non authentifiés (le mock de test enverra null)
   if (!currentUser) {
-    return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
+    return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
   }
 
   try {
@@ -19,14 +23,12 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     }
 
     const { userIdentifier, takeValue, currentNeeds, creationFactor } = body;
-
     if (userIdentifier === undefined || takeValue === undefined) {
       return NextResponse.json({ error: "Paramètres de régulation du marché manquants." }, { status: 400 });
     }
 
     const actorUid = currentUser.uid || currentUser.id;
     const capabilities = currentUser.capabilities || [];
-
     const signature: ActionSignature = {
       actorUid,
       capabilities
@@ -41,13 +43,13 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       signature
     );
 
+    // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('marketplace');
     revalidateTag('market-regulation');
 
     return NextResponse.json(result, { status: 200 });
-
   } catch (error: any) {
-    console.error("🔥 Fracture interne lors de la régulation du marché :", error);
+    console.error("  Fracture interne lors de la régulation du marché :", error);
     const status = error.statusCode || error.status || 500;
     return NextResponse.json(
       { error: error.message || "Erreur interne de la régulation." }, 

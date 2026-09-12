@@ -1,4 +1,3 @@
-// Fichier : packages/infrastructure/src/database/models/nosql/user.model.ts
 import mongoose from 'mongoose'; 
 import type { Document, Types } from 'mongoose';
 
@@ -14,6 +13,8 @@ export interface ExternalPaymentProfile {
   updatedAt: Date;
 }
 
+export type AccountStatus = 'ACTIVE' | 'UNDER_JUDGMENT' | 'EXILED';
+
 export interface OiseauDocument extends IOiseau, Document { 
   _id: Types.ObjectId; 
   sanctuaireVerrouille: boolean;
@@ -21,6 +22,10 @@ export interface OiseauDocument extends IOiseau, Document {
   // 🔑 Déclaration TS pour éviter les erreurs lors de la mutation du chant
   resetPasswordToken?: string;
   resetPasswordExpires?: number;
+  
+  // ⚖️ SUTURE JUSTICE : Nouveaux champs pour le Tribunal du KaÔdz
+  praisesCount: number;
+  accountStatus: AccountStatus;
 }
 
 const OiseauSchema = new Schema<OiseauDocument>(
@@ -50,6 +55,15 @@ const OiseauSchema = new Schema<OiseauDocument>(
     entropieActive: { type: Number, default: 100, min: 0, max: 100 },
     isGhostMode: { type: Boolean, default: false },
     isOpenToInvitations: { type: Boolean, default: true },
+    
+    // ⚖️ SUTURE JUSTICE : Le Compteur d'Éloges et le Statut Juridique
+    praisesCount: { type: Number, default: 0 },
+    accountStatus: { 
+      type: String, 
+      enum: ['ACTIVE', 'UNDER_JUDGMENT', 'EXILED'], 
+      default: 'ACTIVE' 
+    },
+
     documents: [{
       uid: { type: String, required: true },
       name: { type: String, required: true },

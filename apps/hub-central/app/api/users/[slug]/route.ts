@@ -1,35 +1,14 @@
-// Fichier : app/api/users/[slug]/route.ts
 import { NextResponse } from 'next/server';
-import { OiseauModel } from '@ilot/infrastructure';
-import { IOiseau } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
-import { unstable_cache } from 'next/cache';
-import { withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards'; // 🪡 Import strict de l'ApiContext
+import { withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { getCachedOiseau } from '@/lib/cache/users.cache';
 
 export const dynamic = 'force-dynamic';
 
 // -------------------------------------------------------------------------
-// 🧠 CACHE CHIRURGICAL : Récupération d'un profil spécifique
+// GET : Lecture du Profil (Miroir)
 // -------------------------------------------------------------------------
-const getCachedOiseau = (targetSlug: string) => {
-  return unstable_cache(
-    async () => {
-      return await OiseauModel.findOne({ 
-        $or: [{ slug: targetSlug }, { uid: targetSlug }] 
-      }).lean() as IOiseau | null;
-    },
-    [`user-profile-${targetSlug}`], // Identifiant unique pour CE profil
-    { 
-      revalidate: 60, 
-      tags: ['users', 'profile', `profile-${targetSlug}`] 
-    }
-  )(); // ⚡ Exécution immédiate
-};
-
-// -------------------------------------------------------------------------
-// 🔍 GET : Lecture du Profil (Miroir)
-// -------------------------------------------------------------------------
-// 🛡️ withOptionalAura : Laisse passer tout le monde, avec typage strict ApiContext
+// withOptionalAura : Laisse passer tout le monde, avec typage strict ApiContext
 export const GET = withOptionalAura(async (req: Request, context: ApiContext, currentUser?: OiseauUser) => {
   try {
     // 1. Résolution stricte et typée des paramètres de route
@@ -48,11 +27,11 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
       return NextResponse.json({ message: "L'onde s'est dissipée." }, { status: 404 });
     }
 
-    // --- 🛡️ LE MIROIR INTIME (Expose les données privées) ---
+    // --- LE MIROIR INTIME (Expose les données privées) ---
     if (isSelf) {
       return NextResponse.json({
         pseudo: oiseau.pseudo,
-        email: oiseau.email, // 🪡 L'email n'est visible que pour soi-même
+        email: oiseau.email,
         frequenceHEX: oiseau.frequenceHEX,
         entropieActive: oiseau.entropieActive,
         sanctuaire: oiseau.sanctuaire,
@@ -64,7 +43,7 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
       }, { status: 200 });
     }
 
-    // --- 🕊️ MODE STANDARD (Vitrine publique) ---
+    // --- MODE STANDARD (Vitrine publique) ---
     return NextResponse.json({
       pseudo: oiseau.pseudo,
       frequenceHEX: oiseau.frequenceHEX,
@@ -73,9 +52,8 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
       coverPicture: oiseau.coverPicture,
       capabilities: oiseau.capabilities
     }, { status: 200 });
-
   } catch (error) {
-    console.error("🔥 Interférence réseau (GET User):", error);
+    console.error("  Interférence réseau (GET User):", error);
     return NextResponse.json({ message: "Interférence réseau." }, { status: 500 });
   }
 });

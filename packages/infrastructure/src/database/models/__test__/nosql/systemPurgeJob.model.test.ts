@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import mongoose from 'mongoose';
-import { SystemPurgeJobModel } from '../nosql/systemPurgeJob.model';
+import { SystemPurgeJobModel } from '../../../models/nosql/systemPurgeJob.model';
 
 describe('SystemPurgeJobModel (Modèle NoSQL - File de Purge Asynchrone)', () => {
   beforeAll(async () => {

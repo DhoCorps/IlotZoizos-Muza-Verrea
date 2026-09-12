@@ -79,7 +79,7 @@ describe('Route API : Volière Publique (GET / POST)', () => {
   });
 
   describe('POST - Éclosion (Inscription)', () => {
-    it('doit rejeter (400) si l\'œuf est incomplet', async () => {
+    it('doit rejeter (400) si l\'oeuf est incomplet', async () => {
       const req = new Request('http://localhost/api/users', {
         method: 'POST',
         body: JSON.stringify({ email: 'test@mail.com' }), // Manque pseudo et password
@@ -89,7 +89,7 @@ describe('Route API : Volière Publique (GET / POST)', () => {
       const json = await response.json();
 
       expect(response.status).toBe(400);
-      expect(json.error).toContain("L'œuf est incomplet");
+      expect(json.error).toContain("L'oeuf est incomplet");
     });
 
     it('doit rejeter (409) si l\'email ou le pseudo existe déjà', async () => {

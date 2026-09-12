@@ -1,3 +1,4 @@
+// Fichier : app/api/salon/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -5,38 +6,12 @@ import { MessageModel, OiseauModel } from '@ilot/infrastructure';
 import { attachmentRegistry } from '@ilot/shared-core';
 import { SendMessageBodySchema } from '@ilot/types';
 import { randomUUID } from 'crypto';
-import { unstable_cache, revalidateTag } from 'next/cache';
+import { revalidateTag } from 'next/cache';
 import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
-
-// 🧠 CACHE SÉCURISÉ : Bypass automatique en mode test pour éviter les crashs Next.js
-async function getCachedMessages(conversationSlug: string, limit: number, before?: string | null) {
-  const fetcher = async () => {
-    const query: Record<string, any> = { conversationSlug };
-    if (before) {
-      query.createdAt = { $lt: new Date(before) };
-    }
-
-    const messages = await MessageModel.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .lean();
-
-    return messages.reverse();
-  };
-
-  if (process.env.NODE_ENV === 'test') {
-    return await fetcher();
-  }
-
-  return await unstable_cache(
-    fetcher,
-    [`messages-${conversationSlug}-${limit}-${before || 'latest'}`],
-    { revalidate: 15, tags: ['messages', `conversation-${conversationSlug}`] }
-  )();
-}
+import { getCachedMessages } from '@/lib/cache/messages.cache';
 
 // ==========================================
-// 🔍 GET : Écouter les messages d'un salon (Public / Optionnel Aura)
+// GET : Écouter les messages d'un salon (Public / Optionnel Aura)
 // ==========================================
 export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContext, _currentUser?: OiseauUser) => {
   try {
@@ -50,28 +25,25 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
     }
 
     const messages = await getCachedMessages(conversationSlug, limit, before);
-
     return NextResponse.json(messages, { status: 200 });
-
   } catch (error: unknown) {
     const err = error as Error;
-    console.error("🌊 [MESSAGES GET ERROR] :", err);
+    console.error("  [MESSAGES GET ERROR] :", err);
     return NextResponse.json({ error: "La tempête a brouillé l'écoute des messages." }, { status: 500 });
   }
 });
 
 // ==========================================
-// 🚀 POST : Propager un message (Strictement Privé / Aura)
+// POST : Propager un message (Strictement Privé / Aura)
 // ==========================================
 export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
     const senderSlug = currentUser.slug || currentUser.uid;
 
-    // 🛡️ DOUANE VIBRATOIRE : Vérification du Tribunal de la Canopée
     const oiseauProfile = await OiseauModel.findOne({ uid: senderSlug }).lean() as Record<string, any> | null;
     if (oiseauProfile && (oiseauProfile.isBanned || oiseauProfile.profileStatus === 'INDESIRABLE')) {
       return NextResponse.json({ 
-        error: "Souveraineté restreinte : Votre fréquence est jugée indésirable. Le salon vous est fermé." 
+         error: "Souveraineté restreinte : Votre fréquence est jugée indésirable. Le salon vous est fermé." 
       }, { status: 403 });
     }
 
@@ -91,7 +63,6 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     }
 
     const { conversationSlug, content, rawAttachments, replyToSlug } = validation.data;
-
     if (!content.trim() && rawAttachments.length === 0) {
       return NextResponse.json({ error: "Un message ne peut pas être entièrement vide." }, { status: 400 });
     }
@@ -102,7 +73,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
         const fullAttachment = await attachmentRegistry.resolve(raw.sourceType, raw.entitySlug);
         resolvedAttachments.push(fullAttachment);
       } catch (err: unknown) {
-        console.warn(`⚠️ [ATTACHMENT WARNING] Impossible de résoudre ${raw.sourceType}:${raw.entitySlug}`, err);
+        console.warn(`  [ATTACHMENT WARNING] Impossible de résoudre ${raw.sourceType}:${raw.entitySlug}`, err);
       }
     }
 
@@ -126,10 +97,9 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       success: true,
       message: newMessage
     }, { status: 201 });
-
   } catch (error: unknown) {
     const err = error as Error;
-    console.error("🌋 [MESSAGES POST ERROR] :", err);
+    console.error("  [MESSAGES POST ERROR] :", err);
     return NextResponse.json({ error: err.message || "Impossible de propager le message." }, { status: 500 });
   }
 });

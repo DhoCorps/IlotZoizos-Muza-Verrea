@@ -1,28 +1,10 @@
+// Fichier : app/api/showcase/stream/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { ShowcaseOrchestrator } from '@ilot/shared-core';
 import { UniversalMediaType } from '@ilot/types';
-import { unstable_cache } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
-
-// 🛡️ CACHE SÉCURISÉ : Bypass automatique en mode test
-async function getCachedStream(userUid: string, filters: any) {
-  const fetcher = async () => {
-    return await ShowcaseOrchestrator.getPersonalizedShowcase(userUid, filters);
-  };
-
-  if (process.env.NODE_ENV === 'test') {
-    return await fetcher();
-  }
-
-  const cacheKey = `showcase-stream-${userUid}-${filters.selectedApps.join('-')}-${filters.onlyTradable}`;
-  return await unstable_cache(
-    fetcher,
-    [cacheKey],
-    { revalidate: 30, tags: ['showcase', `showcase-${userUid}`] }
-  )();
-}
+import { getCachedStream } from '@/lib/cache/showcase.cache';
 
 // ==========================================
 // 🌌 GET : Générer le Flux du Diaporama (Strictement Privé / Aura)

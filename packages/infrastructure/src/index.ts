@@ -66,3 +66,5 @@ export * from './database/models/nosql/canopyAward.model';
 export * from './database/models/nosql/systemGraphDql.model';
 
 export * from './database/models/nosql/systemPurgeJob.model';
+
+export * from './database/models/nosql/judment.model';
