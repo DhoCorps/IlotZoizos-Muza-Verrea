@@ -47,7 +47,7 @@ declare global {
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
-describe('POST /ecommerce/[slug]/upload', () => {
+describe('POST /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
@@ -62,7 +62,7 @@ describe('POST /ecommerce/[slug]/upload', () => {
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
   });
 
-  it('doit indexer le produit après upload (201)', async () => {
+  it('doit indexer le produit après upload, forger le sceau technique et retourner (201)', async () => {
     global.__mockUser = { uid: 'merchant_123', capabilities: ['*'] };
 
     vi.mocked(ProductModel.findOne).mockResolvedValue({
@@ -88,6 +88,9 @@ describe('POST /ecommerce/[slug]/upload', () => {
     expect(response.status).toBe(201);
     expect(json.success).toBe(true);
     expect(json.data.url).toBe('https://cdn.ilot/product.jpg');
+    expect(json.data.digitalSignature).toBeDefined();
+    expect(typeof json.data.digitalSignature).toBe('string');
+    expect(json.data.digitalSignature.length).toBe(64); // Validation SHA-256 technique
     expect(UniversalMediaRegistry.indexItem).toHaveBeenCalled();
     expect(revalidateTag).toHaveBeenCalledWith('products');
     expect(revalidateTag).toHaveBeenCalledWith('product-mon-produit');

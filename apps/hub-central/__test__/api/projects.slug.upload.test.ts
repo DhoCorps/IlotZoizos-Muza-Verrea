@@ -4,7 +4,7 @@ import { ProjectModel, getNeo4jSession } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { revalidateTag } from 'next/cache';
-import { NextResponse, NextRequest } from 'next/server';
+import { NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
@@ -54,7 +54,7 @@ function mockNeo4jAuth(isValid: boolean = true) {
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
-describe('Route API : Project Attachments (POST / DELETE /api/projects/[slug]/attachments)', () => {
+describe('Route API : Project Attachments & Sceau SHA-256 (POST / DELETE /api/projects/[slug]/attachments)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
@@ -70,7 +70,7 @@ describe('Route API : Project Attachments (POST / DELETE /api/projects/[slug]/at
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
   });
 
-  describe('POST - Téléversement d\'un artefact', () => {
+  describe('POST - Téléversement d\'un artefact avec Sceau SHA-256', () => {
     it('doit refuser (429) si le rate limit est dépassé', async () => {
       vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0 } as any);
 
@@ -85,7 +85,7 @@ describe('Route API : Project Attachments (POST / DELETE /api/projects/[slug]/at
       expect(json.success).toBe(false);
     });
 
-    it('doit téléverser un fichier valide, l\'ajouter au projet et invalider le cache (201)', async () => {
+    it('doit téléverser un fichier valide, forger le Sceau SHA-256, l\'ajouter au projet et invalider le cache (201)', async () => {
       mockNeo4jAuth(true);
 
       vi.mocked(ProjectModel.findOne).mockReturnValue({
@@ -112,6 +112,9 @@ describe('Route API : Project Attachments (POST / DELETE /api/projects/[slug]/at
       expect(response.status).toBe(201);
       expect(json.success).toBe(true);
       expect(json.document.name).toBe('test.pdf');
+      expect(json.digitalSignature).toBeDefined();
+      expect(typeof json.digitalSignature).toBe('string');
+      expect(json.digitalSignature.length).toBe(64); // Validation du SHA-256
 
       // 💥 Vérification de l'invalidation du cache en cascade
       expect(revalidateTag).toHaveBeenCalledWith('projects');

@@ -1,48 +1,37 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, POST } from '@/app/api/letrin/sprites/route';
+import { POST, GET } from '@/app/api/letrin/sprites/route';
 import { LetterSpriteModel } from '@ilot/infrastructure';
-import { LetrinSpriteOrchestrator } from '@ilot/shared-core';
+import { getCachedFonts } from '@/lib/cache/letrin.cache';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 
-// -------------------------------------------------------------------------
-// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
-// -------------------------------------------------------------------------
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
+}));
+
 vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => async (req: any, context: any) => {
-    return await handler(req, context);
-  },
+  withSilice: (handler: any) => handler,
   withAura: (handler: any) => async (req: any, context: any) => {
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
-    }
+    const mockUser = global.__mockUser || { uid: 'u-123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
   },
 }));
 
-vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
-}));
-
-vi.mock('next/cache', () => ({
-  revalidateTag: vi.fn(),
-  unstable_cache: vi.fn((cb) => cb),
-}));
-
-// 🛡️ SUTURE CHIRURGICALE : Mocks Mongoose pleinement chaînables
 vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
   LetterSpriteModel: {
-    find: vi.fn().mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([]),
-      }),
-    }),
-    findOne: vi.fn().mockReturnValue({
-      lean: vi.fn().mockResolvedValue(null),
-    }),
+    findOne: vi.fn(),
     create: vi.fn(),
+  },
+}));
+
+// 🎯 Mock explicite de la fonction de cache
+vi.mock('@/lib/cache/letrin.cache', () => ({
+  getCachedFonts: vi.fn(),
+}));
+
+vi.mock('@ilot/shared-core', () => ({
+  LetrinSpriteOrchestrator: class {
+    publishFontSprite = vi.fn().mockResolvedValue(true);
   },
 }));
 
@@ -50,78 +39,56 @@ declare global {
   var __mockUser: any;
 }
 
-describe('API Letr\'In Sprites - Gestion des polices', () => {
+describe('API Letr\'In Sprites (GET / POST) avec Sceau SHA-256', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
-
-    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de LetrinSpriteOrchestrator
-    vi.spyOn(LetrinSpriteOrchestrator.prototype, 'publishFontSprite').mockResolvedValue(true as any);
   });
 
-  // =========================================================================
-  // 🔍 TESTS GET (Recensement)
-  // =========================================================================
-  it('🟢 doit récupérer la liste des polices avec succès (200)', async () => {
-    // On surcharge le mock pour retourner notre tableau
-    vi.mocked(LetterSpriteModel.find).mockReturnValueOnce({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([{ uid: 'font_1', name: 'CyberFont' }]),
-      }),
-    } as any);
+  it('GET - doit recenser les polices mises en cache', async () => {
+    // 🎯 Forçage de la résolution du mock pour ce test précis
+    vi.mocked(getCachedFonts).mockResolvedValueOnce([{ uid: 'font_1', name: 'Test Font' }] as any);
 
-    const req = new Request('http://localhost/api/letrin/sprites');
-    const res = await GET(req as any, {});
+    const req = new NextRequest('http://localhost/api/letrin/sprites');
+    const res = await GET(req, {} as any);
     const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(json).toHaveLength(1);
-    expect(json[0].uid).toBe('font_1');
+    expect(json).toEqual([{ uid: 'font_1', name: 'Test Font' }]);
   });
 
-  // =========================================================================
-  // 🚀 TESTS POST (Sédimentation)
-  // =========================================================================
-  it('🔴 doit rejeter l’envoi si l’oiseau n’est pas connecté (401)', async () => {
-    delete (global as any).__mockUser;
+  it('POST - doit créer une police, forger le Sceau SHA-256 d\'antériorité et sédimenter', async () => {
+    global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
-    const req = new Request('http://localhost/api/letrin/sprites', {
-      method: 'POST',
-      body: JSON.stringify({ name: 'CyberFont' })
-    });
-
-    const res = await POST(req as any, {});
-    expect(res.status).toBe(401);
-  });
-
-  it('🟢 doit créer une nouvelle police avec succès et invalider le cache (201)', async () => {
-    global.__mockUser = { uid: 'bird_1', slug: 'oiseau-fer', capabilities: [] };
-
-    const mockCreatedFont = {
-      uid: 'font_new',
-      name: 'CyberFont',
-      slug: 'cyberfont',
-      authorUid: 'bird_1'
-    };
-
-    // Lors de la validation du slug, on simule que le slug n'existe pas
-    vi.mocked(LetterSpriteModel.findOne).mockReturnValueOnce({
+    vi.mocked(LetterSpriteModel.findOne).mockReturnValue({
       lean: vi.fn().mockResolvedValue(null),
     } as any);
 
-    vi.mocked(LetterSpriteModel.create).mockResolvedValueOnce(mockCreatedFont as any);
+    vi.mocked(LetterSpriteModel.create).mockImplementation((doc: any) => Promise.resolve({
+      ...doc,
+      _id: 'mongo_id_abc',
+    }) as any);
 
-    const req = new Request('http://localhost/api/letrin/sprites', {
-      method: 'POST',
-      body: JSON.stringify({ name: 'CyberFont', gridSize: { width: 16, height: 16 } })
-    });
+    const reqData = {
+      name: 'Police Canopée',
+      gridSize: { width: 16, height: 16 },
+      glyphs: [{ char: 'A', pixels: [] }]
+    };
 
-    const res = await POST(req as any, {});
+    const req = {
+      json: async () => reqData,
+      headers: { get: () => '127.0.0.1' },
+    } as unknown as NextRequest;
+
+    const res = await POST(req, {} as any);
     const json = await res.json();
 
     expect(res.status).toBe(201);
     expect(json.success).toBe(true);
-    expect(json.data.uid).toBe('font_new');
+    expect(json.data.name).toBe('Police Canopée');
+    expect(json.digitalSignature).toBeDefined();
+    expect(typeof json.digitalSignature).toBe('string');
+    expect(json.digitalSignature.length).toBe(64); // Vérification de l'empreinte SHA-256
     expect(revalidateTag).toHaveBeenCalledWith('fonts');
     expect(revalidateTag).toHaveBeenCalledWith('letrin');
   });

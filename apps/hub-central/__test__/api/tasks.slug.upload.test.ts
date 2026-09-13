@@ -58,7 +58,7 @@ function mockNeo4jAuth(isOwner: boolean = true) {
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
-describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers)', () => {
+describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & Sceau SHA-256)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
@@ -132,7 +132,7 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers)', 
       expect(data.success).toBe(false);
     });
 
-    it('doit téléverser un fichier valide, l\'ajouter à l\'atome et invalider le cache (201)', async () => {
+    it('doit téléverser un fichier valide, générer le Sceau SHA-256, l\'ajouter à l\'atome et invalider le cache (201)', async () => {
       global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
       mockNeo4jAuth(true);
 
@@ -154,6 +154,9 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers)', 
       expect(res.status).toBe(201);
       expect(data.success).toBe(true);
       expect(data.url).toBe('https://cdn.ilot/doc.pdf');
+      expect(data.digitalSignature).toBeDefined();
+      expect(typeof data.digitalSignature).toBe('string');
+      expect(data.digitalSignature.length).toBe(64); // Vérification du hash SHA-256
       expect(revalidateTag).toHaveBeenCalledWith('task-ma-tache');
     });
   });

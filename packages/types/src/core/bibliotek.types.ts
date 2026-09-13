@@ -1,0 +1,42 @@
+// Types d'écrits riches et imaginatifs (extensibles)
+export type WritingTypeCode = 
+  | 'roman' 
+  | 'essai' 
+  | 'biographie' 
+  | 'autobiographie' 
+  | 'poesie' 
+  | 'theatre' 
+  | 'nouvelle' 
+  | 'conte' 
+  | 'manifeste' 
+  | 'journal-intime' 
+  | 'correspondance' 
+  | 'chronique' 
+  | 'pamphlet' 
+  | 'traite' 
+  | 'livre-artiste' 
+  | 'manuel' 
+  | (string & {}); // Permet à l'Oiseau d'entrer n'importe quelle valeur personnalisée
+
+// Styles et thématiques riches et imaginatifs (extensibles)
+export type WritingStyleCode = 
+  | 'philosophie' 
+  | 'science-fiction' 
+  | 'fantasy' 
+  | 'aventure' 
+  | 'policier-thriller' 
+  | 'historique' 
+  | 'poetique' 
+  | 'cyberpunk' 
+  | 'steampunk' 
+  | 'spiritualite-mystique' 
+  | 'ecologie-nature' 
+  | 'politique' 
+  | 'sociologie' 
+  | 'drame' 
+  | 'horreur-fantastique' 
+  | 'experimental' 
+  | 'satire' 
+  | 'mythes-legendes' 
+  | 'science-computing' 
+  | (string & {}); // Permet à l'Oiseau d'entrer un style libre

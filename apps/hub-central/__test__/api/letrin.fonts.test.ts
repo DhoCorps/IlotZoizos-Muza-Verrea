@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/letrin/fonts/route';
 import { FontProject } from '@ilot/infrastructure';
+import { getCachedFontProjects } from '@/lib/cache/letrin.cache';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
@@ -25,6 +26,11 @@ vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb) => cb),
 }));
 
+// 🎯 Mock explicite de la fonction de cache des projets de polices
+vi.mock('@/lib/cache/letrin.cache', () => ({
+  getCachedFontProjects: vi.fn(),
+}));
+
 // 🛡️ MOCK MONGOOSE PLEINEMENT CHAÎNABLE
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
@@ -42,7 +48,7 @@ declare global {
   var __mockUser: any;
 }
 
-describe('API Letr\'In Font Projects - Gestion des projets de polices', () => {
+describe('API Letr\'In Font Projects - Gestion des projets de polices avec Sceau SHA-256', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
@@ -52,13 +58,9 @@ describe('API Letr\'In Font Projects - Gestion des projets de polices', () => {
   // 🔍 TESTS GET (Recensement)
   // =========================================================================
   it('🟢 doit récupérer la liste des projets avec succès (200)', async () => {
-    vi.mocked(FontProject.find).mockReturnValueOnce({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([{ _id: 'proj_1', name: 'Matrix Font' }]),
-      }),
-    } as any);
+    vi.mocked(getCachedFontProjects).mockResolvedValueOnce([{ _id: 'proj_1', name: 'Matrix Font' }] as any);
 
-    const req = new Request('http://localhost/api/letrin/fonts');
+    const req = new NextRequest('http://localhost/api/letrin/fonts');
     const res = await GET(req as any, {});
     const json = await res.json();
 
@@ -69,12 +71,12 @@ describe('API Letr\'In Font Projects - Gestion des projets de polices', () => {
   });
 
   // =========================================================================
-  // 🚀 TESTS POST (Sédimentation)
+  // 🚀 TESTS POST (Sédimentation & Sceau SHA-256)
   // =========================================================================
   it('🔴 doit rejeter l’envoi si l’oiseau n’est pas connecté (401)', async () => {
     delete (global as any).__mockUser;
 
-    const req = new Request('http://localhost/api/letrin/fonts', {
+    const req = new NextRequest('http://localhost/api/letrin/fonts', {
       method: 'POST',
       body: JSON.stringify({ name: 'Matrix Font' })
     });
@@ -83,7 +85,7 @@ describe('API Letr\'In Font Projects - Gestion des projets de polices', () => {
     expect(res.status).toBe(401);
   });
 
-  it('🟢 doit créer un nouveau projet avec succès et invalider le cache (201)', async () => {
+  it('🟢 doit créer un nouveau projet, forger le Sceau SHA-256 et invalider le cache (201)', async () => {
     global.__mockUser = { uid: 'bird_1', slug: 'oiseau-fer', capabilities: [] };
 
     const mockCreatedProject = {
@@ -93,7 +95,7 @@ describe('API Letr\'In Font Projects - Gestion des projets de polices', () => {
 
     vi.mocked(FontProject.create).mockResolvedValueOnce(mockCreatedProject as any);
 
-    const req = new Request('http://localhost/api/letrin/fonts', {
+    const req = new NextRequest('http://localhost/api/letrin/fonts', {
       method: 'POST',
       body: JSON.stringify({ name: 'Matrix Font' })
     });
@@ -104,6 +106,9 @@ describe('API Letr\'In Font Projects - Gestion des projets de polices', () => {
     expect(res.status).toBe(201);
     expect(json.success).toBe(true);
     expect(json.data._id).toBe('proj_new');
+    expect(json.digitalSignature).toBeDefined();
+    expect(typeof json.digitalSignature).toBe('string');
+    expect(json.digitalSignature.length).toBe(64); // Validation de l'empreinte SHA-256 d'antériorité
     expect(revalidateTag).toHaveBeenCalledWith('fonts');
     expect(revalidateTag).toHaveBeenCalledWith('font-projects');
   });

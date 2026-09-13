@@ -30,7 +30,7 @@ declare global {
   var __mockUser: any;
 }
 
-describe('Route API : Nid Artefacts (POST / DELETE)', () => {
+describe('Route API : Nid Artefacts & Sceau Cryptographique (POST / DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
@@ -53,7 +53,7 @@ describe('Route API : Nid Artefacts (POST / DELETE)', () => {
     vi.spyOn(TeamModel, 'updateOne').mockResolvedValue({ modifiedCount: 1 } as any);
   });
 
-  it('POST - doit téléverser un fichier si autorisé', async () => {
+  it('POST - doit téléverser un fichier, sceller le SHA-256 et valider l\'autorisation', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
     
     // Mock Neo4j pour hasCapability
@@ -63,16 +63,22 @@ describe('Route API : Nid Artefacts (POST / DELETE)', () => {
     } as any);
 
     const formData = new FormData();
-    formData.append('file', new Blob(['test'], { type: 'image/jpeg' }), 'test.jpg');
+    formData.append('file', new Blob(['test-contenu-nid'], { type: 'image/jpeg' }), 'test.jpg');
 
-    // Loi du multipart souverain
     const req = {
       headers: { get: () => '127.0.0.1' },
       formData: async () => formData,
     } as unknown as NextRequest;
 
     const response = await POST(req as any, { params: Promise.resolve({ slug: 't-1' }) });
+    const data = await response.json();
+
     expect(response.status).toBe(201);
+    expect(data.success).toBe(true);
+    expect(data.url).toBe('https://cdn.ilot/file.jpg');
+    expect(data.digitalSignature).toBeDefined();
+    expect(typeof data.digitalSignature).toBe('string');
+    expect(data.digitalSignature.length).toBe(64); // Vérification de la signature SHA-256
     expect(revalidateTag).toHaveBeenCalledWith('team-t-1');
   });
 

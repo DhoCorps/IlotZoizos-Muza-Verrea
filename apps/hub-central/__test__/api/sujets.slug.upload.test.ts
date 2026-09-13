@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '@/app/api/sujets/[slug]/upload/route';
 import { storageService } from '@/modules/storage/storage.service';
+import { SujetModel } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
-import { NextResponse, NextRequest } from 'next/server';
+import { NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
@@ -21,6 +22,9 @@ vi.mock('@/lib/api-guards', () => ({
 
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
+  SujetModel: {
+    findOne: vi.fn(),
+  },
 }));
 
 vi.mock('@/modules/security/rateLimiter', () => ({
@@ -38,12 +42,17 @@ declare global {
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
-describe('Route API : Abyss Upload & Delete Sujet Media (POST / DELETE)', () => {
+describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
 
-    // 🛡️ Espions actifs sur le StorageService (Méthode validée)
+    // Espions actifs sur le SujetModel
+    vi.spyOn(SujetModel, 'findOne').mockReturnValue({
+      lean: vi.fn().mockResolvedValue({ uid: 's-1', slug: 'mon-sujet', authorUid: 'u-123' }),
+    } as any);
+
+    // 🛡️ Espions actifs sur le StorageService
     vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('hub-central/fr/projects/mon-sujet/sujet_media/test.jpg');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
@@ -54,13 +63,12 @@ describe('Route API : Abyss Upload & Delete Sujet Media (POST / DELETE)', () => 
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue(true as any);
   });
 
-  it('POST - doit téléverser un média, respecter la structure et invalider le cache', async () => {
+  it('POST - doit téléverser un média, générer le Sceau SHA-256, respecter la structure et invalider le cache', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
     const formData = new FormData();
     formData.append('file', new Blob(['binary data'], { type: 'image/jpeg' }), 'test.jpg');
 
-    // 🎯 LOI DU MULTIPART SOUVERAIN
     const req = {
       headers: { get: () => '127.0.0.1' },
       formData: async () => formData,
@@ -72,6 +80,9 @@ describe('Route API : Abyss Upload & Delete Sujet Media (POST / DELETE)', () => 
     expect(response.status).toBe(201);
     expect(json.success).toBe(true);
     expect(json.data.url).toBe('https://cdn.ilot/media.jpg');
+    expect(json.data.digitalSignature).toBeDefined();
+    expect(typeof json.data.digitalSignature).toBe('string');
+    expect(json.data.digitalSignature.length).toBe(64); // Vérification du SHA-256
 
     // 💥 Vérification de l'invalidation du cache
     expect(revalidateTag).toHaveBeenCalledWith('sujets');

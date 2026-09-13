@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '@/app/api/kontakt/templates/[slug]/upload/route';
 import { storageService } from '@/modules/storage/storage.service';
-import { checkRateLimit } from '@/modules/security/rateLimiter';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS MINIMAUX ET PRÉCIS
@@ -25,7 +24,7 @@ vi.mock('@/lib/slugify', () => ({
 
 declare global { var __mockUser: any; }
 
-describe('POST /api/kontakt/templates/[slug]/upload', () => {
+describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
@@ -41,7 +40,7 @@ describe('POST /api/kontakt/templates/[slug]/upload', () => {
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
   });
 
-  it('doit réussir (201) l\'upload d\'un template', async () => {
+  it('doit réussir (201) l\'upload d\'un template, forger le Sceau SHA-256 et retourner les métadonnées', async () => {
     global.__mockUser = { uid: 'u-123' };
 
     const formData = new FormData();
@@ -50,7 +49,7 @@ describe('POST /api/kontakt/templates/[slug]/upload', () => {
     const req = {
       headers: { get: () => '127.0.0.1' },
       formData: async () => formData,
-    } as unknown as Request;
+    } as unknown as NextRequest;
 
     const res = await POST(req, { params: Promise.resolve({ slug: 'mon-template' }) });
     const json = await res.json();
@@ -58,6 +57,9 @@ describe('POST /api/kontakt/templates/[slug]/upload', () => {
     expect(res.status).toBe(201);
     expect(json.success).toBe(true);
     expect(json.data.url).toBe('https://cdn.ilot/doc.pdf');
+    expect(json.data.digitalSignature).toBeDefined();
+    expect(typeof json.data.digitalSignature).toBe('string');
+    expect(json.data.digitalSignature.length).toBe(64); // Validation de l'empreinte SHA-256
   });
 
   it('DELETE - doit réussir (200) la purge', async () => {
@@ -65,7 +67,7 @@ describe('POST /api/kontakt/templates/[slug]/upload', () => {
 
     const req = new Request('http://localhost/api/kontakt/templates/mon-template/upload?url=https://cdn.ilot/doc.pdf', {
       method: 'DELETE',
-    });
+    }) as unknown as NextRequest;
 
     const res = await DELETE(req, { params: Promise.resolve({ slug: 'mon-template' }) });
     const json = await res.json();

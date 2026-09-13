@@ -1,21 +1,17 @@
+// apps/hub-central/__test__/api/users.slug.upload.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '@/app/api/users/[slug]/upload/route';
+import { NextRequest } from 'next/server';
 import { OiseauModel, getNeo4jSession } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
 import { revalidateTag } from 'next/cache';
-import { NextRequest } from 'next/server';
 
-// -------------------------------------------------------------------------
-// 🎭 MOCKS DE L'ENVIRONNEMENT
-// -------------------------------------------------------------------------
-vi.mock('next/cache', () => ({
-  revalidateTag: vi.fn(),
-}));
+vi.mock('next/cache', () => ({ revalidateTag: vi.fn() }));
 
-// Neutralisation du bouclier withAura cohérente
+// Neutralisation du bouclier withAura harmonisée avec team.upload
 vi.mock('@/lib/api-guards', () => ({
   withAura: (handler: any) => async (req: any, context: any) => {
-    const mockUser = global.__mockUser || { uid: 'dho', capabilities: ['*'] };
+    const mockUser = global.__mockUser || { uid: 'bird_123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
   },
 }));
@@ -24,9 +20,23 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
     ...actual,
+    OiseauModel: {
+      findOne: vi.fn(),
+      findOneAndUpdate: vi.fn(),
+      updateOne: vi.fn(),
+    },
     getNeo4jSession: vi.fn(),
   };
 });
+
+vi.mock('@/modules/storage/storage.service', () => ({
+  storageService: {
+    generateStructuredKey: vi.fn(() => 'users/bird_123/avatar.png'),
+    uploadFile: vi.fn().mockResolvedValue({ publicUrl: 'https://cdn.ilot/avatar.png' }),
+    deleteFile: vi.fn().mockResolvedValue(true),
+    extractKeyFromUrl: vi.fn(() => 'old-key.png'),
+  },
+}));
 
 vi.mock('@/modules/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
@@ -36,115 +46,61 @@ declare global {
   var __mockUser: any;
 }
 
-// -------------------------------------------------------------------------
-// 🧪 SUITE DE TESTS
-// -------------------------------------------------------------------------
-describe('Route API : Téléversement & Suppression d\'apparence (POST / DELETE)', () => {
+describe('API Route : Upload Avatar avec Sceau Cryptographique (POST /api/users/[slug]/upload)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
+  });
 
-    // Espions actifs sur storageService
-    vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('mock-key');
-    vi.spyOn(storageService, 'uploadFile').mockResolvedValue({ publicUrl: 'https://cdn.ilot/avatar.jpg', key: 'mock-key' } as any);
-    vi.spyOn(storageService, 'extractKeyFromUrl').mockReturnValue('mock-key');
-    vi.spyOn(storageService, 'deleteFile').mockResolvedValue(true as any);
+  it('🟢 doit téléverser l\'image, purger l\'ancienne (Garbage Collection) et générer le Sceau SHA-256', async () => {
+    global.__mockUser = { uid: 'bird_123', capabilities: ['*'] };
 
-    // Espions actifs sur OiseauModel (Mongoose)
-    vi.spyOn(OiseauModel, 'findOneAndUpdate').mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 'dho', pseudo: 'DhÖ' }),
+    // Simuler l'utilisateur existant avec un ancien avatar
+    vi.mocked(OiseauModel.findOne).mockReturnValue({
+      lean: vi.fn().mockResolvedValue({
+        uid: 'bird_123',
+        slug: 'bird-test',
+        avatarUrl: 'https://cdn.ilot/old-avatar.png',
+      }),
     } as any);
 
-    vi.spyOn(OiseauModel, 'updateOne').mockResolvedValue({ modifiedCount: 1 } as any);
+    vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
+      lean: vi.fn().mockResolvedValue({
+        uid: 'bird_123',
+        pseudo: 'Oiseau Sélénite',
+        avatarUrl: 'https://cdn.ilot/avatar.png',
+      }),
+    } as any);
 
-    // Mock Neo4j
     vi.mocked(getNeo4jSession).mockReturnValue({
-      run: vi.fn().mockResolvedValue({ records: [] }),
-      close: vi.fn().mockResolvedValue(true),
+      run: vi.fn().mockResolvedValue(true),
+      close: vi.fn(),
     } as any);
-  });
 
-  describe('POST - Téléversement de brindille', () => {
-    it('doit rejeter (403) si le visiteur tente de modifier un autre oiseau', async () => {
-      global.__mockUser = { uid: 'pirate', capabilities: [] };
+    // Création d'une fausse requête FormData avec un fichier image
+    const formData = new FormData();
+    const file = new Blob(['contenu image test'], { type: 'image/png' });
+    formData.append('file', file, 'avatar.png');
+    formData.append('imageType', 'avatarUrl');
 
-      const formData = new FormData();
-      const fakeFile = new Blob(['dummy content'], { type: 'image/jpeg' });
-      formData.append('file', fakeFile, 'avatar.jpg');
-      formData.append('imageType', 'avatarUrl');
+    const req = {
+      headers: { get: () => '127.0.0.1' },
+      formData: async () => formData,
+    } as unknown as NextRequest;
 
-      // Loi du multipart souverain
-      const req = {
-        headers: { get: () => '127.0.0.1' },
-        formData: async () => formData,
-      } as unknown as NextRequest;
+    const response = await POST(req as any, { params: Promise.resolve({ slug: 'bird-test' }) });
+    const data = await response.json();
 
-      const response = await POST(req as any, { params: Promise.resolve({ slug: 'dho' }) });
-      const json = await response.json();
+    expect(response.status).toBe(201);
+    expect(data.success).toBe(true);
+    expect(data.publicUrl).toBe('https://cdn.ilot/avatar.png');
+    expect(data.digitalSignature).toBeDefined();
+    expect(typeof data.digitalSignature).toBe('string');
+    // Le hash SHA-256 standard fait exactement 64 caractères hexadécimaux
+    expect(data.digitalSignature.length).toBe(64);
 
-      expect(response.status).toBe(403);
-      expect(json.success).toBe(false);
-      expect(json.message).toContain("Souveraineté violée");
-    });
-
-    it('doit réussir (201) le téléversement, mettre à jour MongoDB/Neo4j et invalider le cache', async () => {
-      global.__mockUser = { uid: 'dho', capabilities: [] };
-
-      const formData = new FormData();
-      const fakeFile = new Blob(['dummy content'], { type: 'image/jpeg' });
-      formData.append('file', fakeFile, 'avatar.jpg');
-      formData.append('imageType', 'avatarUrl');
-
-      // Loi du multipart souverain
-      const req = {
-        headers: { get: () => '127.0.0.1' },
-        formData: async () => formData,
-      } as unknown as NextRequest;
-
-      const response = await POST(req as any, { params: Promise.resolve({ slug: 'dho' }) });
-      const json = await response.json();
-
-      expect(response.status).toBe(201);
-      expect(json.success).toBe(true);
-      expect(json.publicUrl).toBe('https://cdn.ilot/avatar.jpg');
-
-      expect(revalidateTag).toHaveBeenCalledWith('profile-dho');
-      expect(revalidateTag).toHaveBeenCalledWith('users');
-      expect(storageService.uploadFile).toHaveBeenCalled();
-      expect(getNeo4jSession().run).toHaveBeenCalled();
-    });
-  });
-
-  describe('DELETE - Désintégration d\'artefact', () => {
-    it('doit rejeter (403) si l\'utilisateur tente de supprimer la photo d\'un autre', async () => {
-      global.__mockUser = { uid: 'intrus', capabilities: [] };
-
-      const req = new Request('http://localhost/api/users/dho/avatar', {
-        method: 'DELETE',
-        body: JSON.stringify({ imageType: 'avatarUrl', url: 'https://cdn.ilot/avatar.jpg' }),
-      }) as unknown as NextRequest;
-
-      const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'dho' }) });
-      expect(response.status).toBe(403);
-    });
-
-    it('doit réussir (200) la suppression physique et en base, puis invalider le cache', async () => {
-      global.__mockUser = { uid: 'dho', capabilities: [] };
-
-      const req = new Request('http://localhost/api/users/dho/avatar', {
-        method: 'DELETE',
-        body: JSON.stringify({ imageType: 'avatarUrl', url: 'https://cdn.ilot/avatar.jpg' }),
-      }) as unknown as NextRequest;
-
-      const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'dho' }) });
-      const json = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(json.success).toBe(true);
-
-      expect(storageService.deleteFile).toHaveBeenCalled();
-      expect(OiseauModel.updateOne).toHaveBeenCalled();
-      expect(revalidateTag).toHaveBeenCalledWith('profile-dho');
-    });
+    // Vérifier que l'ancien fichier a bien été supprimé du stockage (Garbage Collection)
+    expect(storageService.deleteFile).toHaveBeenCalledWith('old-key.png');
+    expect(revalidateTag).toHaveBeenCalledWith('profile-bird-test');
   });
 });

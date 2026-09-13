@@ -21,7 +21,7 @@ vi.mock('@/modules/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
 }));
 
-describe('POST /api/samples/upload', () => {
+describe('POST /api/samples/upload avec Sceau SHA-256', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
@@ -45,7 +45,7 @@ describe('POST /api/samples/upload', () => {
     }) as any);
   });
 
-  it('doit téléverser un sample, valider les métadonnées et le sédimenter', async () => {
+  it('doit téléverser un sample, valider les métadonnées, forger le Sceau SHA-256 et le sédimenter', async () => {
     const mockFile = new File(['audio-content'], 'kick.mp3', { type: 'audio/mpeg' });
     const formData = new FormData();
     formData.append('file', mockFile);
@@ -68,6 +68,9 @@ describe('POST /api/samples/upload', () => {
     expect(json.success).toBe(true);
     expect(json.data.title).toBe('Kick Canopée');
     expect(json.data.tempoBpm).toBe(120);
+    expect(json.digitalSignature).toBeDefined();
+    expect(typeof json.digitalSignature).toBe('string');
+    expect(json.digitalSignature.length).toBe(64); // Vérification de l'empreinte SHA-256
     expect(SampleModel.create).toHaveBeenCalled();
   });
 });
