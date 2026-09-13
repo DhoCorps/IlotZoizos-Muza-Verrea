@@ -1,75 +1,42 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { LexiconEntryModel } from '../../nosql/lexiconEntry.model'; // Ajuste le chemin relatif si besoin selon l'emplacement exact
+// src/models/__tests__/LexiconEntry.test.ts
+import { describe, it, expect } from 'vitest';
+import { LexiconEntryModel } from '../../nosql/lexiconEntry.model';
 
-// -------------------------------------------------------------------------
-// 🎭 MOCK PROPRE DE MONGOOSE POUR LES TESTS UNITAIRES
-// -------------------------------------------------------------------------
-vi.mock('mongoose', async () => {
-    const actual = await vi.importActual<typeof import('mongoose')>('mongoose');
-    
-    // On définit une fausse classe Model pour que "new LexiconEntryModel(...)" fonctionne sans erreur
-    class MockModel {
-        data: any;
-        constructor(data: any) {
-            this.data = data;
-            Object.assign(this, data);
-        }
-        validateSync() {
-            // Simulation basique du validateur pour les tests
-            if (this.data.language && !['fr', 'en', 'es'].includes(this.data.language)) {
-                return {
-                    errors: {
-                        language: { message: 'Invalid language' }
-                    }
-                };
-            }
-            return null;
-        }
-    }
-
-    return {
-        ...actual,
-        models: {},
-        model: vi.fn().mockReturnValue(MockModel),
-        Schema: actual.Schema,
+describe('LexiconEntry Model Validation', () => {
+  it('should successfully validate a correct lexicon entry', () => {
+    const validData = {
+      uid: 'lex_fr_oiseau',
+      languageCode: 'fr',
+      word: 'oiseau',
+      phoneticIpa: '/wa.zo/',
+      syllableCount: 2,
+      definitions: {
+        fr: 'Animal vertébré à plumes.',
+        en: 'A feathered vertebrate animal.'
+      },
+      partOfSpeech: 'noun'
     };
-});
 
-describe('LexiconEntry Model', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-    });
+    const entry = new LexiconEntryModel(validData);
+    const validationError = entry.validateSync();
+    
+    expect(validationError).toBeUndefined();
+    expect(entry.uid).toBe('lex_fr_oiseau');
+    expect(entry.syllableCount).toBe(2);
+    expect(entry.definitions['fr']).toBe('Animal vertébré à plumes.');
+  });
 
-    it('🟢 doit valider un objet d\'entrée lexicale conforme', () => {
-        const validData = {
-            uid: 'lex_fr_oiseau',
-            language: 'fr',
-            word: 'oiseau',
-            phoneticIpa: '/wa.zo/',
-            syllableCount: 2,
-            definitions: {
-                fr: 'Animal vertébré à plumes...'
-            },
-            partOfSpeech: 'noun'
-        };
+  it('should fail if required fields are missing', () => {
+    const invalidData = {
+      languageCode: 'fr',
+      syllableCount: 1
+    };
 
-        const entry = new LexiconEntryModel(validData);
-        expect(entry.word).toBe('oiseau');
-        expect(entry.language).toBe('fr');
-        expect(entry.partOfSpeech).toBe('noun');
-    });
+    const entry = new LexiconEntryModel(invalidData);
+    const validationError = entry.validateSync();
 
-    it('🔴 doit rejeter une langue non prise en charge par le schéma', () => {
-        const invalidData = {
-            uid: 'lex_xx_test',
-            language: 'allemand', // Invalide
-            word: 'test',
-            phoneticIpa: '/test/',
-            syllableCount: 1,
-            partOfSpeech: 'noun'
-        };
-
-        const error = new LexiconEntryModel(invalidData).validateSync();
-        expect(error?.errors.language).toBeDefined();
-    });
+    expect(validationError).toBeDefined();
+    expect(validationError?.errors.uid).toBeDefined();
+    expect(validationError?.errors.word).toBeDefined();
+  });
 });

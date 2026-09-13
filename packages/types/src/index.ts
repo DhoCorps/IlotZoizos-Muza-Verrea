@@ -26,6 +26,8 @@ export * from './core/lexiconEntry.types';
 export * from './models/betting.types';
 export * from './core/cryptoSeal.types';
 export * from './core/bibliotek.types';
+export * from './models/lexicon.types';
+export * from './models/univershall.types';
 
 export interface ActionSignature {
   actorUid: string;       

@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react';
 import { signOut, useSession } from 'next-auth/react'; 
 import { Link } from '../../navigation'; 
-import { LogOut, User, Feather, Music, Disc3, Type, Heart, Compass, Gamepad2, Activity, Lock, Film, Sparkles, Rocket, Dices, Radiation, MessageSquare, LayoutDashboard, BookOpenCheck, Calculator, LineChart, Landmark, Trees, Scale } from 'lucide-react'; 
+import { LogOut, User, Feather, Music, Disc3, Type, Heart, Compass, Gamepad2, Activity, Lock, Film, Sparkles, Rocket, Dices, Radiation, MessageSquare, LayoutDashboard, BookOpenCheck, Calculator, LineChart, Landmark, Trees, Scale, Columns3, Scroll } from 'lucide-react'; 
 import { CanopyNotificationBadge } from './CanopyNotificationBadge';
 
 export default function Sidebar() {  
@@ -78,6 +78,34 @@ export default function Sidebar() {
             </span>
           </Link>
         )}
+
+        {/* 🏛️ Univers'Hall (L'Agora Centrale) */}
+        <Link
+          href="/univershall"
+          className="flex flex-col items-center gap-2 group text-slate-500 hover:text-amber-400 transition-all"
+          title="Univers'Hall (L'Agora Centrale)"
+        >
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center border border-transparent group-hover:border-amber-500/30 group-hover:bg-amber-500/5 transition-all">
+            <Columns3 size={20} />
+          </div>
+          <span className="text-[10px] uppercase tracking-widest font-bold opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0 text-center">
+            Univers'Hall
+          </span>
+        </Link>
+
+        {/* 🪶 Poetrik (Atelier Lyrique) */}
+        <Link
+          href="/poetrik"
+          className="flex flex-col items-center gap-2 group text-slate-500 hover:text-emerald-400 transition-all"
+          title="Poetrik (Atelier Lyrique)"
+        >
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center border border-transparent group-hover:border-emerald-500/30 group-hover:bg-emerald-500/5 transition-all">
+            <Scroll size={20} />
+          </div>
+          <span className="text-[10px] uppercase tracking-widest font-bold opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0 text-center">
+            Poetrik
+          </span>
+        </Link>
 
         {/* 🌳 Le Sanctuaire de la Canopée */}
         <Link

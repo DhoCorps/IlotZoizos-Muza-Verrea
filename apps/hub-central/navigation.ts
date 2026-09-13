@@ -11,6 +11,10 @@ export const routing = defineRouting({
     // 💬 Messagerie Universelle de la Canopée
     '/message': '/message',
     
+    // 🏛️ UNIVERS'HALL & POETRIK
+    '/univershall': '/univershall',
+    '/poetrik': '/poetrik',
+    
     // 📊 Bilan Statistique, Kompta & Tribunal (Inception)
     '/inception/canopy/stats': '/inception/canopy/stats',
     '/inception/kompta': '/inception/kompta',

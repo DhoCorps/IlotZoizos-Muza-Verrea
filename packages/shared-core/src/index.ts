@@ -13,6 +13,7 @@ export type { UniversalGridCanvasProps } from '../../types/src/core/bloc.types';
 export * from './integrity/moral.checker';
 export * from './utils/seve.engine';
 export * from './utils/observatory.engine';
+export * from './utils/alchimy.engine';
 
 // --- 3. BLOC ENGINE & CANVAS ---
 export * from './bloc-engine/useBlockEngine';
@@ -53,7 +54,9 @@ export * from './sync-engine/komptaPayment.orchestrator';
 export * from './sync-engine/karma.orchestrator';
 export * from './sync-engine/bibliotek.orchestrator';
 export * from './sync-engine/samplotek.orchestrator';
-
+export * from './sync-engine/poetrik.orchestrator';
+export * from './sync-engine/univershall.orchestrator';
+export * from './sync-engine/univershallPantheon.orchestrator';
 // --- 6. JEUX (LOGIQUE & TYPES) ---
 
 export * from './games/engine/QuizScoringEngine'
