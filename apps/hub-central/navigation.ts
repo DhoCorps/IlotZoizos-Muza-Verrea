@@ -16,6 +16,10 @@ export const routing = defineRouting({
     '/inception/kompta': '/inception/kompta',
     '/inception/tribunal': '/inception/tribunal',
     
+    // 📚 BIBLIOTEK (Sanctuaire des Écrits Libres)
+    '/bibliotek': '/bibliotek',
+    '/bibliotek/[slug]': '/bibliotek/[slug]',
+
     // 🎛️ STUDIO SAMPLOTEK (Séquenceur E-Jay)
     '/samplotek': '/samplotek',
     

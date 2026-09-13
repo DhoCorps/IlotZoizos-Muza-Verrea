@@ -4,8 +4,9 @@
 import { useState } from 'react';
 import { RequireCapability } from '../auth/RequireCapability';
 import { CAPABILITIES, TaskStatus } from '@ilot/types'; 
-import { Clock, AlertCircle, Layers, UserPlus, Type, Loader2, CalendarHeart, Target, Paperclip, Upload, Trash2, FileText, ExternalLink } from 'lucide-react';
+import { Clock, AlertCircle, Layers, UserPlus, Type, Loader2, CalendarHeart, Target, Paperclip, Upload, Trash2, FileText, ExternalLink, BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 import { useMutation } from '@tanstack/react-query';
 
 interface TaskFormProps {
@@ -36,6 +37,20 @@ export function TaskForm({
   
   const [localAttachments, setLocalAttachments] = useState<any[]>(initialData?.documents || initialData?.content?.attachments || initialData?.fileUploads || []);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
+
+  // 📚 SUTURE BIBLIOTEK : Récupération des livres du Sanctuaire pour alimenter le sélecteur d'ouvrages si Bibliotek est sélectionné
+  const [selectedModule, setSelectedModule] = useState<string>(initialData?.connections?.targetModule || "");
+
+  const { data: bibliotekBooks = [] } = useQuery({
+    queryKey: ['bibliotek-books-for-task'],
+    queryFn: async () => {
+      const res = await fetch('/api/bibliotek');
+      if (!res.ok) return [];
+      const json = await res.json();
+      return json.data || json || [];
+    },
+    enabled: selectedModule === 'BIBLIOTEK',
+  });
 
   // 🌀 SUTURE REACT QUERY : Mutation pour l'upload d'artefact
   const uploadMutation = useMutation({
@@ -144,7 +159,7 @@ export function TaskForm({
         <textarea name="description" defaultValue={initialData?.content?.description} placeholder="Précise l'intention..." className="w-full bg-black/40 border border-white/10 p-4 rounded-xl text-sm text-slate-300 outline-none focus:border-[#E5484D] h-24 resize-none" />
       </div>
 
-      {/* 🕸️ MAILLAGE TRANSVERSAL (KaÔdZ) */}
+      {/* 🕸️ MAILLAGE TRANSVERSAL (KaÔdZ & Bibliotek) */}
       <div className="p-5 bg-white/[0.02] rounded-2xl border border-white/5 space-y-4">
         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
           <Layers size={12} /> Maillage Transversal (KaÔdZ)
@@ -154,25 +169,46 @@ export function TaskForm({
             <label className="text-[9px] uppercase text-slate-400">Module Cible</label>
             <select 
               name="connections.targetModule" 
-              defaultValue={initialData?.connections?.targetModule || ""} 
+              value={selectedModule}
+              onChange={(e) => setSelectedModule(e.target.value)}
               className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]"
             >
               <option value="">Aucun maillage</option>
+              <option value="BIBLIOTEK">📚 Bibliotek (Sanctuaire littéraire)</option>
               <option value="PARTITA">Partita</option>
               <option value="LETRIN">Letr'in</option>
               <option value="SAMPLOTEK">Samplotek</option>
               <option value="ABYSS">Abyss</option>
             </select>
           </div>
+
           <div className="space-y-2">
-            <label className="text-[9px] uppercase text-slate-400">UID de l'Entité Cible</label>
-            <input 
-              type="text" 
-              name="connections.targetEntityUid" 
-              defaultValue={initialData?.connections?.targetEntityUid || ""} 
-              placeholder="ex: partita_999" 
-              className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]"
-            />
+            <label className="text-[9px] uppercase text-slate-400">
+              {selectedModule === 'BIBLIOTEK' ? 'Ouvrage du Sanctuaire' : "UID de l'Entité Cible"}
+            </label>
+            
+            {selectedModule === 'BIBLIOTEK' ? (
+              <select
+                name="connections.targetEntityUid"
+                defaultValue={initialData?.connections?.targetEntityUid || ""}
+                className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]"
+              >
+                <option value="">Sélectionner un livre ou essai...</option>
+                {bibliotekBooks.map((book: any) => (
+                  <option key={book.uid} value={book.uid}>
+                    📖 {book.title} ({book.writingType || 'Livre'})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input 
+                type="text" 
+                name="connections.targetEntityUid" 
+                defaultValue={initialData?.connections?.targetEntityUid || ""} 
+                placeholder="ex: partita_999" 
+                className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]"
+              />
+            )}
           </div>
         </div>
       </div>

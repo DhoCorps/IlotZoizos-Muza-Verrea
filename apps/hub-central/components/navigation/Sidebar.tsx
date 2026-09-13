@@ -93,6 +93,20 @@ export default function Sidebar() {
           </span>
         </Link>
 
+        {/* 📚 Bibliotek (Sanctuaire des Écrits Libres) */}
+        <Link
+          href="/bibliotek"
+          className="flex flex-col items-center gap-2 group text-slate-500 hover:text-[#E5484D] transition-all"
+          title="Bibliotek (Sanctuaire des Écrits Libres)"
+        >
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center border border-transparent group-hover:border-[#E5484D]/30 group-hover:bg-[#E5484D]/5 transition-all">
+            <BookOpenCheck size={20} />
+          </div>
+          <span className="text-[10px] uppercase tracking-widest font-bold opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0 text-center">
+            Bibliotek
+          </span>
+        </Link>
+
         {/* 🏦 La Réserve de la Canopée (Banque) */}
         <Link
           href="/canopy-bank"

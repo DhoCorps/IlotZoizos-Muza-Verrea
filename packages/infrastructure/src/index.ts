@@ -76,3 +76,4 @@ export * from './database/models/nosql/praise.model';
 export * from './database/models/nosql/report.model';
 
 export * from './database/models/nosql/libraryBook.model';
+export * from './database/models/nosql/annotation.model';

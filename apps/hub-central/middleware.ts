@@ -1,4 +1,3 @@
-// apps/hub-central/middleware.ts
 import createMiddleware from 'next-intl/middleware';
 import { routing } from './navigation';
 import { withAuth } from "next-auth/middleware";
@@ -29,20 +28,37 @@ export default withAuth(
     const isAuthPage = strictPublicPages.some(page => pathname.includes(page));
 
     // ==========================================
-    // 2. 🌙 Gestion de l'Agora (Refuge Nocturne) - Optimisé
+    // 2. 🌙 Gestion de l'Agora (Refuge Nocturne Glissant par Fuseau Horaire)
     // ==========================================
     const isAgoraPage = pathname.includes('/agora');
 
     if (!isAgoraPage && !isAuthPage) {
-      // Utilisation de l'objet natif Date (plus rapide que Intl.DateTimeFormat à chaque requête)
-      // Paris est en UTC+1 (Hiver) ou UTC+2 (Été). On utilise getUTCHours() avec un offset approximatif ou toLocaleString rapide, 
-      // ou on garde DateTimeFormat mais mis en cache si besoin. Ici, on l'allège :
-      const parisHourStr = new Date().toLocaleString('en-US', { timeZone: 'Europe/Paris', hour: 'numeric', hour12: false });
-      const currentHour = parseInt(parisHourStr, 10);
-      const isSleepingTime = currentHour >= 0 && currentHour < 6;
+      // Récupération dynamique du fuseau horaire de l'Oiseau (stocké dans un cookie ou en-tête, ex: 'Europe/Paris', 'America/New_York'...)
+      // Si aucun cookie n'est présent, on tente de deviner via les headers ou on applique un repli universel sur UTC
+      const clientTimezone = req.cookies.get('ilot_timezone')?.value || 
+                             req.headers.get('x-vercel-ip-timezone') || 
+                             'UTC';
 
-      if (isSleepingTime) {
-        return NextResponse.redirect(new URL(`/${currentLocale}/agora`, req.url));
+      try {
+        const userLocalHourStr = new Date().toLocaleString('en-US', { 
+          timeZone: clientTimezone, 
+          hour: 'numeric', 
+          hour12: false 
+        });
+        const currentHour = parseInt(userLocalHourStr, 10);
+        
+        // Le refuge nocturne s'active entre 00:00 et 06:00 heure locale de l'Oiseau
+        const isSleepingTime = currentHour >= 0 && currentHour < 6;
+
+        if (isSleepingTime) {
+          return NextResponse.redirect(new URL(`/${currentLocale}/agora`, req.url));
+        }
+      } catch (err) {
+        // En cas de fuseau horaire corrompu ou invalide, repli de sécurité sur UTC
+        const utcHour = new Date().getUTCHours();
+        if (utcHour >= 0 && utcHour < 6) {
+          return NextResponse.redirect(new URL(`/${currentLocale}/agora`, req.url));
+        }
       }
     }
 

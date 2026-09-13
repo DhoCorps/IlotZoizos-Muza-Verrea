@@ -51,6 +51,7 @@ export * from './sync-engine/consciousness.salon.orchestrator';
 export * from './sync-engine/paymentTokenisation.orchestrator';
 export * from './sync-engine/komptaPayment.orchestrator';
 export * from './sync-engine/karma.orchestrator';
+export * from './sync-engine/bibliotek.orchestrator';
 
 // --- 6. JEUX (LOGIQUE & TYPES) ---
 
