@@ -18,10 +18,10 @@ export const GET = withSilice(async (req: Request, _context: ApiContext) => {
 
     // Filtres dynamiques
     if (style && style !== 'ALL') {
-      samples = samples.filter((s) => s.style.toLowerCase() === style.toLowerCase());
+      samples = samples.filter((s) => s.style?.toLowerCase() === style.toLowerCase());
     }
     if (musicalKey && musicalKey !== 'ALL') {
-      samples = samples.filter((s) => s.musicalKey.toLowerCase() === musicalKey.toLowerCase());
+      samples = samples.filter((s) => s.musicalKey?.toLowerCase() === musicalKey.toLowerCase());
     }
     if (minBpm) {
       samples = samples.filter((s) => s.tempoBpm >= Number(minBpm));

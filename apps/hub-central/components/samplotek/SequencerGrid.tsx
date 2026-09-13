@@ -4,11 +4,10 @@
 import React from 'react';
 import { useStudioStore } from '../../store/studioStore';
 import { useOmniSamplerEngine } from '../../hooks/useOmniSamplerEngine';
-import { Play, Pause, Volume2, VolumeX, Lock, Sparkles, Sliders } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Lock, Sparkles, Sliders, Disc } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const SequencerGrid: React.FC = () => {
-  // On récupère toggleStep (à ajouter dans ton store Zustand)
   const { bpm, isPlaying, tracks, setBpm, setIsPlaying, toggleMute, setTrackVolume, unlockNextTrack, toggleStep } = useStudioStore() as any;
 
   useOmniSamplerEngine(tracks, isPlaying, bpm);
@@ -31,6 +30,46 @@ export const SequencerGrid: React.FC = () => {
     }
   };
 
+  // 🎛️ Fonction de déclenchement de l'export (replacée au bon niveau de scope)
+  const handleExportMaster = async () => {
+    const title = prompt("Nom de votre œuvre Samplotek :");
+    if (!title) return;
+
+    // On extrait les pistes actives qui possèdent un sample assigné
+    const activeTracks = tracks
+      .filter((t: any) => !t.isLocked && t.sampleUrl)
+      .map((t: any) => ({
+        id: t.id,
+        sampleUid: t.sampleUid || t.uid || 'default_sample_uid',
+        volume: t.volume,
+        isMuted: t.isMuted
+      }));
+
+    if (activeTracks.length === 0) {
+      toast.error("⚠️ Votre grille doit contenir au moins une piste active avec un sample.");
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/samplotek/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          bpm,
+          tracks: activeTracks
+        })
+      });
+
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error);
+
+      toast.success("✨ " + json.message);
+    } catch (err: any) {
+      toast.error(`🔥 Échec de l'export : ${err.message}`);
+    }
+  };
+
   return (
     <div className="w-full max-w-6xl mx-auto p-6 bg-slate-950 border border-slate-800 rounded-3xl shadow-2xl space-y-8 text-white">
       
@@ -46,7 +85,7 @@ export const SequencerGrid: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl">
             <span className="text-[10px] font-mono text-slate-400">BPM</span>
             <input 
@@ -56,6 +95,14 @@ export const SequencerGrid: React.FC = () => {
               className="w-12 bg-transparent text-center font-bold text-red-500 focus:outline-none"
             />
           </div>
+
+          <button
+            onClick={handleExportMaster}
+            className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-2xl font-black uppercase text-xs tracking-widest flex items-center gap-2 border border-slate-700 transition-all shadow-md"
+            title="Graver et exporter le morceau"
+          >
+            <Disc size={16} className="text-red-500 animate-spin" /> Graver l'Œuvre
+          </button>
 
           <button
             onClick={() => setIsPlaying(!isPlaying)}
@@ -120,9 +167,7 @@ export const SequencerGrid: React.FC = () => {
             {/* Séquenceur 16 Temps (Droite) */}
             <div className="flex-1 grid grid-cols-16 gap-1 w-full h-12">
               {Array.from({ length: 16 }).map((_, stepIdx) => {
-                // On simule 16 steps, idéalement stockés dans track.steps
                 const isActive = track.steps?.[stepIdx] || false;
-                // Léger repère visuel tous les 4 temps
                 const isBeat = stepIdx % 4 === 0;
 
                 return (

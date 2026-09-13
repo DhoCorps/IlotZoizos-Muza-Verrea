@@ -1,3 +1,6 @@
+// apps/hub-central/hooks/useSampleFilter.ts
+'use client';
+
 import { useState, useMemo } from 'react';
 import Fuse from 'fuse.js';
 

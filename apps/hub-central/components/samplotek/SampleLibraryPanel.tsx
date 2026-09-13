@@ -1,4 +1,4 @@
-// components/samplotek/SampleLibraryPanel.tsx
+// apps/hub-central/components/samplotek/SampleLibraryPanel.tsx
 'use client';
 
 import React from 'react';
@@ -49,7 +49,7 @@ export const SampleLibraryPanel: React.FC<SampleLibraryPanelProps> = ({ samples,
         ) : (
           filteredSamples.map((sample) => (
             <div 
-              key={sample.uid}
+              key={sample.uid || sample._id}
               className="group p-3 bg-slate-900/60 hover:bg-slate-900 border border-slate-800 hover:border-red-500/40 rounded-2xl transition-all flex items-center justify-between shadow-sm cursor-pointer"
               onClick={() => onSelectSample(sample)}
             >
