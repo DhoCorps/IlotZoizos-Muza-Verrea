@@ -1,4 +1,4 @@
-// Fichier : app/api/samplotek/search/route.ts
+// apps/hub-central/app/api/samplotek/search/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -6,9 +6,6 @@ import { ISample } from '@ilot/types';
 import { withSilice, ApiContext } from '@/lib/api-guards';
 import { getCachedSamples } from '@/lib/cache/samplotek.cache';
 
-// ==========================================
-// 🔍 GET : Rechercher et filtrer les samples de la banque
-// ==========================================
 export const GET = withSilice(async (req: Request, _context: ApiContext) => {
   try {
     const url = new URL(req.url);
@@ -19,7 +16,7 @@ export const GET = withSilice(async (req: Request, _context: ApiContext) => {
 
     let samples: ISample[] = await getCachedSamples();
 
-    // Filtres dynamiques sur les attributs stricts typés
+    // Filtres dynamiques
     if (style && style !== 'ALL') {
       samples = samples.filter((s) => s.style.toLowerCase() === style.toLowerCase());
     }
@@ -27,20 +24,15 @@ export const GET = withSilice(async (req: Request, _context: ApiContext) => {
       samples = samples.filter((s) => s.musicalKey.toLowerCase() === musicalKey.toLowerCase());
     }
     if (minBpm) {
-      const min = Number(minBpm);
-      samples = samples.filter((s) => s.tempoBpm >= min);
+      samples = samples.filter((s) => s.tempoBpm >= Number(minBpm));
     }
     if (maxBpm) {
-      const max = Number(maxBpm);
-      samples = samples.filter((s) => s.tempoBpm <= max);
+      samples = samples.filter((s) => s.tempoBpm <= Number(maxBpm));
     }
 
     return NextResponse.json({ success: true, data: samples }, { status: 200 });
-
-  } catch (error: unknown) {
+  } catch (error: any) {
     console.error('🔥 [SAMPLE SEARCH ERROR] :', error);
-    const err = error as { status?: number; statusCode?: number; message?: string };
-    const status = err.status || err.statusCode || 500;
-    return NextResponse.json({ success: false, error: err.message || 'Erreur interne de la recherche.' }, { status });
+    return NextResponse.json({ success: false, error: error.message || 'Erreur interne de la recherche.' }, { status: error.status || 500 });
   }
 });

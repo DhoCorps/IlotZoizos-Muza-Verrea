@@ -17,4 +17,7 @@ export interface ISample {
   creatorSlug: string;
   permissions: ISamplePermissions;
   createdAt: Date;
+  digitalSignature: string;
+  timestampedAt?: Date;
+  copyrightClaimed?: boolean;
 }

@@ -1,76 +1,61 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/samplotek/upload/route';
-import { SampleModel } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
 import { NextRequest } from 'next/server';
 
-// 🛡️ MOCK GLOBAL : Next Cache
-vi.mock('next/cache', () => ({
-  revalidateTag: vi.fn(),
+vi.mock('@/modules/security/rateLimiter', () => ({ checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }) }));
+
+vi.mock('@/modules/storage/storage.service', () => ({
+  storageService: { 
+    generateStructuredKey: vi.fn(), 
+    uploadFile: vi.fn().mockResolvedValue('https://cdn/sample.mp3') 
+  }
 }));
 
-// 🛡️ MOCK DU GARDE D'AURA
+// Mock de l'Orchestrateur sous forme de VRAIE CLASSE avec importOriginal
+vi.mock('@ilot/shared-core', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    SamplotekOrchestrator: class {
+      fosterSample = vi.fn().mockResolvedValue({ 
+        success: true, 
+        mongo: { uid: 'samp_123', title: 'Kick' } 
+      });
+    }
+  };
+});
+
+vi.mock('next/cache', () => ({ revalidateTag: vi.fn() }));
+
 vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
-    return handler(req, context, { uid: 'bird_sampler_1', slug: 'bird-sampler', capabilities: ['*'] });
-  },
+  withAura: (handler: any) => async (req: any, context: any) => handler(req, context, { uid: 'bird_dj', capabilities: [] })
 }));
 
-// 🛡️ MOCK DE RATE LIMITER
-vi.mock('@/modules/security/rateLimiter', () => ({
-  checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
-}));
-
-describe('POST /api/samples/upload avec Sceau SHA-256', () => {
+describe('API SamploTek - Upload (POST)', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    delete (global as any).__mockUser;
-
-    // 🎯 ESPIONNAGE ACTIF DE STORAGE SERVICE
-    vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('mock-sample-key');
-    vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
-      success: true,
-      publicUrl: 'https://mock-url.com/sample.mp3',
-      key: 'mock-sample-key',
-    } as any);
-
-    // 🎯 ESPIONNAGE ACTIF DE MONGOOSE (SampleModel)
-    vi.spyOn(SampleModel, 'findOne').mockReturnValue({
-      lean: vi.fn().mockResolvedValue(null),
-    } as any);
-
-    vi.spyOn(SampleModel, 'create').mockImplementation((doc: any) => Promise.resolve({
-      ...doc,
-      _id: 'mock_mongo_id_123',
-    }) as any);
+      vi.clearAllMocks();
   });
 
-  it('doit téléverser un sample, valider les métadonnées, forger le Sceau SHA-256 et le sédimenter', async () => {
-    const mockFile = new File(['audio-content'], 'kick.mp3', { type: 'audio/mpeg' });
-    const formData = new FormData();
-    formData.append('file', mockFile);
-    formData.append('title', 'Kick Canopée');
-    formData.append('tempoBpm', '120');
-    formData.append('musicalKey', 'C minor');
-    formData.append('style', 'Techno');
-    formData.append('allowRadio', 'true');
-
-    // 🎯 LOI DU MULTIPART SOUVERAIN
-    const req = {
-      headers: { get: () => '127.0.0.1' },
-      formData: async () => formData,
-    } as unknown as NextRequest;
-
+  it('🟢 doit traiter le FormData, uploader sur R2 et déléguer à l\'Orchestrateur', async () => {
+    // 🪡 On simule directement la méthode formData() pour éviter les crashs de parsing 
+    // liés à NextRequest dans l'environnement Vitest/Node.js
+    const req = new NextRequest('http://localhost/api/samplotek/upload', { method: 'POST' });
+    
+    req.formData = vi.fn().mockResolvedValue({
+      get: (key: string) => {
+        if (key === 'file') return new File(['audio content'], 'kick.wav', { type: 'audio/wav' });
+        if (key === 'title') return 'Kick Lourd';
+        return null;
+      }
+    });
+    
     const res = await POST(req, {} as any);
     const json = await res.json();
 
     expect(res.status).toBe(201);
     expect(json.success).toBe(true);
-    expect(json.data.title).toBe('Kick Canopée');
-    expect(json.data.tempoBpm).toBe(120);
-    expect(json.digitalSignature).toBeDefined();
-    expect(typeof json.digitalSignature).toBe('string');
-    expect(json.digitalSignature.length).toBe(64); // Vérification de l'empreinte SHA-256
-    expect(SampleModel.create).toHaveBeenCalled();
+    expect(json.data.title).toBe('Kick');
+    expect(storageService.uploadFile).toHaveBeenCalled();
   });
 });

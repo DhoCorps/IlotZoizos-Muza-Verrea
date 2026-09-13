@@ -7,6 +7,7 @@ export interface StudioTrack {
   volume: number; // 0 à 1
   isMuted: boolean;
   isLocked: boolean;
+  steps: boolean[]; // 🎛️ La grille de 16 temps du séquenceur
 }
 
 interface StudioState {
@@ -21,12 +22,14 @@ interface StudioState {
   setTrackVolume: (trackId: number, volume: number) => void;
   toggleMute: (trackId: number) => void;
   unlockNextTrack: () => void;
+  toggleStep: (trackId: number, stepIndex: number) => void; // 🎛️ Action pour le Step Sequencer
 }
 
 export const useStudioStore = create<StudioState>((set) => ({
   bpm: 120,
   isPlaying: false,
   unlockedTracksCount: 4, // 4 pistes par défaut au commencement
+  
   tracks: Array.from({ length: 8 }, (_, i) => ({
     id: i + 1,
     name: `Piste 0${i + 1}`,
@@ -34,6 +37,7 @@ export const useStudioStore = create<StudioState>((set) => ({
     volume: 0.8,
     isMuted: false,
     isLocked: i >= 4, // Les pistes 5 à 8 sont verrouillées par défaut
+    steps: Array(16).fill(false), // 🎛️ Initialisation des 16 temps à false
   })),
 
   setBpm: (bpm) => set({ bpm }),
@@ -59,4 +63,16 @@ export const useStudioStore = create<StudioState>((set) => ({
       tracks: state.tracks.map((t) => t.id <= nextCount ? { ...t, isLocked: false } : t)
     };
   }),
+
+  // 🎛️ Inverse l'état (actif/inactif) d'un step spécifique sur une piste
+  toggleStep: (trackId, stepIndex) => set((state) => ({
+    tracks: state.tracks.map((t) => {
+      if (t.id === trackId) {
+        const newSteps = [...t.steps];
+        newSteps[stepIndex] = !newSteps[stepIndex];
+        return { ...t, steps: newSteps };
+      }
+      return t;
+    })
+  })),
 }));

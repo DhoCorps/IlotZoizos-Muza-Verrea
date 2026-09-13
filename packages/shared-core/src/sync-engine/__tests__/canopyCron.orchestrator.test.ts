@@ -1,8 +1,7 @@
-// packages/shared-core/src/sync-engine/__tests__/canopyCron.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CanopyCronOrchestrator } from '../canopyCron.orchestrator';
 import { CanopyAwardModel } from '@ilot/infrastructure';
-import * as AwardsRegistry from '@/constants/canopyAwardRegistry.config';
+import * as AwardsRegistry from '../../constants/canopyAwardRegistry.config';
 
 // 🛡️ MOCK DE L'INFRASTRUCTURE (Mongoose)
 vi.mock('@ilot/infrastructure', () => ({
@@ -17,7 +16,7 @@ describe('CanopyCronOrchestrator (Moteur de Clôture de Cycle)', () => {
   });
 
   it('🟢 doit parcourir le catalogue et attribuer les trophées du cycle avec succès', async () => {
-    // Surcharge propre du catalogue via spyOn (exactement comme dans ton modèle de référence)
+    // Surcharge propre du catalogue via spyOn sur le chemin relatif interne
     vi.spyOn(AwardsRegistry, 'CANOPY_AWARDS_CATALOG', 'get').mockReturnValue({
       TEST_AWARD: {
         key: 'TEST_AWARD',

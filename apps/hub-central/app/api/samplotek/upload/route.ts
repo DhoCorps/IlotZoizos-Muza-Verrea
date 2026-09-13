@@ -1,35 +1,32 @@
+// apps/hub-central/app/api/samplotek/upload/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
-import { SampleModel } from '@ilot/infrastructure';
 import { SampleUploadSchema } from '@ilot/types';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
-import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { v4 as uuidv4 } from 'uuid';
-import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
+import { generateFileHash } from '@/lib/cryptoHelper';
+import { SamplotekOrchestrator } from '@ilot/shared-core';
 
 export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 1. Rate Limiting par IP avec Suture de Souveraineté
+    // 1. Rate Limiting par IP
     const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
     let rateLimitResult: { allowed?: boolean } = { allowed: true };
     try {
       const res = await checkRateLimit(`upload-sample:${clientIp}`, 10, 60);
-      if (res && typeof res === 'object') {
-        rateLimitResult = res;
-      }
+      if (res && typeof res === 'object') rateLimitResult = res;
     } catch {
       rateLimitResult = { allowed: true };
     }
-
     if (rateLimitResult.allowed === false) {
       return NextResponse.json({ success: false, error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
     }
 
-    // 2. Extraction sécurisée du FormData
+    // 2. Extraction du FormData
     let formData: FormData;
     try {
       formData = await req.formData();
@@ -42,17 +39,12 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       return NextResponse.json({ success: false, error: 'Aucun fichier audio fourni.' }, { status: 400 });
     }
 
-    // 3. Extraction et secours sur les métadonnées
-    const rawTitle = formData.get('title');
-    const rawTempo = formData.get('tempoBpm');
-    const rawKey = formData.get('musicalKey');
-    const rawStyle = formData.get('style');
-
+    // 3. Validation des métadonnées
     const rawData = {
-      title: rawTitle ? String(rawTitle) : 'Sample Sans Nom',
-      tempoBpm: rawTempo ? Number(rawTempo) : 120,
-      musicalKey: rawKey ? String(rawKey) : 'C major',
-      style: rawStyle ? String(rawStyle) : 'Ambient',
+      title: String(formData.get('title') || 'Sample Sans Nom'),
+      tempoBpm: Number(formData.get('tempoBpm') || 120),
+      musicalKey: String(formData.get('musicalKey') || 'C major'),
+      style: String(formData.get('style') || 'Ambient'),
       allowRadio: formData.get('allowRadio') !== 'false',
       allowBlindTest: formData.get('allowBlindTest') !== 'false',
       allowShowcase: formData.get('allowShowcase') !== 'false',
@@ -62,33 +54,18 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     if (!validation.success) {
       return NextResponse.json({ success: false, error: 'Métadonnées invalides.', details: validation.error.flatten() }, { status: 400 });
     }
-
     const data = validation.data;
 
-    // 🪡 Génération du Sceau Cryptographique (SHA-256) d'Antériorité de manière blindée
+    // 4. Sceau Cryptographique (SHA-256)
     let fileBuffer: Buffer;
     try {
-      if (typeof file.arrayBuffer === 'function') {
-        const arrayBuffer = await file.arrayBuffer();
-        fileBuffer = Buffer.from(arrayBuffer);
-      } else if (typeof (file as any).text === 'function') {
-        const text = await (file as any).text();
-        fileBuffer = Buffer.from(text);
-      } else {
-        fileBuffer = Buffer.from(await (file as any).arrayBuffer());
-      }
+      fileBuffer = Buffer.from(await file.arrayBuffer());
     } catch {
-      fileBuffer = Buffer.from('fallback-buffer-content');
-    }
-
-    if (!fileBuffer || fileBuffer.length === 0) {
       fileBuffer = Buffer.from('ilot-zoizos-mock-sample-audio');
     }
-
     const digitalSignature = generateFileHash(fileBuffer);
-    const timestampedAt = new Date();
 
-    // 4. Stockage Cloud (Cloudflare R2) avec résilience absolue
+    // 5. Stockage Cloud (Cloudflare R2)
     const sampleUid = `samp_${uuidv4()}`;
     const customKey = storageService.generateStructuredKey({
       inceptId: 'hub-central',
@@ -100,69 +77,39 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     });
 
     const uploadResult: any = await storageService.uploadFile(file, customKey);
-
-    let publicUrl = '';
-    if (typeof uploadResult === 'string') {
-      publicUrl = uploadResult;
-    } else if (uploadResult && typeof uploadResult === 'object') {
-      publicUrl = uploadResult.publicUrl || uploadResult.url || Object.values(uploadResult).find(v => typeof v === 'string' && v.startsWith('http')) || '';
-    }
-    if (!publicUrl) {
-      publicUrl = 'https://mock-url.com/sample.mp3';
-    }
-
+    const publicUrl = typeof uploadResult === 'string' ? uploadResult : (uploadResult?.publicUrl || uploadResult?.url || 'https://mock-url.com/sample.mp3');
     const storageKey = uploadResult?.key || customKey;
 
-    // 5. Génération unique du Slug
-    let baseSlug = slugify(data.title);
-    let finalSlug = baseSlug;
-    let counter = 1;
-    try {
-      while (await SampleModel.findOne({ slug: finalSlug })?.lean?.()) {
-        finalSlug = `${baseSlug}-${counter}`;
-        counter++;
-      }
-    } catch {
-      // Sécurité si le mock/BDD n'est pas instancié
-    }
-
-    // 6. Sédimentation dans MongoDB avec le Sceau SHA-256
-    const newSample = await SampleModel.create({
+    // 6. Transfert de responsabilité à l'Orchestrateur
+    const orchestrator = new SamplotekOrchestrator();
+    const result = await orchestrator.fosterSample({
       uid: sampleUid,
       title: data.title,
-      slug: finalSlug,
       audioUrl: publicUrl,
       storageKey: storageKey,
       tempoBpm: data.tempoBpm,
       musicalKey: data.musicalKey,
       style: data.style,
-      creatorUid: currentUser.uid,
-      creatorSlug: currentUser.slug || currentUser.uid,
       permissions: {
         allowRadio: data.allowRadio,
         allowBlindTest: data.allowBlindTest,
         allowShowcase: data.allowShowcase,
       },
-      digitalSignature,
-      timestampedAt,
-      copyrightClaimed: true
-    });
+      digitalSignature
+    }, { actorUid: currentUser.uid, capabilities: currentUser.capabilities || [] });
 
-    // 💥 BOOM ! Invalidation chirurgicale du cache
+    // 7. Invalidation chirurgicale du cache
     revalidateTag('samples');
     revalidateTag(`samples-user-${currentUser.uid}`);
 
     return NextResponse.json({
       success: true,
       message: 'Sample gravé, sédimenté et scellé avec succès dans SamploTek.',
-      data: newSample,
-      digitalSignature,
-      timestampedAt
+      data: result.mongo
     }, { status: 201 });
 
   } catch (error: any) {
     console.error('🔥 [SAMPLE UPLOAD ERROR] :', error);
-    const status = error.status || error.statusCode || 500;
-    return NextResponse.json({ success: false, error: error.message || 'Erreur interne du serveur.' }, { status });
+    return NextResponse.json({ success: false, error: error.message || 'Erreur interne du serveur.' }, { status: error.status || 500 });
   }
 });

@@ -1,5 +1,5 @@
 import { CanopyAwardModel } from '@ilot/infrastructure';
-import { CANOPY_AWARDS_CATALOG } from '@/constants/canopyAwardRegistry.config';
+import { CANOPY_AWARDS_CATALOG } from '../constants/canopyAwardRegistry.config';
 
 export class CanopyCronOrchestrator {
   /**

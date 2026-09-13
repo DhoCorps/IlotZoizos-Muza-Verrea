@@ -1,3 +1,4 @@
+// packages/infrastructure/src/database/models/nosql/sample.model.ts
 import mongoose, { Schema, Document, Model } from 'mongoose';
 import { ISample } from '@ilot/types';
 
@@ -19,6 +20,12 @@ const SampleSchema = new Schema<ISampleDocument>({
     allowBlindTest: { type: Boolean, default: true },
     allowShowcase: { type: Boolean, default: true },
   },
+  
+  // 🛡️ Champs d'intégrité et de souveraineté
+  digitalSignature: { type: String, required: true },
+  timestampedAt: { type: Date, default: Date.now },
+  copyrightClaimed: { type: Boolean, default: true },
+
   createdAt: { type: Date, default: Date.now }
 });
 

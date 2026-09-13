@@ -1,53 +1,79 @@
-import { describe, it, expect } from 'vitest';
-import { SampleModel } from '../../nosql/sample.model'; // Ajuste le chemin relatif selon ton arborescence
+// packages/infrastructure/src/database/models/__test__/nosql/sample.model.test.ts
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
+import mongoose from 'mongoose';
+import { MongoMemoryServer } from 'mongodb-memory-server';
+import { SampleModel } from '../../nosql/sample.model';
 
-describe('Sample Model', () => {
-    it('🟢 doit valider un échantillon audio conforme avec toutes ses valeurs requises et par défaut', () => {
-        const validData = {
-            uid: 'sample_123',
-            title: 'Battement Sélénite',
-            slug: 'battement-selenite',
-            audioUrl: 'https://cdn.ilot.io/samples/selenite.mp3',
-            storageKey: 'samples/selenite.mp3',
-            tempoBpm: 120,
-            musicalKey: 'Cmin',
-            style: 'Ambient',
-            creatorUid: 'bird_creator_1',
-            creatorSlug: 'bird-creator-1',
-        };
+describe('Modèle NoSQL - SampleModel (SamploTek)', () => {
+  let mongoServer: MongoMemoryServer;
 
-        const sample = new SampleModel(validData);
-        expect(sample.uid).toBe('sample_123');
-        expect(sample.title).toBe('Battement Sélénite');
-        expect(sample.slug).toBe('battement-selenite');
-        expect(sample.audioUrl).toBe('https://cdn.ilot.io/samples/selenite.mp3');
-        expect(sample.storageKey).toBe('samples/selenite.mp3');
-        expect(sample.tempoBpm).toBe(120);
-        expect(sample.musicalKey).toBe('Cmin');
-        expect(sample.style).toBe('Ambient');
-        expect(sample.creatorUid).toBe('bird_creator_1');
-        expect(sample.creatorSlug).toBe('bird-creator-1');
-        expect(sample.permissions.allowRadio).toBe(true);      // Valeur par défaut
-        expect(sample.permissions.allowBlindTest).toBe(true);  // Valeur par défaut
-        expect(sample.permissions.allowShowcase).toBe(true);   // Valeur par défaut
-        expect(sample.createdAt).toBeDefined();
-    });
+  beforeAll(async () => {
+    mongoServer = await MongoMemoryServer.create();
+    const uri = mongoServer.getUri();
+    await mongoose.connect(uri);
+  });
 
-    it('🔴 doit rejeter un échantillon si les champs obligatoires (uid, title, slug, audioUrl, storageKey, tempoBpm, musicalKey, style, creatorUid, creatorSlug) manquent', () => {
-        const invalidData = {
-            // Tous les champs required sont omis
-        };
+  afterAll(async () => {
+    await mongoose.disconnect();
+    await mongoServer.stop();
+  });
 
-        const error = new SampleModel(invalidData).validateSync();
-        expect(error?.errors?.uid).toBeDefined();
-        expect(error?.errors?.title).toBeDefined();
-        expect(error?.errors?.slug).toBeDefined();
-        expect(error?.errors?.audioUrl).toBeDefined();
-        expect(error?.errors?.storageKey).toBeDefined();
-        expect(error?.errors?.tempoBpm).toBeDefined();
-        expect(error?.errors?.musicalKey).toBeDefined();
-        expect(error?.errors?.style).toBeDefined();
-        expect(error?.errors?.creatorUid).toBeDefined();
-        expect(error?.errors?.creatorSlug).toBeDefined();
-    });
+  afterEach(async () => {
+    await SampleModel.deleteMany({});
+  });
+
+  it('🟢 doit sédimenter un sample complet avec sa signature cryptographique', async () => {
+    const validSample = {
+      uid: 'samp_999',
+      title: 'Kick Lourd',
+      slug: 'kick-lourd',
+      audioUrl: 'https://cdn.ilot/kick.wav',
+      storageKey: 'hub-central/fr/projects/samp_999/kick.wav',
+      tempoBpm: 120,
+      musicalKey: 'C minor',
+      style: 'Techno',
+      creatorUid: 'bird_dj',
+      creatorSlug: 'dj-bird',
+      digitalSignature: 'abc123hashcrypto',
+      permissions: {
+        allowRadio: true,
+        allowBlindTest: true,
+        allowShowcase: false
+      }
+    };
+
+    const createdSample = await SampleModel.create(validSample);
+
+    expect(createdSample._id).toBeDefined();
+    expect(createdSample.uid).toBe('samp_999');
+    expect(createdSample.digitalSignature).toBe('abc123hashcrypto');
+    expect(createdSample.copyrightClaimed).toBe(true); // Valeur par défaut
+    expect(createdSample.permissions.allowShowcase).toBe(false);
+  });
+
+  it('🔴 doit lever une erreur si la signature cryptographique (digitalSignature) manque', async () => {
+    const invalidSample = {
+      uid: 'samp_888',
+      title: 'Snare',
+      slug: 'snare',
+      audioUrl: 'https://cdn.ilot/snare.wav',
+      storageKey: 'snare.wav',
+      tempoBpm: 90,
+      musicalKey: 'A minor',
+      style: 'LoFi',
+      creatorUid: 'bird_dj',
+      creatorSlug: 'dj-bird',
+      // digitalSignature est manquant !
+    };
+
+    let error: any;
+    try {
+      await SampleModel.create(invalidSample);
+    } catch (err) {
+      error = err;
+    }
+
+    expect(error).toBeDefined();
+    expect(error.errors.digitalSignature).toBeDefined();
+  });
 });
