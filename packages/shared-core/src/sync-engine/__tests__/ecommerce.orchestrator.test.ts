@@ -3,14 +3,28 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EcommerceOrchestrator } from '../ecommerce.orchestrator';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
+import { syncUniversalInteraction } from '../../../../infrastructure/src/database/services/neo4j.sync.services';
+
+// 👈 MOCK ASYNCHRONE SÉCURISÉ (Empêche l'erreur 'catch')
+vi.mock('../../../../infrastructure/src/database/services/neo4j.sync.services', () => ({
+  syncUniversalInteraction: vi.fn(async () => true),
+}));
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
     execute: vi.fn(async (name, cb) => {
       const mockMongoSession = {};
       const mockNeo4jTx = {
-        // Par défaut, on simule un retour Neo4j valide
-        run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_node' }] })
+        // On simule un retour Neo4j dynamique pour extraire ownerUid ou initiatorUid
+        run: vi.fn().mockResolvedValue({ 
+          records: [{ 
+            get: (field: string) => {
+              if (field === 'ownerUid') return 'store_owner_123';
+              if (field === 'initiatorUid') return 'initiator_123';
+              return 'mock_node';
+            }
+          }] 
+        })
       };
       return await cb(mockMongoSession, mockNeo4jTx);
     }),
@@ -62,7 +76,7 @@ describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', (
   });
 
   describe('recordOrder', () => {
-    it('🟢 doit enregistrer une commande et relier l\'acheteur et la boutique', async () => {
+    it('🟢 doit enregistrer une commande, relier l\'acheteur et propager l\'interaction universelle', async () => {
       const result = await orchestrator.recordOrder(
         { uid: 'ord-1', buyerUid: mockActorUid, storeUid: 'store-1', totalAmountCents: 1500, stripePaymentIntentId: 'pi_123' },
         { actorUid: mockActorUid, capabilities: ['*'] }
@@ -70,11 +84,15 @@ describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', (
       
       expect(result.success).toBe(true);
       expect(result.orderUid).toBe('ord-1');
+
+      // Tissage universel !
+      expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
+      expect(syncUniversalInteraction).toHaveBeenCalledWith(mockActorUid, 'store_owner_123', 'ECOMMERCE');
     });
   });
 
   describe('proposeBarter & resolveBarter', () => {
-    it('🟢 doit enregistrer une proposition de troc entre oiseaux', async () => {
+    it('🟢 doit enregistrer une proposition de troc et propager l\'interaction si une cible est désignée', async () => {
       const result = await orchestrator.proposeBarter(
         { uid: 'barter-1', initiatorUid: mockActorUid, receiverUid: 'bird-beta', offeredUids: ['prod-1'], requestedUids: ['prod-2'] },
         { actorUid: mockActorUid, capabilities: ['*'] }
@@ -82,9 +100,13 @@ describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', (
       
       expect(result.success).toBe(true);
       expect(result.barterUid).toBe('barter-1');
+
+      // Tissage universel au moment de la proposition ciblée !
+      expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
+      expect(syncUniversalInteraction).toHaveBeenCalledWith(mockActorUid, 'bird-beta', 'ECOMMERCE');
     });
 
-    it('🟢 doit résoudre (accepter) une offre de troc et lier les oiseaux', async () => {
+    it('🟢 doit résoudre (accepter) une offre de troc, lier les oiseaux et propager l\'interaction', async () => {
       const result = await orchestrator.resolveBarter(
         { barterUid: 'barter-1', acceptorUid: 'bird-beta', status: 'ACCEPTED' },
         { actorUid: 'bird-beta', capabilities: ['*'] }
@@ -92,6 +114,10 @@ describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', (
       
       expect(result.success).toBe(true);
       expect(result.status).toBe('ACCEPTED');
+
+      // Tissage universel au moment de la résolution ! (initiator_123 est la valeur renvoyée par le mock)
+      expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
+      expect(syncUniversalInteraction).toHaveBeenCalledWith('initiator_123', 'bird-beta', 'ECOMMERCE');
     });
   });
 });

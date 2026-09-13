@@ -5,6 +5,7 @@ import { getNeo4jSession } from '@ilot/infrastructure';
 import { ActionSignature, CAPABILITIES, EntityLabel, ResonanceType } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
+import { syncUniversalInteraction } from '../../../infrastructure/src/database/services/neo4j.sync.services';
 
 export interface IResonancePayload {
   sourceUid: string;
@@ -20,9 +21,9 @@ export class ResonanceOrchestrator {
    */
   private static async resolveCanonicalUserUid(identifier: string): Promise<string> {
     const user = await OiseauModel.findOne({ 
-       $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
-     }).lean();
-         
+        $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
+      }).lean();
+          
     if (!user) {
       throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
     }
@@ -31,8 +32,6 @@ export class ResonanceOrchestrator {
 
   /**
    * 🕸️ LE TISSERAND TRANSDISCIPLINAIRE (Mise à jour KaÔdZ)
-   * Crée un pont direct entre deux modules distincts (ex: Task -> Partita) avec support polymorphe.
-   * La vérification de souveraineté se fait directement dans le graphe !
    */
   public static async weaveCrossDomainLink(
     sourceUid: string,
@@ -42,18 +41,15 @@ export class ResonanceOrchestrator {
     relationType: ResonanceType,
     signature: ActionSignature
   ) {
-    // Résolution canonique pour garantir la propreté de l'acteur
     const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
 
     return await TransactionManager.execute("Tissage Transdisciplinaire", async (mongoSession, neo4jTx) => {
-      // Si l'Oiseau n'est pas un Architecte Root, on lui demande de prouver sa parenté avec la source
       const isRoot = signature.capabilities.includes('*') || signature.capabilities.includes(CAPABILITIES.SYSTEM.ALL);
 
       const cypher = `
         MATCH (source:${sourceLabel} {uid: $sourceUid})
         MATCH (target:${targetLabel} {uid: $targetUid})
         
-        // 🛡️ Vérification dynamique dans le graphe : l'acteur doit être le créateur s'il n'est pas Root
         ${!isRoot ? `
           OPTIONAL MATCH (u:User {uid: $actorUid})-[r:CREATED|COMPOSED|WROTE|OWNS_STORE|FOUNDED]->(source)
           WITH source, target, u, r
@@ -68,13 +64,13 @@ export class ResonanceOrchestrator {
       const neoResult = await neo4jTx.run(cypher, {
         sourceUid,
         targetUid,
-        actorUid: actorCanonicalUid
+        actorCanonicalUid
       });
 
       if (neoResult.records.length === 0) { 
          throw new IlotError("Échec du tissage : Entités introuvables ou Aura insuffisante pour lier cette source.", "FORBIDDEN", 403);
       }
-             
+              
       return { success: true, neo4j: neoResult };
     });
   }
@@ -92,11 +88,12 @@ export class ResonanceOrchestrator {
     if (!signature.actorUid) throw new IlotError("Oiseau fantôme.", "UNAUTHORIZED", 401);
     const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
 
-    return await TransactionManager.execute("Sédimentation d'Écho", async (mongoSession, neo4jTx) => {
-             
+    const result = await TransactionManager.execute("Sédimentation d'Écho", async (mongoSession, neo4jTx) => {
+              
       const echoUid = `echo_${randomUUID()}`;
       const relation = echoType === 'TEXT' ? 'ECHOES' : 'VIBRATES';
 
+      // On récupère l'UID du créateur de l'entité ciblée pour le Karma
       const cypher = `
         MATCH (u:User {uid: $actorUid})
         MATCH (target:${targetLabel} {uid: $targetUid})
@@ -105,7 +102,9 @@ export class ResonanceOrchestrator {
           content: $content,
           createdAt: datetime() 
          }]->(target)
-        RETURN r
+        WITH r, target
+        OPTIONAL MATCH (target)<-[:CREATED|COMPOSED|WROTE|OWNS_STORE|FOUNDED|TASK_OF]-(owner:User)
+        RETURN r, coalesce(owner.uid, CASE WHEN '${targetLabel}' = 'User' THEN target.uid ELSE null END) AS ownerUid LIMIT 1
       `;
 
       const res = await neo4jTx.run(cypher, {
@@ -118,9 +117,18 @@ export class ResonanceOrchestrator {
       if (res.records.length === 0) {
         throw new IlotError("Cible ou acteur introuvable pour l'écho dans la Matrice.", "NOT_FOUND", 404);
       }
-             
-      return { success: true, echoUid, content, type: echoType };
+
+      const ownerUid = res.records[0].get('ownerUid');
+              
+      return { success: true, echoUid, content, type: echoType, ownerUid };
     });
+
+    // 🕸️ Tissage universel : L'acteur interagit avec le propriétaire de l'entité
+    if (result.ownerUid && result.ownerUid !== actorCanonicalUid) {
+      syncUniversalInteraction(actorCanonicalUid, result.ownerUid, 'PRAISE').catch(console.error);
+    }
+
+    return { success: result.success, echoUid: result.echoUid, content: result.content, type: result.type };
   }
 
   /**
@@ -138,9 +146,9 @@ export class ResonanceOrchestrator {
            neighbor.title AS neighborTitle,
            neighbor.name AS neighborName
       `;
-             
+              
       const result = await session.run(cypher, { canonicalUid });
-             
+              
       return result.records.map(rec => ({
         relation: rec.get('relationType'),
         type: rec.get('neighborType'),
@@ -167,7 +175,7 @@ export class ResonanceOrchestrator {
             LIMIT 10
         `;
         const result = await neo4jTx.run(query, { canonicalUid });
-                 
+                  
         return result.records.map((record: any) => ({
             peerUid: record.get('peerUid'),
             sharedTags: record.get('sharedTags'),
@@ -183,7 +191,7 @@ export class ResonanceOrchestrator {
     const sourceCanonicalUid = await this.resolveCanonicalUserUid(payload.sourceUid);
     const targetCanonicalUid = await this.resolveCanonicalUserUid(payload.targetUid);
 
-    return await TransactionManager.execute("Tissage de Résonance", async (mongoSession, neo4jTx) => {
+    const isHarmonic = await TransactionManager.execute("Tissage de Résonance", async (mongoSession, neo4jTx) => {
       const { type, entityId } = payload;
       
       await neo4jTx.run(
@@ -195,7 +203,7 @@ export class ResonanceOrchestrator {
         { sourceUid: sourceCanonicalUid, targetUid: targetCanonicalUid, type, entityId: entityId || 'ALL' }
       );
 
-      let isHarmonic = false;
+      let harmonicStatus = false;
       if (type === 'FOLLOWS_GLOBAL') {
         const harmonyCheck = await neo4jTx.run(
           `MATCH (a:User {uid: $sourceUid})
@@ -207,10 +215,17 @@ export class ResonanceOrchestrator {
            RETURN h`,
           { sourceUid: sourceCanonicalUid, targetUid: targetCanonicalUid }
         );
-        isHarmonic = harmonyCheck.records.length > 0;
+        harmonicStatus = harmonyCheck.records.length > 0;
       }
-      return isHarmonic;
+      return harmonicStatus;
     });
+
+    // 🕸️ Tissage universel en arrière-plan
+    if (sourceCanonicalUid !== targetCanonicalUid) {
+      syncUniversalInteraction(sourceCanonicalUid, targetCanonicalUid, 'PRAISE').catch(console.error);
+    }
+
+    return isHarmonic;
   }
 
   /**

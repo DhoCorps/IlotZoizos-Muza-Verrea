@@ -1,3 +1,4 @@
+// packages/shared-core/src/sync-engine/komptaPayment.orchestrator.ts
 import mongoose from 'mongoose';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
@@ -5,6 +6,7 @@ import { ActionSignature } from '@ilot/types';
 import { WalletModel } from '@ilot/infrastructure/';
 import { KomptaLedgerService } from '@ilot/infrastructure/';
 import { SovereignCurrency } from '@ilot/infrastructure/';
+import { syncUniversalInteraction } from '../../../infrastructure/src/database/services/neo4j.sync.services';
 
 export interface DirectTransferPayload {
   transferUid: string;
@@ -74,7 +76,7 @@ export class KomptaPaymentOrchestrator {
       throw new IlotError("Un oiseau ne peut pas s'auto-transférer des fonds.", "BAD_REQUEST", 400);
     }
 
-    return await TransactionManager.execute("Transfert Direct P2P & Kompta", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Transfert Direct P2P & Kompta", async (mongoSession, neo4jTx) => {
       const senderWallet = await WalletModel.findOne({ userId: payload.senderUid }).session(mongoSession);
       if (!senderWallet) {
         throw new IlotError("Portefeuille de l'expéditeur introuvable dans la Silice.", "NOT_FOUND", 404);
@@ -103,7 +105,6 @@ export class KomptaPaymentOrchestrator {
       await senderWallet.save({ session: mongoSession });
       await recipientWallet.save({ session: mongoSession });
 
-      // 📊 KOMPTA HOOK : Écriture de Débit pour l'expéditeur
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.senderUid,
         counterpartyUid: payload.recipientUid,
@@ -117,7 +118,6 @@ export class KomptaPaymentOrchestrator {
         session: mongoSession
       });
 
-      // 📊 KOMPTA HOOK : Écriture de Crédit pour le destinataire
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.recipientUid,
         counterpartyUid: payload.senderUid,
@@ -167,6 +167,11 @@ export class KomptaPaymentOrchestrator {
         newSenderBalance: senderWallet.balance
       };
     });
+
+    // 🕸️ Tissage de la toile universelle en arrière-plan
+    syncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE').catch(console.error);
+
+    return result;
   }
 
   /**
@@ -192,7 +197,7 @@ export class KomptaPaymentOrchestrator {
       throw new IlotError("Un oiseau ne peut pas effectuer une transaction marchande avec lui-même.", "BAD_REQUEST", 400);
     }
 
-    return await TransactionManager.execute("Transaction Marchande & Redistribution", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Transaction Marchande & Redistribution", async (mongoSession, neo4jTx) => {
       const buyerWallet = await WalletModel.findOne({ userId: payload.buyerUid }).session(mongoSession);
       if (!buyerWallet) {
         throw new IlotError("Portefeuille de l'acheteur introuvable dans la Silice.", "NOT_FOUND", 404);
@@ -212,11 +217,9 @@ export class KomptaPaymentOrchestrator {
         });
       }
 
-      // 🏛️ Calcul de la Sève de redistribution (Trésor de l'Îlot)
       const canopyTaxCents = Math.floor(payload.amountCents * KomptaPaymentOrchestrator.CANOPY_TAX_RATE);
       const netMerchantAmountCents = payload.amountCents - canopyTaxCents;
 
-      // Récupération ou initialisation du portefeuille du Trésor de l'Îlot
       let treasuryWallet = await WalletModel.findOne({ userId: KomptaPaymentOrchestrator.CANOPY_TREASURY_UID }).session(mongoSession);
       if (!treasuryWallet) {
         treasuryWallet = new WalletModel({
@@ -227,7 +230,6 @@ export class KomptaPaymentOrchestrator {
         });
       }
 
-      // Mouvements comptables Silice
       buyerWallet.balance -= payload.amountCents;
       recipientWallet.balance += netMerchantAmountCents;
       treasuryWallet.balance += canopyTaxCents;
@@ -240,7 +242,6 @@ export class KomptaPaymentOrchestrator {
       await recipientWallet.save({ session: mongoSession });
       await treasuryWallet.save({ session: mongoSession });
 
-      // 📊 KOMPTA HOOK : Débit total de l'acheteur
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.buyerUid,
         counterpartyUid: payload.recipientUid,
@@ -254,7 +255,6 @@ export class KomptaPaymentOrchestrator {
         session: mongoSession
       });
 
-      // 📊 KOMPTA HOOK : Crédit net pour le vendeur
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.recipientUid,
         counterpartyUid: payload.buyerUid,
@@ -268,7 +268,6 @@ export class KomptaPaymentOrchestrator {
         session: mongoSession
       });
 
-      // 📊 KOMPTA HOOK : Crédit de la taxe pour le Trésor de l'Îlot
       if (canopyTaxCents > 0) {
         await KomptaLedgerService.recordEntry({
           ownerUid: KomptaPaymentOrchestrator.CANOPY_TREASURY_UID,
@@ -335,6 +334,11 @@ export class KomptaPaymentOrchestrator {
         newRecipientBalance: recipientWallet.balance
       };
     });
+
+    // 🕸️ Tissage de la toile universelle en arrière-plan
+    syncUniversalInteraction(payload.buyerUid, payload.recipientUid, 'ECOMMERCE').catch(console.error);
+
+    return result;
   }
 
   /**
@@ -356,7 +360,7 @@ export class KomptaPaymentOrchestrator {
       throw new IlotError("Un oiseau ne peut pas troquer un objet avec lui-même.", "BAD_REQUEST", 400);
     }
 
-    return await TransactionManager.execute("Troc d'Objet / Création - Chapeau", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Troc d'Objet / Création - Chapeau", async (mongoSession, neo4jTx) => {
       
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.senderUid,
@@ -405,6 +409,11 @@ export class KomptaPaymentOrchestrator {
         offeredItemUid: payload.offeredItemUid
       };
     });
+
+    // 🕸️ Tissage de la toile universelle en arrière-plan
+    syncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE').catch(console.error);
+
+    return result;
   }
 
   /**
@@ -414,7 +423,6 @@ export class KomptaPaymentOrchestrator {
     payload: ExternalPaymentPayload
   ): Promise<{ success: boolean; depositUid: string }> {
     
-    // Le bénéficiaire est soit identifié via les métadonnées de l'intention de paiement, soit via l'ID client
     const recipientUid = payload.metadata?.recipientUid || payload.customer;
 
     if (!recipientUid) {
@@ -428,7 +436,6 @@ export class KomptaPaymentOrchestrator {
     return await TransactionManager.execute("Dépôt Externe (Webhook) & Kompta", async (mongoSession, neo4jTx) => {
       let recipientWallet = await WalletModel.findOne({ userId: recipientUid }).session(mongoSession);
       
-      // Si l'oiseau n'a pas encore de compte, on l'initialise
       if (!recipientWallet) {
         recipientWallet = new WalletModel({
           userId: recipientUid,
@@ -442,7 +449,6 @@ export class KomptaPaymentOrchestrator {
       recipientWallet.updatedAt = new Date();
       await recipientWallet.save({ session: mongoSession });
 
-      // 📊 KOMPTA HOOK : Écriture de Crédit pour l'entrée des fonds réels
       await KomptaLedgerService.recordEntry({
         ownerUid: recipientUid,
         counterpartyUid: 'EXTERNAL_SYSTEM',

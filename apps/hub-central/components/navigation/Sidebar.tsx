@@ -4,12 +4,12 @@
 import { useState, useEffect } from 'react';
 import { signOut, useSession } from 'next-auth/react'; 
 import { Link } from '../../navigation'; 
-import { LogOut, User, Feather, Music, Disc3, Type, Heart, Compass, Gamepad2, Activity, Lock, Film, Sparkles, Rocket, Dices, Radiation, MessageSquare, LayoutDashboard, BookOpenCheck, Calculator, LineChart, Landmark, Trees } from 'lucide-react'; 
+import { LogOut, User, Feather, Music, Disc3, Type, Heart, Compass, Gamepad2, Activity, Lock, Film, Sparkles, Rocket, Dices, Radiation, MessageSquare, LayoutDashboard, BookOpenCheck, Calculator, LineChart, Landmark, Trees, Scale } from 'lucide-react'; 
 import { CanopyNotificationBadge } from './CanopyNotificationBadge';
 
-export default function Sidebar() {   
-  const { data: session } = useSession();   
-  const username = session?.user?.name || "Oiseau Anonyme";   
+export default function Sidebar() {  
+  const { data: session } = useSession();  
+  const username = session?.user?.name || "Oiseau Anonyme";  
   
   const [hiddenApps, setHiddenApps] = useState<string[]>([]);
 
@@ -79,7 +79,7 @@ export default function Sidebar() {
           </Link>
         )}
 
-        {/* 🌳 Nouvelle Entrée : Le Sanctuaire de la Canopée ((inceptions)/canopy) */}
+        {/* 🌳 Le Sanctuaire de la Canopée */}
         <Link
           href="/canopy"
           className="flex flex-col items-center gap-2 group text-slate-500 hover:text-emerald-400 transition-all"
@@ -132,6 +132,20 @@ export default function Sidebar() {
           </div>
           <span className="text-[10px] uppercase tracking-widest font-bold opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0 text-center">
             Kompta
+          </span>
+        </Link>
+
+        {/* ⚖️ Le Tribunal de la Canopée */}
+        <Link
+          href="/inception/tribunal"
+          className="flex flex-col items-center gap-2 group text-slate-500 hover:text-rose-400 transition-all"
+          title="Le Tribunal de la Canopée"
+        >
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center border border-transparent group-hover:border-rose-500/30 group-hover:bg-rose-500/5 transition-all">
+            <Scale size={20} />
+          </div>
+          <span className="text-[10px] uppercase tracking-widest font-bold opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0 text-center">
+            Tribunal
           </span>
         </Link>
 

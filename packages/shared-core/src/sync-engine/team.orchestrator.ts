@@ -5,6 +5,7 @@ import { MoralChecker } from '../integrity/moral.checker';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
+import { syncUniversalInteraction } from '../../../infrastructure/src/database/services/neo4j.sync.services';
 
 interface IStorageManager {
   deleteFile(key: string): Promise<any>;
@@ -95,7 +96,6 @@ export class TeamOrchestrator {
         ...Object.values(CAPABILITIES.PROJECT)
       ];
 
-      // Utilisation stricte des UIDs canoniques (Phase 2)
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         MERGE (t:Team { uid: $teamUid })
@@ -145,6 +145,9 @@ export class TeamOrchestrator {
     }).select('uid pseudo frequenceHEX capabilities bio').limit(10).lean();
   }
 
+  /**
+   * 💌 INVITATION D'UN OISEAU DANS LE NID
+   */
   async inviteBird(
     data: { teamUid?: string; teamIdentifier?: string; targetUserUid: string; capabilities?: string[] },
     signature: ActionSignature
@@ -168,7 +171,7 @@ export class TeamOrchestrator {
     const target = await OiseauModel.findOne({ uid: targetCanonicalUid });
     if (!target) throw new IlotError("Oiseau introuvable.", "NOT_FOUND", 404);
 
-    return await TransactionManager.execute("Invitation d'Oiseau", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Invitation d'Oiseau", async (mongoSession, neo4jTx) => {
       const cypher = `
         MATCH (target:User { uid: $targetUserUid })
         MATCH (t:Team { uid: $teamUid })
@@ -197,6 +200,13 @@ export class TeamOrchestrator {
         neo4j: neoResult 
       };
     });
+
+    // 🕸️ Tissage de la toile universelle (Fire & Forget)
+    if (actorCanonicalUid !== targetCanonicalUid) {
+      syncUniversalInteraction(actorCanonicalUid, targetCanonicalUid, 'TEAM').catch(console.error);
+    }
+
+    return result;
   }
 
   async mutateTeam(

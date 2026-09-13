@@ -42,7 +42,11 @@ export * from './database/services/sync.services';
 export * from './database/services/gameStats.service';
 export * from './database/services/resonance.services';
 export * from './database/services/komptaLedger.services';
-export * from './database/services/economy.services'
+export * from './database/services/economy.services';
+export * from './database/services/neo4j.sync.services';
+export * from './database/services/report.services';
+export * from './database/services/judgment.services';
+export * from './database/services/praise.services';
 
 export * from './database/models/graph/user.graph';
 export * from './database/models/graph/team.graph';
@@ -67,4 +71,6 @@ export * from './database/models/nosql/systemGraphDql.model';
 
 export * from './database/models/nosql/systemPurgeJob.model';
 
-export * from './database/models/nosql/judment.model';
+export * from './database/models/nosql/praise.model';
+
+export * from './database/models/nosql/report.model';

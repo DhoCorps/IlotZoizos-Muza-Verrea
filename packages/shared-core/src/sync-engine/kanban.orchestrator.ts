@@ -1,8 +1,10 @@
 // packages/shared-core/src/sync-engine/kanban.orchestrator.ts
 import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model';
+import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { TaskStatus, CAPABILITIES, ActionSignature } from '@ilot/types'; 
+import { syncUniversalInteraction } from '../../../infrastructure/src/database/services/neo4j.sync.services';
 
 export interface KanbanSyncResult {
   success: boolean;
@@ -11,6 +13,21 @@ export interface KanbanSyncResult {
 }
 
 export class KanbanOrchestrator {
+  
+  /**
+   * 🔍 Utilitaire interne pour résoudre l'UID canonique d'un Oiseau depuis la Silice.
+   */
+  private async resolveCanonicalUid(identifier: string): Promise<string> {
+    const user = await OiseauModel.findOne({ 
+      $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
+    }).lean();
+    
+    if (!user) {
+      throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
+    }
+    return (user as any).uid;
+  }
+
   /**
    * 🌀 MISE À JOUR GÉNÉRIQUE (Atome)
    * Résout l'identifiant par MongoDB puis propage l'état dans Neo4j via UID canonique indexé.
@@ -92,12 +109,19 @@ export class KanbanOrchestrator {
     });
   }
 
+  /**
+   * 📌 ASSIGNATION D'UN MEMBRE À UN ATOME
+   */
   async assignMember(taskIdentifier: string, memberUid: string, signature: ActionSignature) {
     if (!signature.capabilities.includes(CAPABILITIES.TASK.UPDATE) && !signature.capabilities.includes('*')) {
       throw new IlotError("Aura insuffisante pour tisser ce lien.", "FORBIDDEN", 403);
     }
 
-    return await TransactionManager.execute("Assignation Kanban", async (mongoSession, neo4jTx) => {
+    // Résolution stricte des UIDs pour la cohérence du Graphe (évite les fantômes)
+    const actorCanonicalUid = await this.resolveCanonicalUid(signature.actorUid);
+    const memberCanonicalUid = await this.resolveCanonicalUid(memberUid);
+
+    const result = await TransactionManager.execute("Assignation Kanban", async (mongoSession, neo4jTx) => {
       const task = await TaskModel.findOne({ 
         $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] 
       }).session(mongoSession);
@@ -110,7 +134,7 @@ export class KanbanOrchestrator {
 
       await TaskModel.findOneAndUpdate(
         { uid: taskUid },
-        { $addToSet: { assigneeUids: memberUid } },
+        { $addToSet: { assigneeUids: memberCanonicalUid } },
         { session: mongoSession }
       );
 
@@ -119,7 +143,7 @@ export class KanbanOrchestrator {
          MERGE (u)-[r:ASSIGNED_TO]->(t)
          SET r.assignedAt = datetime()
          RETURN r`,
-        { memberUid, taskUid }
+        { memberUid: memberCanonicalUid, taskUid }
       );
 
       if (neoResult.records.length === 0) {
@@ -128,5 +152,12 @@ export class KanbanOrchestrator {
 
       return { success: true };
     });
+
+    // 🕸️ Tissage de la toile universelle (uniquement s'il assigne un autre oiseau)
+    if (actorCanonicalUid !== memberCanonicalUid) {
+      syncUniversalInteraction(actorCanonicalUid, memberCanonicalUid, 'TASK').catch(console.error);
+    }
+
+    return result;
   }
 }

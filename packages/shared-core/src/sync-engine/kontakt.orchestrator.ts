@@ -3,6 +3,7 @@ import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/u
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
+import { syncUniversalInteraction } from '../../../infrastructure/src/database/services/neo4j.sync.services'; // 👈 Import du maillage universel
 
 export class KontaktOrchestrator {
 
@@ -37,11 +38,10 @@ export class KontaktOrchestrator {
     const swiperCanonicalUid = await this.resolveCanonicalUid(data.swiperUid);
     const targetCanonicalUid = await this.resolveCanonicalUid(data.targetUid);
 
-    return await TransactionManager.execute("Enregistrement de Swipe Kontakt", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Enregistrement de Swipe Kontakt", async (mongoSession, neo4jTx) => {
       let isMatch = false;
 
       if (data.action === 'LIKE') {
-        // 1. Vérifier si la cible a aussi liké le swiper (Recherche stricte sur index)
         const checkQuery = `
           MATCH (target:User {uid: $targetUid})
           MATCH (swiper:User {uid: $swiperUid})
@@ -55,7 +55,6 @@ export class KontaktOrchestrator {
 
         isMatch = checkResult.records.length > 0;
 
-        // 2. Créer la relation de swipe et le match éventuel
         const swipeQuery = `
           MATCH (u1:User {uid: $swiperUid})
           MATCH (u2:User {uid: $targetUid})
@@ -84,12 +83,13 @@ export class KontaktOrchestrator {
         });
       }
 
-      return {
-        success: true,
-        action: data.action,
-        match: isMatch
-      };
+      return { success: true, action: data.action, match: isMatch };
     });
+
+    // 🕸️ Tissage de la toile universelle en arrière-plan (Fire & Forget)
+    syncUniversalInteraction(swiperCanonicalUid, targetCanonicalUid, 'KONTAKT').catch(console.error);
+
+    return result;
   }
 
   /**
@@ -109,7 +109,7 @@ export class KontaktOrchestrator {
     const targetCanonicalUid = await this.resolveCanonicalUid(data.targetUid);
     const endorserCanonicalUid = await this.resolveCanonicalUid(signature.actorUid);
 
-    return await TransactionManager.execute("Apposition du Sceau de Confiance", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Apposition du Sceau de Confiance", async (mongoSession, neo4jTx) => {
       const cypher = `
         MATCH (endorser:User {uid: $endorserUid})
         MATCH (target:User {uid: $targetUid})
@@ -118,19 +118,24 @@ export class KontaktOrchestrator {
         RETURN r
       `;
 
-      const result = await neo4jTx.run(cypher, {
+      const neoResult = await neo4jTx.run(cypher, {
         endorserUid: endorserCanonicalUid,
         targetUid: targetCanonicalUid,
         skillName: data.skillName.toUpperCase(),
         comment: data.comment || ""
       });
 
-      if (result.records.length === 0) {
+      if (neoResult.records.length === 0) {
         throw new IlotError("Échec du scellement de la compétence dans la Matrice.", "INTERNAL_ERROR", 500);
       }
 
       return { success: true, targetUid: targetCanonicalUid, skill: data.skillName };
     });
+
+    // 🕸️ Tissage de la toile universelle
+    syncUniversalInteraction(endorserCanonicalUid, targetCanonicalUid, 'KONTAKT').catch(console.error);
+
+    return result;
   }
 
   /**
@@ -147,7 +152,7 @@ export class KontaktOrchestrator {
     const intermediaryCanonicalUid = await this.resolveCanonicalUid(data.intermediaryUid);
     const targetCanonicalUid = await this.resolveCanonicalUid(data.targetUid);
 
-    return await TransactionManager.execute("Demande de Passerelle", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Demande de Passerelle", async (mongoSession, neo4jTx) => {
       const cypher = `
         MATCH (requester:User {uid: $requesterUid})
         MATCH (intermediary:User {uid: $intermediaryUid})
@@ -161,18 +166,23 @@ export class KontaktOrchestrator {
         RETURN r
       `;
 
-      const result = await neo4jTx.run(cypher, {
+      const neoResult = await neo4jTx.run(cypher, {
         requesterUid: requesterCanonicalUid,
         intermediaryUid: intermediaryCanonicalUid,
         targetUid: targetCanonicalUid,
         message: data.message
       });
 
-      if (result.records.length === 0) {
+      if (neoResult.records.length === 0) {
         throw new IlotError("Échec de la demande de mise en relation.", "INTERNAL_ERROR", 500);
       }
 
       return { success: true, status: 'PENDING' };
     });
+
+    // 🕸️ Tissage de la toile universelle : Interaction entre le demandeur et l'intermédiaire
+    syncUniversalInteraction(requesterCanonicalUid, intermediaryCanonicalUid, 'KONTAKT').catch(console.error);
+
+    return result;
   }
 }

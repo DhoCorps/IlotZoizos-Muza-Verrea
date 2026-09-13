@@ -1,5 +1,6 @@
-import { defineRouting } from 'next-intl/routing';
+// routing.ts
 import { createNavigation } from 'next-intl/navigation';
+import { defineRouting } from 'next-intl/routing';
 
 export const routing = defineRouting({
   locales: ['fr', 'en'], 
@@ -10,9 +11,10 @@ export const routing = defineRouting({
     // 💬 Messagerie Universelle de la Canopée
     '/message': '/message',
     
-    // 📊 Bilan Statistique & Kompta (Inception)
+    // 📊 Bilan Statistique, Kompta & Tribunal (Inception)
     '/inception/canopy/stats': '/inception/canopy/stats',
     '/inception/kompta': '/inception/kompta',
+    '/inception/tribunal': '/inception/tribunal',
     
     // 🎛️ STUDIO SAMPLOTEK (Séquenceur E-Jay)
     '/samplotek': '/samplotek',
@@ -93,10 +95,9 @@ export const routing = defineRouting({
     '/games/wikioracle/[slug]': '/games/wikioracle/[slug]',
 
     // ROUTE DE LA CANOPEE
-
     '/canopy-bank': '/canopy-bank',
     '/canopy': '/canopy',
   }
 });
 
-export const { Link, redirect, usePathname, useRouter } = createNavigation(routing);
+export const { Link, redirect, usePathname, useRouter, getPathname } = createNavigation(routing);

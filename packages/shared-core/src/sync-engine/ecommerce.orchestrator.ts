@@ -2,11 +2,11 @@
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
+import { syncUniversalInteraction } from '../../../infrastructure/src/database/services/neo4j.sync.services';
 
 export class EcommerceOrchestrator {
-
   /**
-   * 🛒 Création d'une boutique et liaison de l'Oiseau propriétaire dans le graphe Neo4j
+   * Création d'une boutique et liaison de l'Oiseau propriétaire dans le graphe Neo4j
    */
   async createStore(
     data: { uid: string; ownerUid: string; storeName: string; slug: string; stripeAccountId?: string },
@@ -15,7 +15,6 @@ export class EcommerceOrchestrator {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour créer une boutique.", "UNAUTHORIZED", 401);
     }
-
     return await TransactionManager.execute("Création de boutique", async (mongoSession, neo4jTx) => {
       // Utilisation d'un MATCH strict : L'utilisateur DOIT exister, on ne crée pas de fantôme avec MERGE
       const query = `
@@ -25,9 +24,9 @@ export class EcommerceOrchestrator {
         RETURN s
       `;
       
-      const neoResult = await neo4jTx.run(query, { 
-        ownerUid: data.ownerUid, 
-        uid: data.uid, 
+      const neoResult = await neo4jTx.run(query, {
+        ownerUid: data.ownerUid,
+        uid: data.uid,
         storeName: data.storeName,
         slug: data.slug
       });
@@ -35,13 +34,12 @@ export class EcommerceOrchestrator {
       if (neoResult.records.length === 0) {
         throw new IlotError("Oiseau propriétaire introuvable dans le Graphe.", "NOT_FOUND", 404);
       }
-
       return { success: true, storeUid: data.uid };
     });
   }
 
   /**
-   * 💳 Enregistrement d'une commande payée et liaison de l'acheteur à la boutique
+   * 🛍️ Enregistrement d'une commande payée et liaison de l'acheteur à la boutique
    */
   async recordOrder(
     data: { uid: string; buyerUid: string; storeUid: string; totalAmountCents: number; stripePaymentIntentId: string },
@@ -51,14 +49,15 @@ export class EcommerceOrchestrator {
       throw new IlotError("Oiseau non authentifié pour passer commande.", "UNAUTHORIZED", 401);
     }
 
-    return await TransactionManager.execute("Enregistrement de commande", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Enregistrement de commande", async (mongoSession, neo4jTx) => {
+      // On récupère également l'UID du vendeur (owner) via la boutique pour la synchro
       const query = `
         MATCH (buyer:User { uid: $buyerUid })
-        MATCH (store:Store { uid: $storeUid })
+        MATCH (store:Store { uid: $storeUid })<-[:OWNS_STORE]-(owner:User)
         CREATE (o:Order { uid: $uid, totalAmountCents: $totalAmountCents, status: 'PAID', createdAt: datetime() })
         CREATE (buyer)-[:BOUGHT]->(o)
         CREATE (o)-[:FULFILLED_BY]->(store)
-        RETURN o
+        RETURN o, owner.uid AS ownerUid
       `;
       
       const neoResult = await neo4jTx.run(query, {
@@ -72,12 +71,21 @@ export class EcommerceOrchestrator {
         throw new IlotError("Acheteur ou Boutique introuvable dans le Graphe.", "NOT_FOUND", 404);
       }
 
-      return { success: true, orderUid: data.uid };
+      const ownerUid = neoResult.records[0].get('ownerUid');
+
+      return { success: true, orderUid: data.uid, ownerUid };
     });
+
+    // 🕸️ Tissage de la toile universelle en arrière-plan
+    if (result.ownerUid && result.ownerUid !== data.buyerUid) {
+      syncUniversalInteraction(data.buyerUid, result.ownerUid, 'ECOMMERCE').catch(console.error);
+    }
+
+    return { success: result.success, orderUid: result.orderUid };
   }
 
   /**
-   * 🔄 PROPOSITION DE TROC
+   * 🤝 PROPOSITION DE TROC
    * Enregistre une offre d'échange et crée un lien indexé dans le Graphe Neo4j.
    */
   async proposeBarter(
@@ -87,8 +95,8 @@ export class EcommerceOrchestrator {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour initier un troc.", "UNAUTHORIZED", 401);
     }
-
-    return await TransactionManager.execute("Proposition de Troc", async (mongoSession, neo4jTx) => {
+    
+    const result = await TransactionManager.execute("Proposition de Troc", async (mongoSession, neo4jTx) => {
       const query = `
         MATCH (initiator:User { uid: $initiatorUid })
         CREATE (b:BarterOffer { uid: $uid, status: 'PENDING', createdAt: datetime() })
@@ -106,13 +114,19 @@ export class EcommerceOrchestrator {
       if (neoResult.records.length === 0) {
         throw new IlotError("Initiateur du troc introuvable dans le Graphe.", "NOT_FOUND", 404);
       }
-
       return { success: true, barterUid: data.uid };
     });
+
+    // 🕸️ S'il y a une cible précise, c'est une interaction !
+    if (data.receiverUid && data.receiverUid !== data.initiatorUid) {
+      syncUniversalInteraction(data.initiatorUid, data.receiverUid, 'ECOMMERCE').catch(console.error);
+    }
+
+    return result;
   }
 
   /**
-   * 🤝 ACCEPTATION / RÉSOLUTION D'UN TROC
+   * ⚖️ ACCEPTATION / RÉSOLUTION D'UN TROC
    * Clôture l'échange et tisse la relation de troc direct entre les deux Oiseaux dans le Graphe.
    */
   async resolveBarter(
@@ -122,14 +136,15 @@ export class EcommerceOrchestrator {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour répondre au troc.", "UNAUTHORIZED", 401);
     }
-
-    return await TransactionManager.execute("Résolution de Troc", async (mongoSession, neo4jTx) => {
+    
+    const result = await TransactionManager.execute("Résolution de Troc", async (mongoSession, neo4jTx) => {
+      // On retourne l'UID de l'initiateur pour pouvoir créer le lien universel
       const query = `
         MATCH (b:BarterOffer { uid: $barterUid })<-[:PROPOSES_BARTER]-(initiator:User)
         MATCH (acceptor:User { uid: $acceptorUid })
         SET b.status = $status
         ${data.status === 'ACCEPTED' ? 'CREATE (initiator)-[:TRADED_WITH]->(acceptor)' : ''}
-        RETURN b
+        RETURN b, initiator.uid AS initiatorUid
       `;
       
       const neoResult = await neo4jTx.run(query, {
@@ -142,7 +157,16 @@ export class EcommerceOrchestrator {
         throw new IlotError("Offre de troc ou Oiseau cible introuvable dans le Graphe.", "NOT_FOUND", 404);
       }
 
-      return { success: true, status: data.status };
+      const initiatorUid = neoResult.records[0].get('initiatorUid');
+
+      return { success: true, status: data.status, initiatorUid };
     });
+
+    // 🕸️ Tissage de la toile universelle
+    if (result.initiatorUid && result.initiatorUid !== data.acceptorUid) {
+      syncUniversalInteraction(result.initiatorUid, data.acceptorUid, 'ECOMMERCE').catch(console.error);
+    }
+
+    return { success: result.success, status: result.status };
   }
 }

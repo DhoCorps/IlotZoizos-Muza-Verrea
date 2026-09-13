@@ -1,9 +1,10 @@
-// packages/shared-core/src/sync-engine/__test__/kontakt.orchestrator.test.ts
+// packages/shared-core/src/sync-engine/__tests__/kontakt.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KontaktOrchestrator } from '../kontakt.orchestrator';
 import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
+import { syncUniversalInteraction } from '../../../../infrastructure/src/database/services/neo4j.sync.services';
 
 // Mocks
 vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
@@ -18,6 +19,11 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
+// 👈 LA CORRECTION EST ICI : on force une promesse via async () => true
+vi.mock('../../../../infrastructure/src/database/services/neo4j.sync.services', () => ({
+  syncUniversalInteraction: vi.fn(async () => true),
+}));
+
 describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
   let orchestrator: KontaktOrchestrator;
   const validSignature = { actorUid: 'bird_alpha', capabilities: [] };
@@ -25,21 +31,23 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new KontaktOrchestrator();
-
-    // Simulation de la résolution canonique MongoDB
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      lean: vi.fn().mockImplementation(async () => ({ uid: 'resolved_canonical_uid' }))
-    } as any);
+    
+    // Simulation dynamique pour différencier les UIDs lors des appels à resolveCanonicalUid
+    vi.mocked(OiseauModel.findOne).mockImplementation(({ $or }: any) => {
+      const identifier = $or[0].slug || $or[1].uid || 'unknown';
+      return {
+        lean: vi.fn().mockImplementation(async () => ({ uid: `resolved_${identifier}` }))
+      } as any;
+    });
   });
 
   describe('registerSwipe', () => {
-    it('🟢 doit enregistrer un swipe LIKE strict (après résolution de l\'uid canonique) et détecter un match', async () => {
+    it('🟢 doit enregistrer un swipe LIKE, détecter un match et propager l\'interaction universelle', async () => {
       const mockNeo4jTx = {
         run: vi.fn()
           .mockResolvedValueOnce({ records: [{ get: () => ({}) }] }) // Simulation check match = true
           .mockResolvedValueOnce({ records: [] }) // Création
       };
-
       vi.mocked(TransactionManager.execute).mockImplementationOnce(async (name, cb) => {
         return await cb({} as any, mockNeo4jTx as any);
       });
@@ -51,10 +59,12 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
 
       expect(res.success).toBe(true);
       expect(res.match).toBe(true);
-      
-      // On s'assure que la Silice a été interrogée deux fois pour résoudre les identités
       expect(OiseauModel.findOne).toHaveBeenCalledTimes(2);
-      expect(mockNeo4jTx.run).toHaveBeenCalledTimes(2);
+      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
+
+      // Vérification du tissage universel !
+      expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
+      expect(syncUniversalInteraction).toHaveBeenCalledWith('resolved_bird_alpha_slug', 'resolved_bird_beta_slug', 'KONTAKT');
     });
   });
 
@@ -68,7 +78,7 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit apposer le Sceau de Confiance avec succès', async () => {
+    it('🟢 doit apposer le Sceau de Confiance et propager l\'interaction universelle', async () => {
       const res = await orchestrator.endorseSkill(
         { targetUid: 'target_slug', skillName: 'NEO4J', comment: 'Excellent modélisateur' },
         validSignature as any
@@ -77,11 +87,15 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
       expect(res.success).toBe(true);
       expect(res.skill).toBe('NEO4J');
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
+
+      // Vérification du tissage universel !
+      expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
+      expect(syncUniversalInteraction).toHaveBeenCalledWith('resolved_bird_alpha', 'resolved_target_slug', 'KONTAKT');
     });
   });
 
   describe('requestIntroduction (La Passerelle)', () => {
-    it('🟢 doit enregistrer une demande de mise en relation dans le graphe', async () => {
+    it('🟢 doit enregistrer une demande et propager l\'interaction universelle avec l\'intermédiaire', async () => {
       const res = await orchestrator.requestIntroduction(
         { intermediaryUid: 'inter_slug', targetUid: 'target_slug', message: 'Hello!' },
         validSignature as any
@@ -89,8 +103,12 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
 
       expect(res.success).toBe(true);
       expect(res.status).toBe('PENDING');
-      expect(OiseauModel.findOne).toHaveBeenCalledTimes(3); // requester, intermediary, target
+      expect(OiseauModel.findOne).toHaveBeenCalledTimes(3); 
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
+
+      // Vérification du tissage universel (Demandeur <-> Intermédiaire) !
+      expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
+      expect(syncUniversalInteraction).toHaveBeenCalledWith('resolved_bird_alpha', 'resolved_inter_slug', 'KONTAKT');
     });
   });
 });

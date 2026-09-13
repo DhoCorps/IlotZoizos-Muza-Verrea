@@ -12,15 +12,22 @@ import {
     Unlock, 
     User, 
     Skull,
-    Trophy
+    Trophy,
+    Scale,
+    Heart
 } from 'lucide-react';
 import { BirdProfile } from '@/components/profile/BirdProfile';
 import SovereignLeaderboard from '@/components/sovereign/SovereignLeaderboard';
+import { MediationModal } from '@/components/mediation/MediationModal'; // 🕊️ Sas de Médiation
+import { PantheonPraises } from '@/components/pantheon/PantheonPraises'; // 🌟 Panthéon des Éloges
 
 export default function ProfilePage({ params }: { params?: { slug?: string } }) {
     const { data: session, status } = useSession();
     const queryClient = useQueryClient();
     const [guessInput, setGuessInput] = useState('');
+    
+    // 🕊️ État d'ouverture de la modale de médiation
+    const [isMediationOpen, setIsMediationOpen] = useState(false);
 
     // Détermination de l'Oiseau ciblé (soit via l'URL, soit soi-même par défaut)
     const currentUserUid = (session?.user as any)?.uid;
@@ -73,7 +80,7 @@ export default function ProfilePage({ params }: { params?: { slug?: string } }) 
     if (status === 'loading' || isLoading) {
         return (
             <div className="min-h-[80vh] flex items-center justify-center bg-slate-950">
-                <Loader2 className="w-10 h-10 animate-spin text-[#E5484D]" />
+                <Loader2 className="w-10 h-10 animate-spin text-slate-500" />
             </div>
         );
     }
@@ -92,18 +99,28 @@ export default function ProfilePage({ params }: { params?: { slug?: string } }) 
             
             {/* 🛡️ LE JEU DU SOBRIQUET (Zone de Pillage) */}
             <div className="relative overflow-hidden p-8 bg-slate-900/60 border border-slate-800 rounded-3xl shadow-2xl">
-                {/* Aura visuelle de fond (Gris bleuté et Rouge Corail) */}
-                <div className="absolute -right-20 -top-20 w-64 h-64 bg-[#E5484D]/10 rounded-full blur-[100px] pointer-events-none" />
-                <div className="absolute -left-20 -bottom-20 w-64 h-64 bg-slate-700/20 rounded-full blur-[100px] pointer-events-none" />
+                {/* Aura visuelle de fond (Gris bleuté et teintes sombres) */}
+                <div className="absolute -right-20 -top-20 w-64 h-64 bg-slate-700/10 rounded-full blur-[100px] pointer-events-none" />
+                <div className="absolute -left-20 -bottom-20 w-64 h-64 bg-slate-800/20 rounded-full blur-[100px] pointer-events-none" />
 
                 <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-8">
                     
                     {/* Explications et Lore */}
                     <div className="space-y-3 flex-1">
                         <div className="flex items-center gap-2">
-                            <span className="px-3 py-1 bg-[#E5484D]/10 border border-[#E5484D]/30 rounded-full text-[10px] font-black text-[#E5484D] uppercase tracking-widest flex items-center gap-1.5">
+                            <span className="px-3 py-1 bg-slate-800 border border-slate-700 rounded-full text-[10px] font-black text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
                                 <ShieldQuestion size={12} /> Sceau d'Identité
                             </span>
+                            
+                            {/* 🕊️ Bouton de signalement (uniquement sur le profil des autres) */}
+                            {!isOwner && (
+                                <button
+                                    onClick={() => setIsMediationOpen(true)}
+                                    className="px-3 py-1 bg-rose-950/40 border border-rose-900/50 hover:bg-rose-900/40 rounded-full text-[10px] font-bold text-rose-300 uppercase tracking-widest flex items-center gap-1.5 transition-colors"
+                                >
+                                    <Scale size={12} /> Signaler
+                                </button>
+                            )}
                         </div>
                         
                         {isOwner ? (
@@ -132,7 +149,7 @@ export default function ProfilePage({ params }: { params?: { slug?: string } }) 
                                     <Lock size={14} className="text-slate-500" />
                                 </div>
                                 <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl text-center">
-                                    <span className="text-lg font-black tracking-widest text-[#E5484D]">
+                                    <span className="text-lg font-black tracking-widest text-slate-200">
                                         {profileData.pseudo || "Inconnu"}
                                     </span>
                                 </div>
@@ -145,7 +162,7 @@ export default function ProfilePage({ params }: { params?: { slug?: string } }) 
                             <form onSubmit={handleGuessSubmit} className="space-y-4">
                                 <div className="flex items-center justify-between mb-2">
                                     <span className="text-xs font-bold text-slate-500 uppercase">Tenter une percée</span>
-                                    <Unlock size={14} className="text-[#E5484D]" />
+                                    <Unlock size={14} className="text-slate-400" />
                                 </div>
                                 <div className="relative">
                                     <input 
@@ -153,14 +170,14 @@ export default function ProfilePage({ params }: { params?: { slug?: string } }) 
                                         value={guessInput}
                                         onChange={(e) => setGuessInput(e.target.value)}
                                         placeholder="Ex: Faucon Sélénite..." 
-                                        className="w-full bg-slate-900 border border-slate-700 px-4 py-3 rounded-xl text-sm text-slate-200 outline-none focus:border-[#E5484D] transition-colors"
+                                        className="w-full bg-slate-900 border border-slate-700 px-4 py-3 rounded-xl text-sm text-slate-200 outline-none focus:border-slate-500 transition-colors"
                                         required
                                     />
                                 </div>
                                 <button 
                                     type="submit" 
                                     disabled={guessMutation.isPending}
-                                    className="w-full py-3 bg-[#E5484D] hover:bg-[#c43d41] text-white font-black uppercase text-xs rounded-xl shadow-[0_0_15px_rgba(229,72,77,0.2)] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                    className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-black uppercase text-xs rounded-xl border border-slate-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                                 >
                                     {guessMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : <Swords size={16} />}
                                     Tenter le Pillage
@@ -187,7 +204,22 @@ export default function ProfilePage({ params }: { params?: { slug?: string } }) 
                     />
                 </div>
 
-                {/* 🏆 LE HALL OF FAME (Intégré harmonieusement dans le profil) */}
+                {/* 🌟 LE PANTHÉON DES ÉLOGES (Alimente le Bouclier Karmique) */}
+                <div className="pt-8 border-t border-slate-800/50 flex flex-col items-center">
+                    <div className="w-full flex items-center gap-2 mb-6">
+                        <Heart size={18} className="text-amber-400" />
+                        <h3 className="text-lg font-black uppercase tracking-widest text-slate-300">
+                            Panthéon des Éloges
+                        </h3>
+                    </div>
+                    
+                    <PantheonPraises 
+                        targetUid={profileData.uid || targetSlug} 
+                        targetPseudo={profileData.pseudo || "Oiseau"} 
+                    />
+                </div>
+
+                {/* 🏆 LE HALL OF FAME */}
                 <div className="pt-8 border-t border-slate-800/50">
                     <div className="flex items-center gap-2 mb-6">
                         <Trophy size={18} className="text-amber-400" />
@@ -199,6 +231,14 @@ export default function ProfilePage({ params }: { params?: { slug?: string } }) 
                     <SovereignLeaderboard />
                 </div>
             </div>
+
+            {/* 🕊️ Modale du Sas de Médiation */}
+            <MediationModal 
+                isOpen={isMediationOpen}
+                onClose={() => setIsMediationOpen(false)}
+                targetUid={profileData.uid || targetSlug}
+                targetPseudo={profileData.pseudo || "Oiseau"}
+            />
 
         </div>
     );

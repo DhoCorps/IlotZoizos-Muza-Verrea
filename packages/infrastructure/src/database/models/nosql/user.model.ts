@@ -1,10 +1,9 @@
-import mongoose from 'mongoose'; 
+import mongoose from 'mongoose';
 import type { Document, Types } from 'mongoose';
-
-const { Schema } = mongoose;
-
 import { v4 as uuidv4 } from 'uuid';
 import { IOiseau } from "@ilot/types";
+
+const { Schema } = mongoose;
 
 export interface ExternalPaymentProfile {
   externalCustomerId: string;       // ID du client chez le tiers de paiement (ex: Stripe Customer ID)
@@ -14,18 +13,23 @@ export interface ExternalPaymentProfile {
 }
 
 export type AccountStatus = 'ACTIVE' | 'UNDER_JUDGMENT' | 'EXILED';
+export type KarmaStatus = 'clear' | 'muted' | 'quarantined' | 'banned';
 
 export interface OiseauDocument extends IOiseau, Document { 
   _id: Types.ObjectId; 
   sanctuaireVerrouille: boolean;
   createdAt: Date;
+  
   // 🔑 Déclaration TS pour éviter les erreurs lors de la mutation du chant
   resetPasswordToken?: string;
   resetPasswordExpires?: number;
   
-  // ⚖️ SUTURE JUSTICE : Nouveaux champs pour le Tribunal du KaÔdz
+  // ⚖️ SUTURE JUSTICE : Tribunal du KaÔdz & 3 Grâces
   praisesCount: number;
   accountStatus: AccountStatus;
+  karmaStatus: KarmaStatus;
+  strikes: number;
+  gracesUsed: number;
 }
 
 const OiseauSchema = new Schema<OiseauDocument>(
@@ -56,13 +60,21 @@ const OiseauSchema = new Schema<OiseauDocument>(
     isGhostMode: { type: Boolean, default: false },
     isOpenToInvitations: { type: Boolean, default: true },
     
-    // ⚖️ SUTURE JUSTICE : Le Compteur d'Éloges et le Statut Juridique
+    // ⚖️ SUTURE JUSTICE : Le Compteur d'Éloges, Statut et les 3 Grâces
     praisesCount: { type: Number, default: 0 },
     accountStatus: { 
       type: String, 
       enum: ['ACTIVE', 'UNDER_JUDGMENT', 'EXILED'], 
       default: 'ACTIVE' 
     },
+    karmaStatus: {
+      type: String,
+      enum: ['clear', 'muted', 'quarantined', 'banned'],
+      default: 'clear',
+      required: true
+    },
+    strikes: { type: Number, default: 0 },
+    gracesUsed: { type: Number, default: 0, max: 3 },
 
     documents: [{
       uid: { type: String, required: true },

@@ -2,11 +2,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TeamOrchestrator } from '../team.orchestrator';
 import { OiseauModel, TeamModel } from '@ilot/infrastructure';
+import { TransactionManager } from '../transactionManager';
+import { syncUniversalInteraction } from '../../../../infrastructure/src/database/services/neo4j.sync.services';
 
 vi.mock('@ilot/infrastructure', () => ({
     OiseauModel: {
         findOne: vi.fn(),
         findOneAndUpdate: vi.fn(),
+        updateMany: vi.fn(),
     },
     TeamModel: {
         create: vi.fn(),
@@ -44,6 +47,11 @@ vi.mock('../transactionManager', () => ({
     },
 }));
 
+// 👈 Mock asynchrone sécurisé pour le tissage universel
+vi.mock('../../../../infrastructure/src/database/services/neo4j.sync.services', () => ({
+    syncUniversalInteraction: vi.fn(async () => true),
+}));
+
 describe('TeamOrchestrator (Synchronisation Mongo/Neo4j pour les Nids - Phase 2)', () => {
     let orchestrator: TeamOrchestrator;
 
@@ -51,16 +59,20 @@ describe('TeamOrchestrator (Synchronisation Mongo/Neo4j pour les Nids - Phase 2)
         vi.clearAllMocks();
         orchestrator = new TeamOrchestrator();
 
-        // Simulation de la résolution canonique
-        vi.mocked(OiseauModel.findOne).mockReturnValue({
-            lean: vi.fn().mockResolvedValue({ uid: 'bird_canonical_creator' })
-        } as any);
+        // Simulation dynamique pour différencier les UIDs lors des appels à resolveCanonicalUid
+        vi.mocked(OiseauModel.findOne).mockImplementation(({ $or }: any) => {
+            const identifier = $or ? ($or[0].slug || $or[1].uid || 'unknown') : 'default';
+            return {
+                lean: vi.fn().mockResolvedValue({ uid: `resolved_${identifier}` }),
+                uid: `resolved_${identifier}` // Pour la version non-lean
+            } as any;
+        });
     });
 
     describe('fosterTeam', () => {
         it('🟢 doit fonder un nid avec succès après résolution canonique', async () => {
             vi.mocked(TeamModel.create).mockResolvedValueOnce([{ uid: 'team_new_123', name: 'Canopée Studio' }] as any);
-
+            
             const payload = {
                 name: 'Canopée Studio',
                 category: 'SOCIAL',
@@ -74,8 +86,7 @@ describe('TeamOrchestrator (Synchronisation Mongo/Neo4j pour les Nids - Phase 2)
                 issuedAt: new Date(),
             };
 
-            const result = await orchestrator.fosterTeam(payload, signature);
-
+            const result = await orchestrator.fosterTeam(payload, signature as any);
             expect(result.success).toBe(true);
             expect(result).toHaveProperty('uid');
             expect(result.uid).toContain('team_');
@@ -97,11 +108,37 @@ describe('TeamOrchestrator (Synchronisation Mongo/Neo4j pour les Nids - Phase 2)
                 issuedAt: new Date(),
             };
 
-            const result = await orchestrator.mutateTeam('team_123', { name: 'Nouveau Nom' }, signature);
-
+            const result = await orchestrator.mutateTeam('team_123', { name: 'Nouveau Nom' }, signature as any);
             expect(result.success).toBe(true);
             expect(result.uid).toBe('team_123');
             expect(TeamModel.findOneAndUpdate).toHaveBeenCalled();
+        });
+    });
+
+    describe('inviteBird', () => {
+        it('🟢 doit inviter un oiseau et propager l\'interaction universelle au niveau de la Team', async () => {
+            // L'acteur et la team
+            vi.mocked(TeamModel.findOne).mockResolvedValueOnce({ uid: 'team_123', ownerUid: 'resolved_bird_creator' } as any);
+
+            const signature = {
+                actorUid: 'bird_creator',
+                capabilities: ['*'],
+                issuedAt: new Date(),
+            };
+
+            const data = {
+                teamUid: 'team_123',
+                targetUserUid: 'bird_target',
+            };
+
+            const result = await orchestrator.inviteBird(data, signature as any);
+
+            expect(result.success).toBe(true);
+            expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
+
+            // Vérification du tissage universel (actorUid !== targetUid)
+            expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
+            expect(syncUniversalInteraction).toHaveBeenCalledWith('resolved_bird_creator', 'resolved_bird_target', 'TEAM');
         });
     });
 });
