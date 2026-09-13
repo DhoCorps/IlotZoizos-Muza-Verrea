@@ -1,9 +1,10 @@
-// apps/hub-central/components/partitions/PartitaForm.tsx
+// apps/hub-central/src/components/partita/PartitaForm.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { Music, FileAudio, LayoutGrid, Upload, ShoppingBag, Loader2 } from 'lucide-react';
-import { storage } from '../../lib/apiClient';
+import { storage } from '@/lib/apiClient';
+import { toast } from 'sonner';
 
 interface PartitaFormProps {
   initialData?: any;
@@ -57,6 +58,7 @@ export function PartitaForm({
     try {
       let audioTrackUrl = formData.get('audioTrackUrl')?.toString() || initialData?.media?.audioTrackUrl || null;
 
+      // 1. Upload optionnel du fichier audio d'accompagnement
       if (selectedFile) {
         setUploadingFile(true);
         const uploadResult = await storage.upload(selectedFile, 'partita', initialData?.uid || 'nouvelle-partita');
@@ -66,6 +68,7 @@ export function PartitaForm({
 
       const productId = formData.get('productId')?.toString();
 
+      // 2. Préparation du payload
       const payload = {
         title: formData.get('title')?.toString(),
         content: formData.get('content')?.toString(),
@@ -83,7 +86,13 @@ export function PartitaForm({
         merchLink: productId ? { productId, displayMode: 'card' } : null
       };
 
-      const url = isEdit ? `/api/partitions/${initialData.uid}` : '/api/partitions';
+      // Validation de sécurité Frontend (pour faire écho au backend)
+      if (!payload.title || !payload.content) {
+         throw new Error("Une partition nécessite au moins un titre et une notation.");
+      }
+
+      // 3. Appel de la route API Partita (POST pour création, PUT pour mutation)
+      const url = isEdit ? `/api/partita/${initialData.slug || initialData.uid}` : '/api/partita';
       const method = isEdit ? 'PUT' : 'POST';
       
       const res = await fetch(url, {
@@ -92,16 +101,25 @@ export function PartitaForm({
         body: JSON.stringify(payload)
       });
 
+      const data = await res.json();
+
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "La matrice a rejeté cette partition.");
+        throw new Error(data.error || "La matrice a rejeté cette partition.");
       }
       
+      // 4. Succès et notification
+      if (!isEdit && data.digitalSignature) {
+          toast.success(`Sceau d'antériorité apposé : ${data.digitalSignature.substring(0, 10)}... 🛡️`);
+      } else {
+          toast.success("Partition sédimentée avec succès ! ✨");
+      }
+
       onSuccess();
     } catch (err: any) {
       console.error("🌊 Fracture lors de la sédimentation de la partition :", err);
       setErrorMsg(err.message);
       setUploadingFile(false);
+      toast.error(err.message);
     } finally {
       setLoading(false);
     }
@@ -149,6 +167,7 @@ export function PartitaForm({
             <option value="TAB">Tablature Brut</option>
             <option value="CHORDPRO">ChordPro (Accords/Paroles)</option>
             <option value="MUSICXML">MusicXML Raw</option>
+            <option value="GUITARPRO">Fichier .gp (AlphaTab)</option>
           </select>
         </div>
 
@@ -172,7 +191,7 @@ export function PartitaForm({
         <textarea 
           name="content" 
           defaultValue={initialData?.content} 
-          placeholder="Inscris tes notes, ta tablature ou tes accords ici..." 
+          placeholder="Inscris tes notes, ta tablature ou tes accords ici... Pour un fichier Guitar Pro, dépose le texte base64 ou le lien R2." 
           className="w-full bg-black/40 border border-white/10 p-4 rounded-xl text-xs text-slate-200 outline-none focus:border-[#E5484D] font-mono min-h-[160px] resize-y" 
           required
         />

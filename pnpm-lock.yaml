@@ -18,6 +18,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.1101.0
         version: 3.1101.0
+      '@coderline/alphatab':
+        specifier: ^1.8.4
+        version: 1.8.4
       '@tanstack/react-query':
         specifier: ^5.101.4
         version: 5.101.4(react@18.3.1)
@@ -525,6 +528,10 @@ packages:
   '@bramus/specificity@2.4.2':
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
+
+  '@coderline/alphatab@1.8.4':
+    resolution: {integrity: sha512-VN5rfTZZWgA63Ny1aDKCp02k3Qm9CHhg4Q9AnK0kHm7G+fNDNZo36TeToPDFoJ6VpB9+AHcCrHwHFUP1tKqdsw==}
+    engines: {node: '>=6.0.0'}
 
   '@csstools/color-helpers@5.1.0':
     resolution: {integrity: sha512-S11EXWJyy0Mz5SYvRmY8nJYTFFd1LCNV+7cXyAgQtOOuzb4EsgfqDufL+9esx72/eLhsRdGZwaldu/h+E4t4BA==}
@@ -5073,6 +5080,8 @@ snapshots:
   '@bramus/specificity@2.4.2':
     dependencies:
       css-tree: 3.2.1
+
+  '@coderline/alphatab@1.8.4': {}
 
   '@csstools/color-helpers@5.1.0': {}
 

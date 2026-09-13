@@ -1,3 +1,4 @@
+// apps/hub-central/__test__/api/partita.slug.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PUT, DELETE } from '@/app/api/partita/[slug]/route';
 import { PartitaOrchestrator } from '@ilot/shared-core';
@@ -28,14 +29,34 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-const mockLean = vi.fn();
-vi.mock('@ilot/infrastructure', () => ({
-  PartitaModel: {
-    findOne: vi.fn(() => ({ lean: mockLean })),
-  },
+// Mock du cache de détails de partition (qui remplace l'ancien appel direct findOne lean dans le GET)
+vi.mock('@/lib/cache/partita.cache', () => ({
+  getCachedPartitaDetails: vi.fn(async (slug) => {
+    if (slug === 'inconnue') return null;
+    if (slug === 'sonate-intime') {
+      return {
+        slug: 'sonate-intime',
+        status: 'DRAFT',
+        authorUid: 'bird_author'
+      };
+    }
+    if (slug === 'sonate-publique') {
+      return {
+        slug: 'sonate-publique',
+        status: 'PUBLISHED',
+        authorUid: 'bird_author',
+        theory: { root: 'E', scaleKey: 'HARMONIC_MINOR', score: 100 }
+      };
+    }
+    return null;
+  }),
 }));
 
 // 🪡 MOCK PROPRE DE L'ORCHESTRATEUR AVEC DES SPYS EXPLICITES
+vi.mock('@/lib/shared-core', () => ({
+  PartitaOrchestrator: vi.fn(),
+}));
+
 vi.mock('@ilot/shared-core', () => ({
   PartitaOrchestrator: vi.fn().mockImplementation(() => ({
     updatePartita: vi.fn(),
@@ -69,8 +90,6 @@ describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
     });
 
     it('doit renvoyer une erreur 404 si la partition est introuvable', async () => {
-      mockLean.mockResolvedValueOnce(null);
-
       const req = new Request('http://localhost/api/partitas/inconnue');
       const context = { params: Promise.resolve({ slug: 'inconnue' }) };
 
@@ -82,12 +101,6 @@ describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
     });
 
     it('doit rejeter (403) si la partition est intime et que l\'acteur n\'est ni l\'auteur ni l\'architecte', async () => {
-      mockLean.mockResolvedValueOnce({
-        slug: 'sonate-intime',
-        status: 'DRAFT',
-        authorUid: 'bird_author'
-      });
-
       global.__mockUser = { uid: 'bird_stranger', capabilities: [] };
 
       const req = new Request('http://localhost/api/partitas/sonate-intime');
@@ -97,13 +110,7 @@ describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
       expect(res.status).toBe(403);
     });
 
-    it('doit autoriser (200) la lecture d\'une partition publiée par un tiers', async () => {
-      mockLean.mockResolvedValueOnce({
-        slug: 'sonate-publique',
-        status: 'PUBLISHED',
-        authorUid: 'bird_author'
-      });
-
+    it('doit autoriser (200) la lecture d\'une partition publiée par un tiers avec sa théorie', async () => {
       global.__mockUser = { uid: 'bird_reader', capabilities: [] };
 
       const req = new Request('http://localhost/api/partitas/sonate-publique');
@@ -114,6 +121,7 @@ describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
 
       expect(res.status).toBe(200);
       expect(json.slug).toBe('sonate-publique');
+      expect(json.theory.scaleKey).toBe('HARMONIC_MINOR');
     });
   });
 
@@ -139,7 +147,6 @@ describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
 
       const mockUpdatedResult = { uid: 'part_123', success: true, mongo: { title: 'Titre Muté' } };
       
-      // 🪡 On mocke directement la méthode sur l'instance mockée de l'Orchestrateur
       const updatePartitaMock = vi.fn().mockResolvedValueOnce(mockUpdatedResult);
       vi.mocked(PartitaOrchestrator).mockImplementationOnce(() => ({
         updatePartita: updatePartitaMock,

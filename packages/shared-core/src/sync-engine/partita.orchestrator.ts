@@ -4,6 +4,7 @@ import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
+import { MusicTheoryEngine, Note } from '../utils/musicTheory.engine';
 
 export interface PartitaSyncResult {
   uid?: string;
@@ -26,6 +27,29 @@ const generateSlug = (text: string) => {
 export class PartitaOrchestrator {
   
   /**
+   * Analyse sommaire du contenu pour en extraire des notes brutes.
+   * (Pour l'instant, on cherche de simples lettres A-G avec des altérations éventuelles).
+   */
+  private extractNotesFromContent(content: string): Note[] {
+    const noteRegex = /\b([CDEFGAB][#b]?)\b/g;
+    const notes: Note[] = [];
+    let match;
+    while ((match = noteRegex.exec(content)) !== null) {
+      // Normalisation très basique (on convertit les bémols en dièses pour le moteur)
+      let n = match[1].toUpperCase();
+      if (n === 'DB') n = 'C#';
+      if (n === 'EB') n = 'D#';
+      if (n === 'GB') n = 'F#';
+      if (n === 'AB') n = 'G#';
+      if (n === 'BB') n = 'A#';
+      if (['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'].includes(n)) {
+          notes.push(n as Note);
+      }
+    }
+    return notes;
+  }
+
+  /**
    * 🎼 FONDATION : FORGER UNE PARTITION
    */
   async fosterPartita(data: any, signature: ActionSignature): Promise<PartitaSyncResult> {
@@ -33,6 +57,12 @@ export class PartitaOrchestrator {
     if (!isSelf && !signature.capabilities.includes('*')) {
         throw new IlotError("Aura insuffisante pour composer à la place d'un autre.", "FORBIDDEN", 403);
     }
+
+    // 🔥 DÉTECTION THÉORIQUE DES GAMMES
+    const playedNotes = this.extractNotesFromContent(data.content || "");
+    const detectedScales = playedNotes.length >= 3 ? MusicTheoryEngine.detectScale(playedNotes) : [];
+    // On garde uniquement la meilleure correspondance si son score est élevé
+    const bestScale = (detectedScales.length > 0 && detectedScales[0].score >= 80) ? detectedScales[0] : null;
 
     return await TransactionManager.execute("Fondation de Partition", async (mongoSession, neo4jTx) => {
       const partitaUid = data.uid || `partita_${randomUUID()}`;
@@ -57,19 +87,21 @@ export class PartitaOrchestrator {
         instrument: data.instrument || 'BASS',
         format: data.format || 'ABC',
         tuning: data.tuning || 'E1-A1-D2-G2',
-        authorUid: signature.actorUid, // UID canonique strict garanti par l'auth
+        authorUid: signature.actorUid,
         status: data.status || 'DRAFT',
         tags: data.tags || [],
         connections: data.connections || {},
         merchLink: data.merchLink || null,
         media: data.media || {},
         settings: data.settings || {},
+        // On sauvegarde la théorie dans Mongo pour un accès API rapide
+        theory: bestScale ? { root: bestScale.root, scaleKey: bestScale.scaleKey, score: bestScale.score } : null
       };
 
       // 1. Sédimentation dans la Silice (MongoDB)
       const [newPartita] = await PartitaModel.create([newPartitaData], { session: mongoSession });
 
-      // 2. Tissage dans le Graphe (Neo4j) avec MATCH strict
+      // 2. Tissage dans le Graphe (Neo4j)
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (p:Partita { 
@@ -98,6 +130,17 @@ export class PartitaOrchestrator {
           RETURN count(*) as relCount
         }
 
+        // TISSAGE DE LA GAMME DÉTECTÉE
+        WITH p
+        CALL {
+            WITH p
+            WITH p WHERE $scaleRoot IS NOT NULL AND $scaleKey IS NOT NULL
+            MERGE (scale:Scale { root: $scaleRoot, scaleKey: $scaleKey })
+            ON CREATE SET scale.name = $scaleName, scale.flavor = $scaleFlavor
+            MERGE (p)-[:RESONATES_IN_SCALE { confidenceScore: $scaleScore }]->(scale)
+            RETURN count(*) as scaleCount
+        }
+
         RETURN p
       `;
 
@@ -109,7 +152,13 @@ export class PartitaOrchestrator {
         instrument: newPartita.instrument,
         status: newPartita.status,
         relatedProjects: newPartita.connections?.relatedProjects || [],
-        productId: newPartita.merchLink?.productId || null
+        productId: newPartita.merchLink?.productId || null,
+        // Paramètres pour le tissage harmonique
+        scaleRoot: bestScale?.root || null,
+        scaleKey: bestScale?.scaleKey || null,
+        scaleName: bestScale?.scaleName || null,
+        scaleFlavor: bestScale?.flavor || null,
+        scaleScore: bestScale?.score || null
       });
 
       // 🛡️ VERROU DE SÉCURITÉ : Vérification de la création effective
@@ -128,10 +177,8 @@ export class PartitaOrchestrator {
 
   /**
    * 🔄 MUTATION : MISE À JOUR DE PARTITION
-   * Résolution Silice (MongoDB) -> Propagation indexée Matrice (Neo4j)
    */
   async updatePartita(partitaUidOrSlug: string, updates: any, signature: ActionSignature): Promise<PartitaSyncResult> {
-    // 1. Résolution stricte de l'UID canonique via la Silice
     const existing = await PartitaModel.findOne({ $or: [{ uid: partitaUidOrSlug }, { slug: partitaUidOrSlug }] });
     if (!existing) throw new IlotError("Partition introuvable dans la Silice.", "NOT_FOUND", 404);
 
@@ -141,15 +188,26 @@ export class PartitaOrchestrator {
     }
 
     return await TransactionManager.execute("Mutation de Partition", async (mongoSession, neo4jTx) => {
+      // 🧮 Refaire la détection si le contenu a changé
+      let theoryUpdate = {};
+      let bestScale = null;
+      if (updates.content && updates.content !== existing.content) {
+          const playedNotes = this.extractNotesFromContent(updates.content);
+          const detectedScales = playedNotes.length >= 3 ? MusicTheoryEngine.detectScale(playedNotes) : [];
+          bestScale = (detectedScales.length > 0 && detectedScales[0].score >= 80) ? detectedScales[0] : null;
+          theoryUpdate = { theory: bestScale ? { root: bestScale.root, scaleKey: bestScale.scaleKey, score: bestScale.score } : null };
+      }
+
+      const finalUpdates = { ...updates, ...theoryUpdate };
+
       const updatedPartita = await PartitaModel.findOneAndUpdate(
         { uid: existing.uid },
-        { $set: updates },
+        { $set: finalUpdates },
         { new: true, session: mongoSession }
       ).lean();
 
       let neoResult = null;
-      if (updates.status || updates.instrument || updates.title || updates.merchLink) {
-        // MATCH indexé rapide sur l'UID canonique
+      if (updates.status || updates.instrument || updates.title || updates.merchLink || updates.content) {
         neoResult = await neo4jTx.run(`
           MATCH (p:Partita { uid: $partitaUid })
           SET p.title = coalesce($title, p.title),
@@ -170,13 +228,32 @@ export class PartitaOrchestrator {
             RETURN count(*) as rc
           }
 
+          WITH p
+          OPTIONAL MATCH (p)-[oldScaleRel:RESONATES_IN_SCALE]->(:Scale)
+          FOREACH (_ IN CASE WHEN $scaleRoot IS NOT NULL THEN [1] ELSE [] END | DELETE oldScaleRel)
+
+          WITH p
+          CALL {
+              WITH p
+              WITH p WHERE $scaleRoot IS NOT NULL AND $scaleKey IS NOT NULL
+              MERGE (scale:Scale { root: $scaleRoot, scaleKey: $scaleKey })
+              ON CREATE SET scale.name = $scaleName, scale.flavor = $scaleFlavor
+              MERGE (p)-[:RESONATES_IN_SCALE { confidenceScore: $scaleScore }]->(scale)
+              RETURN count(*) as scaleCount
+          }
+
           RETURN p
         `, { 
           partitaUid: existing.uid, 
           title: updates.title || null,
           status: updates.status || null, 
           instrument: updates.instrument || null,
-          productId: updates.merchLink?.productId || null
+          productId: updates.merchLink?.productId || null,
+          scaleRoot: bestScale?.root || null,
+          scaleKey: bestScale?.scaleKey || null,
+          scaleName: bestScale?.scaleName || null,
+          scaleFlavor: bestScale?.flavor || null,
+          scaleScore: bestScale?.score || null
         });
 
         if (neoResult.records.length === 0) {
@@ -206,18 +283,10 @@ export class PartitaOrchestrator {
     }
 
     return await TransactionManager.execute("Désintégration de Partition", async (mongoSession, neo4jTx) => {
-      // 🪡 SUTURE : Au lieu de supprimer ici, on liste les URLs orphelines.
-      // L'API de hub-central récupérera ce tableau et exécutera storageService.deleteFile()
       const filesToDelete: string[] = [];
-      
-      if (existing.media?.coverImageUrl) {
-        filesToDelete.push(existing.media.coverImageUrl);
-      }
-      if (existing.media?.audioTrackUrl) {
-        filesToDelete.push(existing.media.audioTrackUrl);
-      }
+      if (existing.media?.coverImageUrl) filesToDelete.push(existing.media.coverImageUrl);
+      if (existing.media?.audioTrackUrl) filesToDelete.push(existing.media.audioTrackUrl);
 
-      // Détachement propre via l'UID canonique
       await neo4jTx.run(`MATCH (p:Partita { uid: $partitaUid }) DETACH DELETE p`, { partitaUid: existing.uid });
       await PartitaModel.deleteOne({ uid: existing.uid }, { session: mongoSession });
 

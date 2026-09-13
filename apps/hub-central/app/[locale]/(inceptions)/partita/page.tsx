@@ -27,11 +27,11 @@ export default function PartitaDashboard() {
     targetTitle: 'Atelier Partita',
   });
 
-  // 🌀 SUTURE REACT QUERY : Récupération des partitions
+  // 🌀 SUTURE REACT QUERY : Récupération des partitions sur la bonne route API
   const { data: partitions = [], isLoading: partitionsLoading } = useQuery({
     queryKey: ['partitions'],
     queryFn: async () => {
-      const res = await fetch('/api/partitions');
+      const res = await fetch('/api/partita');
       if (!res.ok) throw new Error("Échec de la récupération des partitions");
       const data = await res.json();
       return Array.isArray(data) ? data : [];
@@ -53,10 +53,10 @@ export default function PartitaDashboard() {
 
   // 🌀 SUTURE REACT QUERY : Mutation pour la suppression d'une partition
   const deleteMutation = useMutation({
-    mutationFn: async (uid: string) => {
-      const res = await fetch(`/api/partitions/${uid}`, { method: 'DELETE' });
+    mutationFn: async (slugOrUid: string) => {
+      const res = await fetch(`/api/partita/${slugOrUid}`, { method: 'DELETE' });
       if (!res.ok) throw new Error("Échec de la désintégration de la partition");
-      return uid;
+      return slugOrUid;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['partitions'] });
@@ -68,9 +68,9 @@ export default function PartitaDashboard() {
     }
   });
 
-  const handleDelete = (uid: string) => {
+  const handleDelete = (slugOrUid: string) => {
     if (!confirm("Es-tu sûr de vouloir dissoudre cette partition dans le néant ?")) return;
-    deleteMutation.mutate(uid);
+    deleteMutation.mutate(slugOrUid);
   };
 
   const handleOpenCreate = () => {
@@ -107,14 +107,14 @@ export default function PartitaDashboard() {
         <div className="space-y-2 z-10">
           <div className="flex items-center gap-2">
             <span className="px-3 py-1 bg-[#E5484D]/10 border border-[#E5484D]/30 rounded-full text-[10px] font-black text-[#E5484D] uppercase tracking-widest flex items-center gap-1.5">
-              <Sparkles size={12} /> Inception Partita
+              <Sparkles size={12} /> Inception Partita • Moteur Harmonique Actif
             </span>
           </div>
           <h1 className="text-3xl md:text-4xl font-black uppercase tracking-tight text-white">
             La Partitionnerie
           </h1>
           <p className="text-xs font-mono text-slate-400 max-w-xl">
-            Saisis tes grilles, tes tablatures et tes notations musicales. Relie tes partitions aux chantiers de l'Îlot et diffuse tes fréquences.
+            Saisis tes grilles, tes tablatures et tes notations. L'Îlot analyse automatiquement les gammes et tisse les relations dans la Matrice.
           </p>
         </div>
 
@@ -203,7 +203,7 @@ export default function PartitaDashboard() {
                 <PartitaCard 
                   partition={partition}
                   onEdit={handleOpenEdit}
-                  onDelete={handleDelete}
+                  onDelete={(idOrSlug) => handleDelete(partition.slug || idOrSlug)}
                 />
               </div>
             );

@@ -13,23 +13,23 @@ export function usePartita() {
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
 
-  // 🌀 SUTURE REACT QUERY : Remplacement du useEffect + fetch par useQuery
+  // 🌀 SUTURE REACT QUERY : Route corrigée vers /api/partita
   const { data: partitions = [], isLoading: loading } = useQuery({
     queryKey: ['partitions'],
     queryFn: async () => {
-      const res = await fetch('/api/partitions');
+      const res = await fetch('/api/partita');
       if (!res.ok) throw new Error("Échec de la récupération des partitions");
       const data = await res.json();
       return Array.isArray(data) ? data : [];
     }
   });
 
-  // 🌀 SUTURE REACT QUERY : Mutation pour la dissolution d'une partition
+  // 🌀 SUTURE REACT QUERY : Mutation pour la dissolution d'une partition sur /api/partita/[slug]
   const deleteMutation = useMutation({
-    mutationFn: async (uid: string) => {
-      const res = await fetch(`/api/partitions/${uid}`, { method: 'DELETE' });
+    mutationFn: async (uidOrSlug: string) => {
+      const res = await fetch(`/api/partita/${uidOrSlug}`, { method: 'DELETE' });
       if (!res.ok) throw new Error("Échec de la désintégration");
-      return uid;
+      return uidOrSlug;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['partitions'] });
@@ -41,9 +41,9 @@ export function usePartita() {
     }
   });
 
-  const handleDelete = (uid: string) => {
+  const handleDelete = (uidOrSlug: string) => {
     if (!confirm("Es-tu sûr de vouloir dissoudre cette partition dans le néant ?")) return;
-    deleteMutation.mutate(uid);
+    deleteMutation.mutate(uidOrSlug);
   };
 
   return { 
