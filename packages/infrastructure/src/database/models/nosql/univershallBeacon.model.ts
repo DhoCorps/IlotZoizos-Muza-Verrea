@@ -1,6 +1,14 @@
 // src/models/UniversHallBeacon.ts
 
-import mongoose, { Schema, Document, Model } from 'mongoose';
+// 1. Import par défaut de l'objet global
+import mongoose from 'mongoose';
+
+// 2. Import séparé pour les types (zéro impact au runtime)
+import type { Document, Model } from 'mongoose';
+
+// 3. Extraction propre des constructeurs d'exécution
+const { Schema, model, models } = mongoose;
+
 import { IAgoraBeacon, AgoraModuleSource } from '@ilot/types';
 
 export interface IAgoraBeaconDocument extends IAgoraBeacon, Document {}

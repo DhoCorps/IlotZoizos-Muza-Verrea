@@ -1,5 +1,11 @@
 // packages/infrastructure/src/database/models/nosql/beneficiary.model.ts
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose from 'mongoose';
+
+// 1. Importe les types en tant que types purs (zéro impact au runtime)
+import type { Document, Model, Schema as MongooseSchema } from 'mongoose';
+
+// 2. Récupère les constructeurs nécessaires pour le runtime
+const { model, models } = mongoose;
 
 export interface IExternalBeneficiary extends Document {
   beneficiaryUid: string;
@@ -11,7 +17,8 @@ export interface IExternalBeneficiary extends Document {
   createdAt: Date;
 }
 
-const ExternalBeneficiarySchema = new Schema<IExternalBeneficiary>({
+// Utilisation de mongoose.Schema car Schema n'est qu'un type ici
+const ExternalBeneficiarySchema = new mongoose.Schema<IExternalBeneficiary>({
   beneficiaryUid: { type: String, required: true, unique: true },
   name: { type: String, required: true },
   role: { type: String, default: 'Ayant-droit externe' },

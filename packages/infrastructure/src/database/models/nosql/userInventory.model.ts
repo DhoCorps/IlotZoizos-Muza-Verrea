@@ -1,5 +1,8 @@
 // infrastructure/src/database/models/nosql/oiseauInventory.model.ts
-import mongoose, { Schema, Document, Model } from 'mongoose';
+import mongoose from 'mongoose';
+
+// 1. Import des types purs pour TypeScript
+import type { Document, Model, Schema as MongooseSchema } from 'mongoose';
 
 export interface IOiseauInventoryDocument extends Document {
   userUid: string;
@@ -20,7 +23,8 @@ export interface IOiseauInventoryDocument extends Document {
   updatedAt: Date;
 }
 
-const OiseauInventorySchema = new Schema<IOiseauInventoryDocument>({
+// 2. Utilisation de mongoose.Schema pour le runtime
+const OiseauInventorySchema: MongooseSchema<IOiseauInventoryDocument> = new mongoose.Schema({
   userUid: { type: String, required: true, unique: true, index: true },
   
   parchemins: { type: Number, default: 0, min: 0 },

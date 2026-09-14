@@ -1,4 +1,10 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose from 'mongoose';
+
+// 1. Importe Schema (et les autres) en tant que TYPE pur
+import type { Document, Model, Schema as MongooseSchema } from 'mongoose';
+
+// 2. Récupère le constructeur pour le runtime (new mongoose.Schema)
+const { model, models } = mongoose;
 
 // L'interface pour le typage TypeScript dans le modèle
 export interface IKonTraKt extends Document {
@@ -16,7 +22,7 @@ export interface IKonTraKt extends Document {
   coverAmount?: number;
 }
 
-const KonTraKtSchema: Schema = new Schema(
+const KonTraKtSchema = new mongoose.Schema(
   {
     creatorId: { type: String, required: true },
     gameId: { type: String, required: true },
@@ -53,7 +59,7 @@ const KonTraKtSchema: Schema = new Schema(
     expiresAt: { 
       type: Date, 
       required: true,
-      // C'EST ICI QUE LA MAGIE OPÈRE : L'Index TTL natif de MongoDB
+      // L'Index TTL natif de MongoDB
       expires: 0 
     },
     acceptedById: { type: String },
@@ -63,7 +69,7 @@ const KonTraKtSchema: Schema = new Schema(
     },
     coverAmount: { type: Number, min: [0, 'La couverture ne peut être négative'] }
   },
-  { timestamps: true } // Ajoute automatiquement createdAt et updatedAt
+  { timestamps: true } // Second argument : Ajoute automatiquement createdAt et updatedAt
 );
 
 // Empêche la recompilation du modèle lors du hot-reload de Next.js

@@ -1,5 +1,8 @@
 // packages/infrastructure/src/database/models/wallet.model.ts
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose from 'mongoose';
+import type { Document } from 'mongoose';
+
+const { Schema, model, models } = mongoose;
 
 export interface IWalletDocument extends Document {
   userId: string;

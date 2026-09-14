@@ -1,5 +1,8 @@
 // packages/infrastructure/src/database/models/nosql/annotation.model.ts
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose from 'mongoose';
+
+// 1. Importe les types en tant que types purs (zéro impact au runtime)
+import type { Document, Schema as MongooseSchema } from 'mongoose';
 
 export interface IAnnotation extends Document {
   uid: string;
@@ -16,7 +19,8 @@ export interface IAnnotation extends Document {
   updatedAt: Date;
 }
 
-const AnnotationSchema = new Schema<IAnnotation>({
+// 2. Utilisation de mongoose.Schema
+const AnnotationSchema = new mongoose.Schema<IAnnotation>({
   uid: { type: String, required: true, unique: true, index: true },
   bookUid: { type: String, required: true, index: true },
   bookTitle: { type: String, required: true },

@@ -1,4 +1,5 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose from 'mongoose';
+import type { Document, Schema as MongooseSchema } from 'mongoose';
 import { v4 as uuidv4 } from 'uuid';
 import { connectToDatabase } from '../../mongoose';
 
@@ -17,8 +18,8 @@ export interface IGraphMessage extends Document {
   updatedAt: Date;
 }
 
-// 2. Le Schéma Mongoose
-const MessageSchema: Schema<IGraphMessage> = new Schema({
+// 2. Le Schéma Mongoose (utilisation de MongooseSchema et mongoose.Schema)
+const MessageSchema: MongooseSchema<IGraphMessage> = new mongoose.Schema({
   // --- LE PONT NEO4J ---
   uid: { 
     type: String, 

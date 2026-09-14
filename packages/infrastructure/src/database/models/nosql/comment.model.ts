@@ -1,5 +1,11 @@
 // packages/infrastructure/src/database/models/nosql/comment.model.ts
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose from 'mongoose';
+
+// 1. Importe les types en tant que types purs (zéro impact au runtime)
+import type { Document, Model, Schema as MongooseSchema } from 'mongoose';
+
+// 2. Récupère les constructeurs nécessaires pour le runtime
+const { model, models } = mongoose;
 
 export interface IComment extends Document {
   commentUid: string;
@@ -12,7 +18,8 @@ export interface IComment extends Document {
   updatedAt: Date;
 }
 
-const CommentSchema = new Schema<IComment>({
+// Utilisation de mongoose.Schema pour éviter l'erreur de valeur non définie
+const CommentSchema = new mongoose.Schema<IComment>({
   commentUid: { type: String, required: true, unique: true },
   targetOwnerUid: { type: String, required: true, index: true },
   targetEntityUid: { type: String, required: true, index: true },

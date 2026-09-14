@@ -1,5 +1,12 @@
 // Le fichier du modèle (ex: nosql/report.model.ts ou report.model.ts)
-import mongoose, { Schema, Document } from 'mongoose';
+// 1. Import par défaut de l'objet global
+import mongoose from 'mongoose';
+
+// 2. Import séparé pour les types (zéro impact au runtime)
+import type { Document, Model } from 'mongoose';
+
+// 3. Extraction propre des constructeurs d'exécution
+const { Schema, model, models } = mongoose;
 
 export interface IMediationMessage {
   sender: mongoose.Types.ObjectId;

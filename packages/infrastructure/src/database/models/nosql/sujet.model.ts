@@ -1,7 +1,11 @@
+// 1. Import par défaut de l'objet global
 import mongoose from 'mongoose';
+
+// 2. Import séparé pour les types (zéro impact au runtime)
 import type { Document, Model, Types } from 'mongoose';
 
-const { Schema } = mongoose;
+// 3. Extraction propre des constructeurs d'exécution
+const { Schema, model, models } = mongoose;
 
 import { v4 as uuidv4 } from 'uuid';
 import { ISujet, SujetCategorySchema, SujetStatusSchema } from '@ilot/types'; 

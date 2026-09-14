@@ -1,5 +1,12 @@
 // infrastructure/src/database/models/nosql/universalMedia.model.ts
-import mongoose, { Schema, Document, Model } from 'mongoose';
+// 1. Import par défaut de Mongoose (compatible ESM / Railway)
+import mongoose from 'mongoose';
+
+// 2. Import des types uniquement (effacés à la compilation)
+import type { Document, Model } from 'mongoose';
+
+// 3. Extraction sécurisée des objets d'exécution
+const { Schema, model, models } = mongoose;
 import { UniversalMediaType } from '@ilot/types';
 
 export interface IUniversalMediaDocument extends Document {
