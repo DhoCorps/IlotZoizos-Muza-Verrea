@@ -1,5 +1,5 @@
 // packages/shared-core/src/sync-engine/market.regulation.orchestrator.ts
-import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { SeveEngine, ExchangeItem } from '../utils/seve.engine';
 import { IlotError } from '../errors/ilot.errors';

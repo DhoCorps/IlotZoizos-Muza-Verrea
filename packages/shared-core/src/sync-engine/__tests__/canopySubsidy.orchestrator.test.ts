@@ -1,16 +1,20 @@
 // packages/shared-core/src/sync-engine/__tests__/canopySubsidy.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CanopySubsidyOrchestrator } from '../canopySubsidy.orchestrator';
-import { SubsidyModel } from '../../../../infrastructure/src/database/models/nosql/subsidy.model';
+import { SubsidyModel } from '@ilot/infrastructure';
 import { KomptaLedgerOrchestrator } from '../komptaLedger.orchestrator';
 
 // 🛡️ Mocks
-vi.mock('../../../../infrastructure/src/database/models/nosql/subsidy.model', () => ({
-  SubsidyModel: {
-    findById: vi.fn(),
-    find: vi.fn()
-  }
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    SubsidyModel: {
+      findById: vi.fn(),
+      find: vi.fn()
+    }
+  };
+});
 
 vi.mock('../komptaLedger.orchestrator', () => ({
   KomptaLedgerOrchestrator: {

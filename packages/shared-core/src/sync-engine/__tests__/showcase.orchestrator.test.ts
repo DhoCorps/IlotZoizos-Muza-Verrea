@@ -1,23 +1,24 @@
 // packages/shared-core/src/sync-engine/__tests__/showcase.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ShowcaseOrchestrator } from '../showcase.orchestrator';
-import { UniversalMediaModel } from '../../../../infrastructure/src/database/models/nosql/universalMedia.model';
-import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
+import { UniversalMediaModel } from '@ilot/infrastructure';
+import { OiseauModel } from '@ilot/infrastructure';
 import { UserShowcaseShuffler } from '../../utils/userShowcaseShuffler';
 import { IlotError } from '../../errors/ilot.errors';
 
 // 🛡️ Mocks de la Silice
-vi.mock('../../../../infrastructure/src/database/models/nosql/universalMedia.model', () => ({
-  UniversalMediaModel: {
-    find: vi.fn(),
-  },
-}));
-
-vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
-  OiseauModel: {
-    findOne: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    UniversalMediaModel: {
+      find: vi.fn(),
+    },
+    OiseauModel: {
+      findOne: vi.fn(),
+    },
+  };
+});
 
 describe('ShowcaseOrchestrator - Séquençage et Association Multimédia', () => {
   beforeEach(() => {

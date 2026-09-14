@@ -4,11 +4,15 @@ import { CanopyAwardModel } from '@ilot/infrastructure';
 import * as AwardsRegistry from '../../constants/canopyAwardRegistry.config';
 
 // 🛡️ MOCK DE L'INFRASTRUCTURE (Mongoose)
-vi.mock('@ilot/infrastructure', () => ({
-  CanopyAwardModel: {
-    findOneAndUpdate: vi.fn().mockResolvedValue(true)
-  }
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    CanopyAwardModel: {
+      findOneAndUpdate: vi.fn().mockResolvedValue(true)
+    }
+  };
+});
 
 describe('CanopyCronOrchestrator (Moteur de Clôture de Cycle)', () => {
   beforeEach(() => {

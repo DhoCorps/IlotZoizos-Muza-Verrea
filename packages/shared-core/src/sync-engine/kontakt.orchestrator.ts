@@ -1,9 +1,9 @@
 // packages/shared-core/src/sync-engine/kontakt.orchestrator.ts
-import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { syncUniversalInteraction } from '../../../infrastructure/src/database/services/neo4j.sync.services'; // 👈 Import du maillage universel
+import { syncUniversalInteraction } from '@ilot/infrastructure'; // 👈 Import du maillage universel
 
 export class KontaktOrchestrator {
 

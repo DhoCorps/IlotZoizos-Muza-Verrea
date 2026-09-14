@@ -2,8 +2,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MonthlyStatsOrchestrator } from '../monthlyStats.orchestrator';
 import { KomptaStatsEngine } from '../komptaStats.orchestrator';
-import { RewardEntryModel } from '../../../../infrastructure/src/database/models/nosql/reward.model';
-import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
+import { RewardEntryModel } from '@ilot/infrastructure';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 import { CAPABILITIES } from '@ilot/types';
@@ -12,13 +12,14 @@ vi.mock('../komptaStats.orchestrator', () => ({
   KomptaStatsEngine: { calculateMonthlyStats: vi.fn() },
 }));
 
-vi.mock('../../../../infrastructure/src/database/models/nosql/reward.model', () => ({
-  RewardEntryModel: { insertMany: vi.fn().mockResolvedValue([]) },
-}));
-
-vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
-  OiseauModel: { findOne: vi.fn() },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    RewardEntryModel: { insertMany: vi.fn().mockResolvedValue([]) },
+    OiseauModel: { findOne: vi.fn() },
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {

@@ -34,8 +34,11 @@ export * from './database/models/nosql/taxonomy.model';
 
 export * from './database/models/nosql/gameHistory.model';
 export * from './database/models/nosql/gameResult.model';
+export * from './database/models/nosql/kontrakt.model';
 
 export * from './database/models/nosql/message.model';
+
+export * from './database/models/nosql/bankReserve.model';
 
 export * from './database/services/mutation.services';
 export * from './database/services/sync.services';
@@ -80,3 +83,4 @@ export * from './database/models/nosql/annotation.model';
 
 export * from './database/models/nosql/lexiconEntry.model';
 export * from './database/models/nosql/univershallBeacon.model';
+

@@ -5,14 +5,18 @@ import { LibraryBookModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('@ilot/infrastructure', () => ({
-  LibraryBookModel: {
-    findOne: vi.fn(),
-    create: vi.fn(),
-    findOneAndUpdate: vi.fn(),
-    deleteOne: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    LibraryBookModel: {
+      findOne: vi.fn(),
+      create: vi.fn(),
+      findOneAndUpdate: vi.fn(),
+      deleteOne: vi.fn(),
+    },
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {

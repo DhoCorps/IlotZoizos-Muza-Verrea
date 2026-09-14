@@ -1,21 +1,20 @@
 // packages/shared-core/src/sync-engine/__tests__/komptaStats.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KomptaStatsEngine } from '../komptaStats.orchestrator';
-import { LedgerEntryModel } from '../../../../infrastructure/src/database/models/nosql/ledgerEntry.model';
-import { CommentModel } from '../../../../infrastructure/src/database/models/nosql/comment.model';
-import { ReactionModel } from '../../../../infrastructure/src/database/models/nosql/reaction.model';
+import { LedgerEntryModel } from '@ilot/infrastructure';
+import { CommentModel } from '@ilot/infrastructure';
+import { ReactionModel } from '@ilot/infrastructure';
 
-vi.mock('../../../../infrastructure/src/database/models/nosql/ledgerEntry.model', () => ({
-  LedgerEntryModel: { aggregate: vi.fn() },
-}));
-
-vi.mock('../../../../infrastructure/src/database/models/nosql/comment.model', () => ({
-  CommentModel: { aggregate: vi.fn() },
-}));
-
-vi.mock('../../../../infrastructure/src/database/models/nosql/reaction.model', () => ({
-  ReactionModel: { aggregate: vi.fn() },
-}));
+// 🛡️ Mock unifié et sécurisé de l'infrastructure
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    LedgerEntryModel: { aggregate: vi.fn() },
+    CommentModel: { aggregate: vi.fn() },
+    ReactionModel: { aggregate: vi.fn() },
+  };
+});
 
 describe('KomptaStatsEngine - Moteur Statistique Multi-Énergies', () => {
   const targetYearMonth = '2026-08';

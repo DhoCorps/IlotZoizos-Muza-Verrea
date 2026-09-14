@@ -6,12 +6,16 @@ import { LexiconEntryModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('@ilot/infrastructure', () => ({
-  LexiconEntryModel: {
-    create: vi.fn(),
-    findOne: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    LexiconEntryModel: {
+      create: vi.fn(),
+      findOne: vi.fn(),
+    },
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {

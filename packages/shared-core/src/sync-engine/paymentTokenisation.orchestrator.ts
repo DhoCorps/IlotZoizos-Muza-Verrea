@@ -1,5 +1,5 @@
 // packages/shared-core/src/sync-engine/payment.tokenization.orchestrator.ts
-import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';

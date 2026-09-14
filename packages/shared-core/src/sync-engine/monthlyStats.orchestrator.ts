@@ -1,8 +1,8 @@
 // packages/shared-core/src/sync-engine/monthlyStats.orchestrator.ts
 import { TransactionManager } from './transactionManager';
 import { KomptaStatsEngine } from './komptaStats.orchestrator';
-import { RewardEntryModel } from '../../../infrastructure/src/database/models/nosql/reward.model';
-import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
+import { RewardEntryModel } from '@ilot/infrastructure';
+import { OiseauModel } from '@ilot/infrastructure';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature, CAPABILITIES } from '@ilot/types';
 

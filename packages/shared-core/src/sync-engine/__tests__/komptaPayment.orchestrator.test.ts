@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KomptaPaymentOrchestrator } from '../komptaPayment.orchestrator';
 import { TransactionManager } from '../transactionManager';
 import { WalletModel, KomptaLedgerService } from '@ilot/infrastructure';
-import { syncUniversalInteraction } from '../../../../infrastructure/src/database/services/neo4j.sync.services';
+import { syncUniversalInteraction } from '@ilot/infrastructure';
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
@@ -17,19 +17,20 @@ vi.mock('../transactionManager', () => ({
   }
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  WalletModel: {
-    findOne: vi.fn()
-  },
-  KomptaLedgerService: {
-    recordEntry: vi.fn()
-  }
-}));
-
-// 👈 Mock sécurisé de syncUniversalInteraction
-vi.mock('../../../../infrastructure/src/database/services/neo4j.sync.services', () => ({
-  syncUniversalInteraction: vi.fn(async () => true),
-}));
+// 🛡️ Mock unifié et sécurisé de l'infrastructure
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    WalletModel: {
+      findOne: vi.fn()
+    },
+    KomptaLedgerService: {
+      recordEntry: vi.fn()
+    },
+    syncUniversalInteraction: vi.fn(async () => true),
+  };
+});
 
 describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
   let orchestrator: KomptaPaymentOrchestrator;

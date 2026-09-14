@@ -6,13 +6,17 @@ import { UniversHallBeaconModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('@ilot/infrastructure', () => ({
-  UniversHallBeaconModel: {
-    findOne: vi.fn(),
-    create: vi.fn(),
-    deleteOne: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    UniversHallBeaconModel: {
+      findOne: vi.fn(),
+      create: vi.fn(),
+      deleteOne: vi.fn(),
+    },
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {

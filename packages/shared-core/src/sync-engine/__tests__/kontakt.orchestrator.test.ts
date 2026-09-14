@@ -1,17 +1,22 @@
 // packages/shared-core/src/sync-engine/__tests__/kontakt.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KontaktOrchestrator } from '../kontakt.orchestrator';
-import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
-import { syncUniversalInteraction } from '../../../../infrastructure/src/database/services/neo4j.sync.services';
+import { syncUniversalInteraction } from '@ilot/infrastructure';
 
-// Mocks
-vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
-  OiseauModel: {
-    findOne: vi.fn(),
-  },
-}));
+// 🛡️ Mock unifié et sécurisé de l'infrastructure
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    OiseauModel: {
+      findOne: vi.fn(),
+    },
+    syncUniversalInteraction: vi.fn(async () => true),
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
@@ -19,10 +24,6 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-// 👈 LA CORRECTION EST ICI : on force une promesse via async () => true
-vi.mock('../../../../infrastructure/src/database/services/neo4j.sync.services', () => ({
-  syncUniversalInteraction: vi.fn(async () => true),
-}));
 
 describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
   let orchestrator: KontaktOrchestrator;

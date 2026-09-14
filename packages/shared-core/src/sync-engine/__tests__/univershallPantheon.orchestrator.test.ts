@@ -4,14 +4,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UniversHallPantheonOrchestrator } from '../univershallPantheon.orchestrator';
 import { OiseauModel, LedgerEntryModel } from '@ilot/infrastructure';
 
-vi.mock('@ilot/infrastructure', () => ({
-  OiseauModel: {
-    find: vi.fn(),
-  },
-  LedgerEntryModel: {
-    aggregate: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    OiseauModel: {
+      find: vi.fn(),
+    },
+    LedgerEntryModel: {
+      aggregate: vi.fn(),
+    },
+  };
+});
 
 describe('UniversHallPantheonOrchestrator - Le Panthéon des Résonances', () => {
   beforeEach(() => {

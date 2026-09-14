@@ -5,20 +5,26 @@ import { SampleModel, PartitaModel, OiseauModel, UniversalMediaRegistry } from '
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('@ilot/infrastructure', () => ({
-  SampleModel: {
-    create: vi.fn(),
-    findOne: vi.fn(),
-  },
-  PartitaModel: {
-    create: vi.fn(),
-    findOne: vi.fn(),
-  },
-  OiseauModel: {
-    findOne: vi.fn(),
-  },
-  UniversalMediaRegistry: { indexItem: vi.fn() }
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    SampleModel: {
+      create: vi.fn(),
+      findOne: vi.fn(),
+    },
+    PartitaModel: {
+      create: vi.fn(),
+      findOne: vi.fn(),
+    },
+    OiseauModel: {
+      findOne: vi.fn(),
+    },
+    UniversalMediaRegistry: { 
+      indexItem: vi.fn() 
+    }
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {

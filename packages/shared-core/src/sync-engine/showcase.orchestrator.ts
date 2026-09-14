@@ -1,6 +1,6 @@
 // packages/shared-core/src/sync-engine/showcase.orchestrator.ts
-import { UniversalMediaModel } from '../../../infrastructure/src/database/models/nosql/universalMedia.model';
-import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
+import { UniversalMediaModel } from '@ilot/infrastructure';
+import { OiseauModel } from '@ilot/infrastructure';
 import { IUniversalMediaItem, ShowcaseFilterOptions } from '@ilot/types';
 import { UserShowcaseShuffler } from '../utils/userShowcaseShuffler';
 import { IlotError } from '../errors/ilot.errors';

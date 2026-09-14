@@ -1,5 +1,5 @@
 // packages/shared-core/src/sync-engine/canopySubsidy.orchestrator.ts
-import { SubsidyModel } from '../../../infrastructure/src/database/models/nosql/subsidy.model';
+import { SubsidyModel } from '@ilot/infrastructure';
 import { KomptaLedgerOrchestrator } from './komptaLedger.orchestrator';
 
 export class CanopySubsidyOrchestrator {

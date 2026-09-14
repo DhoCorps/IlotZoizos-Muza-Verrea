@@ -1,16 +1,20 @@
 // packages/shared-core/src/sync-engine/__tests__/revenueSplit.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RevenueSplitOrchestrator } from '../revenueSplit.orchestrator';
-import { KomptaLedgerService } from '../../../../infrastructure/src/database/services/komptaLedger.services';
+import { KomptaLedgerService } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
 // 🛡️ Mocks de l'infrastructure et des transactions
-vi.mock('../../../../infrastructure/src/database/services/komptaLedger.services', () => ({
-  KomptaLedgerService: {
-    recordEntry: vi.fn().mockResolvedValue(true)
-  }
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    KomptaLedgerService: {
+      recordEntry: vi.fn().mockResolvedValue(true)
+    }
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {

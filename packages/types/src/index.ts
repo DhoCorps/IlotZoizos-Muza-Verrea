@@ -28,7 +28,8 @@ export * from './core/cryptoSeal.types';
 export * from './core/bibliotek.types';
 export * from './models/lexicon.types';
 export * from './models/univershall.types';
-
+export * from './core/kontrakt.types';
+export * from './core/economy.types';
 export interface ActionSignature {
   actorUid: string;       
   capabilities: string[];

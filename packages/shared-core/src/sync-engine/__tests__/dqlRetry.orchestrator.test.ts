@@ -2,12 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DlqRetryOrchestrator } from '../dqlRetry.orchestrator';
 import { SystemGraphDlqModel, getNeo4jDriver } from '@ilot/infrastructure';
 
-vi.mock('@ilot/infrastructure', () => ({
-  SystemGraphDlqModel: {
-    find: vi.fn()
-  },
-  getNeo4jDriver: vi.fn()
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    SystemGraphDlqModel: {
+      find: vi.fn()
+    },
+    getNeo4jDriver: vi.fn()
+  };
+});
 
 describe('DlqRetryOrchestrator - Réconciliation de la Matrice', () => {
   beforeEach(() => {

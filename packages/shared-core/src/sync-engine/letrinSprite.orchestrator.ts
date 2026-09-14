@@ -1,6 +1,5 @@
 // packages/shared-core/src/sync-engine/letrinSprite.orchestrator.ts
-import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
-import { FontModel } from '../../../infrastructure/src/database/models/nosql/font.model';
+import { OiseauModel, FontModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';

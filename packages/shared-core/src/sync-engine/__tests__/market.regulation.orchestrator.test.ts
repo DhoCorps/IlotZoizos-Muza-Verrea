@@ -1,17 +1,20 @@
 // packages/shared-core/src/sync-engine/__test__/market.regulation.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MarketRegulationOrchestrator, MarketEntityContext, MarketContractPayload } from '../market.regulation.orchestrator';
-import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
-  OiseauModel: {
-    findOne: vi.fn(),
-    findOneAndUpdate: vi.fn(),
-  },
-}));
-
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    OiseauModel: {
+      findOne: vi.fn(),
+      findOneAndUpdate: vi.fn(),
+    },
+  };
+});
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
     execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_node' }] }) })),

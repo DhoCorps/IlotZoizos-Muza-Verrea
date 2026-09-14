@@ -77,6 +77,31 @@ describe('EconomyService (L\'Économie de la Canopée)', () => {
         });
     });
 
+    describe('deductResources', () => {
+        it('🟢 doit déduire les ressources si l oiseau possède les fonds nécessaires', async () => {
+            vi.mocked(OiseauInventoryModel.findOne).mockResolvedValueOnce(mockInventoryDoc);
+
+            const updated = await EconomyService.deductResources('bird_test_1', {
+                plumes: 3,
+                totamtoes: 15,
+            });
+
+            expect(updated.plumes).toBe(7); // 10 initial - 3
+            expect(updated.totamtoes).toBe(35); // 50 initial - 15
+            expect(mockInventoryDoc.save).toHaveBeenCalledTimes(1);
+        });
+
+        it('🔴 doit rejeter la transaction si une ressource est en quantité insuffisante', async () => {
+            vi.mocked(OiseauInventoryModel.findOne).mockResolvedValueOnce(mockInventoryDoc);
+
+            await expect(EconomyService.deductResources('bird_test_1', {
+                plumes: 20, // Il n'en a que 10
+            })).rejects.toThrow("Fonds insuffisants : plumes manquantes.");
+            
+            expect(mockInventoryDoc.save).not.toHaveBeenCalled();
+        });
+    });
+
     describe('upgradeAlveole', () => {
         it('🟢 doit permettre d agrandir l Alvéole si les ressources sont suffisantes (Niveau 1 -> 2)', async () => {
             mockInventoryDoc.alveoleLevel = 1;
@@ -90,7 +115,6 @@ describe('EconomyService (L\'Économie de la Canopée)', () => {
             const upgraded = await EconomyService.upgradeAlveole('bird_test_1');
 
             expect(upgraded.alveoleLevel).toBe(2);
-            // Vérifie que les coûts (Niveau 2 : 10 parchemins, 10 plumes, 5 vinyles, 20 totamtoes) ont été déduits
             expect(upgraded.parchemins).toBe(10);
             expect(upgraded.plumes).toBe(10);
             expect(upgraded.vinyles).toBe(5);

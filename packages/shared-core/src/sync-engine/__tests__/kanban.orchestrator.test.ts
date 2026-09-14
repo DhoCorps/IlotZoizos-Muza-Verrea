@@ -1,31 +1,29 @@
 // packages/shared-core/src/sync-engine/__tests__/kanban.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KanbanOrchestrator } from '../kanban.orchestrator';
-import { TaskModel } from '../../../../infrastructure/src/database/models/nosql/task.model';
-import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
+import { TaskModel } from '@ilot/infrastructure';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 import { CAPABILITIES } from '@ilot/types';
-import { syncUniversalInteraction } from '../../../../infrastructure/src/database/services/neo4j.sync.services';
+import { syncUniversalInteraction } from '@ilot/infrastructure';
 
-vi.mock('../../../../infrastructure/src/database/models/nosql/task.model', () => ({
-  TaskModel: {
-    findOneAndUpdate: vi.fn(),
-    findOne: vi.fn(),
-    bulkWrite: vi.fn(),
-  },
-}));
-
-vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
-  OiseauModel: {
-    findOne: vi.fn(),
-  },
-}));
-
-// 👈 MOCK ASYNCHRONE SÉCURISÉ POUR LE TISSAGE UNIVERSEL
-vi.mock('../../../../infrastructure/src/database/services/neo4j.sync.services', () => ({
-  syncUniversalInteraction: vi.fn(async () => true),
-}));
+// 🛡️ Mock unifié et sécurisé de l'infrastructure
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    TaskModel: {
+      findOneAndUpdate: vi.fn(),
+      findOne: vi.fn(),
+      bulkWrite: vi.fn(),
+    },
+    OiseauModel: {
+      findOne: vi.fn(),
+    },
+    syncUniversalInteraction: vi.fn(async () => true),
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {

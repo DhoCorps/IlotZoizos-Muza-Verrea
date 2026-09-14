@@ -56,6 +56,34 @@ export const EconomyService = {
   },
 
   /**
+   * Déduit des ressources de l'inventaire (ex: pour la mise sous séquestre d'un KonTraKt)
+   */
+  async deductResources(
+    userUid: string, 
+    delta: { parchemins?: number; plumes?: number; vinyles?: number; sampleNotes?: number; totamtoes?: number }
+  ) {
+    const inventory = await this.getInventory(userUid);
+    
+    // Vérification stricte des provisions pour éviter les dettes
+    if (delta.parchemins && inventory.parchemins < delta.parchemins) throw new Error("Fonds insuffisants : parchemins manquants.");
+    if (delta.plumes && inventory.plumes < delta.plumes) throw new Error("Fonds insuffisants : plumes manquantes.");
+    if (delta.vinyles && inventory.vinyles < delta.vinyles) throw new Error("Fonds insuffisants : vinyles manquants.");
+    if (delta.sampleNotes && inventory.sampleNotes < delta.sampleNotes) throw new Error("Fonds insuffisants : sample notes manquantes.");
+    if (delta.totamtoes && inventory.totamtoes < delta.totamtoes) throw new Error("Fonds insuffisants : totamtoes manquantes.");
+    
+    // Déduction
+    if (delta.parchemins) inventory.parchemins -= delta.parchemins;
+    if (delta.plumes) inventory.plumes -= delta.plumes;
+    if (delta.vinyles) inventory.vinyles -= delta.vinyles;
+    if (delta.sampleNotes) inventory.sampleNotes -= delta.sampleNotes;
+    if (delta.totamtoes) inventory.totamtoes -= delta.totamtoes;
+    
+    inventory.updatedAt = new Date();
+    await inventory.save();
+    return inventory;
+  },
+
+  /**
    * Tente d'agrandir l'Alvéole (Le système de construction stratégique)
    */
   async upgradeAlveole(userUid: string) {

@@ -1,10 +1,10 @@
 // packages/shared-core/src/sync-engine/kanban.orchestrator.ts
-import { TaskModel } from '../../../infrastructure/src/database/models/nosql/task.model';
-import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
+import { TaskModel } from '@ilot/infrastructure';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { TaskStatus, CAPABILITIES, ActionSignature } from '@ilot/types'; 
-import { syncUniversalInteraction } from '../../../infrastructure/src/database/services/neo4j.sync.services';
+import { syncUniversalInteraction } from '@ilot/infrastructure';
 
 export interface KanbanSyncResult {
   success: boolean;

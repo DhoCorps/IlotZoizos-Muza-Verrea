@@ -1,23 +1,24 @@
 // packages/shared-core/src/sync-engine/__test__/task.resonance.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TaskResonanceOrchestrator } from '../task.resonance.orchestrator';
-import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
-import { TaskModel } from '../../../../infrastructure/src/database/models/nosql/task.model';
+import { OiseauModel } from '@ilot/infrastructure';
+import { TaskModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
-  OiseauModel: {
-    findOne: vi.fn(),
-    findOneAndUpdate: vi.fn(),
-  },
-}));
-
-vi.mock('../../../../infrastructure/src/database/models/nosql/task.model', () => ({
-  TaskModel: {
-    find: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    OiseauModel: {
+      findOne: vi.fn(),
+      findOneAndUpdate: vi.fn(),
+    },
+    TaskModel: {
+      find: vi.fn(),
+    },
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {

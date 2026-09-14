@@ -3,29 +3,35 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TeamOrchestrator } from '../team.orchestrator';
 import { OiseauModel, TeamModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
-import { syncUniversalInteraction } from '../../../../infrastructure/src/database/services/neo4j.sync.services';
+import { syncUniversalInteraction } from '@ilot/infrastructure';
 
-vi.mock('@ilot/infrastructure', () => ({
+// 🛡️ Mock unifié et sécurisé de l'infrastructure pour l'équipe, les projets, les tâches et le tissage
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
     OiseauModel: {
-        findOne: vi.fn(),
-        findOneAndUpdate: vi.fn(),
-        updateMany: vi.fn(),
+      findOne: vi.fn(),
+      findOneAndUpdate: vi.fn(),
+      updateMany: vi.fn(),
     },
     TeamModel: {
-        create: vi.fn(),
-        findOne: vi.fn(),
-        findOneAndUpdate: vi.fn(),
-        findOneAndDelete: vi.fn(),
+      create: vi.fn(),
+      findOne: vi.fn(),
+      findOneAndUpdate: vi.fn(),
+      findOneAndDelete: vi.fn(),
     },
     ProjectModel: {
-        find: vi.fn().mockReturnValue({ session: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }) }),
-        deleteMany: vi.fn(),
+      find: vi.fn().mockReturnValue({ session: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }) }),
+      deleteMany: vi.fn(),
     },
     TaskModel: {
-        find: vi.fn().mockReturnValue({ session: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }) }),
-        deleteMany: vi.fn(),
+      find: vi.fn().mockReturnValue({ session: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }) }),
+      deleteMany: vi.fn(),
     },
-}));
+    syncUniversalInteraction: vi.fn(async () => true),
+  };
+});
 
 vi.mock('../../integrity/moral.checker', () => {
     return {
@@ -45,11 +51,6 @@ vi.mock('../transactionManager', () => ({
             return await callback(mockSession, mockNeo4jTx);
         }),
     },
-}));
-
-// 👈 Mock asynchrone sécurisé pour le tissage universel
-vi.mock('../../../../infrastructure/src/database/services/neo4j.sync.services', () => ({
-    syncUniversalInteraction: vi.fn(async () => true),
 }));
 
 describe('TeamOrchestrator (Synchronisation Mongo/Neo4j pour les Nids - Phase 2)', () => {

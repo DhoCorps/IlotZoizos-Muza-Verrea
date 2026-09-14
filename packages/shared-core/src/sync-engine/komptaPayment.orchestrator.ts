@@ -6,7 +6,7 @@ import { ActionSignature } from '@ilot/types';
 import { WalletModel } from '@ilot/infrastructure/';
 import { KomptaLedgerService } from '@ilot/infrastructure/';
 import { SovereignCurrency } from '@ilot/infrastructure/';
-import { syncUniversalInteraction } from '../../../infrastructure/src/database/services/neo4j.sync.services';
+import { syncUniversalInteraction } from '@ilot/infrastructure';
 
 export interface DirectTransferPayload {
   transferUid: string;

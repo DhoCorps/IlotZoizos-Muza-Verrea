@@ -1,11 +1,11 @@
 // packages/shared-core/src/sync-engine/resonance.orchestrator.ts
-import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { getNeo4jSession } from '@ilot/infrastructure';
 import { ActionSignature, CAPABILITIES, EntityLabel, ResonanceType } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
-import { syncUniversalInteraction } from '../../../infrastructure/src/database/services/neo4j.sync.services';
+import { syncUniversalInteraction } from '@ilot/infrastructure';
 
 export interface IResonancePayload {
   sourceUid: string;

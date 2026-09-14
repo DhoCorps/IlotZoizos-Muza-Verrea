@@ -1,21 +1,26 @@
 // packages/shared-core/src/sync-engine/__tests__/resonance.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ResonanceOrchestrator } from '../resonance.orchestrator';
-import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
-import { syncUniversalInteraction } from '../../../../infrastructure/src/database/services/neo4j.sync.services';
+import { syncUniversalInteraction } from '@ilot/infrastructure';
 
-vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
-  OiseauModel: {
-    findOne: vi.fn(),
-  },
-}));
-
-// 👈 MOCK ASYNCHRONE SÉCURISÉ
-vi.mock('../../../../infrastructure/src/database/services/neo4j.sync.services', () => ({
-  syncUniversalInteraction: vi.fn(async () => true),
-}));
+// 🛡️ Mock unifié et sécurisé de l'infrastructure et de Neo4j
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    OiseauModel: {
+      findOne: vi.fn(),
+    },
+    syncUniversalInteraction: vi.fn(async () => true),
+    getNeo4jSession: vi.fn(() => ({
+      run: vi.fn().mockResolvedValue({ records: [] }),
+      close: vi.fn().mockResolvedValue(true)
+    })),
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
@@ -35,12 +40,6 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  getNeo4jSession: vi.fn(() => ({
-    run: vi.fn().mockResolvedValue({ records: [] }),
-    close: vi.fn().mockResolvedValue(true)
-  }))
-}));
 
 describe('ResonanceOrchestrator - Tissage du Graphe & Scans Stricts', () => {
   beforeEach(() => {

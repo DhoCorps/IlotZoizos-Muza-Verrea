@@ -5,20 +5,16 @@ import { KomptaLedgerService } from '@ilot/infrastructure/';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-// 🛡️ CORRECTION DU CHEMIN DE MOCK : Correspond exactement à l'import de l'orchestrateur
-vi.mock('@/infrastructure/', () => ({
-  KomptaLedgerService: {
-    recordEntry: vi.fn().mockResolvedValue(true)
-  }
-}));
-
-// Fallback de sécurité si l'arborescence utilise un autre chemin relatif
-vi.mock('@ilot/infrastructure/', () => ({
-  KomptaLedgerService: {
-    recordEntry: vi.fn().mockResolvedValue(true)
-  }
-}));
-
+// 🛡️ Mock unifié et sécurisé de l'infrastructure pour le Grand Livre
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    KomptaLedgerService: {
+      recordEntry: vi.fn().mockResolvedValue(true)
+    }
+  };
+});
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
     execute: vi.fn(async (name, cb) => cb({}, { run: vi.fn() }))

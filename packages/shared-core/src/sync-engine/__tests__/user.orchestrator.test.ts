@@ -4,17 +4,30 @@ import { OiseauOrchestrator } from '../user.orchestrator';
 import { OiseauModel, TeamModel, ProjectModel, TaskModel } from '@ilot/infrastructure';
 import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('@ilot/infrastructure', () => ({
-  OiseauModel: {
-    findOne: vi.fn(),
-    create: vi.fn(),
-    findOneAndUpdate: vi.fn(),
-    findOneAndDelete: vi.fn(),
-  },
-  TeamModel: { find: vi.fn(), deleteMany: vi.fn() },
-  ProjectModel: { find: vi.fn(), deleteMany: vi.fn() },
-  TaskModel: { find: vi.fn(), deleteMany: vi.fn() },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    OiseauModel: {
+      findOne: vi.fn(),
+      create: vi.fn(),
+      findOneAndUpdate: vi.fn(),
+      findOneAndDelete: vi.fn(),
+    },
+    TeamModel: { 
+      find: vi.fn(), 
+      deleteMany: vi.fn() 
+    },
+    ProjectModel: { 
+      find: vi.fn(), 
+      deleteMany: vi.fn() 
+    },
+    TaskModel: { 
+      find: vi.fn(), 
+      deleteMany: vi.fn() 
+    },
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {

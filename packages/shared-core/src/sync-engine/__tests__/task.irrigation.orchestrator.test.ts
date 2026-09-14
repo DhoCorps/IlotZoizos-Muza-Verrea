@@ -1,17 +1,21 @@
 // packages/shared-core/src/sync-engine/__test__/task.irrigation.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TaskIrrigationOrchestrator } from '../task.irrigation.orchestrator';
-import { TaskModel } from '../../../../infrastructure/src/database/models/nosql/task.model';
+import { TaskModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 import { CAPABILITIES } from '@ilot/types';
 
-vi.mock('../../../../infrastructure/src/database/models/nosql/task.model', () => ({
-  TaskModel: {
-    findOne: vi.fn(),
-    findOneAndUpdate: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    TaskModel: {
+      findOne: vi.fn(),
+      findOneAndUpdate: vi.fn(),
+    },
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {

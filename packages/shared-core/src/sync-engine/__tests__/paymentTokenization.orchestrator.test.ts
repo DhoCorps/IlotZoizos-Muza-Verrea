@@ -1,11 +1,11 @@
 // packages/shared-core/src/sync-engine/__tests__/paymentTokenization.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PaymentTokenizationOrchestrator, TokenizePaymentPayload } from '../paymentTokenisation.orchestrator';
-import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
+vi.mock('@ilot/infrastructure', () => ({
   OiseauModel: {
     findOne: vi.fn(),
     findOneAndUpdate: vi.fn(),

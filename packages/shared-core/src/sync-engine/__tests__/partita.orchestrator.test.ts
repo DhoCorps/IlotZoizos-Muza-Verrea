@@ -1,18 +1,22 @@
 // packages/shared-core/src/sync-engine/__tests__/partita.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PartitaOrchestrator } from '../partita.orchestrator';
-import { PartitaModel } from '../../../../infrastructure/src/database/models/nosql/partita.model';
+import { PartitaModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('../../../../infrastructure/src/database/models/nosql/partita.model', () => ({
-  PartitaModel: {
-    findOne: vi.fn(),
-    create: vi.fn(),
-    findOneAndUpdate: vi.fn(),
-    deleteOne: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    PartitaModel: {
+      findOne: vi.fn(),
+      create: vi.fn(),
+      findOneAndUpdate: vi.fn(),
+      deleteOne: vi.fn(),
+    },
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {

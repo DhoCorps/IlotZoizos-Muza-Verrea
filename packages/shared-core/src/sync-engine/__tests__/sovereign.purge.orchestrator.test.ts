@@ -1,30 +1,28 @@
 // packages/shared-core/src/sync-engine/__tests__/sovereign.purge.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SovereignPurgeOrchestrator } from '../sovereign.purge.orchestrator';
-import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
-import { TaskModel } from '../../../../infrastructure/src/database/models/nosql/task.model';
-import { ProjectModel } from '../../../../infrastructure/src/database/models/nosql/project.model';
+import { OiseauModel } from '@ilot/infrastructure';
+import { TaskModel } from '@ilot/infrastructure';
+import { ProjectModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
-  OiseauModel: {
-    findOne: vi.fn(),
-    deleteOne: vi.fn(),
-  },
-}));
-
-vi.mock('../../../../infrastructure/src/database/models/nosql/task.model', () => ({
-  TaskModel: {
-    deleteMany: vi.fn(),
-  },
-}));
-
-vi.mock('../../../../infrastructure/src/database/models/nosql/project.model', () => ({
-  ProjectModel: {
-    deleteMany: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    OiseauModel: {
+      findOne: vi.fn(),
+      deleteOne: vi.fn(),
+    },
+    TaskModel: {
+      deleteMany: vi.fn(),
+    },
+    ProjectModel: {
+      deleteMany: vi.fn(),
+    },
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {

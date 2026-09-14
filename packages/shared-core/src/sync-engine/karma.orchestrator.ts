@@ -1,5 +1,5 @@
 // packages/shared-core/src/sync-engine/karma.orchestrator.ts
-import { OiseauModel, ReportModel } from '../../../infrastructure';
+import { OiseauModel, ReportModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature, CAPABILITIES } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';

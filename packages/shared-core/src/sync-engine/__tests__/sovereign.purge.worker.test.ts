@@ -3,11 +3,15 @@ import { SovereignPurgeWorker } from '../sovereign.purge.worker';
 import { SystemPurgeJobModel } from '@ilot/infrastructure';
 
 // 1. On mocke l'infrastructure
-vi.mock('@ilot/infrastructure', () => ({
-  SystemPurgeJobModel: {
-    findOneAndUpdate: vi.fn()
-  }
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    SystemPurgeJobModel: {
+      findOneAndUpdate: vi.fn()
+    }
+  };
+});
 
 // 2. On crée un faux orchestrateur pour le mock
 const mockExecute = vi.fn().mockResolvedValue(true);

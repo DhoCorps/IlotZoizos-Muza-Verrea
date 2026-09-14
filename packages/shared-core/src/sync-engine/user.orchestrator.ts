@@ -1,5 +1,5 @@
 // packages/shared-core/src/sync-engine/user.orchestrator.ts
-import { OiseauModel, TeamModel, ProjectModel, TaskModel } from '../../../infrastructure';
+import { OiseauModel, TeamModel, ProjectModel, TaskModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { IOiseau, CAPABILITIES } from '@ilot/types';

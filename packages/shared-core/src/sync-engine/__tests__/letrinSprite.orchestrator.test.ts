@@ -2,23 +2,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LetrinSpriteOrchestrator } from '../letrinSprite.orchestrator';
 import { TransactionManager } from '../transactionManager';
-import { FontModel } from '../../../../infrastructure/src/database/models/nosql/font.model';
-import { OiseauModel } from '../../../../infrastructure/src/database/models/nosql/user.model';
+import { FontModel, OiseauModel } from '@ilot/infrastructure';
 import { IlotError } from '../../errors/ilot.errors';
 
 const mockFindOneAndUpdate = vi.fn();
 
-vi.mock('../../../../infrastructure/src/database/models/nosql/user.model', () => ({
-  OiseauModel: {
-    findOne: vi.fn(),
-  },
-}));
-
-vi.mock('../../../../infrastructure/src/database/models/nosql/font.model', () => ({
-  FontModel: {
-    findOneAndUpdate: (...args: any[]) => mockFindOneAndUpdate(...args),
-  },
-}));
+// 🛡️ MOCK UNIFIÉ ET SÉCURISÉ DE L'INFRASTRUCTURE
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    OiseauModel: {
+      findOne: vi.fn(),
+    },
+    FontModel: {
+      findOneAndUpdate: (...args: any[]) => mockFindOneAndUpdate(...args),
+    },
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
@@ -26,7 +27,7 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-describe('LetrinSpriteOrchestrator - Atelier Typographique Letr\'in', () => {
+describe('LetrinSpriteOrchestrator - Atelier Typographique Letr\'in (Police & Sprites)', () => {
   let orchestrator: LetrinSpriteOrchestrator;
   const validSignature = { actorUid: 'bird_typographer', capabilities: [] };
 
@@ -40,7 +41,7 @@ describe('LetrinSpriteOrchestrator - Atelier Typographique Letr\'in', () => {
     } as any);
   });
 
-  describe('publishFontSprite', () => {
+  describe('publishFontSprite (Police et Glyphs)', () => {
     it('🔴 doit rejeter (401) si l\'Oiseau n\'est pas authentifié', async () => {
       await expect(
         orchestrator.publishFontSprite({
@@ -54,18 +55,18 @@ describe('LetrinSpriteOrchestrator - Atelier Typographique Letr\'in', () => {
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit sédimenter la police incluant des majuscules, minuscules et caractères spéciaux dans Mongo et Neo4j', async () => {
+    it('🟢 doit sédimenter la police complète (Font) incluant majuscules, minuscules et caractères spéciaux', async () => {
       const mockFontData = {
         uid: 'font_alpha',
-        name: 'Canopy Sans',
-        slug: 'canopy-sans',
+        name: 'Canopy Sans Font',
+        slug: 'canopy-sans-font',
         authorUid: 'bird_typographer',
         gridSize: { width: 16, height: 16 },
         glyphs: [
-          { char: 'A', matrix: [[0, 1], [1, 0]] }, // Majuscule
-          { char: 'a', matrix: [[1, 1], [0, 0]] }, // Minuscule
-          { char: 'é', matrix: [[1, 0], [1, 0]] }, // Accent
-          { char: '@', matrix: [[0, 0], [1, 1]] }  // Caractère spécial
+          { char: 'A', matrix: [[0, 1], [1, 0]], unicodeHex: 'U+0041' }, // Majuscule
+          { char: 'a', matrix: [[1, 1], [0, 0]], unicodeHex: 'U+0061' }, // Minuscule
+          { char: 'é', matrix: [[1, 0], [1, 0]], unicodeHex: 'U+00E9' }, // Accent
+          { char: '@', matrix: [[0, 0], [1, 1]], unicodeHex: 'U+0040' }  // Caractère spécial
         ],
         status: 'RELEASED' as const
       };
@@ -77,7 +78,9 @@ describe('LetrinSpriteOrchestrator - Atelier Typographique Letr\'in', () => {
       const res = await orchestrator.publishFontSprite(mockFontData, validSignature as any);
 
       expect(res.success).toBe(true);
-      expect(res.glyphsCount).toBe(4); // Les 4 symboles ont bien été traités
+      expect(res.name).toBe('Canopy Sans Font');
+      expect(res.slug).toBe('canopy-sans-font');
+      expect(res.glyphsCount).toBe(4); // Les 4 symboles de la police ont bien été traités
       expect(OiseauModel.findOne).toHaveBeenCalledTimes(1);
       expect(mockFindOneAndUpdate).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
@@ -90,7 +93,7 @@ describe('LetrinSpriteOrchestrator - Atelier Typographique Letr\'in', () => {
 
       await expect(
         orchestrator.publishFontSprite({
-          uid: 'font_beta', name: 'Broken', slug: 'broken', authorUid: 'ghost', gridSize: { width: 8, height: 8 }, glyphs: []
+          uid: 'font_beta', name: 'Broken Font', slug: 'broken-font', authorUid: 'ghost', gridSize: { width: 8, height: 8 }, glyphs: []
         }, validSignature as any)
       ).rejects.toThrow(/Oiseau introuvable/);
     });

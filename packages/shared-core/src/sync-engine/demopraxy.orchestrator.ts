@@ -1,5 +1,5 @@
 // packages/shared-core/src/sync-engine/demopraxy.orchestrator.ts
-import { OiseauModel } from '../../../infrastructure/src/database/models/nosql/user.model';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';

@@ -1,5 +1,5 @@
 // packages/shared-core/src/sync-engine/partita.orchestrator.ts
-import { PartitaModel } from '../../../infrastructure/src/database/models/nosql/partita.model';
+import { PartitaModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';

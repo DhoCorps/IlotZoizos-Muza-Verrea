@@ -3,13 +3,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EcommerceOrchestrator } from '../ecommerce.orchestrator';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
-import { syncUniversalInteraction } from '../../../../infrastructure/src/database/services/neo4j.sync.services';
+import { syncUniversalInteraction } from '@ilot/infrastructure';
 
 // 👈 MOCK ASYNCHRONE SÉCURISÉ (Empêche l'erreur 'catch')
-vi.mock('../../../../infrastructure/src/database/services/neo4j.sync.services', () => ({
-  syncUniversalInteraction: vi.fn(async () => true),
-}));
-
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    syncUniversalInteraction: vi.fn(async () => true),
+  };
+});
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
     execute: vi.fn(async (name, cb) => {
