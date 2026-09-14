@@ -17,11 +17,11 @@ export default async function LeaderboardPage({
   }
 
   return (
-    <div className="min-h-screen bg-[#05070A] text-slate-200 py-8 px-4">
+    <div className="min-h-screen bg-[#05070A] text-slate-200 py-8 px-4 w-full">
       <div className="max-w-4xl mx-auto mb-6">
         <Link 
           href={`/${locale}/games/nexus`}
-          className="inline-flex items-center gap-2 text-slate-400 hover:text-white bg-slate-800 px-4 py-2 rounded-lg text-sm transition-colors border border-slate-700"
+          className="inline-flex items-center gap-2 text-slate-400 hover:text-white bg-slate-800 px-4 py-2 rounded-lg text-sm transition-colors border border-slate-700 shadow-md"
         >
           <span>← Retour au Nexus des Jeux</span>
         </Link>

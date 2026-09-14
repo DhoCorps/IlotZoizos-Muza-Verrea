@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { SoonArtRoomToSend } from '@ilot/shared-core';
 import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
+import { useSearchParams } from 'next/navigation';
 
 interface SoonArtClientProps {
   roomId: string;
@@ -14,6 +15,8 @@ type ToolMode = 'scan' | 'mark';
 
 export default function SoonArtClient({ roomId, username }: SoonArtClientProps) {
   const { socket, isConnected } = useGameSocket();
+  const searchParams = useSearchParams();
+
   const [gameState, setGameState] = useState<SoonArtRoomToSend | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [toolMode, setToolMode] = useState<ToolMode>('scan');
@@ -26,6 +29,10 @@ export default function SoonArtClient({ roomId, username }: SoonArtClientProps) 
 
   useEffect(() => {
     if (!socket) return;
+
+    // Récupération optionnelle des paramètres de séquestre (Wager) depuis l'URL
+    const wagerAmount = Number(searchParams.get('wager') || '0');
+    const wagerCurrency = searchParams.get('currency') || 'DHO';
 
     // 1. Définition des handlers
     const handleStateUpdate = (data: SoonArtRoomToSend) => {
@@ -41,7 +48,12 @@ export default function SoonArtClient({ roomId, username }: SoonArtClientProps) 
 
     const handleConnect = () => {
       console.log('[SoonArt] Connecté au serveur.');
-      socket.emit('room:join', { roomId, username });
+      socket.emit('room:join', { 
+        roomId, 
+        username,
+        wagerAmount: wagerAmount > 0 ? wagerAmount : undefined,
+        wagerCurrency: wagerAmount > 0 ? wagerCurrency : undefined
+      });
     };
 
     // 2. Attachement des écouteurs
@@ -53,7 +65,12 @@ export default function SoonArtClient({ roomId, username }: SoonArtClientProps) 
 
     // Initialisation
     if (socket.connected) {
-      socket.emit('room:join', { roomId, username });
+      socket.emit('room:join', { 
+        roomId, 
+        username,
+        wagerAmount: wagerAmount > 0 ? wagerAmount : undefined,
+        wagerCurrency: wagerAmount > 0 ? wagerCurrency : undefined
+      });
     }
 
     // 3. Nettoyage ciblé (Strict Mode safe)
@@ -65,7 +82,7 @@ export default function SoonArtClient({ roomId, username }: SoonArtClientProps) 
       socket.off('game:state-update', handleStateUpdate);
       socket.off('error:message', handleErrorMessage);
     };
-  }, [socket, roomId, username, isConnected]);
+  }, [socket, roomId, username, isConnected, searchParams]);
 
   // Gestion des interactions SVG (Souris)
   const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {

@@ -1,3 +1,4 @@
+// apps/hub-central/app/[locale]/(inceptions)/games/kooontreez/layout.tsx
 import React from 'react';
 
 export const metadata = {

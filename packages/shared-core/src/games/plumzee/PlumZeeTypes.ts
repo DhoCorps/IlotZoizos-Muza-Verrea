@@ -1,5 +1,7 @@
 // packages/shared-core/src/games/plumzee/PlumZeeTypes.ts
 
+import { PlumZeeRoomToSend } from '../../types/shared.types';
+
 export type PlumZeeSymbolValue = 1 | 2 | 3 | 4 | 5 | 6;
 export type GameRoomState = 'waiting' | 'playing' | 'gameOver';
 
@@ -54,7 +56,7 @@ export interface PlumZeeGameOptions {
     turnTimeLimitSec: number;
 }
 
-export interface PlumZeeGameRoom {
+export interface PlumZeeGameRoom extends PlumZeeRoomToSend{
     id: string;
     name: string;
     gameType: 'PlumZee';

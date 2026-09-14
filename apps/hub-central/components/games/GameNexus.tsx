@@ -39,7 +39,7 @@ export default function GameNexus({ username, locale = 'fr' }: GameNexusProps) {
             'WikiOracle': 'wikioracle',
             'SoonArt': 'soonart',
             'PlumZee': 'plumzee',
-            'GalakTK': 'galaktk',
+            'GalakTK': 'galak-t-k',
             'AtomikKFardE': 'atomikkfarde',
             'CineMax': 'cinemax'
         };

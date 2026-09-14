@@ -10,8 +10,9 @@ import {
 } from '@ilot/shared-core';
 import { GalakTKLogic } from '@ilot/shared-core';
 
-// 💾 IMPORT DU SERVICE D'ARCHIVAGE 
+// 💾 IMPORT DU SERVICE D'ARCHIVAGE ET DE L'ORCHESTRATEUR DE PARIS
 import { GameStatsService } from '@ilot/infrastructure';
+import { BettingOrchestrator } from '@ilot/shared-core';
 
 export class GalakTKManager {
     private io: Server;
@@ -29,7 +30,7 @@ export class GalakTKManager {
         ownerId: string,
         ownerUsername: string,
         ownerSocketId: string,
-        options: GalakTKGameOptions
+        options: GalakTKGameOptions & { wagerAmount?: number; wagerCurrency?: string; gameMode?: string; difficulty?: string }
     ): GalakTKGameRoom {
         if (this.rooms.has(roomId)) {
             throw new Error(`Le secteur '${roomId}' est déjà ouvert.`);
@@ -66,7 +67,10 @@ export class GalakTKManager {
             currentTurnPlayerId: ownerPlayer.id,
             roundStartTime: Date.now(),
             round: 0,
-            scores: { [ownerPlayer.id]: 0 }
+            scores: { [ownerPlayer.id]: 0 },
+            // 🌟 SÉQUESTRE NATIF
+            wagerAmount: options.wagerAmount || 0,
+            wagerCurrency: options.wagerCurrency || 'DHO'
         };
 
         this.rooms.set(roomId, newRoom);
@@ -125,7 +129,7 @@ export class GalakTKManager {
         }
     }
 
-    public handleMakeMove(roomId: string, playerId: string, move: GalakTKMakeMoveRequest): { room: GalakTKGameRoom, moveResult?: GalakTKMoveResult } {
+    public async handleMakeMove(roomId: string, playerId: string, move: GalakTKMakeMoveRequest): Promise<{ room: GalakTKGameRoom, moveResult?: GalakTKMoveResult }> {
         const room = this.rooms.get(roomId);
         if (!room || room.state !== 'playing') throw new Error("Partie inactive.");
         if (room.currentTurnPlayerId !== playerId) throw new Error("Ce n'est pas votre tour !");
@@ -164,6 +168,34 @@ export class GalakTKManager {
                     room.winnerId = player.id;
                     const durationInSeconds = Math.floor((Date.now() - room.roundStartTime) / 1000);
                     
+                    // =========================================================
+                    // 🌟 SUTURE ÉCONOMIQUE KONTRAKT : Résolution des crédits/paris
+                    // =========================================================
+                    try {
+                        const wagerAmt = room.wagerAmount || 0;
+                        const wagerCur = room.wagerCurrency || 'DHO';
+                        const difficultyVal = (room.gameOptions as any).difficulty || 'Artisan';
+                        const modeVal = (room.gameOptions as any).gameMode || 'MULTIPLAYER';
+
+                        if (wagerAmt > 0 && room.winnerId) {
+                            for (const p of room.players) {
+                                const isWinner = p.id === room.winnerId;
+                                await BettingOrchestrator.resolveGameAndCalculateCredit(
+                                    p.id,
+                                    'GalakTK',
+                                    modeVal,
+                                    difficultyVal,
+                                    wagerCur,
+                                    wagerAmt,
+                                    isWinner
+                                );
+                            }
+                        }
+                    } catch (econErr) {
+                        console.error(`[GalakTKManager] Erreur KonTraKt pour la salle ${roomId}:`, econErr);
+                    }
+                    // =========================================================
+
                     GameStatsService.recordMatch({
                         gameType: 'GalakTK',
                         roomId: room.id,
@@ -206,7 +238,9 @@ export class GalakTKManager {
             ...room,
             stars: [], // On cache les étoiles aux clients
             round: room.round || 1,
-            scores: scoresRecord // Garanti non-undefined
+            scores: scoresRecord,
+            wagerAmount: room.wagerAmount,
+            wagerCurrency: room.wagerCurrency
         };
         
         return clientRoom as GalakTKRoomToSend;

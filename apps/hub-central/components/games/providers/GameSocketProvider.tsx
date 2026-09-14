@@ -24,7 +24,7 @@ export function GameSocketProvider({ children }: { children: React.ReactNode }) 
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    // On initialise la connexion une seule fois
+    // On initialise la connexion une seule fois globalement pour la zone des jeux
     if (!socketRef.current) {
       const SERVER_URL = process.env.NEXT_PUBLIC_GAME_SERVER_URL || 'http://localhost:3002';
       socketRef.current = io(SERVER_URL, {
@@ -35,27 +35,30 @@ export function GameSocketProvider({ children }: { children: React.ReactNode }) 
 
     const socket = socketRef.current;
 
+    // Synchronisation immédiate de l'état si déjà connecté
+    setIsConnected(socket.connected);
+
     const handleConnect = () => setIsConnected(true);
     const handleDisconnect = () => setIsConnected(false);
 
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
 
-    // On retire juste les écouteurs natifs en cas de re-rendu (Strict Mode)
-    // Mais on NE DÉCONNECTE PAS le socket ici pour qu'il survive à la navigation
+    // Nettoyage des écouteurs au démontage de l'effet, sans couper le socket (survie à la navigation)
     return () => {
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
     };
   }, []);
 
-  // Déconnexion finale uniquement si le joueur quitte totalement la zone des jeux (démontage du Provider)
+  // Déconnexion finale uniquement si le joueur quitte totalement la zone des jeux (démontage ultime du Provider)
   useEffect(() => {
     return () => {
       if (socketRef.current) {
-        console.log('[Réseau] Déconnexion globale du joueur.');
+        console.log('[Réseau] Déconnexion globale du joueur de la canopée des jeux.');
         socketRef.current.disconnect();
         socketRef.current = null;
+        setIsConnected(false);
       }
     };
   }, []);

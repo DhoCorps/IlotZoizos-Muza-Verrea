@@ -7,6 +7,46 @@ import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
 // ==========================================
+// GET : Lister les KonTraKts du marché (avec filtre optionnel sur les 'pending')
+// ==========================================
+export const GET = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
+  try {
+    const { searchParams } = new URL(req.url);
+    const statusFilter = searchParams.get('status') || 'pending';
+    const gameId = searchParams.get('gameId');
+
+    // Construction du filtre de recherche
+    const query: Record<string, any> = {};
+    if (statusFilter !== 'all') {
+      query.status = statusFilter;
+    }
+    if (gameId) {
+      query.gameId = gameId;
+    }
+
+    // Récupération des contrats triés par date de création (les plus récents en premier)
+    const kontrakts = await KonTraKt.find(query)
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+
+    return NextResponse.json({
+      success: true,
+      count: kontrakts.length,
+      data: kontrakts
+    }, { status: 200 });
+
+  } catch (error: any) {
+    console.error("  [KONTRAKT FETCH ERROR] :", error);
+    const status = error.status || error.statusCode || 500;
+    return NextResponse.json(
+      { error: error.message || "Impossible de récupérer les KonTraKts du marché." }, 
+      { status }
+    );
+  }
+});
+
+// ==========================================
 // POST : Sceller un KonTraKt de Konfiance (Multijoueur)
 // ==========================================
 export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {

@@ -2,7 +2,7 @@
 
 export type QuizTheme = 'cine' | 'kooontreez' | 'wikioracle';
 
-export type GameMode = 'standard' | 'race_to_score' | 'survival';
+export type QuizGameMode = 'standard' | 'race_to_score' | 'survival';
 
 export interface QuizQuestion {
   id: string;
@@ -49,7 +49,7 @@ export interface PlayerGameStats {
 
 export interface GameSessionConfig {
   theme: QuizTheme;
-  mode: GameMode;
+  mode: QuizGameMode;
   targetScore?: number;      // Utilisé pour le mode 'race_to_score' (ex: 5000 points)
   maxQuestions?: number;     // Utilisé pour le mode 'standard'
   timePerQuestion: number;   // En secondes (ex: 15s)

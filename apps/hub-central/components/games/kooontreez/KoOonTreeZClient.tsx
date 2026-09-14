@@ -12,6 +12,7 @@ import {
 } from '@ilot/shared-core';
 import { KoOonTreezLogic } from '@ilot/shared-core';
 import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
+import { useSearchParams } from 'next/navigation';
 
 interface KoOonTreeZClientProps {
     roomId: string;
@@ -28,6 +29,8 @@ export default function KoOonTreeZClient({
     username 
 }: KoOonTreeZClientProps) {
     const { socket, isConnected } = useGameSocket();
+    const searchParams = useSearchParams();
+
     const [gameState, setGameState] = useState<KoOonTreeZRoomToSend | null>(null);
     const [currentQuestion, setCurrentQuestion] = useState<KoOonTreezQuizQuestion | null>(null);
     const [timeLeft, setTimeLeft] = useState<number>(0);
@@ -41,10 +44,19 @@ export default function KoOonTreeZClient({
 
         if (!socket) return;
 
+        // Récupération optionnelle des paramètres de séquestre (Wager) depuis l'URL
+        const wagerAmount = Number(searchParams.get('wager') || '0');
+        const wagerCurrency = searchParams.get('currency') || 'DHO';
+
         // 1. Déclaration stricte des écouteurs
         const handleConnect = () => {
             console.log('[KoOonTreeZ] Connecté au serveur.');
-            socket.emit('room:join', { roomId, username });
+            socket.emit('room:join', { 
+                roomId, 
+                username,
+                wagerAmount: wagerAmount > 0 ? wagerAmount : undefined,
+                wagerCurrency: wagerAmount > 0 ? wagerCurrency : undefined
+            });
         };
 
         const handleStateUpdate = (data: RoomToSend) => {
@@ -104,7 +116,12 @@ export default function KoOonTreeZClient({
         socket.on('error:message', handleErrorMessage);
 
         if (socket.connected) {
-            socket.emit('room:join', { roomId, username });
+            socket.emit('room:join', { 
+                roomId, 
+                username,
+                wagerAmount: wagerAmount > 0 ? wagerAmount : undefined,
+                wagerCurrency: wagerAmount > 0 ? wagerCurrency : undefined
+            });
         }
 
         // 3. Nettoyage chirurgical (Mode Strict safe)
@@ -122,7 +139,7 @@ export default function KoOonTreeZClient({
             socket.off('game:interrupted', handleInterrupted);
             socket.off('error:message', handleErrorMessage);
         };
-    }, [socket, roomId, username, isConnected]);
+    }, [socket, roomId, username, isConnected, searchParams]);
 
     const handleStartGame = () => socket?.emit('kooontreez:start-game', { roomId });
     const handleRestartGame = () => socket?.emit('game:restart-request', { roomId });

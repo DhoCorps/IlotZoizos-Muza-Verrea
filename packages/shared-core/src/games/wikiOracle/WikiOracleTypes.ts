@@ -1,4 +1,4 @@
-import { PlayerInRoom } from '../../types/shared.types';
+import { PlayerInRoom, WikiOracleRoomToSend } from '../../types/shared.types';
 import { Socket } from 'socket.io-client';
 
 export type WikiOracleChoicesMode = '0' | '2' | '4' | '8' | ''; // 0 = Saisie libre, 2/4/8 = QCM
@@ -22,10 +22,10 @@ export interface QuizQuestion {
 }
 
 export interface WikiOraclePlayer extends PlayerInRoom {
-    currentHintLevel?: number;
+    currentHintLevel: number;
 }
 
-export interface WikiOracleGameRoom {
+export interface WikiOracleGameRoom extends WikiOracleRoomToSend{
     id: string;
     name: string;
     players: WikiOraclePlayer[];

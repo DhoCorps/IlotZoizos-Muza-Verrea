@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { PlumZeeRoomToSend } from '@ilot/shared-core';
 import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
+import { useSearchParams } from 'next/navigation';
 
 interface PlumZeeClientProps {
   roomId: string;
@@ -37,6 +38,8 @@ const COMBINATIONS: { key: string; label: string; desc: string }[] = [
 
 export default function PlumZeeClient({ roomId, username }: PlumZeeClientProps) {
   const { socket, isConnected } = useGameSocket();
+  const searchParams = useSearchParams();
+
   const [gameState, setGameState] = useState<PlumZeeRoomToSend | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
@@ -47,6 +50,10 @@ export default function PlumZeeClient({ roomId, username }: PlumZeeClientProps) 
 
   useEffect(() => {
     if (!socket) return;
+
+    // Récupération optionnelle des paramètres de séquestre (Wager) depuis l'URL
+    const wagerAmount = Number(searchParams.get('wager') || '0');
+    const wagerCurrency = searchParams.get('currency') || 'DHO';
 
     // 1. Déclaration stricte des écouteurs
     const handleStateUpdate = (data: PlumZeeRoomToSend) => {
@@ -61,7 +68,12 @@ export default function PlumZeeClient({ roomId, username }: PlumZeeClientProps) 
     };
 
     const handleConnect = () => {
-      socket.emit('room:join', { roomId, username });
+      socket.emit('room:join', { 
+        roomId, 
+        username,
+        wagerAmount: wagerAmount > 0 ? wagerAmount : undefined,
+        wagerCurrency: wagerAmount > 0 ? wagerCurrency : undefined
+      });
     };
 
     // 2. Attachement des écouteurs
@@ -72,7 +84,12 @@ export default function PlumZeeClient({ roomId, username }: PlumZeeClientProps) 
 
     // Initialisation
     if (socket.connected) {
-      socket.emit('room:join', { roomId, username });
+      socket.emit('room:join', { 
+        roomId, 
+        username,
+        wagerAmount: wagerAmount > 0 ? wagerAmount : undefined,
+        wagerCurrency: wagerAmount > 0 ? wagerCurrency : undefined
+      });
     }
 
     // 3. Nettoyage chirurgical (Mode Strict safe)
@@ -83,7 +100,7 @@ export default function PlumZeeClient({ roomId, username }: PlumZeeClientProps) 
       socket.off('game:state-update', handleStateUpdate);
       socket.off('error:message', handleErrorMessage);
     };
-  }, [socket, roomId, username, isConnected]);
+  }, [socket, roomId, username, isConnected, searchParams]);
 
   const handleRollDice = () => {
     if (!socket || gameState?.state !== 'playing') return;

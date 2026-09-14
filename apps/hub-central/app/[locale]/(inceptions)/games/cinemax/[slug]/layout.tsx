@@ -1,3 +1,4 @@
+// apps/hub-central/app/[locale]/(inceptions)/games/cinemax/[slug]/layout.tsx[cite: 1]
 import React from 'react';
 
 export const metadata = {
@@ -5,15 +6,13 @@ export const metadata = {
   description: 'Le projecteur s’allume. Enquêtez, coopérez et buzzez !',
 };
 
-// La classe "dark" est supprimée de html car on ne peut pas redéfinir html ici
-// On englobe dans une div ayant le fond désiré
 export default function CineMaxLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-[#0A0D14] text-slate-100 min-h-screen selection:bg-emerald-500 selection:text-black antialiased font-sans">
+    <div className="bg-[#0A0D14] text-slate-100 min-h-screen selection:bg-emerald-500 selection:text-black antialiased font-sans flex flex-col">
       
       {/* En-tête discret de la canopée */}
       <header className="w-full border-b border-slate-800/60 bg-black/40 backdrop-blur-md px-6 py-4 flex items-center justify-between sticky top-0 z-50">
@@ -29,9 +28,9 @@ export default function CineMaxLayout({
       </header>
 
       {/* Contenu principal de la salle de cinéma */}
-      <div className="flex flex-col items-center justify-center p-4 md:p-8">
+      <main className="flex-1 flex flex-col items-center justify-center p-4 md:p-8">
         {children}
-      </div>
+      </main>
 
     </div>
   );

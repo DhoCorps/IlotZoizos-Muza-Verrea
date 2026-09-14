@@ -1,6 +1,9 @@
 // src/games/atomik-k-fard-e/AtomikKFardETypes.ts
 import {
+    BaseRoomData,
     PlayerInRoom,
+    AtomikKFardERoomToSend,
+    AtomikKFardEPlayerClient
 } from '../../types/shared.types';
 
 export enum CellOwner {
@@ -83,12 +86,12 @@ export interface ConquestRoundResult {
     cafardBombPlayer2PropagationOrigin: CellCoordinates | null;
 }
 
-export interface AtomikKFardEGameRoom {
+export interface AtomikKFardEGameRoom extends AtomikKFardERoomToSend {
     gameType: 'AtomikKFardE';
     id: string;
     ownerId: string;
     name: string;
-    players: AtomikKFardEPlayer[]; 
+    players: AtomikKFardEPlayerClient[]; // 🌟 Utiliser AtomikKFardEPlayerClient pour satisfaire l'héritage de AtomikKFardERoomToSend
     state: 'waitingForPlayers' | 'readyToStart' | 'inGame' | 'gameOver' | 'empty' | 'paused';
     winnerId: string | null;
     currentRound: number;

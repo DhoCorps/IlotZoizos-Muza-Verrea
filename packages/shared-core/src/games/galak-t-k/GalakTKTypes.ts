@@ -1,5 +1,7 @@
 // packages/shared-core/src/games/galaktk/GalakTKTypes.ts
 
+import { GalakTKRoomToSend } from "../../types/shared.types";
+
 export type GalakTKGridSize = 'small' | 'medium' | 'large'; // Ex: 6x6, 8x8, 10x10
 export type GalakTKMode = 'global' | 'local'; // Axes globaux ou voisinage restreint
 
@@ -40,7 +42,7 @@ export interface GalakTKPlayer {
     foundStarPositions: GalakTKPoint[];   // Étoiles découvertes par CE joueur en secret
 }
 
-export interface GalakTKGameRoom {
+export interface GalakTKGameRoom extends GalakTKRoomToSend{
     id: string;
     name: string;
     gameType: 'GalakTK';
@@ -53,7 +55,7 @@ export interface GalakTKGameRoom {
     currentTurnPlayerId: string | null;
     roundStartTime: number;
     round: number; 
-    scores?: Record<string, number>;
+    scores: Record<string, number>;
 }
 
 export interface GalakTKMoveResult {

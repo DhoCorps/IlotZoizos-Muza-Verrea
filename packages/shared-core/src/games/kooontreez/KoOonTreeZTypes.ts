@@ -63,7 +63,7 @@ export interface QuizQuestion {
 // --- Interfaces Côté SERVEUR (pour le Manager de jeu) ---
 export interface KoOonTreeZPlayer extends PlayerInRoom {}
 
-export interface KoOonTreeZGameRoom {
+export interface KoOonTreeZGameRoom extends KoOonTreeZRoomToSend {
     id: string;
     name: string;
     players: KoOonTreeZPlayer[]; 

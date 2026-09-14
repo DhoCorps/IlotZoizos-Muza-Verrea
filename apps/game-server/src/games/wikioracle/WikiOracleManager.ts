@@ -8,6 +8,10 @@ import {
 } from '@ilot/shared-core';
 import { WikiOracleLogic } from '@ilot/shared-core';
 
+// 💾 IMPORT DU SERVICE D'ARCHIVAGE ET DE L'ORCHESTRATEUR DE PARIS
+import { GameStatsService } from '@ilot/infrastructure';
+import { BettingOrchestrator } from '@ilot/shared-core';
+
 const wikiOracleRooms: Map<string, ManagerInternalWikiOracleGameRoom> = new Map();
 const ROUND_DURATION_SECONDS = 30; // 30 secondes par manche
 
@@ -23,6 +27,10 @@ export class WikiOracleManager {
         roomId: string, roomName: string, creatorPlayer: WikiOraclePlayer, options: {
             choicesMode?: WikiOracleChoicesMode;
             theme?: WikiOracleTheme;
+            wagerAmount?: number;
+            wagerCurrency?: string;
+            gameMode?: string;
+            difficulty?: string;
         }
     ): ManagerInternalWikiOracleGameRoom {
         const choicesMode = options.choicesMode || '4';
@@ -47,6 +55,9 @@ export class WikiOracleManager {
             currentHintLevel: 0,
             playersAnsweredThisRound: new Set<string>(),
             correctAnswerGivenThisRound: false,
+            // 🌟 SÉQUESTRE NATIF
+            wagerAmount: options.wagerAmount || 0,
+            wagerCurrency: options.wagerCurrency || 'DHO',
         };
 
         wikiOracleRooms.set(roomId, newRoom);
@@ -71,7 +82,8 @@ export class WikiOracleManager {
                 score: 0,
                 roomId,
                 status: 'connected',
-                isReady: false
+                isReady: false,
+                currentHintLevel: 0
             };
             room.players.push(newPlayer);
             room.scores[newPlayer.id] = 0;
@@ -140,7 +152,7 @@ export class WikiOracleManager {
         this.io.emit('room:list', Array.from(wikiOracleRooms.values()).map(this.roomToRoomToSend));
     }
 
-    private endRound(roomId: string): void {
+    private async endRound(roomId: string): Promise<void> {
         const room = wikiOracleRooms.get(roomId);
         if (!room) return;
 
@@ -148,6 +160,66 @@ export class WikiOracleManager {
 
         if (room.round >= 5) {
             room.state = 'gameOver';
+            
+            // Détermination du vainqueur
+            let highestScore = -1;
+            let winner: WikiOraclePlayer | null = null;
+            for (const p of room.players) {
+                const score = room.scores[p.id] || 0;
+                if (score > highestScore) {
+                    highestScore = score;
+                    winner = p;
+                }
+            }
+            if (winner) {
+                room.winnerId = winner.id;
+            }
+
+            // =========================================================
+            // 🌟 SUTURE ÉCONOMIQUE KONTRAKT : Résolution des crédits/paris
+            // =========================================================
+            try {
+                const wagerAmt = room.wagerAmount || 0;
+                const wagerCur = room.wagerCurrency || 'DHO';
+                const difficultyVal = room.choicesMode || '4';
+                const modeVal = room.theme || 'random';
+
+                if (wagerAmt > 0 && room.winnerId) {
+                    for (const p of room.players) {
+                        const isWinner = p.id === room.winnerId;
+                        await BettingOrchestrator.resolveGameAndCalculateCredit(
+                            p.id,
+                            'WikiOracle',
+                            modeVal,
+                            difficultyVal,
+                            wagerCur,
+                            wagerAmt,
+                            isWinner
+                        );
+                    }
+                }
+            } catch (econErr) {
+                console.error(`[WikiOracleManager] Erreur KonTraKt pour la salle ${roomId}:`, econErr);
+            }
+            // =========================================================
+
+            // 💾 ARCHIVAGE
+            GameStatsService.recordMatch({
+                gameType: 'WikiOracle',
+                roomId: room.id,
+                startedAt: new Date(Date.now() - 150000),
+                endedAt: new Date(),
+                durationSeconds: 150,
+                players: room.players.map(p => ({
+                    uid: p.id,
+                    pseudo: p.username,
+                    score: room.scores[p.id] || 0,
+                    isWinner: p.id === room.winnerId,
+                    specificStats: { roundsPlayed: room.round }
+                })),
+                matchMetadata: { theme: room.theme }
+            });
+
             this.io.to(roomId).emit('game:over', this.roomToRoomToSend(room));
         } else {
             setTimeout(() => this.startRound(roomId), 3000);
@@ -215,6 +287,8 @@ export class WikiOracleManager {
             round: room.round,
             maxPlayers: room.maxPlayers,
             currentRoundTimeLeft: room.currentRoundTimeLeft,
+            wagerAmount: room.wagerAmount,
+            wagerCurrency: room.wagerCurrency
         } as RoomToSend;
     }
 }

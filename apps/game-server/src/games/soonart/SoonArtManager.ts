@@ -9,8 +9,9 @@ import {
     SoonArtLogic
 } from '@ilot/shared-core';
 
-// 💾 IMPORT DU SERVICE D'ARCHIVAGE 
+// 💾 IMPORT DU SERVICE D'ARCHIVAGE ET DE L'ORCHESTRATEUR DE PARIS
 import { GameStatsService } from '@ilot/infrastructure';
+import { BettingOrchestrator } from '@ilot/shared-core';
 
 export class SoonArtManager {
     private io: Server;
@@ -31,7 +32,7 @@ export class SoonArtManager {
         ownerId: string,
         ownerUsername: string,
         ownerSocketId: string,
-        options: SoonArtGameOptions
+        options: SoonArtGameOptions & { wagerAmount?: number; wagerCurrency?: string; gameMode?: string; difficulty?: string }
     ): SoonArtGameRoom {
         if (this.rooms.has(roomId)) {
             throw new Error(`Le salon '${roomId}' est déjà ouvert.`);
@@ -55,7 +56,8 @@ export class SoonArtManager {
         const totalTreasures = options.totalTreasures || 5;
         const maxCircles = options.maxCircles || 10;
 
-        const treasures = SoonArtLogic.generateRandomTreasures(totalTreasures, mapWidth, mapHeight);
+        const rawTreasures = SoonArtLogic.generateRandomTreasures(totalTreasures, mapWidth, mapHeight);
+        const treasures = Array.isArray(rawTreasures) ? rawTreasures : [];
 
         const newRoom: SoonArtGameRoom = {
             id: roomId,
@@ -69,10 +71,12 @@ export class SoonArtManager {
             scores: { [ownerPlayer.id]: 0 },
             gameOptions: { mapWidth, mapHeight, totalTreasures, maxCircles },
             treasures,
-            treasuresCount: treasures.length,
+            treasuresCount: treasures.length, // 🌟 Sécurisé
             circles: [],
             scanTimeLeft: 120,
-            markTimeLeft: 60
+            markTimeLeft: 60,
+            wagerAmount: options.wagerAmount || 0,
+            wagerCurrency: options.wagerCurrency || 'DHO'
         };
 
         this.rooms.set(roomId, newRoom);
@@ -136,7 +140,7 @@ export class SoonArtManager {
     /**
      * 🔍 GESTION DES ACTIONS
      */
-    public handleMakeMove(roomId: string, playerId: string, move: SoonArtMakeMoveRequest): void {
+    public async handleMakeMove(roomId: string, playerId: string, move: SoonArtMakeMoveRequest): Promise<void> {
         const room = this.rooms.get(roomId);
         if (!room || room.state !== 'playing') return;
 
@@ -191,7 +195,39 @@ export class SoonArtManager {
 
             if (room.treasures.every(t => t.isDiscovered)) {
                 room.state = 'gameOver';
-                room.winnerId = room.players.reduce((prev, curr) => (curr.score > prev.score ? curr : prev)).id;
+                let bestPlayer = room.players[0];
+                for (const p of room.players) {
+                    if (p.score > bestPlayer.score) bestPlayer = p;
+                }
+                room.winnerId = bestPlayer.id;
+
+                // =========================================================
+                // 🌟 SUTURE ÉCONOMIQUE KONTRAKT : Résolution des crédits/paris
+                // =========================================================
+                try {
+                    const wagerAmt = room.wagerAmount || 0;
+                    const wagerCur = room.wagerCurrency || 'DHO';
+                    const difficultyVal = (room.gameOptions as any).difficulty || 'Artisan';
+                    const modeVal = (room.gameOptions as any).gameMode || 'MULTIPLAYER';
+
+                    if (wagerAmt > 0 && room.winnerId) {
+                        for (const p of room.players) {
+                            const isWinner = p.id === room.winnerId;
+                            await BettingOrchestrator.resolveGameAndCalculateCredit(
+                                p.id,
+                                'SoonArt',
+                                modeVal,
+                                difficultyVal,
+                                wagerCur,
+                                wagerAmt,
+                                isWinner
+                            );
+                        }
+                    }
+                } catch (econErr) {
+                    console.error(`[SoonArtManager] Erreur KonTraKt pour la salle ${roomId}:`, econErr);
+                }
+                // =========================================================
                 
                 // 💾 ARCHIVAGE
                 GameStatsService.recordMatch({

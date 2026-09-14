@@ -13,6 +13,10 @@ import {
 
 import { KoOonTreezLogic } from '@ilot/shared-core';
 
+// 💾 IMPORT DU SERVICE D'ARCHIVAGE ET DE L'ORCHESTRATEUR DE PARIS
+import { GameStatsService } from '@ilot/infrastructure';
+import { BettingOrchestrator } from '@ilot/shared-core';
+
 const koOonTreeZRooms: Map<string, ManagerInternalKoOonTreeZGameRoom> = new Map();
 const ROUND_DURATION_SECONDS = 20; 
 
@@ -21,20 +25,31 @@ export class KoOonTreeZManager {
 
     constructor(ioInstance: Server) {
         this.io = ioInstance;
-        KoOonTreezLogic.fetchCountries().then(() => { 
-            console.log('[KoOonTreeZManager] Données des pays préchargées avec succès.'); 
-        }).catch((err: unknown) => {
-            console.error('[KoOonTreeZManager] Erreur lors du préchargement des données des pays:', err); 
-        });
+        // 🌟 Sécurisation de l'appel pour éviter le plantage si le mock ne charge pas à temps
+        const fetchPromise = KoOonTreezLogic?.fetchCountries?.();
+        if (fetchPromise && typeof fetchPromise.then === 'function') {
+            fetchPromise.then(() => { 
+                console.log('[KoOonTreeZManager] Données des pays préchargées avec succès.'); 
+            }).catch((err: unknown) => {
+                console.error('[KoOonTreeZManager] Erreur lors du préchargement des données des pays:', err); 
+            });
+        }
     }
 
     public createRoom(
-        roomId: string, roomName: string, creatorPlayer: KoOonTreeZPlayer, options: {
+        roomId: string, 
+        roomName: string, 
+        creatorPlayer: KoOonTreeZPlayer, 
+        options: {
             kooonTreezNbPlayer?: KoOonTreezNbPlayer;
             kooonTreezMode?: KoOonTreezMode;
             kooonTreezOption?: KoOonTreezOption;
             kooonTreezSoloMode?: KoOonTreezSoloMode;
             kooonTreezLevel?: KoOonTreezLevel;
+            wagerAmount?: number;
+            wagerCurrency?: string;
+            gameMode?: string;
+            difficulty?: string;
         }
     ): ManagerInternalKoOonTreeZGameRoom {
         const targetFlags = this.convertOptionToTargetFlags(options.kooonTreezOption);
@@ -68,6 +83,9 @@ export class KoOonTreeZManager {
             lastCorrectAnswererId: null,
             playerDisconnectTimers: new Map<string, NodeJS.Timeout>(),
             expectedAnswer: null,
+            // 🌟 SÉQUESTRE NATIF
+            wagerAmount: options.wagerAmount || 0,
+            wagerCurrency: options.wagerCurrency || 'DHO',
         };
         koOonTreeZRooms.set(roomId, newRoom);
 
@@ -121,8 +139,9 @@ export class KoOonTreeZManager {
         } else {
             const connectedPlayersCount = room.players.filter((p: KoOonTreeZPlayer) => p.status === 'connected').length;
             if (connectedPlayersCount < room.maxPlayers) {
-                playerEntry = {
+               playerEntry = {
                     id: newSocketId,
+                    socketId: newSocketId, // 🌟 Ajout de socketId pour satisfaire KoOonTreeZPlayer
                     username: username,
                     score: 0,
                     roomId: room.id,
@@ -293,7 +312,7 @@ export class KoOonTreeZManager {
         return tiedPlayers.length === 1 ? winnerId : null;
     }
 
-    private endGame(roomId: string, winnerId: string | null, reason: string): void {
+    private async endGame(roomId: string, winnerId: string | null, reason: string): Promise<void> {
         const room = koOonTreeZRooms.get(roomId);
         if (!room) return;
 
@@ -309,6 +328,51 @@ export class KoOonTreeZManager {
         room.playersAnsweredThisRound.clear();
         room.correctAnswerGivenThisRound = false;
         room.lastCorrectAnswererId = null;
+
+        // =========================================================
+        // 🌟 SUTURE ÉCONOMIQUE KONTRAKT : Résolution des crédits/paris
+        // =========================================================
+        try {
+            const wagerAmt = room.wagerAmount || 0;
+            const wagerCur = room.wagerCurrency || 'DHO';
+            const difficultyVal = room.kooonTreezLevel || 'normal';
+            const modeVal = room.kooonTreezMode || 'DvsP';
+
+            if (wagerAmt > 0 && room.winnerId) {
+                for (const p of room.players) {
+                    const isWinner = p.id === room.winnerId;
+                    await BettingOrchestrator.resolveGameAndCalculateCredit(
+                        p.id,
+                        'KoOonTreeZ',
+                        modeVal,
+                        difficultyVal,
+                        wagerCur,
+                        wagerAmt,
+                        isWinner
+                    );
+                }
+            }
+        } catch (econErr) {
+            console.error(`[KoOonTreeZManager] Erreur KonTraKt pour la salle ${roomId}:`, econErr);
+        }
+        // =========================================================
+
+        const durationSeconds = room.round * 15;
+        GameStatsService.recordMatch({
+            gameType: 'KoOonTreeZ',
+            roomId: room.id,
+            startedAt: new Date(Date.now() - durationSeconds * 1000),
+            endedAt: new Date(),
+            durationSeconds,
+            players: room.players.map(p => ({
+                uid: p.id,
+                pseudo: p.username,
+                score: room.scores[p.id] || 0,
+                isWinner: p.id === room.winnerId,
+                specificStats: { totalFlags: room.totalFlagsRecognized }
+            })),
+            matchMetadata: { reason, level: room.kooonTreezLevel }
+        });
 
         this.io.to(roomId).emit('game:over', this.roomToRoomToSend(room));
         this.io.emit('room:list', Array.from(koOonTreeZRooms.values()).map(this.roomToRoomToSend));
@@ -438,6 +502,8 @@ export class KoOonTreeZManager {
             totalFlagsRecognized: room.totalFlagsRecognized,
             targetFlagsCount: room.targetFlagsCount,
             currentFlag: room.currentFlag,
+            wagerAmount: room.wagerAmount,
+            wagerCurrency: room.wagerCurrency
         } as unknown as RoomToSend;
     }
 

@@ -10,8 +10,9 @@ import {
 } from '@ilot/shared-core'; 
 import { CineMaxLogic } from '@ilot/shared-core'; 
 
-// 💾 IMPORT DU SERVICE D'ARCHIVAGE 
+// 💾 IMPORT DU SERVICE D'ARCHIVAGE ET DE L'ORCHESTRATEUR DE PARIS
 import { GameStatsService } from '@ilot/infrastructure';
+import { BettingOrchestrator } from '@ilot/shared-core';
 
 const ROUND_DURATION_SECONDS = 120; // 2 minutes par film
 const BUZZER_LOCK_DURATION_MS = 10000; // 10 secondes de blocage après une erreur
@@ -35,7 +36,7 @@ export class CineMaxManager {
         ownerId: string,
         ownerUsername: string,
         ownerSocketId: string,
-        options: CineMaxGameOptions
+        options: CineMaxGameOptions & { wagerAmount?: number; wagerCurrency?: string; gameMode?: string; difficulty?: string }
     ): CineMaxGameRoom {
         if (this.rooms.has(roomId)) {
             throw new Error(`Le salon '${roomId}' est déjà en cours de projection.`);
@@ -78,7 +79,11 @@ export class CineMaxManager {
             
             roundTimerInterval: null,
             currentRoundTimeLeft: options.timePerRound || ROUND_DURATION_SECONDS,
-            buzzerWinnerId: null
+            buzzerWinnerId: null,
+
+            // 🌟 Paramètres de paris et séquestre intégrés nativement
+            wagerAmount: options.wagerAmount || 0,
+            wagerCurrency: options.wagerCurrency || 'DHO'
         };
 
         this.rooms.set(roomId, newRoom);
@@ -326,7 +331,7 @@ export class CineMaxManager {
     /**
      * 🛑 FIN DU ROUND
      */
-    private endRound(roomId: string, winnerId: string | null) {
+    private async endRound(roomId: string, winnerId: string | null) {
         const room = this.rooms.get(roomId);
         if (!room) return;
 
@@ -346,6 +351,34 @@ export class CineMaxManager {
                 if(p.score > grandWinner.score) grandWinner = p;
             });
             room.winnerId = grandWinner.id;
+
+            // =========================================================================
+            // 🌟 SUTURE ÉCONOMIQUE KONTRAKT : Résolution des gains/crédits via BettingOrchestrator
+            // =========================================================================
+            try {
+                const wagerAmt = room.wagerAmount || 0;
+                const wagerCur = room.wagerCurrency || 'DHO';
+                const difficultyVal = (room.gameOptions as any).difficulty || 'Artisan';
+                const modeVal = (room.gameOptions as any).gameMode || 'MULTIPLAYER';
+
+                if (wagerAmt > 0 && room.winnerId) {
+                    for (const p of room.players) {
+                        const isWinner = p.id === room.winnerId;
+                        await BettingOrchestrator.resolveGameAndCalculateCredit(
+                            p.id,
+                            'CineMax',
+                            modeVal,
+                            difficultyVal,
+                            wagerCur,
+                            wagerAmt,
+                            isWinner
+                        );
+                    }
+                }
+            } catch (econErr) {
+                console.error(`[CineMaxManager] Erreur lors du calcul KonTraKt pour la salle ${roomId}:`, econErr);
+            }
+            // =========================================================================
 
             const duration = (room.gameOptions.timePerRound || ROUND_DURATION_SECONDS) * room.round; 
             

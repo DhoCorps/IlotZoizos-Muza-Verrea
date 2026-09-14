@@ -144,7 +144,7 @@ export interface PlayerInRoom extends BasePlayer {
 
 export type CrazyMorpionPlayerClient = PlayerInRoom & { symbol: string | null };
 export type KoOonTreeZPlayerClient = PlayerInRoom;
-export type AtomikKFardEPlayerClient = PlayerInRoom & { deck: AtomikDeck; hand: AtomikDeck; handSize?: number };
+export type AtomikKFardEPlayerClient = PlayerInRoom & { deck: AtomikDeck; hand: AtomikDeck; handSize?: number; gameType?: GameType };
 export type WikiOraclePlayerClient = PlayerInRoom & { currentHintLevel: number };
 
 // 🎬 Interface Client pour le joueur CineMax
@@ -185,9 +185,10 @@ export interface BaseRoomData {
     round: number;
     maxPlayers: number;
     scores: Record<string, number>;
-    // Index signature pour accepter les propriétés spécifiques de chaque jeu (grid, theme, etc.) sans lever d'erreur TS
+    // 🌟 Propriétés de séquestre partagées par tous les salons
+    wagerAmount?: number;
+    wagerCurrency?: string;
     [key: string]: any;
-
 }
 
 export interface CrazyMorpionRoomToSend extends BaseRoomData {
@@ -537,6 +538,10 @@ export interface CreateRoomRequest {
     plumZeeTurnTimeLimit?: number;
     choicesMode?: WikiOracleChoicesMode;
     theme?: WikiOracleTheme;
+    wagerAmount?: number;
+    wagerCurrency?: string;
+    gameMode?: string;
+    difficulty?: string;
 }
 
 export interface JoinRoomRequest {

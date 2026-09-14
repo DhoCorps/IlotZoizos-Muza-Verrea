@@ -8,9 +8,9 @@ export default function GamesLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative min-h-screen bg-slate-950 text-white">
+    <div className="relative min-h-screen bg-slate-950 text-white flex flex-col">
       {/* Contenu de la zone des jeux */}
-      <main className="container mx-auto px-4 py-8">
+      <main className="flex-1 container mx-auto px-4 py-8 flex flex-col items-center justify-center">
         {children}
       </main>
 

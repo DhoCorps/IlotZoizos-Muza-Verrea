@@ -8,7 +8,7 @@ export default async function KoOonTreeZPage({
   searchParams
 }: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ room?: string }>;
+  searchParams: Promise<{ room?: string; wager?: string; currency?: string }>;
 }) {
   const session = await getServerSession();
   const { locale } = await params;
@@ -22,7 +22,7 @@ export default async function KoOonTreeZPage({
   const isLearningMode = resolvedSearchParams.room !== 'competitive';
 
   return (
-    <main className="min-h-screen bg-slate-950 py-8 px-4 flex flex-col justify-center">
+    <main className="min-h-screen bg-slate-950 py-8 px-4 flex flex-col justify-center items-center w-full">
       <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 mb-6 text-center font-mono tracking-wider">
         KOÔONTREEZ 🌳
       </h1>

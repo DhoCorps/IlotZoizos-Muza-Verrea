@@ -32,6 +32,7 @@ export * from './database/models/nosql/subsidy.model';
 
 export * from './database/models/nosql/taxonomy.model';
 
+export * from './database/models/nosql/gameRoom.model';
 export * from './database/models/nosql/gameHistory.model';
 export * from './database/models/nosql/gameResult.model';
 export * from './database/models/nosql/kontrakt.model';

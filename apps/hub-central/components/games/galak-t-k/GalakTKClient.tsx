@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { GalakTKRoomToSend } from '@ilot/shared-core';
 import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
+import { useSearchParams } from 'next/navigation';
 
 interface GalakTKClientProps {
   roomId: string;
@@ -15,21 +16,31 @@ interface CellData {
   isRadioactive?: boolean;
   isNest?: boolean;
   owner?: 'player1' | 'player2' | 'tie' | null;
-  // Ajoute d'autres propriétés si nécessaire selon ton modèle
 }
 
 export default function GalakTKClient({ roomId, username }: GalakTKClientProps) {
   const { socket, isConnected } = useGameSocket();
+  const searchParams = useSearchParams();
+
   const [gameState, setGameState] = useState<GalakTKRoomToSend | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!socket) return;
 
+    // Récupération optionnelle des paramètres de séquestre (Wager) depuis l'URL
+    const wagerAmount = Number(searchParams.get('wager') || '0');
+    const wagerCurrency = searchParams.get('currency') || 'DHO';
+
     // 1. Déclaration stricte des écouteurs
     const handleConnect = () => {
       console.log('[Galak-T-K] Connecté au secteur.');
-      socket.emit('room:join', { roomId, username });
+      socket.emit('room:join', { 
+        roomId, 
+        username,
+        wagerAmount: wagerAmount > 0 ? wagerAmount : undefined,
+        wagerCurrency: wagerAmount > 0 ? wagerCurrency : undefined
+      });
     };
 
     const handleStateUpdate = (data: GalakTKRoomToSend) => {
@@ -52,7 +63,12 @@ export default function GalakTKClient({ roomId, username }: GalakTKClientProps) 
 
     // Initialisation
     if (socket.connected) {
-      socket.emit('room:join', { roomId, username });
+      socket.emit('room:join', { 
+        roomId, 
+        username,
+        wagerAmount: wagerAmount > 0 ? wagerAmount : undefined,
+        wagerCurrency: wagerAmount > 0 ? wagerCurrency : undefined
+      });
     }
 
     // 3. Nettoyage ciblé pour le mode Strict
@@ -63,7 +79,7 @@ export default function GalakTKClient({ roomId, username }: GalakTKClientProps) 
       socket.off('game:state-update', handleStateUpdate);
       socket.off('error:message', handleErrorMessage);
     };
-  }, [socket, roomId, username, isConnected]);
+  }, [socket, roomId, username, isConnected, searchParams]);
 
   const handleCellClick = (x: number, y: number) => {
     if (!socket || gameState?.state !== 'playing') return;

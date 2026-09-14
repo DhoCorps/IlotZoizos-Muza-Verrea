@@ -1,20 +1,24 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { IKonTraKt } from '@ilot/types'; // Assure-toi que l'export existe dans ton economy.types.ts
+import { IKonTraKt } from '@ilot/types';
 
 export const KonTraKtBoard = ({ currentUserUid }: { currentUserUid: string }) => {
   const [contracts, setContracts] = useState<IKonTraKt[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 🔄 Simulation de la récupération des contrats (en attendant notre route GET)
+  // 🔄 Récupération dynamique des contrats depuis notre route API GET /api/economy/kontrakt
   useEffect(() => {
     const fetchContracts = async () => {
       try {
-        // Le futur appel à notre route GET :
-        // const res = await fetch('/api/economy/kontrakt');
-        // const data = await res.json();
-        // setContracts(data.contracts);
+        const res = await fetch('/api/economy/kontrakt');
+        if (!res.ok) {
+          throw new Error("L'onde du marché a échoué.");
+        }
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data)) {
+          setContracts(json.data);
+        }
         setIsLoading(false);
       } catch (error) {
         console.error("Erreur de lecture du marché :", error);
@@ -25,7 +29,7 @@ export const KonTraKtBoard = ({ currentUserUid }: { currentUserUid: string }) =>
   }, []);
 
   const handleAcceptContract = async (contractId: string) => {
-    // Logique future pour couvrir la mise (appel API vers /api/economy/kontrakt/accept)
+    // Logique pour couvrir la mise (appel API vers /api/economy/kontrakt/accept ou similaire)
     console.log(`Tentative de couverture du contrat ${contractId}`);
   };
 

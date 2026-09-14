@@ -85,17 +85,16 @@ describe('BettingOrchestrator - Moteur Économique & Pari', () => {
   describe('Nouvelle Méthode : resolveGameAndCalculateCredit', () => {
     it('🔴 Défaite : le gain doit être nul, sans déclencher de transfert', async () => {
       const result = await BettingOrchestrator.resolveGameAndCalculateCredit(
-        'loser_bird', 'plajia_lvl_1', 'multiplayer', 'Artisan', 'plumes', 10, false
+        'loser_bird', 'plajia_lvl_1', 'MULTIPLAYER', 'Artisan', 'plumes', 10, false
       );
       
       expect(result.creditEarned).toBe(0);
-      // Pas de vérification de transfer ici : c'est le Séquestre (EconomyService) qui a déjà l'argent.
       expect(KomptaLedgerOrchestrator.transfer).not.toHaveBeenCalled();
     });
 
     it('🟢 Mode Solo : ne doit générer aucun bonus multiplicateur de richesse', async () => {
       const result = await BettingOrchestrator.resolveGameAndCalculateCredit(
-        'solo_bird', 'plajia_lvl_1', 'solo', 'Maestro', 'plumes', 10, true
+        'solo_bird', 'plajia_lvl_1', 'SOLO', 'Maestro', 'plumes', 10, true
       );
       
       expect(result.creditEarned).toBe(10); // L'Oiseau récupère simplement sa mise brute
@@ -104,7 +103,7 @@ describe('BettingOrchestrator - Moteur Économique & Pari', () => {
     it('🟢 Mode Multijoueur : doit appliquer l\'équation de bénéfice', async () => {
       // Pour une mise de 10 en Maestro (x2), le calcul donne : 10 + (10 * 2) = 30
       const result = await BettingOrchestrator.resolveGameAndCalculateCredit(
-        'winner_bird', 'plajia_lvl_1', 'multiplayer', 'Maestro', 'plumes', 10, true
+        'winner_bird', 'plajia_lvl_1', 'MULTIPLAYER', 'Maestro', 'plumes', 10, true
       );
       
       expect(result.creditEarned).toBe(30);

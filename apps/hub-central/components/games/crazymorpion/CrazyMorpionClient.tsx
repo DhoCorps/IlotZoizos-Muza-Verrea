@@ -7,6 +7,7 @@ import {
     CRAZYMORPION_SYMBOL_EMPTY
 } from '@ilot/shared-core';
 import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
+import { useSearchParams } from 'next/navigation';
 
 interface CrazyMorpionClientProps {
     roomId: string;
@@ -15,16 +16,27 @@ interface CrazyMorpionClientProps {
 
 export default function CrazyMorpionClient({ roomId, username }: CrazyMorpionClientProps) {
     const { socket, isConnected } = useGameSocket();
+    const searchParams = useSearchParams();
+
     const [gameState, setGameState] = useState<CrazyMorpionRoomToSend | null>(null);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     useEffect(() => {
         if (!socket) return;
 
+        // Récupération optionnelle des paramètres de séquestre (Wager) depuis l'URL
+        const wagerAmount = Number(searchParams.get('wager') || '0');
+        const wagerCurrency = searchParams.get('currency') || 'DHO';
+
         // 1. Définition stricte des écouteurs pour pouvoir les retirer individuellement
         const handleConnect = () => {
             console.log('[CRAZY MORPION] Connecté/Reconnecté au serveur.');
-            socket.emit('room:join', { roomId, username });
+            socket.emit('room:join', { 
+                roomId, 
+                username,
+                wagerAmount: wagerAmount > 0 ? wagerAmount : undefined,
+                wagerCurrency: wagerAmount > 0 ? wagerCurrency : undefined
+            });
         };
 
         const handleStateUpdate = (data: CrazyMorpionRoomToSend) => {
@@ -59,7 +71,12 @@ export default function CrazyMorpionClient({ roomId, username }: CrazyMorpionCli
 
         // Si le socket est déjà connecté au montage, on rejoint directement
         if (socket.connected) {
-            socket.emit('room:join', { roomId, username });
+            socket.emit('room:join', { 
+                roomId, 
+                username,
+                wagerAmount: wagerAmount > 0 ? wagerAmount : undefined,
+                wagerCurrency: wagerAmount > 0 ? wagerCurrency : undefined
+            });
         }
 
         // 3. Nettoyage chirurgical
@@ -77,7 +94,7 @@ export default function CrazyMorpionClient({ roomId, username }: CrazyMorpionCli
             socket.off('error:message', handleErrorMessage);
             socket.off('disconnect', handleDisconnect);
         };
-    }, [socket, roomId, username, isConnected]);
+    }, [socket, roomId, username, isConnected, searchParams]);
 
     const handleCellClick = (x: number, y: number) => {
         if (!socket || !gameState || gameState.state !== 'playing') return;

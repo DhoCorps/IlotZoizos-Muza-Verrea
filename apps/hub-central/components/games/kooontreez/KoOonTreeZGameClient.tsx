@@ -1,4 +1,4 @@
-// apps/hub-central/components/games/kooontreez/KoOonTreezGameClient.tsx
+// apps/hub-central/components/games/kooontreez/KoOonTreeZGameClient.tsx
 'use client';
 import React, { useState, useEffect } from 'react';
 import { KoOonTreezLogic } from '@ilot/shared-core';

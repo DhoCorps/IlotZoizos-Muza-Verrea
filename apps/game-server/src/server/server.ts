@@ -96,14 +96,32 @@ async function bootstrapServer() {
     io.on('connection', (socket: Socket) => {
         
         socket.on('room:create', (payload: any) => {
-            const { username, roomName, gameType } = payload;
+            const { 
+                username, 
+                roomName, 
+                gameType, 
+                wagerAmount = 0, 
+                wagerCurrency = 'DHO', 
+                gameMode = 'MULTIPLAYER',
+                difficulty = 'Artisan'
+            } = payload;
+            
             const roomId = Date.now().toString();
             
             try {
                 const manager = managers[gameType as GameType] as any;
                 if (!manager) throw new Error('Jeu inconnu.');
 
-                // On passe les 6 arguments attendus par les managers :
+                // 🛡️ Propagation des paramètres de paris et de séquestre dans les options de la room
+                const enrichedPayload = {
+                    ...payload,
+                    wagerAmount,
+                    wagerCurrency,
+                    gameMode,
+                    difficulty
+                };
+
+                // On passe les arguments enrichis aux managers :
                 // (roomId, roomName, ownerId, ownerUsername, ownerSocketId, options)
                 const newRoom = manager.createRoom(
                     roomId, 
@@ -111,11 +129,19 @@ async function bootstrapServer() {
                     socket.id, 
                     username, 
                     socket.id, 
-                    payload
+                    enrichedPayload
                 );
                 
                 if (newRoom) {
-                    rooms.set(roomId, { ...newRoom, gameType } as AnyGameRoom);
+                    // On s'assure que les propriétés de mise persistent bien dans l'objet salon du serveur
+                    rooms.set(roomId, { 
+                        ...newRoom, 
+                        gameType,
+                        wagerAmount,
+                        wagerCurrency,
+                        gameMode,
+                        difficulty
+                    } as AnyGameRoom);
                 }
                 
                 socket.join(roomId);
@@ -147,6 +173,7 @@ async function bootstrapServer() {
             io.to(roomId).emit('room:updated', roomToRoomToSend(rooms.get(roomId)!));
             io.emit('room:list', getAllRoomsToSend());
         });
+
         socket.on('game:make-move', (data: BaseMakeMoveRequest) => {
             const room = rooms.get(data.roomId);
             if (!room) return;
@@ -175,8 +202,6 @@ async function bootstrapServer() {
                 socket.emit('error:message', e.message);
             }
         });
-
-        // ... (Tu peux garder les autres handlers de restart/start spécifiques)
 
         socket.on('disconnect', () => {
             const roomId = playerRooms.get(socket.id);

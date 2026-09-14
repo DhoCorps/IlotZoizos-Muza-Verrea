@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { RoomToSend, WikiOracleRoomToSend, WikiQuizQuestion } from '@ilot/shared-core';
 import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
+import { useSearchParams } from 'next/navigation';
 
 interface WikiOracleClientProps {
   roomId: string;
@@ -12,6 +13,8 @@ interface WikiOracleClientProps {
 
 export default function WikiOracleClient({ roomId, username }: WikiOracleClientProps) {
   const { socket, isConnected } = useGameSocket();
+  const searchParams = useSearchParams();
+
   const [gameState, setGameState] = useState<WikiOracleRoomToSend | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState<WikiQuizQuestion | null>(null);
   const [timeLeft, setTimeLeft] = useState<number>(30);
@@ -23,6 +26,10 @@ export default function WikiOracleClient({ roomId, username }: WikiOracleClientP
 
   useEffect(() => {
     if (!socket) return;
+
+    // Récupération optionnelle des paramètres de séquestre (Wager) depuis l'URL
+    const wagerAmount = Number(searchParams.get('wager') || '0');
+    const wagerCurrency = searchParams.get('currency') || 'DHO';
 
     // 1. Définition stricte des handlers
     const handleStateUpdate = (data: RoomToSend) => {
@@ -80,7 +87,12 @@ export default function WikiOracleClient({ roomId, username }: WikiOracleClientP
 
     // Initialisation
     if (socket.connected) {
-      socket.emit('room:join', { roomId, username });
+      socket.emit('room:join', { 
+        roomId, 
+        username,
+        wagerAmount: wagerAmount > 0 ? wagerAmount : undefined,
+        wagerCurrency: wagerAmount > 0 ? wagerCurrency : undefined
+      });
     }
 
     // 3. Nettoyage chirurgical (Mode Strict safe)
@@ -95,7 +107,7 @@ export default function WikiOracleClient({ roomId, username }: WikiOracleClientP
       socket.off('game:over', handleGameOver);
       socket.off('error:message', handleErrorMessage);
     };
-  }, [socket, roomId, username, isConnected]);
+  }, [socket, roomId, username, isConnected, searchParams]);
 
   const handleStartGame = () => {
     socket?.emit('wikioracle:start-game', { roomId });

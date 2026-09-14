@@ -2,7 +2,7 @@ import { TransactionManager } from './transactionManager';
 import { TaskModel, WalletModel, BankReserve } from '@ilot/infrastructure';
 import { KomptaLedgerOrchestrator } from './komptaLedger.orchestrator';
 import { IlotError } from '../errors/ilot.errors';
-import { IAssetValue } from '@ilot/types';
+import { IAssetValue, GameMode } from '@ilot/types';
 import crypto from 'crypto';
 
 const DIFFICULTY_MULTIPLIERS: Record<string, number> = { Initiate: 0.5, Artisan: 1.0, Maestro: 2.0 };
@@ -18,7 +18,7 @@ export class BettingOrchestrator {
     gameId: string, 
     bets: IAssetValue[], 
     targets: IAssetValue[],
-    gameContext: { mode: 'solo' | 'multiplayer'; difficulty: 'Initiate' | 'Artisan' | 'Maestro' } = { mode: 'multiplayer', difficulty: 'Artisan' }
+    gameContext: { mode: GameMode | string; difficulty: 'Initiate' | 'Artisan' | 'Maestro' } = { mode: 'MULTIPLAYER' as GameMode, difficulty: 'Artisan' }
   ) {
     return await TransactionManager.execute("Pari Sécurisé", async (mongoSession, neo4jTx) => {
       
@@ -70,7 +70,9 @@ export class BettingOrchestrator {
         return { isWinner, results: [] };
       }
 
-      if (gameContext.mode === 'solo') {
+      const normalizedMode = typeof gameContext.mode === 'string' ? gameContext.mode.toUpperCase() : 'MULTIPLAYER';
+
+      if (normalizedMode === 'SOLO' || normalizedMode === 'solo') {
         for (const target of targets) {
           if (['TOX', 'DHO', 'KAOS'].includes(target.type)) {
             await WalletModel.findOneAndUpdate({ userId }, { $inc: { balance: target.amount } }, { session: mongoSession, upsert: true });
@@ -102,7 +104,7 @@ export class BettingOrchestrator {
   public static async resolveGameAndCalculateCredit(
     userId: string, 
     gameId: string, 
-    gameMode: string,
+    gameMode: GameMode | string,
     difficulty: string,
     wagerCurrency: string,
     wagerAmount: number,
@@ -125,8 +127,10 @@ export class BettingOrchestrator {
       // 🔴 Défaite : Aucun gain
       if (!isWinner) return { creditEarned: 0 };
 
+      const normalizedMode = typeof gameMode === 'string' ? gameMode.toUpperCase() : gameMode;
+
       // 🟢 Victoire (Mode Solo) : Le joueur récupère sa mise, sans création monétaire
-      if (gameMode === 'solo') {
+      if (normalizedMode === 'SOLO' || normalizedMode === 'solo') {
         return { creditEarned: wagerAmount };
       }
 

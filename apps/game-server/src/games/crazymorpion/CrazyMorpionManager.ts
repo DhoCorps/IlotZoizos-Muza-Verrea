@@ -24,8 +24,9 @@ import {
     CrazyMorpionGameClientState // IMPORTANT: Importe ClientGlobalState pour le cast sur window.player
 } from '@ilot/shared-core';
 
-// 💾 IMPORT DU SERVICE D'ARCHIVAGE 
+// 💾 IMPORT DU SERVICE D'ARCHIVAGE ET DE L'ORCHESTRATEUR DE PARIS
 import { GameStatsService } from '@ilot/infrastructure';
+import { BettingOrchestrator } from '@ilot/shared-core';
 
 // NOTE IMPORTANTE : L'interface CrazyMorpionGameRoom n'est plus définie ici.
 // Elle est importée depuis './CrazyMorpionTypes.js' sous l'alias InternalCrazyMorpionGameRoom.
@@ -59,7 +60,27 @@ export class CrazyMorpionManager {
      * @param {CrazyMorpionPlayer} creatorPlayer Les données du joueur créateur.
      * @returns {InternalCrazyMorpionGameRoom} L'objet du salon créé.
      */
-    public createRoom(roomId: string, roomName: string, creatorPlayer: CrazyMorpionPlayer): InternalCrazyMorpionGameRoom {
+    public createRoom(
+        roomId: string, 
+        roomName: string, 
+        creatorPlayerId: string, 
+        creatorUsername: string, 
+        creatorSocketId: string, 
+        options?: { wagerAmount?: number; wagerCurrency?: string; gameMode?: string; difficulty?: string }
+    ): InternalCrazyMorpionGameRoom {
+        
+        const creatorPlayer: CrazyMorpionPlayer = {
+            id: creatorPlayerId,
+            socketId: creatorSocketId,
+            username: creatorUsername,
+            symbol: CRAZYMORPION_SYMBOL_EMPTY,
+            score: 0,
+            roomId: roomId,
+            status: 'connected',
+            isReady: false,
+            gameType: 'CrazyMorpion'
+        };
+
         const newRoom: InternalCrazyMorpionGameRoom = {
             id: roomId,
             name: roomName,
@@ -73,10 +94,12 @@ export class CrazyMorpionManager {
             maxPlayers: 2,
             winningCells: null,
             scores: { [creatorPlayer.id]: 0 },
-            // Nouvelle propriété pour gérer les minuteurs de déconnexion temporaire par joueur
-            turnPassTimer : roundDuration,
-            playerDisconnectTimers: new Map<string, NodeJS.Timeout>() // Initialiser la Map
+            turnPassTimer: roundDuration,
+            playerDisconnectTimers: new Map<string, NodeJS.Timeout>(),
+            wagerAmount: options?.wagerAmount || 0,
+            wagerCurrency: options?.wagerCurrency || 'DHO'
         };
+
         crazyMorpionRooms.set(roomId, newRoom);
         console.log(`[CrazyMorpionManager] Salon CrazyMorpion '${newRoom.name}' (${newRoom.id}) créé.`);
         return newRoom;
@@ -139,7 +162,8 @@ export class CrazyMorpionManager {
                     score: 0,
                     roomId: room.id,
                     status: 'connected',
-                    isReady: false
+                    isReady: false,
+                    gameType: 'CrazyMorpion'
                 };
                 room.players.push(playerEntry); // <-- Ajout du nouveau joueur à la liste
                 room.scores[playerEntry.id] = 0; // Initialisation de son score dans la room
@@ -151,12 +175,6 @@ export class CrazyMorpionManager {
         }
         // --- FIN GESTION DE LA PÉRIODE DE GRÂCE ET NOUVEAU JOUEUR ---
 
-        // Consolidation des joueurs (Ce bloc peut être simplifié ou revu si la logique ci-dessus est suffisante)
-        // L'idée de cette consolidation est bonne pour les reconnexions, mais elle pourrait potentiellement
-        // enlever un joueur nouvellement ajouté si par erreur il y avait un doublon transitoire.
-        // Si la logique ci-dessus est stricte (un seul playerEntry par username),
-        // alors cette consolidation pourrait devenir redondante ou nécessiter un affinement.
-        // Pour l'instant, gardons-la telle quelle, car elle devrait toujours fonctionner si playerEntry est bien géré.
         const consolidatedPlayersMap = new Map<string, CrazyMorpionPlayer>();
         room.players.forEach(p => {
             const existing = consolidatedPlayersMap.get(p.username);
@@ -165,7 +183,7 @@ export class CrazyMorpionManager {
                 consolidatedPlayersMap.set(p.username, { ...p });
             }
         });
-        room.players = Array.from(consolidatedPlayersMap.values());    room.players = Array.from(consolidatedPlayersMap.values());
+        room.players = Array.from(consolidatedPlayersMap.values());    
 
         const connectedPlayersCount = room.players.filter(p => p.status === 'connected').length;
 
@@ -243,7 +261,7 @@ export class CrazyMorpionManager {
      * @param {number} y La coordonnée Y du coup.
      * @param {CrazyMorpionSymbol} [chosenSymbolFromClient] Symbole choisi par le client (pour le mode triche).
      */
-    public handleMakeMove(roomId: string, playerId: string, x: number, y: number, chosenSymbolFromClient?: CrazyMorpionSymbol): void {
+    public async handleMakeMove(roomId: string, playerId: string, x: number, y: number, chosenSymbolFromClient?: CrazyMorpionSymbol): Promise<void> {
         const room = crazyMorpionRooms.get(roomId);
 
         if (!room || room.state !== 'playing' || room.currentTurnPlayerId !== playerId) {
@@ -319,10 +337,34 @@ export class CrazyMorpionManager {
             console.log(`[CrazyMorpionManager] Le joueur ${actualWinnerPlayer?.username} a remporté la manche dans le salon ${roomId}!`);
             
             // =========================================================
-            // 💾 ARCHIVAGE DE LA PARTIE (MONGO + NEO4J)
+            // 🌟 SUTURE ÉCONOMIQUE KONTRAKT : Résolution des gains/crédits via BettingOrchestrator
             // =========================================================
-            // CrazyMorpion n'a pas de timer de manche complexe, on peut estimer 
-            // la durée via le nombre de coups, ou utiliser une date par défaut
+            try {
+                const wagerAmt = room.wagerAmount || 0;
+                const wagerCur = room.wagerCurrency || 'DHO';
+                const difficultyVal = 'Artisan';
+                const modeVal = 'MULTIPLAYER';
+
+                if (wagerAmt > 0 && room.winnerId && room.winnerId !== 'draw') {
+                    const loserPlayer = room.players.find(p => p.id !== roundWinnerId);
+                    
+                    // Résolution Gagnant
+                    await BettingOrchestrator.resolveGameAndCalculateCredit(
+                        roundWinnerId, 'CrazyMorpion', modeVal, difficultyVal, wagerCur, wagerAmt, true
+                    );
+
+                    // Résolution Perdant
+                    if (loserPlayer) {
+                        await BettingOrchestrator.resolveGameAndCalculateCredit(
+                            loserPlayer.id, 'CrazyMorpion', modeVal, difficultyVal, wagerCur, wagerAmt, false
+                        );
+                    }
+                }
+            } catch (econErr) {
+                console.error(`[CrazyMorpionManager] Erreur KonTraKt pour la salle ${roomId}:`, econErr);
+            }
+            // =========================================================
+
             const estimatedDuration = room.round * 30; // 30 sec par manche par défaut
 
             const matchData = {
@@ -525,7 +567,6 @@ export class CrazyMorpionManager {
                                 // =========================================================
                                 // 💾 ARCHIVAGE FORFAITAIRE (VICTOIRE PAR FORFAIT OU ANNULATION)
                                 // =========================================================
-                                // Comme les deux joueurs sont déconnectés, c'est un match nul forcé
                                 const estimatedDuration = currentRoom.round * 30;
                                 const matchData = {
                                     gameType: 'CrazyMorpion' as const,
@@ -598,8 +639,6 @@ export class CrazyMorpionManager {
                             this.io.to(currentRoom.id).emit('game:interrupted', { message: `Tous les joueurs sont déconnectés du salon.`, gameType: 'CrazyMorpion' });
                             this.io.emit('room:list', Array.from(crazyMorpionRooms.values()).map(this.roomToRoomToSend));
                         }
-                    } else {
-                        console.log(`[CrazyMorpionManager] Minuteur pour ${playerToDisconnect.username} expiré, mais le joueur n'est plus en statut 'disconnected_temp' (reconnecté ou déjà géré).`);
                     }
                 }
                 room.playerDisconnectTimers.delete(playerToDisconnect.username); // Assurez-vous de supprimer le minuteur après son exécution
@@ -676,6 +715,7 @@ export class CrazyMorpionManager {
             roomId: p.roomId,
             status: p.status,
             isReady: p.isReady,
+            gameType: p.gameType
         }));
 
         // Crée l'objet CrazyMorpionRoomToSend
@@ -694,7 +734,9 @@ export class CrazyMorpionManager {
             scores: room.scores,
             lastPlacedSymbol : getRandomCrazyMorpionSymbol(), // Ajouté si 'lastPlacedSymbol' existe sur 'room', sinon on initialise
             symbol : CRAZYMORPION_SYMBOL_EMPTY,
-            currentFlag : null
+            currentFlag : null,
+            wagerAmount: room.wagerAmount,
+            wagerCurrency: room.wagerCurrency
         };
     
         return roomDataToSend; // Retourne l'objet spécifique, qui est compatible avec RoomToSend

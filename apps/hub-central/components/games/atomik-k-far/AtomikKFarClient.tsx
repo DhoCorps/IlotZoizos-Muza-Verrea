@@ -4,6 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { AtomikKFardERoomToSend, AtomikCard } from '@ilot/shared-core';
 import { useGameSocket } from '@/components/games/providers/GameSocketProvider';
+import { useSearchParams } from 'next/navigation';
 
 interface AtomikClientProps {
   roomId: string;
@@ -20,6 +21,8 @@ const CARD_ICONS: Record<string, string> = {
 
 export default function AtomikClient({ roomId, username }: AtomikClientProps) {
   const { socket, isConnected } = useGameSocket();
+  const searchParams = useSearchParams();
+  
   const [gameState, setGameState] = useState<AtomikKFardERoomToSend | null>(null);
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const [selectedCard, setSelectedCard] = useState<AtomikCard | null>(null);
@@ -28,10 +31,19 @@ export default function AtomikClient({ roomId, username }: AtomikClientProps) {
   useEffect(() => {
     if (!socket) return;
 
+    // Récupération optionnelle des paramètres de séquestre (Wager) depuis l'URL
+    const wagerAmount = Number(searchParams.get('wager') || '0');
+    const wagerCurrency = searchParams.get('currency') || 'DHO';
+
     // 1. Déclaration stricte des écouteurs
     const handleConnect = () => {
       console.log('[AtomiK-K-Fard(e)] Connecté au serveur.');
-      socket.emit('room:join', { roomId, username });
+      socket.emit('room:join', { 
+        roomId, 
+        username,
+        wagerAmount: wagerAmount > 0 ? wagerAmount : undefined,
+        wagerCurrency: wagerAmount > 0 ? wagerCurrency : undefined
+      });
     };
 
     const handleUpdate = (data: AtomikKFardERoomToSend) => {
@@ -59,7 +71,12 @@ export default function AtomikClient({ roomId, username }: AtomikClientProps) {
 
     // Si déjà connecté au montage
     if (socket.connected) {
-      socket.emit('room:join', { roomId, username });
+      socket.emit('room:join', { 
+        roomId, 
+        username,
+        wagerAmount: wagerAmount > 0 ? wagerAmount : undefined,
+        wagerCurrency: wagerAmount > 0 ? wagerCurrency : undefined
+      });
     }
 
     // 3. Nettoyage ciblé pour survivre au Strict Mode
@@ -74,7 +91,7 @@ export default function AtomikClient({ roomId, username }: AtomikClientProps) {
       socket.off('atomikkfarde:countdown', handleCountdown);
       socket.off('error:message', handleErrorMessage);
     };
-  }, [socket, roomId, username, isConnected]);
+  }, [socket, roomId, username, isConnected, searchParams]);
 
   const handleStartGame = () => {
     socket?.emit('atomikkfarde:start-game', { roomId });
@@ -95,7 +112,7 @@ export default function AtomikClient({ roomId, username }: AtomikClientProps) {
     setSelectedCard(null);
   };
 
-  if (!gameState || !socket) return <div className="font-mono text-purple-400">Chargement de la zone de guerre...</div>;
+  if (!gameState || !socket) return <div className="font-mono text-purple-400 p-8 text-center">Chargement de la zone de guerre...</div>;
 
   const me = gameState.players.find(p => p.socketId === socket.id || p.id === socket.id);
   const myPlayerId = me?.id || '';

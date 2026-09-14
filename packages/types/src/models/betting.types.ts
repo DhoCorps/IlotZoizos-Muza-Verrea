@@ -1,18 +1,31 @@
-// packages/types/src/economy/betting.types.ts
+import { GameMode, CurrencyEnum } from '../core/economy.types'; // ou le chemin relatif vers ton fichier de schémas
+import { z } from 'zod';
 
-export type AssetType = 'TASK' | 'SUJET' | 'PARTITA' | 'SAMPLE' | 'KAOS' | 'EURO' | 'TOX' | 'DHO';
+export type WagerCurrency = z.infer<typeof CurrencyEnum>;
+export type { GameMode };
 
-export interface IAssetValue {
-  type: AssetType;
-  amount: number;
-  entityId?: string; // optionnel si c'est une monnaie pure
+export interface IGameRoomConfig {
+  gameId: string;
+  roomCode?: string;
+  mode: GameMode;
+  wagerAmount: number;
+  wagerCurrency: WagerCurrency;
+  creatorUid: string;
+}
+
+export interface IGameRoomState {
+  roomId: string;
+  config: IGameRoomConfig;
+  status: 'WAITING' | 'IN_PROGRESS' | 'FINISHED' | 'ABORTED';
+  participants: string[];
+  createdAt: Date;
 }
 
 export interface IBettorResult {
   userId: string;
   gameId: string;
-  betAssets: IAssetValue[];    // Ce que l'oiseau mise
-  winnings: IAssetValue[];     // Ce que l'oiseau espère obtenir
+  betAssets: Array<{ type: string; amount: number; entityId?: string }>;
+  winnings: Array<{ type: string; amount: number }>;
   multiplier: number;
   status: 'PENDING' | 'WON' | 'LOST';
   timestamp: Date;

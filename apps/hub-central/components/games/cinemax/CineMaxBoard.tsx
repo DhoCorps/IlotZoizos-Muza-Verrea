@@ -2,17 +2,7 @@
 
 import React, { useState } from 'react';
 import { AlertCircle, Lock, Play, Film, User, MessageSquare } from 'lucide-react';
-
-// --- Mocks des types pour le composant (à importer de tes shared-core en prod) ---
-type Difficulty = 2 | 4 | 8 | 'TEXT';
-interface Question {
-  id: string;
-  type: 'ACTOR_FACE' | 'DIRECTOR_FACE' | 'QUOTE';
-  difficulty: Difficulty;
-  questionText: string;
-  imageUrl?: string;
-  options: string[];
-}
+import { CineMaxDifficulty, CineMaxQuestion } from '@ilot/shared-core';
 
 interface CineMaxBoardProps {
   pelliculeBlur: number; // de 100 à 0
@@ -20,8 +10,8 @@ interface CineMaxBoardProps {
   errorCount: number;
   isBuzzerLocked: boolean;
   pendingDifficultyChoice: boolean;
-  currentQuestion: Question | null;
-  onSelectDifficulty: (diff: Difficulty) => void;
+  currentQuestion: CineMaxQuestion | null;
+  onSelectDifficulty: (diff: CineMaxDifficulty) => void;
   onSolveQuestion: (answer: string) => void;
   onHitBuzzer: (movieTitle: string) => void;
 }
@@ -38,12 +28,10 @@ export default function CineMaxBoard({
   onHitBuzzer
 }: CineMaxBoardProps) {
   
-  // État local pour gérer l'ouverture du champ de saisie du buzzer
   const [isBuzzing, setIsBuzzing] = useState(false);
   const [buzzerGuess, setBuzzerGuess] = useState('');
   const [textAnswer, setTextAnswer] = useState('');
 
-  // Conversion du pourcentage de flou en pixels CSS (100% = 30px de flou)
   const blurPixels = (pelliculeBlur / 100) * 30;
 
   const handleBuzzerSubmit = (e: React.FormEvent) => {
@@ -66,9 +54,7 @@ export default function CineMaxBoard({
   return (
     <div className="relative flex w-full h-[80vh] bg-[#0A0D14] text-slate-200 rounded-xl overflow-hidden border border-slate-800 shadow-2xl">
       
-      {/* =========================================
-          PARTIE GAUCHE : L'AFFICHE (La Projection)
-          ========================================= */}
+      {/* PARTIE GAUCHE : L'AFFICHE */}
       <div className="w-1/2 h-full relative flex items-center justify-center bg-black/50 p-6 border-r border-slate-800">
         <div className="absolute top-4 left-4 bg-black/60 px-4 py-2 rounded-full border border-slate-700 flex items-center gap-2 z-10">
           <Film className="w-4 h-4 text-emerald-400" />
@@ -79,7 +65,6 @@ export default function CineMaxBoard({
 
         {posterUrl ? (
           <div className="relative w-full max-w-md aspect-[2/3] rounded-lg overflow-hidden border-2 border-slate-800 shadow-2xl">
-            {/* L'image avec le filtre dynamique */}
             <img 
               src={posterUrl} 
               alt="Affiche Mystère" 
@@ -95,12 +80,8 @@ export default function CineMaxBoard({
         )}
       </div>
 
-      {/* =========================================
-          LE CENTRE : LE BUZZER (Tension maximale)
-          ========================================= */}
+      {/* LE CENTRE : LE BUZZER */}
       <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 flex flex-col items-center">
-        
-        {/* Le Champ de saisie qui apparaît quand on buzze */}
         {isBuzzing && (
           <form 
             onSubmit={handleBuzzerSubmit} 
@@ -122,7 +103,6 @@ export default function CineMaxBoard({
           </form>
         )}
 
-        {/* Le Bouton Buzzer Physique */}
         <button
           onClick={() => !isBuzzerLocked && !isBuzzing && setIsBuzzing(true)}
           disabled={isBuzzerLocked}
@@ -144,7 +124,6 @@ export default function CineMaxBoard({
           )}
         </button>
 
-        {/* Jauge de pénalité sous le buzzer */}
         {errorCount > 0 && (
           <div className="mt-4 flex items-center gap-2 bg-red-950/50 px-3 py-1.5 rounded-full border border-red-900">
             <AlertCircle className="w-4 h-4 text-red-500" />
@@ -153,12 +132,8 @@ export default function CineMaxBoard({
         )}
       </div>
 
-      {/* =========================================
-          PARTIE DROITE : LES QUESTIONS (Le Travail)
-          ========================================= */}
+      {/* PARTIE DROITE : LES QUESTIONS */}
       <div className="w-1/2 h-full relative flex flex-col items-center justify-center p-8 bg-slate-900/50">
-        
-        {/* Écran 1 : Choix de la difficulté */}
         {pendingDifficultyChoice && !currentQuestion && (
           <div className="flex flex-col items-center w-full max-w-md animate-in fade-in zoom-in-95">
             <h3 className="text-2xl font-bold text-slate-100 mb-2 text-center">Choisis ton Risque</h3>
@@ -185,7 +160,6 @@ export default function CineMaxBoard({
           </div>
         )}
 
-        {/* Écran 2 : La Question en cours */}
         {currentQuestion && (
           <div className="flex flex-col items-center w-full max-w-md animate-in fade-in slide-in-from-right-8">
             <div className="flex items-center gap-3 mb-6 bg-slate-800 px-4 py-2 rounded-full border border-slate-700">
@@ -193,21 +167,18 @@ export default function CineMaxBoard({
               <span className="font-semibold text-slate-200">{currentQuestion.questionText}</span>
             </div>
 
-            {/* Photo de l'acteur si applicable */}
             {currentQuestion.imageUrl && currentQuestion.type !== 'QUOTE' && (
               <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-slate-700 mb-8 shadow-xl">
                 <img src={currentQuestion.imageUrl} alt="Indice" className="w-full h-full object-cover" />
               </div>
             )}
 
-            {/* Citations en gros texte */}
             {currentQuestion.type === 'QUOTE' && (
               <blockquote className="text-xl italic text-slate-300 text-center mb-8 border-l-4 border-blue-500 pl-4 py-2">
-                "{currentQuestion.imageUrl}" {/* Remplacer par le texte de la citation */}
+                "{currentQuestion.imageUrl}"
               </blockquote>
             )}
 
-            {/* Options de réponses (Boutons ou Champ texte) */}
             {currentQuestion.difficulty === 'TEXT' ? (
               <form onSubmit={handleTextAnswerSubmit} className="w-full flex gap-2">
                 <input 
@@ -236,7 +207,6 @@ export default function CineMaxBoard({
             )}
           </div>
         )}
-
       </div>
     </div>
   );

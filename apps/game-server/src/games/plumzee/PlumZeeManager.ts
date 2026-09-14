@@ -10,8 +10,9 @@ import {
 } from '@ilot/shared-core';
 import { PlumZeeLogic } from '@ilot/shared-core';
 
-// 💾 IMPORT DU SERVICE D'ARCHIVAGE 
+// 💾 IMPORT DU SERVICE D'ARCHIVAGE ET DE L'ORCHESTRATEUR DE PARIS
 import { GameStatsService } from '@ilot/infrastructure';
+import { BettingOrchestrator } from '@ilot/shared-core';
 
 export class PlumZeeManager {
     private io: Server;
@@ -29,7 +30,7 @@ export class PlumZeeManager {
         ownerId: string,
         ownerUsername: string,
         ownerSocketId: string,
-        options: PlumZeeGameOptions
+        options: PlumZeeGameOptions & { wagerAmount?: number; wagerCurrency?: string; gameMode?: string; difficulty?: string }
     ): PlumZeeGameRoom {
         if (this.rooms.has(roomId)) {
             throw new Error(`Le salon Plum'Zee '${roomId}' existe déjà.`);
@@ -63,7 +64,10 @@ export class PlumZeeManager {
             round: 1,
             scores: { [ownerPlayer.id]: 0 },
             currentDice: PlumZeeLogic.rollInitialDice(),
-            roundStartTime: Date.now()
+            roundStartTime: Date.now(),
+            // 🌟 SÉQUESTRE NATIF
+            wagerAmount: options.wagerAmount || 0,
+            wagerCurrency: options.wagerCurrency || 'DHO'
         };
 
         this.rooms.set(roomId, newRoom);
@@ -208,7 +212,7 @@ export class PlumZeeManager {
         }
     }
 
-    private advanceTurnOrRound(room: PlumZeeGameRoom): void {
+    private async advanceTurnOrRound(room: PlumZeeGameRoom): Promise<void> {
         const connectedPlayers = room.players.filter(p => p.status === 'connected');
         if (connectedPlayers.length === 0) return;
 
@@ -242,9 +246,33 @@ export class PlumZeeManager {
             console.log(`[PlumZeeManager] FIN DE PARTIE dans le salon ${room.id}. Vainqueur : ${winner?.username || 'Aucun'}`);
 
             // =========================================================
-            // 💾 DÉCLENCHEMENT DE L'ARCHIVAGE (MONGO + NEO4J)
+            // 🌟 SUTURE ÉCONOMIQUE KONTRAKT : Résolution des crédits/paris
             // =========================================================
-            // On calcule la durée globale de la partie
+            try {
+                const wagerAmt = room.wagerAmount || 0;
+                const wagerCur = room.wagerCurrency || 'DHO';
+                const difficultyVal = (room.gameOptions as any).difficulty || 'Artisan';
+                const modeVal = (room.gameOptions as any).gameMode || 'MULTIPLAYER';
+
+                if (wagerAmt > 0 && room.winnerId) {
+                    for (const p of room.players) {
+                        const isWinner = p.id === room.winnerId;
+                        await BettingOrchestrator.resolveGameAndCalculateCredit(
+                            p.id,
+                            'PlumZee',
+                            modeVal,
+                            difficultyVal,
+                            wagerCur,
+                            wagerAmt,
+                            isWinner
+                        );
+                    }
+                }
+            } catch (econErr) {
+                console.error(`[PlumZeeManager] Erreur KonTraKt pour la salle ${room.id}:`, econErr);
+            }
+            // =========================================================
+
             const durationInSeconds = room.roundStartTime ? Math.floor((Date.now() - room.roundStartTime) / 1000) : (maxRounds * 30);
             
             const matchData = {
@@ -260,23 +288,20 @@ export class PlumZeeManager {
                         score: p.totalScore || 0,
                         isWinner: p.id === room.winnerId,
                         specificStats: {
-                            // On peut archiver le parchemin final pour les statistiques détaillées
                             finalScoreSheet: JSON.stringify(p.scoreSheet),
-                            totalRollsMade: Object.keys(p.scoreSheet).length * 3 // Approximation
+                            totalRollsMade: Object.keys(p.scoreSheet).length * 3
                         }
                     };
                 }),
                 matchMetadata: {
-                    totalRoundsPlayed: room.currentRound - 1, // Le dernier incrément dépasse la limite
+                    totalRoundsPlayed: room.currentRound - 1,
                     maxRoundsSet: maxRounds
                 }
             };
 
-            // Envoi en tâche de fond
             GameStatsService.recordMatch(matchData).then((success: boolean) => {
                 if(success) console.log(`[PlumZeeManager] Historique sauvegardé avec succès pour le salon ${room.id}`);
             });
-            // =========================================================
         }
     }
 
@@ -306,7 +331,9 @@ export class PlumZeeManager {
             gameOptions: room.gameOptions,
             currentDice: room.currentDice,
             currentTurnPlayerId: room.currentTurnPlayerId,
-            currentRound: room.currentRound
+            currentRound: room.currentRound,
+            wagerAmount: room.wagerAmount,
+            wagerCurrency: room.wagerCurrency
         };
     }
 

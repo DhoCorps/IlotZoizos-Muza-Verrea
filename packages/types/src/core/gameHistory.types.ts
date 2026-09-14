@@ -1,6 +1,6 @@
 // packages/shared-core/src/types/gameHistory.types.ts
 
-export type SupportedGames = 'AtomikKFardE' | 'CrazyMorpion' | 'PlumZee' | 'SoonArt' | 'CineMax' | 'GalakTK';
+export type SupportedGames = 'AtomikKFardE' | 'CrazyMorpion' | 'KoOonTreeZ'| 'PlumZee' | 'SoonArt' | 'CineMax' | 'GalakTK' | 'WikiOracle';
 
 export interface PlayerStats {
     uid: string;          // L'identifiant Neo4j/Mongo de l'Oiseau

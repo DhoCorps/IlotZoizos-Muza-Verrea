@@ -44,6 +44,7 @@ export interface CrazyMorpionClientProps {
  */
 export interface CrazyMorpionPlayer extends PlayerInRoom {
     symbol: CrazyMorpionSymbol; // Le symbole est obligatoire pour un joueur CrazyMorpion sur le serveur
+    gameType: 'CrazyMorpion'; 
 }
 
 /**
@@ -51,7 +52,7 @@ export interface CrazyMorpionPlayer extends PlayerInRoom {
  * Représente la structure complète d'un salon de jeu CrazyMorpion côté serveur.
  * Contient toutes les informations nécessaires à la logique du jeu.
  */
-export interface CrazyMorpionGameRoom {
+export interface CrazyMorpionGameRoom extends CrazyMorpionRoomToSend {
     id: string;
     name: string;
     players: CrazyMorpionPlayer[]; // Joueurs côté serveur avec symbole obligatoire
