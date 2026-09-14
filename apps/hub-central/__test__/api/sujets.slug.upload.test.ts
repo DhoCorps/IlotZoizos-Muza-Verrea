@@ -52,8 +52,8 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
       lean: vi.fn().mockResolvedValue({ uid: 's-1', slug: 'mon-sujet', authorUid: 'u-123' }),
     } as any);
 
-    // 🛡️ Espions actifs sur le StorageService
-    vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('hub-central/fr/projects/mon-sujet/sujet_media/test.jpg');
+    // 🛡️ Espions actifs sur le StorageService mis à jour (generateKey au lieu de generateStructuredKey)
+    vi.spyOn(storageService, 'generateKey').mockReturnValue('hub-central/fr/projects/mon-sujet/sujet_media/test.jpg');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
       publicUrl: 'https://cdn.ilot/media.jpg',

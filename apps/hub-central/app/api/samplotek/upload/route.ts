@@ -1,4 +1,3 @@
-// apps/hub-central/app/api/samplotek/upload/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
@@ -65,9 +64,10 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     }
     const digitalSignature = generateFileHash(fileBuffer);
 
-    // 5. Stockage Cloud (Cloudflare R2)
+    // 5. Stockage Cloud (Cloudflare R2) via la méthode unifiée en mode LEGACY
     const sampleUid = `samp_${uuidv4()}`;
-    const customKey = storageService.generateStructuredKey({
+    const customKey = storageService.generateKey({
+      mode: 'LEGACY',
       inceptId: 'hub-central',
       locale: 'fr',
       entityType: 'projects',

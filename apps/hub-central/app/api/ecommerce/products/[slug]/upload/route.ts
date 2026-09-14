@@ -70,7 +70,8 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
     const digitalSignature = generateFileHash(fileBuffer);
     const timestampedAt = new Date();
     
-    const structuredKey = storageService.generateStructuredKey({
+    const customKey = storageService.generateKey({
+      mode: 'LEGACY',
       inceptId: 'hub-central',
       locale: 'fr',
       entityType: 'projects',
@@ -79,7 +80,7 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
       filename: file.name,
     });
 
-    const uploadResult: any = await storageService.uploadFile(file, structuredKey);
+    const uploadResult: any = await storageService.uploadFile(file, customKey);
 
     // Résilience de l'URL publique
     let publicUrl = '';
@@ -92,7 +93,7 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
       publicUrl = 'https://cdn.ilot/product.jpg';
     }
 
-    const storageKey = uploadResult?.key || structuredKey;
+    const storageKey = uploadResult?.key || customKey;
     
     // 🔄 SYNCHRONISATION : Indexation automatique dans le Registre Universel
     const product = await ProductModel.findOne({ slug });

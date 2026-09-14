@@ -1,55 +1,82 @@
 import { describe, it, expect } from 'vitest';
-import { UniversalMediaModel } from '../../nosql/universalMedia.model'; // Ajuste le chemin relatif selon ton arborescence
+import { UniversalMediaModel } from '../../nosql/universalMedia.model';
 
-describe('UniversalMedia Model', () => {
-    it('🟢 doit valider un média universel conforme avec toutes ses valeurs requises et par défaut', () => {
-        const validData = {
-            mediaId: 'media_123',
-            sourceApp: 'PARTITA',
-            ownerUid: 'bird_owner_1',
-            ownerSlug: 'bird-owner-1',
-            title: 'Symphonie Sélénite',
-            mediaUrl: 'https://cdn.ilot.io/media/symphonie.mp3',
-        };
-
-        const media = new UniversalMediaModel(validData);
-        expect(media.mediaId).toBe('media_123');
-        expect(media.sourceApp).toBe('PARTITA');
-        expect(media.ownerUid).toBe('bird_owner_1');
-        expect(media.ownerSlug).toBe('bird-owner-1');
-        expect(media.title).toBe('Symphonie Sélénite');
-        expect(media.mediaUrl).toBe('https://cdn.ilot.io/media/symphonie.mp3');
-        expect(media.priceCents).toBe(0);           // Valeur par défaut
-        expect(media.consentForShowcase).toBe(false); // Valeur par défaut
-        expect(media.consentForMusicSync).toBe(false); // Valeur par défaut
+describe('UniversalMedia Model (Contrat Ultime)', () => {
+  it('devrait valider un media complet avec les champs e-commerce et la provenance', () => {
+    const validMedia = new UniversalMediaModel({
+      mediaId: 'uuid-1234-5678',
+      creatorUid: 'oiseau_666', // 🪡 Ajusté
+      creatorSlug: 'amiga-mia',
+      sourceApp: 'DHO', // Le Bordel de DhÖ
+      type: 'AUDIO_STEM',
+      title: { fr: 'Forêt Brûlée - Lead Vocal', en: 'Burned Forest - Lead' },
+      fileUrl: 'https://s3.ilot-zoizos.com/audio/foret-brulee.wav',
+      mimeType: 'audio/wav',
+      sizeBytes: 15420000,
+      priceCents: 99, // Prêt pour la monétisation
+      metadata: { bpm: 120, key: 'Cm' },
+      rights: {
+        allow_radio: true,
+        allow_commercial: false,
+        consentForShowcase: true
+      }
     });
 
-    it('🔴 doit rejeter un média si les champs obligatoires (mediaId, sourceApp, ownerUid, ownerSlug, title, mediaUrl) manquent', () => {
-        const invalidData = {
-            priceCents: 100,
-            // Tous les champs required sont omis
-        };
+    const error = validMedia.validateSync();
+    expect(error).toBeUndefined();
+  });
 
-        const error = new UniversalMediaModel(invalidData).validateSync();
-        expect(error?.errors?.mediaId).toBeDefined();
-        expect(error?.errors?.sourceApp).toBeDefined();
-        expect(error?.errors?.ownerUid).toBeDefined();
-        expect(error?.errors?.ownerSlug).toBeDefined();
-        expect(error?.errors?.title).toBeDefined();
-        expect(error?.errors?.mediaUrl).toBeDefined();
+  it('devrait appliquer les valeurs par défaut (gratuité, source inconnue et droits restrictifs)', () => {
+    const media = new UniversalMediaModel({
+      creatorUid: 'oiseau_998', // 🪡 Ajusté
+      type: 'IMAGE',
+      title: { fr: 'Artefact Inconnu' },
+      fileUrl: 'https://s3.ilot-zoizos.com/img/artefact.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 204800,
     });
 
-    it('🔴 doit rejeter un média avec un sourceApp non valide par rapport à l\'énumération', () => {
-        const invalidData = {
-            mediaId: 'media_456',
-            sourceApp: 'UNKNOWN_APP', // Invalide
-            ownerUid: 'bird_1',
-            ownerSlug: 'bird-1',
-            title: 'Test',
-            mediaUrl: 'https://test.com',
-        };
+    // Vérification des valeurs par défaut pragmatiques
+    expect(media.priceCents).toBe(0);
+    expect(media.sourceApp).toBe('UNKNOWN');
+    expect(media.metadata).toBeDefined();
+    
+    // Vérification de la souveraineté fermée par défaut
+    expect(media.rights.allow_radio).toBe(false);
+    expect(media.rights.allow_lyrika).toBe(false);
+    expect(media.rights.allow_remix).toBe(false);
+    expect(media.rights.consentForMusicSync).toBe(false);
+  });
 
-        const error = new UniversalMediaModel(invalidData).validateSync();
-        expect(error?.errors?.sourceApp).toBeDefined();
+  it('devrait rejeter un media sans la langue racine (fr)', () => {
+    const invalidMedia = new UniversalMediaModel({
+      creatorUid: 'oiseau_123', // 🪡 Ajusté
+      type: 'TEXT',
+      title: { en: 'Only English Title' }, // Erreur ici : le fr est vital
+      fileUrl: 'https://s3.ilot-zoizos.com/docs/file.pdf',
+      mimeType: 'application/pdf',
+      sizeBytes: 1024,
     });
+
+    const error = invalidMedia.validateSync();
+    expect(error).toBeDefined();
+    expect(error?.errors['title.fr']).toBeDefined();
+  });
+
+  it('devrait rejeter une sourceApp ou un type de media non reconnu', () => {
+    const invalidMedia = new UniversalMediaModel({
+      creatorUid: 'oiseau_123', // 🪡 Ajusté
+      sourceApp: 'EXTERIEUR', // Invalide selon notre Enum
+      type: 'HOLOGRAMME', // Invalide
+      title: { fr: 'Test Matrice' },
+      fileUrl: 'https://s3.ilot-zoizos.com/test',
+      mimeType: 'unknown',
+      sizeBytes: 10,
+    });
+
+    const error = invalidMedia.validateSync();
+    expect(error).toBeDefined();
+    expect(error?.errors['sourceApp']).toBeDefined();
+    expect(error?.errors['type']).toBeDefined();
+  });
 });

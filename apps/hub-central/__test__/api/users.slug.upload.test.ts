@@ -1,6 +1,5 @@
-// apps/hub-central/__test__/api/users.slug.upload.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST, DELETE } from '@/app/api/users/[slug]/upload/route';
+import { POST } from '@/app/api/users/[slug]/upload/route';
 import { NextRequest } from 'next/server';
 import { OiseauModel, getNeo4jSession } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
@@ -8,7 +7,6 @@ import { revalidateTag } from 'next/cache';
 
 vi.mock('next/cache', () => ({ revalidateTag: vi.fn() }));
 
-// Neutralisation du bouclier withAura harmonisée avec team.upload
 vi.mock('@/lib/api-guards', () => ({
   withAura: (handler: any) => async (req: any, context: any) => {
     const mockUser = global.__mockUser || { uid: 'bird_123', capabilities: ['*'] };
@@ -29,9 +27,10 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
+// Adaptation du mock sur generateKey au lieu de generateStructuredKey
 vi.mock('@/modules/storage/storage.service', () => ({
   storageService: {
-    generateStructuredKey: vi.fn(() => 'users/bird_123/avatar.png'),
+    generateKey: vi.fn(() => 'users/bird_123/avatar.png'),
     uploadFile: vi.fn().mockResolvedValue({ publicUrl: 'https://cdn.ilot/avatar.png' }),
     deleteFile: vi.fn().mockResolvedValue(true),
     extractKeyFromUrl: vi.fn(() => 'old-key.png'),
@@ -55,7 +54,6 @@ describe('API Route : Upload Avatar avec Sceau Cryptographique (POST /api/users/
   it('🟢 doit téléverser l\'image, purger l\'ancienne (Garbage Collection) et générer le Sceau SHA-256', async () => {
     global.__mockUser = { uid: 'bird_123', capabilities: ['*'] };
 
-    // Simuler l'utilisateur existant avec un ancien avatar
     vi.mocked(OiseauModel.findOne).mockReturnValue({
       lean: vi.fn().mockResolvedValue({
         uid: 'bird_123',
@@ -77,7 +75,6 @@ describe('API Route : Upload Avatar avec Sceau Cryptographique (POST /api/users/
       close: vi.fn(),
     } as any);
 
-    // Création d'une fausse requête FormData avec un fichier image
     const formData = new FormData();
     const file = new Blob(['contenu image test'], { type: 'image/png' });
     formData.append('file', file, 'avatar.png');
@@ -96,10 +93,8 @@ describe('API Route : Upload Avatar avec Sceau Cryptographique (POST /api/users/
     expect(data.publicUrl).toBe('https://cdn.ilot/avatar.png');
     expect(data.digitalSignature).toBeDefined();
     expect(typeof data.digitalSignature).toBe('string');
-    // Le hash SHA-256 standard fait exactement 64 caractères hexadécimaux
     expect(data.digitalSignature.length).toBe(64);
 
-    // Vérifier que l'ancien fichier a bien été supprimé du stockage (Garbage Collection)
     expect(storageService.deleteFile).toHaveBeenCalledWith('old-key.png');
     expect(revalidateTag).toHaveBeenCalledWith('profile-bird-test');
   });

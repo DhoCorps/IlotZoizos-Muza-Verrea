@@ -59,8 +59,8 @@ describe('Route API : Project Attachments & Sceau SHA-256 (POST / DELETE /api/pr
     vi.clearAllMocks();
     delete (global as any).__mockUser;
 
-    // 🛡️ Espions actifs sur le StorageService (Pattern validé)
-    vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('ilot-zoizos/fr/projects/proj-1/attachments/test.pdf');
+    // 🛡️ Aligné sur generateKey (identique au service storage et aux routes tasks)
+    vi.spyOn(storageService, 'generateKey').mockReturnValue('ilot-zoizos/fr/projects/proj-1/attachments/test.pdf');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
       publicUrl: 'https://cdn.ilot/doc.pdf',
@@ -100,7 +100,6 @@ describe('Route API : Project Attachments & Sceau SHA-256 (POST / DELETE /api/pr
       formData.append('file', new Blob(['pdf content'], { type: 'application/pdf' }), 'test.pdf');
       formData.append('label', 'Schéma technique');
 
-      // 🛡️ Utilisation du format NextRequest blindé pour le formData (Leçon validée)
       const req = {
         headers: { get: () => '127.0.0.1' },
         formData: async () => formData,

@@ -1,4 +1,3 @@
-// apps/hub-central/modules/messaging/message.service.ts
 import { MessageModel, IMessageDocument } from '@ilot/infrastructure';
 import { IUniversalAttachment } from '@ilot/types';
 import { randomUUID } from 'crypto';
@@ -24,6 +23,11 @@ export class MessageService {
    */
   public static async sendMessage(params: SendMessageParams): Promise<IMessageDocument> {
     const { conversationSlug, senderSlug, content, attachments = [], replyToSlug = '' } = params;
+    
+    if (!content || !conversationSlug || !senderSlug) {
+      throw new Error('Paramètres de message incomplets dans la matrice.');
+    }
+
     const slug = `msg_${Date.now()}_${randomUUID().slice(0, 6)}`;
     
     const message = new MessageModel({
@@ -48,6 +52,11 @@ export class MessageService {
    */
   public static async sendSystemNewsletter(params: SendSystemNewsletterParams): Promise<IMessageDocument> {
     const { targetAudience, subject, content, statsSnapshot } = params;
+
+    if (!subject || !content) {
+      throw new Error('Sujet ou contenu de la newsletter manquant.');
+    }
+
     const slug = `broadcast_${Date.now()}_${randomUUID().slice(0, 6)}`;
     const conversationSlug = 'canopy-newsletter';
 
@@ -69,8 +78,6 @@ export class MessageService {
     });
 
     await broadcastMessage.save();
-    console.log(`[MessageService] 🗞️ Newsletter de la Canopée diffusée avec succès sous le slug [${slug}]`);
-    
     return broadcastMessage;
   }
 }

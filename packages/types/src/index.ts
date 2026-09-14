@@ -30,6 +30,8 @@ export * from './models/lexicon.types';
 export * from './models/univershall.types';
 export * from './core/kontrakt.types';
 export * from './core/economy.types';
+export * from './core/universalMedia.types';
+
 export interface ActionSignature {
   actorUid: string;       
   capabilities: string[];

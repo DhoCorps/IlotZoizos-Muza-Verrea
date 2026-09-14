@@ -1,48 +1,83 @@
-// infrastructure/src/database/models/nosql/universalMedia.model.ts
-// 1. Import par défaut de Mongoose (compatible ESM / Railway)
 import mongoose from 'mongoose';
-
-// 2. Import des types uniquement (effacés à la compilation)
 import type { Document, Model } from 'mongoose';
 
-// 3. Extraction sécurisée des objets d'exécution
 const { Schema, model, models } = mongoose;
-import { UniversalMediaType } from '@ilot/types';
 
 export interface IUniversalMediaDocument extends Document {
   mediaId: string;
-  sourceApp: UniversalMediaType;
-  ownerUid: string;
-  ownerSlug: string;
-  title: string;
-  mediaUrl: string;
+  creatorUid: string; // 🪡 Coup de tournevis ici
+  creatorSlug: string;
+  sourceApp: 'PARTITA' | 'LETRIN' | 'ABYSS' | 'DHO' | 'GALLERY' | 'SPRITE' | 'UNKNOWN';
+  type: 'IMAGE' | 'AUDIO_TRACK' | 'AUDIO_STEM' | 'TEXT';
+  title: { fr: string; en?: string };
+  description?: { fr: string; en?: string };
+  fileUrl: string;
   thumbnailUrl?: string;
+  mimeType: string;
+  sizeBytes: number;
   priceCents: number;
   metadata: Record<string, any>;
-  consentForShowcase: boolean;
-  consentForMusicSync: boolean;
+  rights: {
+    allow_radio: boolean;
+    allow_lyrika: boolean;
+    allow_remix: boolean;
+    allow_commercial: boolean;
+    consentForShowcase: boolean;
+    consentForMusicSync: boolean;
+  };
   createdAt: Date;
+  updatedAt: Date;
 }
 
-const UniversalMediaSchema = new Schema<IUniversalMediaDocument>({
-  mediaId: { type: String, required: true, unique: true, index: true },
-  sourceApp: { 
-    type: String, 
-    enum: ['PARTITA', 'LETRIN', 'ABYSS', 'DHO', 'GALLERY', 'SPRITE'], 
-    required: true,
-    index: true 
+const MultilingualTextSchema = new Schema({
+  fr: { type: String, required: true },
+  en: { type: String },
+}, { _id: false });
+
+const RightsSchema = new Schema({
+  allow_radio: { type: Boolean, default: false },
+  allow_lyrika: { type: Boolean, default: false },
+  allow_remix: { type: Boolean, default: false },
+  allow_commercial: { type: Boolean, default: false },
+  consentForShowcase: { type: Boolean, default: false },
+  consentForMusicSync: { type: Boolean, default: false },
+}, { _id: false });
+
+const UniversalMediaSchema = new Schema<IUniversalMediaDocument>(
+  {
+    mediaId: { type: String, unique: true, sparse: true, index: true },
+    creatorUid: { type: String, required: true, index: true }, // 🪡 Et ici
+    creatorSlug: { type: String }, // Indexé si on cherche souvent par pseudo
+    sourceApp: { 
+      type: String, 
+      enum: ['PARTITA', 'LETRIN', 'ABYSS', 'DHO', 'GALLERY', 'SPRITE', 'UNKNOWN'], 
+      default: 'UNKNOWN',
+      index: true 
+    },
+    type: { 
+      type: String, 
+      required: true, 
+      enum: ['IMAGE', 'AUDIO_TRACK', 'AUDIO_STEM', 'TEXT'],
+      index: true
+    },
+    title: { type: MultilingualTextSchema, required: true },
+    description: { type: MultilingualTextSchema },
+    
+    fileUrl: { type: String, required: true },
+    thumbnailUrl: { type: String },
+    mimeType: { type: String, required: true },
+    sizeBytes: { type: Number, required: true },
+    
+    priceCents: { type: Number, default: 0 },
+    metadata: { type: Schema.Types.Mixed, default: {} },
+    
+    rights: { type: RightsSchema, default: () => ({}) },
   },
-  ownerUid: { type: String, required: true, index: true },
-  ownerSlug: { type: String, required: true },
-  title: { type: String, required: true },
-  mediaUrl: { type: String, required: true },
-  thumbnailUrl: { type: String },
-  priceCents: { type: Number, default: 0 },
-  metadata: { type: Schema.Types.Mixed, default: {} },
-  consentForShowcase: { type: Boolean, default: false, index: true },
-  consentForMusicSync: { type: Boolean, default: false, index: true },
-  createdAt: { type: Date, default: Date.now }
-});
+  {
+    timestamps: true,
+    collection: 'universal_medias'
+  }
+);
 
 export const UniversalMediaModel: Model<IUniversalMediaDocument> = 
-  mongoose.models.UniversalMedia || mongoose.model<IUniversalMediaDocument>('UniversalMedia', UniversalMediaSchema);
+  models.UniversalMedia || model<IUniversalMediaDocument>('UniversalMedia', UniversalMediaSchema);

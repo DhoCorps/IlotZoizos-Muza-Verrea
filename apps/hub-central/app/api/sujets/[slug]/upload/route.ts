@@ -73,10 +73,11 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, _curr
     const digitalSignature = generateFileHash(fileBuffer);
     const timestampedAt = new Date();
 
-    // 4. Génération de la clé structurée et upload vers le stockage R2
+    // 4. Génération de la clé structurée via la méthode unifiée en mode LEGACY
     let structuredKey;
     try {
-      structuredKey = storageService.generateStructuredKey({
+      structuredKey = storageService.generateKey({
+        mode: 'LEGACY',
         inceptId: 'hub-central',
         locale: 'fr',
         entityType: 'projects',

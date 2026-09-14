@@ -30,7 +30,7 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
     delete (global as any).__mockUser;
 
     // 🛡️ Espionnage du Service de Stockage
-    vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('mock-key');
+    vi.spyOn(storageService, 'generateKey').mockReturnValue('mock-key');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
       publicUrl: 'https://cdn.ilot/doc.pdf',

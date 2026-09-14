@@ -119,8 +119,15 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
   const digitalSignature = generateFileHash(fileBuffer);
   const timestampedAt = new Date();
 
-  const customKey = storageService.generateStructuredKey({
-    inceptId: 'ilot-zoizos', locale: 'fr', entityType: 'teams', entityId: teamUid, imageType: mediaType, filename: file.name
+  // 🪡 Utilisation de la méthode unifiée en mode LEGACY
+  const customKey = storageService.generateKey({
+    mode: 'LEGACY',
+    inceptId: 'ilot-zoizos',
+    locale: 'fr',
+    entityType: 'teams',
+    entityId: teamUid,
+    imageType: mediaType,
+    filename: file.name
   });
 
   // Résilience stockage cloud
@@ -141,7 +148,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
   }
 
   // 6. Mise à jour MongoDB avec l'intégration du Sceau Cryptographique
-  const updatedTeam = await TeamModel.findOneAndUpdate(
+  await TeamModel.findOneAndUpdate(
     { uid: teamUid },
     { 
       $push: { 

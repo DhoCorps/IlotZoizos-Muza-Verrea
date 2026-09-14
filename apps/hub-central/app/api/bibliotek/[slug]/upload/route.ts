@@ -86,7 +86,8 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
     const digitalSignature = generateFileHash(fileBuffer);
     const timestampedAt = new Date();
 
-    const structuredKey = storageService.generateStructuredKey({
+    const customKey = storageService.generateKey({
+      mode: 'LEGACY',
       inceptId: 'hub-central',
       locale: 'fr',
       entityType: 'projects',
@@ -95,7 +96,7 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
       filename: file.name,
     });
 
-    const uploadResult: any = await storageService.uploadFile(file, structuredKey);
+    const uploadResult: any = await storageService.uploadFile(file, customKey);
 
     // Résilience de l'URL publique
     let publicUrl = '';
@@ -108,7 +109,7 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
       publicUrl = 'https://cdn.ilot/book-asset.epub';
     }
 
-    const storageKey = uploadResult?.key || structuredKey;
+    const storageKey = uploadResult?.key || customKey;
 
     // Mise à jour de la Silice (MongoDB) selon qu'il s'agit du manuscrit ou de la couverture
     const updatePayload: any = {};

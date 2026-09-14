@@ -123,8 +123,15 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     const digitalSignature = generateFileHash(fileBuffer);
     const timestampedAt = new Date();
 
-    const customKey = storageService.generateStructuredKey({
-      inceptId: 'ilot-zoizos', locale: 'fr', entityType: 'projects', entityId: (project as any).uid, imageType: 'attachments', filename: file.name
+    // 🪡 Alignement sur la méthode unifiée generateKey (même logique que les tâches)
+    const customKey = storageService.generateKey({
+      mode: 'LEGACY',
+      inceptId: 'ilot-zoizos',
+      locale: 'fr',
+      entityType: 'projects',
+      entityId: (project as any).uid,
+      imageType: 'attachments',
+      filename: file.name
     });
 
     let uploadResult: any;
@@ -162,7 +169,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     try {
       updatedProject = await ProjectModel.findOneAndUpdate(
         { slug },
-        { $push: { documents: documentPayload },$set: { "dates.lastActivity": new Date() } },
+        { $push: { documents: documentPayload }, $set: { "dates.lastActivity": new Date() } },
         { new: true }
       ).lean();
     } catch (dbErr) {

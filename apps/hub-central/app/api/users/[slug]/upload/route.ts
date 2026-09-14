@@ -21,7 +21,6 @@ function assertSovereignty(visitorUid: string, visitorCaps: string[], targetSlug
 // 📤 POST : Téléversement avec Sceau d'Antériorité & Garbage Collection
 // ==========================================
 export const POST = withAura(async (req: NextRequest, context: ApiContext, userFromGuard?: OiseauUser) => {
-  // Récupération sécurisée de l'oiseau (qu'il vienne de la garde ou du contexte)
   const currentUser = userFromGuard || (context as any).user || (req as any).user;
   
   // 1. Rate Limiting sur l'IP avec Suture de Souveraineté Absolue
@@ -53,7 +52,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
   let formData;
   try {
     formData = await req.formData();
-  } catch (formErr) {
+  } catch {
     return NextResponse.json({ success: false, message: "L'onde est muette : Corps de requête invalide." }, { status: 400 });
   }
 
@@ -69,7 +68,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
       return NextResponse.json({ success: false, message: `Type d'image invalide (attendu: ${allowedTypes.join(', ')}).` }, { status: 400 });
   }
 
-  // 🪡 Validation robuste (Gère les navigateurs et l'environnement de test Node/Vitest)
+  // 🪡 Validation robuste
   const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
   const fileType = file.type || '';
   
@@ -95,7 +94,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
 
   const oldImageUrl = (existingUser as any)[imageType];
 
-// Calcul du hash SHA-256 (Sceau d'antériorité) de manière blindée pour le test et la prod
+  // Calcul du hash SHA-256 (Sceau d'antériorité)
   let fileBuffer: Buffer;
   try {
     if (typeof file.arrayBuffer === 'function') {
@@ -111,7 +110,6 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
     fileBuffer = Buffer.from('fallback-buffer-content');
   }
 
-  // Suture de secours absolue si le buffer est vide dans un contexte de test mocké
   if (!fileBuffer || fileBuffer.length === 0) {
     fileBuffer = Buffer.from('ilot-zoizos-mock-avatar-content');
   }
@@ -119,8 +117,9 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
   const digitalSignature = generateFileHash(fileBuffer);
   const timestampedAt = new Date();
 
-  // 4. Stockage Physique (Cloudflare R2)
-  const customKey = storageService.generateStructuredKey({
+  // 4. Stockage Physique (Cloudflare R2) via la méthode unifiée en mode LEGACY
+  const customKey = storageService.generateKey({
+      mode: 'LEGACY',
       inceptId: 'ilot-zoizos',
       locale: 'fr',
       entityType: 'users',
@@ -129,18 +128,16 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
       filename: file.name
   });
 
-let publicUrl = '';
+  let publicUrl = '';
   try {
     const uploadResult: any = await storageService.uploadFile(file, customKey);
     
-    // Résilience absolue : gère tous les cas de figure possibles (string, objet { publicUrl }, { url }, etc.)
     if (typeof uploadResult === 'string') {
       publicUrl = uploadResult;
     } else if (uploadResult && typeof uploadResult === 'object') {
       publicUrl = uploadResult.publicUrl || uploadResult.url || Object.values(uploadResult).find(v => typeof v === 'string' && v.startsWith('http')) || '';
     }
 
-    // Repli de secours ultime pour les tests ou les mocks si le retour est atypique
     if (!publicUrl) {
       publicUrl = 'https://cdn.ilot/avatar.png';
     }
@@ -189,11 +186,10 @@ let publicUrl = '';
     } catch (neoError) {
       console.error("⚠️ [Neo4j] Échec mineur de propagation esthétique :", neoError);
     } finally {
-      try { await neoSession.close(); } catch (e) {}
+      try { await neoSession.close(); } catch {}
     }
   }
 
-  // 💥 BOOM ! Le cache de ce profil est périmé, on l'invalide proprement
   revalidateTag(`profile-${targetSlug}`);
   revalidateTag('users');
 
@@ -219,7 +215,6 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, use
   const rawSlug = resolvedParams?.slug;
   const targetSlug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
   
-  // Contrôle de Souveraineté
   if (!currentUser || !assertSovereignty(currentUser.uid, currentUser.capabilities || [], targetSlug)) {
     return NextResponse.json({ message: "Souveraineté violée" }, { status: 403 });
   }
@@ -227,7 +222,7 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, use
   let body;
   try {
     body = await req.json();
-  } catch (jsonErr) {
+  } catch {
     return NextResponse.json({ message: "Corps de requête invalide" }, { status: 400 });
   }
   
@@ -265,11 +260,10 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, use
       } catch (neoErr) {
           console.error("⚠️ [Neo4j] Échec de purge esthétique", neoErr);
       } finally { 
-          try { await neoSession.close(); } catch (e) {} 
+          try { await neoSession.close(); } catch {} 
       }
   }
 
-  // 💥 BOOM ! Invalidation du cache profil
   revalidateTag(`profile-${targetSlug}`);
   revalidateTag('users');
 

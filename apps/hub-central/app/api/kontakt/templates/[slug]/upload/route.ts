@@ -71,7 +71,9 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
     const digitalSignature = generateFileHash(fileBuffer);
     const timestampedAt = new Date();
 
-    const structuredKey = storageService.generateStructuredKey({
+    // 5. Génération de la clé unifiée via le mode LEGACY
+    const customKey = storageService.generateKey({
+      mode: 'LEGACY',
       inceptId: 'hub-central',
       locale: 'fr',
       entityType: 'projects',
@@ -80,7 +82,7 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
       filename: file.name,
     });
 
-    const uploadResult: any = await storageService.uploadFile(file, structuredKey);
+    const uploadResult: any = await storageService.uploadFile(file, customKey);
 
     // Résilience de l'URL publique
     let publicUrl = '';
@@ -93,7 +95,7 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
       publicUrl = 'https://cdn.ilot/doc.pdf';
     }
 
-    const storageKey = uploadResult?.key || structuredKey;
+    const storageKey = uploadResult?.key || customKey;
 
     return NextResponse.json({
       success: true,

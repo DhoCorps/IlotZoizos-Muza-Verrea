@@ -44,7 +44,7 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
 
-    vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('mock-book-key.epub');
+    vi.spyOn(storageService, 'generateKey').mockReturnValue('mock-book-key.epub');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
       publicUrl: 'https://cdn.ilot/books/essai.epub',
@@ -53,6 +53,7 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
     vi.spyOn(storageService, 'extractKeyFromUrl').mockReturnValue('mock-book-key.epub');
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
   });
+
 
   it('🟢 POST : doit réussir l’upload d’un manuscrit, forger le Sceau SHA-256 et mettre à jour l’ouvrage (201)', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };

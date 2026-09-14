@@ -35,8 +35,8 @@ describe('Route API : Nid Artefacts & Sceau Cryptographique (POST / DELETE)', ()
     vi.clearAllMocks();
     delete (global as any).__mockUser;
 
-    // Espions actifs sur le storageService
-    vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('mock-key');
+    // Espions actifs sur le storageService mis à jour (generateKey au lieu de generateStructuredKey)
+    vi.spyOn(storageService, 'generateKey').mockReturnValue('mock-key');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({ publicUrl: 'https://cdn.ilot/file.jpg', key: 'mock-key' } as any);
     vi.spyOn(storageService, 'extractKeyFromUrl').mockReturnValue('mock-key');
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue(true as any);

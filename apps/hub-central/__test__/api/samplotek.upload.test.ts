@@ -5,9 +5,10 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/modules/security/rateLimiter', () => ({ checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }) }));
 
+// Adaptation du mock sur generateKey au lieu de generateStructuredKey
 vi.mock('@/modules/storage/storage.service', () => ({
   storageService: { 
-    generateStructuredKey: vi.fn(), 
+    generateKey: vi.fn(), 
     uploadFile: vi.fn().mockResolvedValue('https://cdn/sample.mp3') 
   }
 }));
@@ -38,8 +39,6 @@ describe('API SamploTek - Upload (POST)', () => {
   });
 
   it('🟢 doit traiter le FormData, uploader sur R2 et déléguer à l\'Orchestrateur', async () => {
-    // 🪡 On simule directement la méthode formData() pour éviter les crashs de parsing 
-    // liés à NextRequest dans l'environnement Vitest/Node.js
     const req = new NextRequest('http://localhost/api/samplotek/upload', { method: 'POST' });
     
     req.formData = vi.fn().mockResolvedValue({

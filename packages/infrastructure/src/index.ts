@@ -54,6 +54,7 @@ export * from './database/services/praise.services';
 
 export * from './database/models/graph/user.graph';
 export * from './database/models/graph/team.graph';
+export * from './database/models/graph/universalMedia.graph';
 
 export * from './database/models/nosql/resonance.model';
 

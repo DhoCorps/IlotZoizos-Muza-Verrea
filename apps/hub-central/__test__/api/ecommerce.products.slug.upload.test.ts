@@ -52,7 +52,7 @@ describe('POST /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
 
-    vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('hub-central/fr/projects/mon-produit/product_image_123.jpg');
+    vi.spyOn(storageService, 'generateKey').mockReturnValue('hub-central/fr/projects/mon-produit/product_image_123.jpg');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
       publicUrl: 'https://cdn.ilot/product.jpg',

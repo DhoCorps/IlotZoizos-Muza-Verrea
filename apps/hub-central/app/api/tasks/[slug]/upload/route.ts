@@ -102,7 +102,9 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
   const digitalSignature = generateFileHash(fileBuffer);
   const timestampedAt = new Date();
 
-  const customKey = storageService.generateStructuredKey({
+  // 🪡 Utilisation de la méthode unifiée en mode LEGACY
+  const customKey = storageService.generateKey({
+    mode: 'LEGACY',
     inceptId: 'ilot-zoizos',
     locale: 'fr',
     entityType: 'tasks',
@@ -162,7 +164,8 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
 export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   const resolvedParams = await context.params;
   const rawSlug = resolvedParams?.slug;
-  const taskId = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+  const rawSlugValue = rawSlug; // Safe access
+  const taskId = slugify(typeof rawSlugValue === 'string' ? rawSlugValue : Array.isArray(rawSlugValue) ? rawSlugValue[0] : '');
 
   const task = await TaskModel.findOne({ uid: taskId }).lean<ITask>();
   if (!task) return NextResponse.json({ success: false, message: "Atome introuvable." }, { status: 404 });

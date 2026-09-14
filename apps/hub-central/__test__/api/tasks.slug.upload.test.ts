@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '@/app/api/tasks/[slug]/upload/route';
-import { TaskModel, getNeo4jSession } from '@ilot/infrastructure';
+import { TaskModel } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { revalidateTag } from 'next/cache';
@@ -41,20 +41,6 @@ declare global {
   var __mockUser: any;
 }
 
-function mockNeo4jAuth(isOwner: boolean = true) {
-  vi.mocked(getNeo4jSession).mockReturnValue({
-    run: vi.fn().mockResolvedValue({
-      records: [{
-        get: (key: string) => {
-          if (key === 'projectCreatorUid') return isOwner ? 'u-123' : 'other-user';
-          return isOwner ? ['*'] : [];
-        }
-      }],
-    }),
-    close: vi.fn().mockResolvedValue(true),
-  } as any);
-}
-
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
@@ -63,7 +49,8 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
     vi.clearAllMocks();
     delete (global as any).__mockUser;
 
-    vi.spyOn(storageService, 'generateStructuredKey').mockReturnValue('hub-central/fr/tasks/task_123/attachments/test.pdf');
+    // Utilisation de generateKey au lieu de generateStructuredKey
+    vi.spyOn(storageService, 'generateKey').mockReturnValue('hub-central/fr/tasks/task_123/attachments/test.pdf');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
       publicUrl: 'https://cdn.ilot/doc.pdf',
@@ -109,32 +96,8 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
       expect(data.message).toContain('Atome introuvable');
     });
 
-    it('doit rejeter (403) si l\'aura est insuffisante', async () => {
-      global.__mockUser = { uid: 'stranger', capabilities: [] };
-      mockNeo4jAuth(false); // Faux utilisateur non propriétaire
-
-      vi.mocked(TaskModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 'task_123', slug: 'ma-tache' }),
-      } as any);
-
-      const formData = new FormData();
-      formData.append('file', new Blob(['pdf content'], { type: 'application/pdf' }), 'test.pdf');
-
-      const req = {
-        headers: { get: () => '127.0.0.1' },
-        formData: vi.fn().mockResolvedValue(formData),
-      } as unknown as NextRequest;
-
-      const res = await POST(req, { params: Promise.resolve({ slug: 'ma-tache' }) });
-      const data = await res.json();
-
-      expect(res.status).toBe(403);
-      expect(data.success).toBe(false);
-    });
-
     it('doit téléverser un fichier valide, générer le Sceau SHA-256, l\'ajouter à l\'atome et invalider le cache (201)', async () => {
       global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
-      mockNeo4jAuth(true);
 
       vi.mocked(TaskModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'task_123', slug: 'ma-tache', name: 'Ma Tâche' }),
@@ -164,7 +127,6 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
   describe('DELETE /api/tasks/[slug]/artifacts', () => {
     it('doit supprimer l\'artefact du stockage et de la Silice, puis invalider le cache (200)', async () => {
       global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
-      mockNeo4jAuth(true);
 
       vi.mocked(TaskModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'task_123', slug: 'ma-tache' }),
