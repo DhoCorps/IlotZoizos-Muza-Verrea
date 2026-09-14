@@ -19,17 +19,23 @@ dist/
 .env.test.local
 .env.production.local
 .env*.local
+*.key
+mongo-config/mongodb.key
+.env.sentry-build-plugin
 
 # 🧪 Tests & Couverture
 coverage/
 __snapshots__/
 *.log
+playwright-report/
+test-results/
 
 # 🛠️ Outils & IDE
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
 .idea/
+.vs/
 .DS_Store
 *.suo
 *.ntvs*
