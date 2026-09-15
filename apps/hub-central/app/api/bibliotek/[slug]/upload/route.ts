@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, NextRequest } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
 import { IlotError } from '@ilot/shared-core';
-import { LibraryBookModel } from '@ilot/infrastructure';
+import { LibraryBookModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
@@ -34,19 +34,20 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
 
     const resolvedParams = await context.params;
     const rawSlug = (resolvedParams as any)?.slug;
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    if (!slug) {
+    if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    const book = await LibraryBookModel.findOne({ $or: [{ slug }, { uid: slug }] }).lean();
+    // 🔍 Résolution unifiée de l'ouvrage via le helper centralisé
+    const book: any = await findEntityBySlugOrUid(LibraryBookModel, identifier);
     if (!book) {
       return NextResponse.json({ error: "Ouvrage introuvable dans le Sanctuaire." }, { status: 404 });
     }
 
     // Vérification de souveraineté (seul l'auteur ou l'architecte peut verser dans le coffre)
-    const isAuthor = (book as any).authorUid === currentUser.uid;
+    const isAuthor = book.authorUid === currentUser.uid;
     const isArchitect = currentUser.capabilities?.includes('*');
     if (!isAuthor && !isArchitect) {
       return NextResponse.json({ error: "Souveraineté violée : tu ne peux modifier un ouvrage qui ne t'appartient pas." }, { status: 403 });
@@ -86,12 +87,13 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
     const digitalSignature = generateFileHash(fileBuffer);
     const timestampedAt = new Date();
 
+    // Génération de la clé en utilisant l'UID canonique de l'ouvrage
     const customKey = storageService.generateKey({
       mode: 'LEGACY',
       inceptId: 'hub-central',
       locale: 'fr',
       entityType: 'projects',
-      entityId: slug,
+      entityId: book.uid,
       imageType: assetType === 'cover' ? 'book_cover' : 'book_manuscript',
       filename: file.name,
     });
@@ -121,14 +123,18 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
       updatePayload.timestampedAt = timestampedAt;
     }
 
+    // Utilisation stricte de l'UID pour l'update
     const updatedBook = await LibraryBookModel.findOneAndUpdate(
-      { $or: [{ slug }, { uid: slug }] },
+      { uid: book.uid },
       { $set: updatePayload },
       { new: true }
     ).lean();
 
+    // 💥 Invalidation en cascade
     revalidateTag('bibliotek');
-    revalidateTag(`bibliotek-${slug}`);
+    revalidateTag(`bibliotek-${identifier}`);
+    if (book.slug) revalidateTag(`bibliotek-${book.slug}`);
+    if (book.uid) revalidateTag(`bibliotek-${book.uid}`);
 
     return NextResponse.json({
       success: true,
@@ -158,18 +164,19 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
   try {
     const resolvedParams = await context.params;
     const rawSlug = (resolvedParams as any)?.slug;
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    if (!slug) {
+    if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    const book = await LibraryBookModel.findOne({ $or: [{ slug }, { uid: slug }] }).lean();
+    // 🔍 Résolution unifiée pour s'assurer que l'entité existe et obtenir son UID
+    const book: any = await findEntityBySlugOrUid(LibraryBookModel, identifier);
     if (!book) {
       return NextResponse.json({ error: "Ouvrage introuvable." }, { status: 404 });
     }
 
-    const isAuthor = (book as any).authorUid === currentUser.uid;
+    const isAuthor = book.authorUid === currentUser.uid;
     const isArchitect = currentUser.capabilities?.includes('*');
     if (!isAuthor && !isArchitect) {
       return NextResponse.json({ error: "Souveraineté violée." }, { status: 403 });
@@ -185,17 +192,20 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
     const key = storageService.extractKeyFromUrl(fileUrl);
     await storageService.deleteFile(key);
 
-    // Nettoyage conditionnel en base
+    // Nettoyage conditionnel en base basé strictement sur l'UID
     const updateQuery: any = {};
-    if ((book as any).fileUrl === fileUrl) updateQuery.fileUrl = '';
-    if ((book as any).coverUrl === fileUrl) updateQuery.coverUrl = '';
+    if (book.fileUrl === fileUrl) updateQuery.fileUrl = '';
+    if (book.coverUrl === fileUrl) updateQuery.coverUrl = '';
 
     if (Object.keys(updateQuery).length > 0) {
-      await LibraryBookModel.updateOne({ $or: [{ slug }, { uid: slug }] }, { $set: updateQuery });
+      await LibraryBookModel.updateOne({ uid: book.uid }, { $set: updateQuery });
     }
 
+    // 💥 Invalidation en cascade
     revalidateTag('bibliotek');
-    revalidateTag(`bibliotek-${slug}`);
+    revalidateTag(`bibliotek-${identifier}`);
+    if (book.slug) revalidateTag(`bibliotek-${book.slug}`);
+    if (book.uid) revalidateTag(`bibliotek-${book.uid}`);
 
     return NextResponse.json({ 
       success: true, 

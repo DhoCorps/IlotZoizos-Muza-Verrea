@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { TaskModel, getNeo4jSession } from '@ilot/infrastructure';
+import { TaskModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { CAPABILITIES, ITask } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
@@ -61,9 +61,14 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
 
   const resolvedParams = await context.params;
   const rawSlug = resolvedParams?.slug;
-  const taskId = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+  const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-  const task = await TaskModel.findOne({ uid: taskId }).lean<ITask>();
+  if (!identifier) {
+    return NextResponse.json({ success: false, message: "Identifiant invalide." }, { status: 400 });
+  }
+
+  // 🔍 Résolution unifiée par slug ou UID de l'atome
+  const task: any = await findEntityBySlugOrUid(TaskModel, identifier);
   if (!task) return NextResponse.json({ success: false, message: "Atome introuvable." }, { status: 404 });
 
   // 🛡️ SUTURE ARCHITECTURALE : On vérifie l'aura AVANT de toucher aux fichiers ou au stockage !
@@ -148,7 +153,9 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     }
   );
 
-  revalidateTag(`task-${taskId}`);
+  revalidateTag(`task-${identifier}`);
+  if (task.slug) revalidateTag(`task-${task.slug}`);
+  if (task.uid) revalidateTag(`task-${task.uid}`);
 
   return NextResponse.json({ 
     success: true, 
@@ -164,10 +171,14 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
 export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   const resolvedParams = await context.params;
   const rawSlug = resolvedParams?.slug;
-  const rawSlugValue = rawSlug; // Safe access
-  const taskId = slugify(typeof rawSlugValue === 'string' ? rawSlugValue : Array.isArray(rawSlugValue) ? rawSlugValue[0] : '');
+  const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-  const task = await TaskModel.findOne({ uid: taskId }).lean<ITask>();
+  if (!identifier) {
+    return NextResponse.json({ success: false, message: "Identifiant invalide." }, { status: 400 });
+  }
+
+  // 🔍 Résolution unifiée pour cibler l'atome
+  const task: any = await findEntityBySlugOrUid(TaskModel, identifier);
   if (!task) return NextResponse.json({ success: false, message: "Atome introuvable." }, { status: 404 });
 
   const isAuthorized = await canUpdateTaskBySlug(currentUser.uid, task.uid);
@@ -179,8 +190,10 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
   await storageService.deleteFile(storageService.extractKeyFromUrl(key));
   await TaskModel.updateOne({ uid: task.uid }, { $pull: { documents: { url: key } } });
 
-  // 💥 Invalidation du cache
-  revalidateTag(`task-${taskId}`);
+  // 💥 Invalidation du cache en cascade
+  revalidateTag(`task-${identifier}`);
+  if (task.slug) revalidateTag(`task-${task.slug}`);
+  if (task.uid) revalidateTag(`task-${task.uid}`);
 
   return NextResponse.json({ success: true }, { status: 200 });
 });

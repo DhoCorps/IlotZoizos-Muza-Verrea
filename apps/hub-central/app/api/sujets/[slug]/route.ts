@@ -1,13 +1,13 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
-import { SujetModel } from '@ilot/infrastructure';
+import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { SujetOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { getCachedSujetDetails } from '@/lib/cache/sujets.cache';
-
-export const dynamic = 'force-dynamic';
 
 // ==========================================
 // GET : Ausculter un sujet spécifique
@@ -16,16 +16,28 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
   try {
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-    const sujet = await getCachedSujetDetails(slug);
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    
+    if (!identifier) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
+
+    // 🔍 Tentative via le cache, puis repli sur le helper unifié
+    let sujet: any = await getCachedSujetDetails(identifier);
+    if (!sujet) {
+      sujet = await findEntityBySlugOrUid(SujetModel, identifier);
+    }
+
     if (!sujet) {
       return NextResponse.json({ error: "Ce monologue s'est évaporé dans la brume." }, { status: 404 });
     }
+
     const userUid = currentUser?.uid;
     const sessionCaps = currentUser?.capabilities || [];
-    const isPublic = (sujet as any).status === 'PUBLISHED';
-    const isMine = (sujet as any).authorUid === userUid;
+    const isPublic = sujet.status === 'PUBLISHED';
+    const isMine = sujet.authorUid === userUid;
     const isArchitect = sessionCaps.includes('*');
+
     if (!isPublic && !isMine && !isArchitect) {
       return NextResponse.json({ error: "Ce monologue intime t'est fermé." }, { status: 403 });
     }
@@ -43,24 +55,31 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
   try {
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-    const sujet = await SujetModel.findOne({
-       $or: [{ slug: slug }, { uid: slug }]
-     });
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+    if (!identifier) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
+
+    // 🔍 Recherche unifiée pour récupérer le sujet par slug ou UID
+    const sujet: any = await findEntityBySlugOrUid(SujetModel, identifier);
     if (!sujet) {
       return NextResponse.json({ error: "Sujet introuvable." }, { status: 404 });
     }
+
     const isAuthor = sujet.authorUid === currentUser.uid;
     const isArchitect = currentUser.capabilities?.includes('*');
     if (!isAuthor && !isArchitect) {
       return NextResponse.json({ error: "Tu ne peux modifier que tes propres monologues." }, { status: 403 });
     }
+
     let body;
     try {
       body = await req.json();
     } catch (parseErr) {
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
+
     let updatedSujet;
     try {
       updatedSujet = await SujetModel.findOneAndUpdate(
@@ -74,9 +93,10 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     }
          
     revalidateTag('sujets');
-    revalidateTag(`sujet-${slug}`);
+    revalidateTag(`sujet-${identifier}`);
     if (sujet.uid) revalidateTag(`sujet-${sujet.uid}`);
     if (sujet.slug) revalidateTag(`sujet-${sujet.slug}`);
+
     return NextResponse.json({ success: true, data: updatedSujet }, { status: 200 });
   } catch (error: any) {
     console.error("  Erreur globale PUT Sujet :", error);
@@ -92,22 +112,29 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
   try {
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-    const sujet = await SujetModel.findOne({
-       $or: [{ slug: slug }, { uid: slug }]
-     });
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+    if (!identifier) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
+
+    // 🔍 Recherche unifiée pour cibler proprement le sujet
+    const sujet: any = await findEntityBySlugOrUid(SujetModel, identifier);
     if (!sujet) {
       return NextResponse.json({ error: "Sujet introuvable." }, { status: 404 });
     }
+
     const isAuthor = sujet.authorUid === currentUser.uid;
     const isArchitect = currentUser.capabilities?.includes('*');
     if (!isAuthor && !isArchitect) {
       return NextResponse.json({ error: "Tu ne peux supprimer que tes propres monologues." }, { status: 403 });
     }
+
     const signature: ActionSignature = {
       actorUid: currentUser.uid,
       capabilities: currentUser.capabilities || []
     };
+
     try {
       const sujetOrch = new SujetOrchestrator();
       if (typeof sujetOrch.disintegrateSujet === 'function') {
@@ -122,13 +149,14 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
     }
          
     revalidateTag('sujets');
-    revalidateTag(`sujet-${slug}`);
+    revalidateTag(`sujet-${identifier}`);
     if (sujet.uid) revalidateTag(`sujet-${sujet.uid}`);
     if (sujet.slug) revalidateTag(`sujet-${sujet.slug}`);
+
     return NextResponse.json({
        success: true,
        message: "Le monologue a été réduit en cendres. Les liens dans le Graphe sont rompus."
-     }, { status: 200 });
+    }, { status: 200 });
   } catch (error: any) {
     console.error("  Erreur globale DELETE Sujet :", error);
     const status = error.statusCode || 500;

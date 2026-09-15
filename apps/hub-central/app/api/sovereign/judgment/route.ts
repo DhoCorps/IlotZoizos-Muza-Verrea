@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { CanopyJudgeEngine } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
@@ -23,13 +23,15 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
 
         const { targetUid, action } = body; // action: 'JUDGE' | 'PARDON'
 
-        const targetOiseau = await OiseauModel.findOne({ uid: targetUid });
+        // 🔍 Résolution unifiée de la cible (lean: false est crucial ici pour pouvoir utiliser .save() au moment du Pardon)
+        const targetOiseau: any = await findEntityBySlugOrUid(OiseauModel, targetUid, { lean: false });
+        
         if (!targetOiseau) {
             return NextResponse.json({ success: false, error: "Oiseau introuvable dans la Silice." }, { status: 404 });
         }
 
         if (action === 'JUDGE') {
-            const fingerprint = (targetOiseau as any).bannedFingerprint || 'unknown-fingerprint';
+            const fingerprint = targetOiseau.bannedFingerprint || 'unknown-fingerprint';
             const isBanned = await CanopyJudgeEngine.judgeAndExecute(targetUid, fingerprint);
             
             revalidateTag('users');
@@ -38,16 +40,16 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
             return NextResponse.json({
                 success: true,
                 message: isBanned 
-                    ? "Le sceau est tombé : l'Oiseau has été banni à vie par son empreinte." 
+                    ? "Le sceau est tombé : l'Oiseau a été banni à vie par son empreinte." 
                     : "L'Oiseau a été jugé digne de demeurer dans la canopée.",
                 isBanned
             }, { status: 200 });
 
         } else if (action === 'PARDON') {
             targetOiseau.isBanned = false;
-            (targetOiseau as any).bannedFingerprint = null;
-            (targetOiseau as any).ifvScore = 50;
-            (targetOiseau as any).profileStatus = 'NEUTRAL';
+            targetOiseau.bannedFingerprint = null;
+            targetOiseau.ifvScore = 50;
+            targetOiseau.profileStatus = 'NEUTRAL';
             await targetOiseau.save();
 
             revalidateTag('users');

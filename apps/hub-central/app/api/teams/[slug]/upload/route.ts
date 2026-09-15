@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { TeamModel, getNeo4jSession, ITeamDocument } from '@ilot/infrastructure'; 
+import { TeamModel, findEntityBySlugOrUid, getNeo4jSession, ITeamDocument } from '@ilot/infrastructure'; 
 import { CAPABILITIES } from '@ilot/types'; 
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
@@ -65,21 +65,23 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     return NextResponse.json({ success: false, message: "Trop de téléversements." }, { status: 429 });
   }
 
-  // 2. Résolution slug
+  // 2. Résolution slug / identifier
   const resolvedParams = await context.params;
   const rawSlug = resolvedParams?.slug;
   const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-  // 3. Recherche du Nid
-  const team = await TeamModel.findOne({ 
-    $or: [{ slug: teamIdentifier }, { uid: teamIdentifier }] 
-  }).lean<ITeamDocument>();
+  if (!teamIdentifier) {
+    return NextResponse.json({ success: false, message: "Identifiant de nid invalide." }, { status: 400 });
+  }
+
+  // 🔍 3. Recherche unifiée du Nid via le helper centralisé
+  const team: any = await findEntityBySlugOrUid(TeamModel, teamIdentifier);
 
   if (!team) return NextResponse.json({ success: false, message: "Nid introuvable." }, { status: 404 });
-  const teamUid = team.uid;
+  const teamuid = team.uid;
 
   // 4. Autorisation
-  const isAuthorized = await hasCapability(currentUser.uid, teamUid, CAPABILITIES.FILE.UPLOAD);
+  const isAuthorized = await hasCapability(currentUser.uid, teamuid, CAPABILITIES.FILE.UPLOAD);
   if (!isAuthorized && !currentUser.capabilities.includes('*')) {
     return NextResponse.json({ success: false, message: "Aura insuffisante." }, { status: 403 });
   }
@@ -125,7 +127,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     inceptId: 'ilot-zoizos',
     locale: 'fr',
     entityType: 'teams',
-    entityId: teamUid,
+    entityId: teamuid,
     imageType: mediaType,
     filename: file.name
   });
@@ -149,7 +151,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
 
   // 6. Mise à jour MongoDB avec l'intégration du Sceau Cryptographique
   await TeamModel.findOneAndUpdate(
-    { uid: teamUid },
+    { uid: teamuid },
     { 
       $push: { 
         documents: { 
@@ -168,9 +170,11 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     { new: true }
   ).lean();
 
-  // 💥 Invalidation cache
+  // 💥 Invalidation cache en cascade
   revalidateTag('teams');
   revalidateTag(`team-${teamIdentifier}`);
+  if (team.slug) revalidateTag(`team-${team.slug}`);
+  if (team.uid) revalidateTag(`team-${team.uid}`);
 
   return NextResponse.json({ 
     success: true, 
@@ -188,7 +192,12 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
   const rawSlug = resolvedParams?.slug;
   const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-  const team = await TeamModel.findOne({ $or: [{ slug: teamIdentifier }, { uid: teamIdentifier }] }).lean<ITeamDocument>();
+  if (!teamIdentifier) {
+    return NextResponse.json({ success: false, message: "Identifiant de nid invalide." }, { status: 400 });
+  }
+
+  // 🔍 Recherche unifiée du Nid via le helper centralisé
+  const team: any = await findEntityBySlugOrUid(TeamModel, teamIdentifier);
   if (!team) return NextResponse.json({ success: false, message: "Nid introuvable." }, { status: 404 });
 
   const isAuthorized = await hasCapability(currentUser.uid, team.uid, CAPABILITIES.FILE.BURN);
@@ -202,9 +211,11 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
   await storageService.deleteFile(storageService.extractKeyFromUrl(key));
   await TeamModel.updateOne({ uid: team.uid }, { $pull: { documents: { url: key } } });
 
-  // 💥 Invalidation
+  // 💥 Invalidation en cascade
   revalidateTag('teams');
   revalidateTag(`team-${teamIdentifier}`);
+  if (team.slug) revalidateTag(`team-${team.slug}`);
+  if (team.uid) revalidateTag(`team-${team.uid}`);
 
   return NextResponse.json({ success: true }, { status: 200 });
 });

@@ -20,12 +20,25 @@ vi.mock('@/lib/api-guards', () => ({
   },
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  SujetModel: {
-    findOne: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    SujetModel: {
+      findOne: vi.fn(),
+    },
+    // Mock du helper unifié s'appuyant sur SujetModel.findOne
+    findEntityBySlugOrUid: vi.fn(async (model, identifier, options = { lean: true }) => {
+      const doc = await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] });
+      if (!doc) return null;
+      if (options.lean && typeof doc.lean === 'function') {
+        return await doc.lean();
+      }
+      return doc;
+    }),
+  };
+});
 
 vi.mock('@/modules/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
@@ -47,13 +60,13 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
     vi.clearAllMocks();
     delete (global as any).__mockUser;
 
-    // Espions actifs sur le SujetModel
+    // Espions actifs sur le SujetModel pour le helper unifié
     vi.spyOn(SujetModel, 'findOne').mockReturnValue({
       lean: vi.fn().mockResolvedValue({ uid: 's-1', slug: 'mon-sujet', authorUid: 'u-123' }),
     } as any);
 
-    // 🛡️ Espions actifs sur le StorageService mis à jour (generateKey au lieu de generateStructuredKey)
-    vi.spyOn(storageService, 'generateKey').mockReturnValue('hub-central/fr/projects/mon-sujet/sujet_media/test.jpg');
+    // 🛡️ Espions actifs sur le StorageService mis à jour
+    vi.spyOn(storageService, 'generateKey').mockReturnValue('hub-central/fr/projects/s-1/sujet_media/test.jpg');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
       publicUrl: 'https://cdn.ilot/media.jpg',
@@ -87,6 +100,7 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
     // 💥 Vérification de l'invalidation du cache
     expect(revalidateTag).toHaveBeenCalledWith('sujets');
     expect(revalidateTag).toHaveBeenCalledWith('sujet-mon-sujet');
+    expect(revalidateTag).toHaveBeenCalledWith('sujet-s-1');
   });
 
   it('DELETE - doit purger le média du stockage et invalider le cache', async () => {
@@ -107,5 +121,6 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
     // 💥 Vérification de l'invalidation du cache
     expect(revalidateTag).toHaveBeenCalledWith('sujets');
     expect(revalidateTag).toHaveBeenCalledWith('sujet-mon-sujet');
+    expect(revalidateTag).toHaveBeenCalledWith('sujet-s-1');
   });
 });

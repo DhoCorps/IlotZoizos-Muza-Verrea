@@ -1,8 +1,7 @@
-// app/api/univershall/beacons/[slug]/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
-import { UniversHallBeaconModel } from '@ilot/infrastructure';
+import { UniversHallBeaconModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { UniversHallOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
@@ -25,15 +24,14 @@ export const GET = withSilice(async (_req: NextRequest, context: ApiContext) => 
     }
 
     const rawSlug = resolvedParams?.slug;
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    if (!slug) {
+    if (!identifier) {
       return NextResponse.json({ error: "Identifiant de balise invalide." }, { status: 400 });
     }
 
-    const beacon = await UniversHallBeaconModel.findOne({
-      $or: [{ slug }, { uid: slug }]
-    }).lean();
+    // 🔍 Résolution unifiée de la balise via notre helper centralisé
+    const beacon: any = await findEntityBySlugOrUid(UniversHallBeaconModel, identifier);
 
     if (!beacon) {
       return NextResponse.json({ error: "Balise introuvable sur l'Agora." }, { status: 404 });
@@ -64,10 +62,16 @@ export const DELETE = withAura(async (_req: NextRequest, context: ApiContext, cu
     }
 
     const rawSlug = resolvedParams?.slug;
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    if (!slug) {
+    if (!identifier) {
       return NextResponse.json({ error: "Identifiant de balise invalide." }, { status: 400 });
+    }
+
+    // 🔍 Résolution unifiée pour cibler proprement la balise avant dissolution
+    const targetBeacon: any = await findEntityBySlugOrUid(UniversHallBeaconModel, identifier);
+    if (!targetBeacon) {
+      return NextResponse.json({ error: "Balise introuvable sur l'Agora." }, { status: 404 });
     }
 
     const signature: ActionSignature = {
@@ -77,16 +81,19 @@ export const DELETE = withAura(async (_req: NextRequest, context: ApiContext, cu
 
     try {
       const orchestrator = new UniversHallOrchestrator();
-      await orchestrator.dissolveBeacon(slug, signature);
+      // On passe l'UID canonique à l'orchestrateur
+      await orchestrator.dissolveBeacon(targetBeacon.uid, signature);
     } catch (orchErr: any) {
       console.error("  [UNIVERS'HALL ORCHESTRATOR DELETE ERROR] :", orchErr);
       const status = orchErr.statusCode || orchErr.status || 500;
       return NextResponse.json({ error: orchErr.message || "Échec de la dissolution de la balise." }, { status });
     }
 
-    // Invalidation chirurgicale du cache en cascade
+    // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('univershall-beacons');
-    revalidateTag(`univershall-beacon-${slug}`);
+    revalidateTag(`univershall-beacon-${identifier}`);
+    if (targetBeacon.slug) revalidateTag(`univershall-beacon-${targetBeacon.slug}`);
+    if (targetBeacon.uid) revalidateTag(`univershall-beacon-${targetBeacon.uid}`);
 
     return NextResponse.json({
       success: true,

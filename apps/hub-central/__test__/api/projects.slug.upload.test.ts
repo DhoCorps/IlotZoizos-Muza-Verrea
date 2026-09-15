@@ -20,15 +20,28 @@ vi.mock('@/lib/api-guards', () => ({
   },
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  ProjectModel: {
-    findOne: vi.fn(),
-    findOneAndUpdate: vi.fn(),
-    updateOne: vi.fn(),
-  },
-  getNeo4jSession: vi.fn(),
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    ProjectModel: {
+      findOne: vi.fn(),
+      findOneAndUpdate: vi.fn(),
+      updateOne: vi.fn(),
+    },
+    getNeo4jSession: vi.fn(),
+    // Mock du helper unifié s'appuyant sur ProjectModel.findOne
+    findEntityBySlugOrUid: vi.fn(async (model, identifier, options = { lean: true }) => {
+      const doc = await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] });
+      if (!doc) return null;
+      if (options.lean && typeof doc.lean === 'function') {
+        return await doc.lean();
+      }
+      return doc;
+    }),
+  };
+});
 
 vi.mock('@/modules/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true, remaining: 10 }),
@@ -59,7 +72,7 @@ describe('Route API : Project Attachments & Sceau SHA-256 (POST / DELETE /api/pr
     vi.clearAllMocks();
     delete (global as any).__mockUser;
 
-    // 🛡️ Aligné sur generateKey (identique au service storage et aux routes tasks)
+    // 🛡️ Aligné sur generateKey
     vi.spyOn(storageService, 'generateKey').mockReturnValue('ilot-zoizos/fr/projects/proj-1/attachments/test.pdf');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,

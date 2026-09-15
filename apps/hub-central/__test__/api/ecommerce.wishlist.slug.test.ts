@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DELETE } from '@/app/api/ecommerce/wishlist/[slug]/route';
-import { WishlistModel } from '@ilot/infrastructure';
+import { WishlistModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
 import { NextResponse } from 'next/server';
 
@@ -25,13 +25,19 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  WishlistModel: {
-    findOneAndDelete: vi.fn(),
-    updateMany: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    WishlistModel: {
+      deleteOne: vi.fn().mockResolvedValue({ deletedCount: 1 }),
+      updateMany: vi.fn(),
+    },
+    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
+    findEntityBySlugOrUid: vi.fn(),
+  };
+});
 
 declare global {
   var __mockUser: any;
@@ -55,7 +61,12 @@ describe('API Ecommerce Wishlist DELETE [slug]', () => {
   it('🟢 doit dissoudre une wishlist avec succès (200) si le slug correspond à une liste', async () => {
     global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
-    vi.mocked(WishlistModel.findOneAndDelete).mockResolvedValueOnce({ uid: 'mon-slug' } as any);
+    // Simulation de la résolution unifiée
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
+      uid: 'mon-slug', 
+      slug: 'mon-slug', 
+      userUid: 'bird_1' 
+    } as any);
 
     const req = new Request('http://localhost/api/ecommerce/wishlist/mon-slug', { method: 'DELETE' });
     const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'mon-slug' }) });
@@ -63,6 +74,8 @@ describe('API Ecommerce Wishlist DELETE [slug]', () => {
 
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(WishlistModel, 'mon-slug');
+    expect(WishlistModel.deleteOne).toHaveBeenCalledWith({ uid: 'mon-slug' });
     expect(revalidateTag).toHaveBeenCalledWith('user-wishlists-bird_1');
     expect(revalidateTag).toHaveBeenCalledWith('wishlists');
   });
@@ -70,7 +83,7 @@ describe('API Ecommerce Wishlist DELETE [slug]', () => {
   it('🟢 doit retirer un produit des wishlists (200) si ce n\'est pas une liste', async () => {
     global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
-    vi.mocked(WishlistModel.findOneAndDelete).mockResolvedValueOnce(null);
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
     vi.mocked(WishlistModel.updateMany).mockResolvedValueOnce({ modifiedCount: 1 } as any);
 
     const req = new Request('http://localhost/api/ecommerce/wishlist/mon-produit', { method: 'DELETE' });
@@ -79,13 +92,18 @@ describe('API Ecommerce Wishlist DELETE [slug]', () => {
 
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(WishlistModel, 'mon-produit');
+    expect(WishlistModel.updateMany).toHaveBeenCalledWith(
+      { userUid: 'bird_1' },
+      { $pull: { productUids: 'mon-produit' } }
+    );
     expect(revalidateTag).toHaveBeenCalledWith('user-wishlists-bird_1');
   });
 
   it('🔴 doit renvoyer 404 si l\'élément est introuvable', async () => {
     global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
-    vi.mocked(WishlistModel.findOneAndDelete).mockResolvedValueOnce(null);
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
     vi.mocked(WishlistModel.updateMany).mockResolvedValueOnce({ modifiedCount: 0 } as any);
 
     const req = new Request('http://localhost/api/ecommerce/wishlist/inconnu', { method: 'DELETE' });

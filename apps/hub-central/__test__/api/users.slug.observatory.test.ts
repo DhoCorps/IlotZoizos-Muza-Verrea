@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/users/[slug]/observatory/route';
 import { getServerSession } from 'next-auth/next';
-import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { ObservatoryEngine } from '@ilot/shared-core';
 
 // -------------------------------------------------------------------------
@@ -15,11 +15,28 @@ vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  OiseauModel: {
-    findOne: vi.fn(),
-  },
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    OiseauModel: {
+      findOne: vi.fn(),
+    },
+    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
+    findEntityBySlugOrUid: vi.fn(),
+  };
+});
+
+vi.mock('@/lib/cache/users.cache', () => ({
+  getCachedObservatoryReport: vi.fn(async (uid) => ({
+    birdName: 'DhÖ',
+    report: { globalVibrationScore: 88, status: 'HARMONIC' }
+  })),
+}));
+
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 // -------------------------------------------------------------------------
@@ -67,8 +84,11 @@ describe('Route API : Observatoire (GET /[slug]/observatory)', () => {
       user: { uid: 'dho', capabilities: [] }
     } as any);
 
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 'dho', slug: 'dho', pseudo: 'DhÖ', entropieActive: 42 }),
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 'dho',
+      slug: 'dho',
+      pseudo: 'DhÖ',
+      entropieActive: 42
     } as any);
 
     const req = new Request('http://localhost/api/users/dho/observatory');
@@ -79,6 +99,7 @@ describe('Route API : Observatoire (GET /[slug]/observatory)', () => {
     expect(json.success).toBe(true);
     expect(json.birdName).toBe('DhÖ');
     expect(json.report).toEqual({ globalVibrationScore: 88, status: 'HARMONIC' });
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'dho');
   });
 
   it('doit autoriser (200) un administrateur (capabilities: ["*"]) à ausculter n\'importe quel profil', async () => {
@@ -86,8 +107,10 @@ describe('Route API : Observatoire (GET /[slug]/observatory)', () => {
       user: { uid: 'admin-uid', capabilities: ['*'] }
     } as any);
 
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 'dho', slug: 'dho', pseudo: 'DhÖ' }),
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 'dho',
+      slug: 'dho',
+      pseudo: 'DhÖ'
     } as any);
 
     const req = new Request('http://localhost/api/users/dho/observatory');
@@ -96,6 +119,7 @@ describe('Route API : Observatoire (GET /[slug]/observatory)', () => {
 
     expect(response.status).toBe(200);
     expect(json.success).toBe(true);
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'dho');
   });
 
   it('doit renvoyer (404) si l\'oiseau est introuvable', async () => {
@@ -103,9 +127,7 @@ describe('Route API : Observatoire (GET /[slug]/observatory)', () => {
       user: { uid: 'dho', capabilities: [] }
     } as any);
 
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue(null),
-    } as any);
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
     const req = new Request('http://localhost/api/users/dho/observatory');
     const response = await GET(req, { params: Promise.resolve({ slug: 'dho' }) });
@@ -113,5 +135,6 @@ describe('Route API : Observatoire (GET /[slug]/observatory)', () => {
 
     expect(response.status).toBe(404);
     expect(json.success).toBe(false);
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'dho');
   });
 });

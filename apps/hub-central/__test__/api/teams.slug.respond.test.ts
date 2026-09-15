@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/teams/[slug]/respond/route';
 import { getServerSession } from 'next-auth/next';
-import { TeamModel, OiseauModel, getNeo4jSession } from '@ilot/infrastructure';
+import { TeamModel, OiseauModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { TransactionManager } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
 
@@ -16,26 +16,35 @@ vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  TeamModel: {
-    findOne: vi.fn(),
-  },
-  OiseauModel: {
-    findOneAndUpdate: vi.fn(),
-  },
-  getNeo4jSession: vi.fn(),
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    TeamModel: {
+      findOne: vi.fn(),
+    },
+    OiseauModel: {
+      findOneAndUpdate: vi.fn(),
+    },
+    getNeo4jSession: vi.fn(),
+    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
+    findEntityBySlugOrUid: vi.fn(),
+  };
+});
 
 vi.mock('@ilot/shared-core', () => ({
   TransactionManager: {
-    execute: vi.fn(async (label, callback) => {
-      // Exécute directement la callback transactionnelle simulée
+    execute: vi.fn(async (_label, callback) => {
       const mockMongoSession = {};
       const mockNeoTx = { run: vi.fn().mockResolvedValue(true) };
       return await callback(mockMongoSession, mockNeoTx);
     }),
   },
+}));
+
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 // -------------------------------------------------------------------------
@@ -67,8 +76,10 @@ describe('Route API : Réponse au Pacte d\'Adhésion (POST /api/teams/[slug]/res
       user: { uid: 'u-123', capabilities: [] }
     } as any);
 
-    vi.mocked(TeamModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 't-1', slug: 'mon-nid', name: 'Nid' }),
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 't-1',
+      slug: 'mon-nid',
+      name: 'Nid'
     } as any);
 
     // Neo4j renvoie 0 enregistrement (pas d'INVITED_TO)
@@ -87,6 +98,7 @@ describe('Route API : Réponse au Pacte d\'Adhésion (POST /api/teams/[slug]/res
 
     expect(response.status).toBe(451);
     expect(json.error).toContain("Souveraineté violée");
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TeamModel, 'mon-nid');
   });
 
   it('doit réussir (200) l\'acceptation du pacte, exécuter la transaction et invalider le cache', async () => {
@@ -94,8 +106,10 @@ describe('Route API : Réponse au Pacte d\'Adhésion (POST /api/teams/[slug]/res
       user: { uid: 'u-123', capabilities: [] }
     } as any);
 
-    vi.mocked(TeamModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 't-1', slug: 'mon-nid', name: 'Nid Céleste' }),
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 't-1',
+      slug: 'mon-nid',
+      name: 'Nid Céleste'
     } as any);
 
     // Neo4j trouve bien l'invitation
@@ -117,10 +131,12 @@ describe('Route API : Réponse au Pacte d\'Adhésion (POST /api/teams/[slug]/res
     expect(response.status).toBe(200);
     expect(json.success).toBe(true);
     expect(json.message).toContain("Pacte signé");
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TeamModel, 'mon-nid');
 
     // 💥 Vérification de l'invalidation chirurgicale du cache
     expect(revalidateTag).toHaveBeenCalledWith('teams-u-123');
     expect(revalidateTag).toHaveBeenCalledWith('teams');
     expect(revalidateTag).toHaveBeenCalledWith('team-mon-nid');
+    expect(revalidateTag).toHaveBeenCalledWith('team-t-1');
   });
 });

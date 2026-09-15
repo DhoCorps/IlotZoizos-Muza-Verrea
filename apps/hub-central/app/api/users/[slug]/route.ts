@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
 import { withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { getCachedOiseau } from '@/lib/cache/users.cache';
@@ -14,14 +15,21 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
     // 1. Résolution stricte et typée des paramètres de route
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
-    const targetSlug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+    if (!identifier) {
+      return NextResponse.json({ message: "Identifiant invalide." }, { status: 400 });
+    }
 
     // 2. Le visiteur est-il propriétaire du profil ?
     const visitorUid = currentUser?.uid;
-    const isSelf = visitorUid === targetSlug || (visitorUid ? slugify(visitorUid) === targetSlug : false);
+    const isSelf = visitorUid === identifier || (visitorUid ? slugify(visitorUid) === identifier : false);
 
-    // 3. Appel au cache (Soulage MongoDB)
-    const oiseau = await getCachedOiseau(targetSlug);
+    // 3. Appel au cache, avec ré-ancrage sur le helper unifié si nécessaire
+    let oiseau: any = await getCachedOiseau(identifier);
+    if (!oiseau) {
+      oiseau = await findEntityBySlugOrUid(OiseauModel, identifier);
+    }
 
     if (!oiseau) {
       return NextResponse.json({ message: "L'onde s'est dissipée." }, { status: 404 });

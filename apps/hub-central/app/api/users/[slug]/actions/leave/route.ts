@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TeamOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
@@ -16,13 +17,20 @@ export const GET = withOptionalAura(async (req: NextRequest, context: ApiContext
   try {
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
-    const targetSlug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
          
+    if (!identifier) {
+      return NextResponse.json({ message: "Identifiant invalide." }, { status: 400 });
+    }
+
     const visitorUid = currentUser?.uid;
-    const isSelf = visitorUid === targetSlug || (visitorUid ? slugify(visitorUid) === targetSlug : false);
+    const isSelf = visitorUid === identifier || (visitorUid ? slugify(visitorUid) === identifier : false);
     
-    // Appel direct au service de cache centralisé
-    const oiseau = await getCachedOiseau(targetSlug);
+    // Appel direct au service de cache centralisé, ou repli unifié
+    let oiseau: any = await getCachedOiseau(identifier);
+    if (!oiseau) {
+      oiseau = await findEntityBySlugOrUid(OiseauModel, identifier);
+    }
     
     if (!oiseau) {
       return NextResponse.json({ message: "L'onde s'est dissipée : Oiseau introuvable." }, { status: 404 });
@@ -89,13 +97,19 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
   try {
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
-    const targetSlug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
          
     // VÉRIFICATIONS DE GOUVERNANCE
-    if (currentUser.uid !== targetSlug && slugify(currentUser.uid) !== targetSlug) {
+    if (currentUser.uid !== identifier && slugify(currentUser.uid) !== identifier) {
       return NextResponse.json({ error: "Souveraineté violée : vous ne pouvez forcer l'exil d'un autre." }, { status: 403 });
     }
     
+    // 🔍 Résolution unifiée pour s'assurer de l'existence de l'oiseau via le helper
+    const targetOiseau: any = await findEntityBySlugOrUid(OiseauModel, identifier);
+    if (!targetOiseau) {
+      return NextResponse.json({ error: "Oiseau introuvable dans la Silice." }, { status: 404 });
+    }
+
     let body;
     try {
         body = await req.json();
@@ -117,7 +131,9 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     const result = await orchestrator.leaveTeam(teamId, currentUser.uid, mode, signature);
      
     revalidateTag('teams');
-    revalidateTag(`profile-${targetSlug}`);
+    revalidateTag(`profile-${identifier}`);
+    if (targetOiseau.uid) revalidateTag(`profile-${targetOiseau.uid}`);
+    if (targetOiseau.slug) revalidateTag(`profile-${targetOiseau.slug}`);
     
     return NextResponse.json(result, { status: 200 });
   } catch (error: any) {

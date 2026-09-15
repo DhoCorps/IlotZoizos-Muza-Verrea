@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/users/[slug]/upload/route';
 import { NextRequest } from 'next/server';
-import { OiseauModel, getNeo4jSession } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
 import { revalidateTag } from 'next/cache';
 
@@ -24,10 +24,12 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       updateOne: vi.fn(),
     },
     getNeo4jSession: vi.fn(),
+    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
+    findEntityBySlugOrUid: vi.fn(),
   };
 });
 
-// Adaptation du mock sur generateKey au lieu de generateStructuredKey
+// Adaptation du mock sur generateKey
 vi.mock('@/modules/storage/storage.service', () => ({
   storageService: {
     generateKey: vi.fn(() => 'users/bird_123/avatar.png'),
@@ -39,6 +41,10 @@ vi.mock('@/modules/storage/storage.service', () => ({
 
 vi.mock('@/modules/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
+}));
+
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 declare global {
@@ -54,12 +60,11 @@ describe('API Route : Upload Avatar avec Sceau Cryptographique (POST /api/users/
   it('🟢 doit téléverser l\'image, purger l\'ancienne (Garbage Collection) et générer le Sceau SHA-256', async () => {
     global.__mockUser = { uid: 'bird_123', capabilities: ['*'] };
 
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({
-        uid: 'bird_123',
-        slug: 'bird-test',
-        avatarUrl: 'https://cdn.ilot/old-avatar.png',
-      }),
+    // Simulation du helper unifié
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 'bird_123',
+      slug: 'bird-test',
+      avatarUrl: 'https://cdn.ilot/old-avatar.png',
     } as any);
 
     vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
@@ -95,6 +100,7 @@ describe('API Route : Upload Avatar avec Sceau Cryptographique (POST /api/users/
     expect(typeof data.digitalSignature).toBe('string');
     expect(data.digitalSignature.length).toBe(64);
 
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'bird-test');
     expect(storageService.deleteFile).toHaveBeenCalledWith('old-key.png');
     expect(revalidateTag).toHaveBeenCalledWith('profile-bird-test');
   });

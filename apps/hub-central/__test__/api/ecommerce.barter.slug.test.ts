@@ -16,9 +16,14 @@ vi.mock('@/lib/api-guards', () => ({
 
 vi.mock('next/cache', () => ({ revalidateTag: vi.fn(), unstable_cache: vi.fn((cb) => cb) }));
 vi.mock('@/lib/slugify', () => ({ slugify: (s: string) => s }));
+
+// Mock de l'infrastructure incluant notre helper findEntityBySlugOrUid
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   BarterOfferModel: { findOne: vi.fn() },
+  findEntityBySlugOrUid: vi.fn(async (model, identifier) => {
+    return await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] }).lean();
+  }),
 }));
 
 describe('API Barter Slug', () => {
@@ -33,12 +38,19 @@ describe('API Barter Slug', () => {
   });
 
   it('🟢 [GET] doit retourner 200', async () => {
-    vi.mocked(BarterOfferModel.findOne).mockReturnValue({ lean: vi.fn().mockResolvedValue({ uid: 'b1' }) } as any);
+    vi.mocked(BarterOfferModel.findOne).mockReturnValue({
+      lean: vi.fn().mockResolvedValue({ uid: 'b1', slug: 'b1' })
+    } as any);
+
     const res = await GET(new Request('http://h'), { params: Promise.resolve({ slug: 'b1' }) });
     expect(res.status).toBe(200);
   });
 
   it('🟢 [PATCH] doit résoudre avec succès', async () => {
+    vi.mocked(BarterOfferModel.findOne).mockReturnValue({
+      lean: vi.fn().mockResolvedValue({ uid: 'b1', slug: 'b1' })
+    } as any);
+
     global.__mockUser = { uid: 'u1', capabilities: [] };
     const res = await PATCH(new Request('http://h', { method: 'PATCH', body: JSON.stringify({ status: 'ACCEPTED' }) }), { params: Promise.resolve({ slug: 'b1' }) });
     expect(res.status).toBe(200);

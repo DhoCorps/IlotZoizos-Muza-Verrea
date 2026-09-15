@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/users/[slug]/resonance/route';
 import { getServerSession } from 'next-auth/next';
-import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { ResonanceOrchestrator, TaskResonanceOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
 
@@ -16,12 +16,22 @@ vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  OiseauModel: {
-    findOne: vi.fn(),
-    updateOne: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
-  },
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    OiseauModel: {
+      findOne: vi.fn(),
+      updateOne: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
+    },
+    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
+    findEntityBySlugOrUid: vi.fn(),
+  };
+});
+
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 // -------------------------------------------------------------------------
@@ -78,8 +88,9 @@ describe('Route API : Résonance (POST /[slug]/resonance)', () => {
       user: { uid: 'source-uid', capabilities: [] }
     } as any);
 
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 'target-uid', slug: 'cible-slug' }),
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 'target-uid',
+      slug: 'cible-slug',
     } as any);
 
     const req = new Request('http://localhost/api/users/cible-slug/resonance', {
@@ -94,10 +105,11 @@ describe('Route API : Résonance (POST /[slug]/resonance)', () => {
     expect(json.success).toBe(true);
     expect(json.isHarmonic).toBe(true);
 
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'cible-slug');
     expect(ResonanceOrchestrator.weaveResonance).toHaveBeenCalled();
     expect(OiseauModel.updateOne).toHaveBeenCalledTimes(2); // Incrément followers & following
 
-    // 💥 Vérification cruciale de l'invalidation croisée des caches
+    // 💥 Vérification cruciale de l'invalidation croisée des caches en cascade
     expect(revalidateTag).toHaveBeenCalledWith('profile-cible-slug');
     expect(revalidateTag).toHaveBeenCalledWith('profile-source-uid');
     expect(revalidateTag).toHaveBeenCalledWith('users');
@@ -108,8 +120,9 @@ describe('Route API : Résonance (POST /[slug]/resonance)', () => {
       user: { uid: 'source-uid', capabilities: [] }
     } as any);
 
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 'target-uid', slug: 'cible-slug' }),
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 'target-uid',
+      slug: 'cible-slug',
     } as any);
 
     const req = new Request('http://localhost/api/users/cible-slug/resonance', {
@@ -123,6 +136,7 @@ describe('Route API : Résonance (POST /[slug]/resonance)', () => {
     expect(response.status).toBe(200);
     expect(json.success).toBe(true);
 
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'cible-slug');
     expect(ResonanceOrchestrator.severResonance).toHaveBeenCalled();
     expect(OiseauModel.updateOne).toHaveBeenCalledWith(
       { uid: 'target-uid' },

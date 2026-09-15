@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TaskResonanceOrchestrator, ResonanceOrchestrator } from '@ilot/shared-core';
 import { ActionSignature, ResonanceType, IResonancePayload } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
@@ -16,7 +16,11 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     // 1. Résolution stricte et typée des paramètres de route
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
-    const targetSlug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+    if (!identifier) {
+      return NextResponse.json({ error: "Identifiant de cible invalide." }, { status: 400 });
+    }
 
     const signature: ActionSignature = { 
       actorUid: currentUser.uid, 
@@ -39,7 +43,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     // ---------------------------------------------------------------------
     if (action === 'WEAVE' || action === 'SEVER') {
       // On ne résonne pas avec soi-même
-      if (currentUser.uid === targetSlug || slugify(currentUser.uid) === targetSlug) {
+      if (currentUser.uid === identifier || slugify(currentUser.uid) === identifier) {
         return NextResponse.json({ error: "On ne peut résonner avec soi-même." }, { status: 400 });
       }
 
@@ -47,9 +51,8 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
         return NextResponse.json({ error: "Fréquence (type) requise." }, { status: 400 });
       }
 
-      const targetUser = (await OiseauModel.findOne({ 
-        $or: [{ slug: targetSlug }, { uid: targetSlug }] 
-      }).lean()) as any;
+      // 🔍 Recherche unifiée de la cible via notre helper centralisé
+      const targetUser: any = await findEntityBySlugOrUid(OiseauModel, identifier);
 
       if (!targetUser) {
         return NextResponse.json({ error: "La cible a disparu de la matrice." }, { status: 404 });
@@ -70,8 +73,10 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
            await OiseauModel.updateOne({ uid: currentUser.uid }, { $inc: { followingCount: 1 } });
         }
 
-        // 💥 BOOM ! On invalide le cache des DEUX profils
-        revalidateTag(`profile-${targetUser.slug || targetUser.uid}`);
+        // 💥 BOOM ! On invalide le cache des DEUX profils en cascade
+        revalidateTag(`profile-${identifier}`);
+        if (targetUser.slug) revalidateTag(`profile-${targetUser.slug}`);
+        if (targetUser.uid) revalidateTag(`profile-${targetUser.uid}`);
         revalidateTag(`profile-${currentUser.uid}`);
         revalidateTag('users');
 
@@ -85,8 +90,10 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
            await OiseauModel.updateOne({ uid: currentUser.uid }, { $inc: { followingCount: -1 } });
         }
 
-        // 💥 BOOM ! On invalide le cache des DEUX profils
-        revalidateTag(`profile-${targetUser.slug || targetUser.uid}`);
+        // 💥 BOOM ! On invalide le cache des DEUX profils en cascade
+        revalidateTag(`profile-${identifier}`);
+        if (targetUser.slug) revalidateTag(`profile-${targetUser.slug}`);
+        if (targetUser.uid) revalidateTag(`profile-${targetUser.uid}`);
         revalidateTag(`profile-${currentUser.uid}`);
         revalidateTag('users');
 
@@ -99,7 +106,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     // ---------------------------------------------------------------------
     try {
       const taskOrchestrator = new TaskResonanceOrchestrator();
-      const result = await taskOrchestrator.processUserTaskResonance(targetSlug, signature);
+      const result = await taskOrchestrator.processUserTaskResonance(identifier, signature);
       return NextResponse.json(result, { status: 200 });
     } catch (orchErr: any) {
       console.error("🌋 [ORCHESTRATOR RESONANCE ERROR]", orchErr);

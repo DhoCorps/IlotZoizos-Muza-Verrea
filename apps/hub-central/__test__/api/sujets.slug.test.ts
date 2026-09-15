@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PUT, DELETE } from '@/app/api/sujets/[slug]/route';
 import { getServerSession } from 'next-auth/next';
-import { SujetModel } from '@ilot/infrastructure';
+import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { SujetOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
 
@@ -17,14 +17,28 @@ vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  SujetModel: {
-    findOne: vi.fn(),
-    findOneAndUpdate: vi.fn(),
-    deleteOne: vi.fn(),
-  },
+vi.mock('@/lib/cache/sujets.cache', () => ({
+  getCachedSujetDetails: vi.fn().mockResolvedValue(null),
 }));
+
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+}));
+
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    SujetModel: {
+      findOne: vi.fn(),
+      findOneAndUpdate: vi.fn(),
+      deleteOne: vi.fn(),
+    },
+    // 🛡️ Protocole appliqué : Mock direct du helper unifié centralisé
+    findEntityBySlugOrUid: vi.fn(),
+  };
+});
 
 vi.mock('@ilot/shared-core', () => ({
   SujetOrchestrator: vi.fn().mockImplementation(() => ({
@@ -45,8 +59,12 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
     it('doit autoriser (200) la lecture si le sujet est publié (visiteur anonyme)', async () => {
       vi.mocked(getServerSession).mockResolvedValue(null);
 
-      vi.mocked(SujetModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 's-1', status: 'PUBLISHED', authorUid: 'u-999' }),
+      // Utilisation du helper unifié mocké
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+        uid: 's-1',
+        slug: 'mon-sujet',
+        status: 'PUBLISHED',
+        authorUid: 'u-999',
       } as any);
 
       const req = new Request('http://localhost/api/sujets/mon-sujet');
@@ -55,6 +73,7 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
 
       expect(response.status).toBe(200);
       expect(json.uid).toBe('s-1');
+      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(SujetModel, 'mon-sujet');
     });
 
     it('doit refuser (403) l\'accès à un sujet privé pour un utilisateur non autorisé', async () => {
@@ -62,8 +81,11 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
         user: { uid: 'u-other', capabilities: [] }
       } as any);
 
-      vi.mocked(SujetModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 's-1', status: 'DRAFT', authorUid: 'u-owner' }),
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+        uid: 's-1',
+        slug: 'mon-sujet',
+        status: 'DRAFT',
+        authorUid: 'u-owner',
       } as any);
 
       const req = new Request('http://localhost/api/sujets/mon-sujet');
@@ -72,6 +94,7 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
 
       expect(response.status).toBe(403);
       expect(json.error).toContain("intime t'est fermé");
+      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(SujetModel, 'mon-sujet');
     });
   });
 
@@ -81,7 +104,7 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
         user: { uid: 'u-owner', capabilities: [] }
       } as any);
 
-      vi.mocked(SujetModel.findOne).mockResolvedValue({
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 's-1',
         slug: 'mon-sujet',
         authorUid: 'u-owner',
@@ -101,6 +124,7 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
 
       expect(response.status).toBe(200);
       expect(json.success).toBe(true);
+      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(SujetModel, 'mon-sujet');
 
       // 💥 Vérification de l'invalidation du cache
       expect(revalidateTag).toHaveBeenCalledWith('sujets');
@@ -114,7 +138,7 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
         user: { uid: 'u-owner', capabilities: [] }
       } as any);
 
-      vi.mocked(SujetModel.findOne).mockResolvedValue({
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 's-1',
         slug: 'mon-sujet',
         authorUid: 'u-owner',
@@ -129,6 +153,7 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
 
       expect(response.status).toBe(200);
       expect(json.success).toBe(true);
+      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(SujetModel, 'mon-sujet');
 
       // 💥 Vérification de l'invalidation du cache
       expect(revalidateTag).toHaveBeenCalledWith('sujets');

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PUT, DELETE } from '@/app/api/bibliotek/[slug]/route';
-import { LibraryBookModel } from '@ilot/infrastructure';
+import { LibraryBookModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { BibliotekOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
@@ -22,11 +22,17 @@ vi.mock('@/lib/api-guards', () => ({
   },
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  LibraryBookModel: {
-    findOne: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    LibraryBookModel: {
+      findOne: vi.fn(),
+    },
+    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
+    findEntityBySlugOrUid: vi.fn(),
+  };
+});
 
 declare global {
   var __mockUser: any;
@@ -40,7 +46,7 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
     vi.spyOn(BibliotekOrchestrator.prototype, 'updateBook').mockResolvedValue({
       success: true,
       status: 'success',
-      mongo: { uid: 'book_999', title: 'Titre Muté' },
+      mongo: { uid: 'book_999', slug: 'essai-sur-la-silice-mut', title: 'Titre Muté' },
       neo4j: {}
     } as any);
 
@@ -51,9 +57,12 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
     } as any);
   });
 
-  it('🟢 GET : doit retourner les détails d’un ouvrage par son slug', async () => {
-    vi.mocked(LibraryBookModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 'book_999', title: 'Essai sur la Silice', authorUid: 'bird_writer', copyrightClaimed: true })
+  it('🟢 GET : doit retourner les détails d’un ouvrage par son slug via le résolveur', async () => {
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
+      uid: 'book_999', 
+      title: 'Essai sur la Silice', 
+      authorUid: 'bird_writer', 
+      copyrightClaimed: true 
     } as any);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/essai-sur-la-silice');
@@ -62,6 +71,7 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
 
     expect(res.status).toBe(200);
     expect(json.title).toBe('Essai sur la Silice');
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(LibraryBookModel, 'essai-sur-la-silice');
   });
 
   it('🔴 PUT : doit rejeter (401) si l’Oiseau n’est pas authentifié', async () => {
@@ -76,8 +86,14 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
     expect(res.status).toBe(401);
   });
 
-  it('🟢 PUT : doit muter l’ouvrage avec succès (200)', async () => {
+  it('🟢 PUT : doit muter l’ouvrage avec succès (200) avec son UID canonique', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
+
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
+      uid: 'book_canonique_123', 
+      slug: 'essai-sur-la-silice',
+      authorUid: 'bird_writer' 
+    } as any);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/essai-sur-la-silice', {
       method: 'PUT',
@@ -90,12 +106,20 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
     expect(json.mongo.title).toBe('Titre Muté');
+    expect(BibliotekOrchestrator.prototype.updateBook).toHaveBeenCalledWith('book_canonique_123', expect.any(Object), expect.any(Object));
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek-essai-sur-la-silice');
+    expect(revalidateTag).toHaveBeenCalledWith('bibliotek-book_999');
   });
 
-  it('🟢 DELETE : doit dissoudre l’ouvrage avec succès (200)', async () => {
+  it('🟢 DELETE : doit dissoudre l’ouvrage avec succès (200) avec son UID canonique', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
+
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
+      uid: 'book_canonique_123', 
+      slug: 'essai-sur-la-silice',
+      authorUid: 'bird_writer' 
+    } as any);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/essai-sur-la-silice', {
       method: 'DELETE'
@@ -106,7 +130,9 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
 
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
+    expect(BibliotekOrchestrator.prototype.disintegrateBook).toHaveBeenCalledWith('book_canonique_123', expect.any(Object));
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek-essai-sur-la-silice');
+    expect(revalidateTag).toHaveBeenCalledWith('bibliotek-book_canonique_123');
   });
 });

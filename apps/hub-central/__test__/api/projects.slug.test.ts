@@ -24,13 +24,34 @@ vi.mock('@/lib/api-guards', () => ({
   },
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  ProjectModel: {
-    findOne: vi.fn(),
-  },
-  getNeo4jSession: vi.fn(),
+vi.mock('@/lib/cache/projects.cache', () => ({
+  getCachedProjectDetails: vi.fn().mockResolvedValue(null),
 }));
+
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+}));
+
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    ProjectModel: {
+      findOne: vi.fn(),
+    },
+    getNeo4jSession: vi.fn(),
+    // Mock du helper unifié s'appuyant sur ProjectModel.findOne
+    findEntityBySlugOrUid: vi.fn(async (model, identifier) => {
+      const doc = await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] });
+      if (!doc) return null;
+      if (typeof doc.lean === 'function') {
+        return await doc.lean();
+      }
+      return doc;
+    }),
+  };
+});
 
 // Variable globale pour simuler l'utilisateur connecté dans les tests
 declare global {
@@ -74,9 +95,7 @@ describe('Route API : Project [projectId] (GET / PUT / DELETE)', () => {
       delete (global as any).__mockUser;
 
       vi.mocked(ProjectModel.findOne).mockReturnValue({
-        select: () => ({
-          lean: vi.fn().mockResolvedValue({ uid: 'proj-1', visibility: 'PUBLIC', creatorUid: 'u-other' }),
-        }),
+        lean: vi.fn().mockResolvedValue({ uid: 'proj-1', slug: 'proj-1', visibility: 'PUBLIC', creatorUid: 'u-other' }),
       } as any);
 
       const req = new Request('http://localhost/api/projects/proj-1');
@@ -92,9 +111,7 @@ describe('Route API : Project [projectId] (GET / PUT / DELETE)', () => {
       mockNeo4jCaps(false);
 
       vi.mocked(ProjectModel.findOne).mockReturnValue({
-        select: () => ({
-          lean: vi.fn().mockResolvedValue({ uid: 'proj-priv', visibility: 'PRIVATE', creatorUid: 'u-owner' }),
-        }),
+        lean: vi.fn().mockResolvedValue({ uid: 'proj-priv', slug: 'proj-priv', visibility: 'PRIVATE', creatorUid: 'u-owner' }),
       } as any);
 
       const req = new Request('http://localhost/api/projects/proj-priv');
@@ -112,7 +129,7 @@ describe('Route API : Project [projectId] (GET / PUT / DELETE)', () => {
       mockNeo4jCaps(true, ['project:update']);
 
       vi.mocked(ProjectModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 'proj-1', creatorUid: 'u-other' }),
+        lean: vi.fn().mockResolvedValue({ uid: 'proj-1', slug: 'proj-1', creatorUid: 'u-other' }),
       } as any);
 
       const req = new Request('http://localhost/api/projects/proj-1', {
@@ -138,7 +155,7 @@ describe('Route API : Project [projectId] (GET / PUT / DELETE)', () => {
       mockNeo4jCaps(false);
 
       vi.mocked(ProjectModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 'proj-1', creatorUid: 'u-creator' }),
+        lean: vi.fn().mockResolvedValue({ uid: 'proj-1', slug: 'proj-1', creatorUid: 'u-creator' }),
       } as any);
 
       const req = new Request('http://localhost/api/projects/proj-1', {

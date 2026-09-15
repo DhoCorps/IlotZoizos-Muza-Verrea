@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/teams/[slug]/members/route';
 import { getServerSession } from 'next-auth/next';
+import { TeamModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TeamOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
 
@@ -15,8 +16,21 @@ vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    TeamModel: {
+      findOne: vi.fn(),
+    },
+    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
+    findEntityBySlugOrUid: vi.fn(),
+  };
+});
+
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 // -------------------------------------------------------------------------
@@ -87,6 +101,11 @@ describe('Route API : Membres et Recrutement (POST /api/teams/[slug]/members)', 
       user: { uid: 'u-123', capabilities: ['*'] }
     } as any);
 
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 't-1',
+      slug: 'mon-nid'
+    } as any);
+
     const req = new Request('http://localhost/api/teams/mon-nid/members', {
       method: 'POST',
       body: JSON.stringify({ action: 'INVITE', userUid: 'target-123', capabilities: ['READ'] }),
@@ -97,8 +116,9 @@ describe('Route API : Membres et Recrutement (POST /api/teams/[slug]/members)', 
 
     expect(response.status).toBe(200);
     expect(json.success).toBe(true);
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TeamModel, 'mon-nid');
 
-    // 💥 Vérification de l'invalidation chirurgicale du cache
+    // 💥 Vérification de l'invalidation chirurgicale du cache en cascade
     expect(revalidateTag).toHaveBeenCalledWith('teams');
     expect(revalidateTag).toHaveBeenCalledWith('team-mon-nid');
     expect(revalidateTag).toHaveBeenCalledWith('teams-target-123');

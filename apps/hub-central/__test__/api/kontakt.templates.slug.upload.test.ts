@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '@/app/api/kontakt/templates/[slug]/upload/route';
 import { storageService } from '@/modules/storage/storage.service';
 import { NextResponse, NextRequest } from 'next/server';
+import { CVTemplateModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS MINIMAUX ET PRÉCIS
@@ -13,6 +14,18 @@ vi.mock('@/lib/api-guards', () => ({
     return await handler(req, context, mockUser);
   },
 }));
+
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    CVTemplateModel: {
+      findOne: vi.fn(),
+    },
+    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
+    findEntityBySlugOrUid: vi.fn(),
+  };
+});
 
 vi.mock('@/modules/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
@@ -40,8 +53,34 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
   });
 
+  it('doit échouer (403) si le template n\'appartient pas à l\'Oiseau', async () => {
+    global.__mockUser = { uid: 'u-intrus', capabilities: [] };
+
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 'tmpl_123',
+      authorUid: 'u-123'
+    } as any);
+
+    const formData = new FormData();
+    formData.append('file', new Blob(['content'], { type: 'image/jpeg' }), 'test.jpg');
+
+    const req = {
+      headers: { get: () => '127.0.0.1' },
+      formData: async () => formData,
+    } as unknown as NextRequest;
+
+    const res = await POST(req, { params: Promise.resolve({ slug: 'mon-template' }) });
+    
+    expect(res.status).toBe(403);
+  });
+
   it('doit réussir (201) l\'upload d\'un template, forger le Sceau SHA-256 et retourner les métadonnées', async () => {
     global.__mockUser = { uid: 'u-123' };
+
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 'tmpl_123',
+      authorUid: 'u-123'
+    } as any);
 
     const formData = new FormData();
     formData.append('file', new Blob(['content'], { type: 'image/jpeg' }), 'test.jpg');
@@ -60,10 +99,16 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
     expect(json.data.digitalSignature).toBeDefined();
     expect(typeof json.data.digitalSignature).toBe('string');
     expect(json.data.digitalSignature.length).toBe(64); // Validation de l'empreinte SHA-256
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(CVTemplateModel, 'mon-template');
   });
 
   it('DELETE - doit réussir (200) la purge', async () => {
     global.__mockUser = { uid: 'u-123' };
+
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 'tmpl_123',
+      authorUid: 'u-123'
+    } as any);
 
     const req = new Request('http://localhost/api/kontakt/templates/mon-template/upload?url=https://cdn.ilot/doc.pdf', {
       method: 'DELETE',
@@ -74,5 +119,6 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
 
     expect(res.status).toBe(200);
     expect(storageService.deleteFile).toHaveBeenCalledWith('mock-key');
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(CVTemplateModel, 'mon-template');
   });
 });

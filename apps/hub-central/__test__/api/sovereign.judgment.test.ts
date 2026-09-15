@@ -1,18 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '../../app/api/sovereign/judgment/route';
-import { OiseauModel } from '@ilot/infrastructure';
+import { POST } from '@/app/api/sovereign/judgment/route';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { CanopyJudgeEngine } from '@ilot/shared-core';
 
 // Mock global de l'infrastructure
-vi.mock('@ilot/infrastructure', () => ({
-    OiseauModel: {
-        findOne: vi.fn(),
-        updateOne: vi.fn(),
-    },
-    LedgerEntryModel: {
-        countDocuments: vi.fn().mockResolvedValue(0),
-    },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+    return {
+        ...actual,
+        OiseauModel: {
+            findOne: vi.fn(),
+            updateOne: vi.fn(),
+        },
+        LedgerEntryModel: {
+            countDocuments: vi.fn().mockResolvedValue(0),
+        },
+        // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
+        findEntityBySlugOrUid: vi.fn(),
+    };
+});
 
 // Mock des gardiens d'API (`withAura`)
 let mockUserCapabilities: string[] = ['*'];
@@ -68,7 +74,7 @@ describe('POST /api/sovereign/judgment (Le Tribunal de la Canopée)', () => {
     });
 
     it('🟢 doit prononcer le bannissement éternel si le profil est jugé indésirable', async () => {
-        vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockTargetOiseau);
+        vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockTargetOiseau);
 
         const req = new Request('http://localhost/api/sovereign/judgment', {
             method: 'POST',
@@ -83,12 +89,13 @@ describe('POST /api/sovereign/judgment (Le Tribunal de la Canopée)', () => {
         expect(json.success).toBe(true);
         expect(json.isBanned).toBe(true);
         expect(json.message).toContain('banni à vie');
+        expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'bird_target_99', { lean: false });
         expect(CanopyJudgeEngine.judgeAndExecute).toHaveBeenCalledTimes(1);
     });
 
     it('🟢 doit accorder le pardon souverain et lever le bannissement si l action est PARDON', async () => {
         mockTargetOiseau.isBanned = true;
-        vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockTargetOiseau);
+        vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockTargetOiseau);
 
         const req = new Request('http://localhost/api/sovereign/judgment', {
             method: 'POST',
@@ -104,10 +111,11 @@ describe('POST /api/sovereign/judgment (Le Tribunal de la Canopée)', () => {
         expect(json.message).toContain('libéré de sa stase');
         expect(mockTargetOiseau.isBanned).toBe(false);
         expect(mockTargetOiseau.save).toHaveBeenCalledTimes(1);
+        expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'bird_target_99', { lean: false });
     });
 
     it('🔴 doit renvoyer une erreur 404 si la cible du jugement est introuvable', async () => {
-        vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(null);
+        vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
         const req = new Request('http://localhost/api/sovereign/judgment', {
             method: 'POST',
@@ -121,5 +129,6 @@ describe('POST /api/sovereign/judgment (Le Tribunal de la Canopée)', () => {
         expect(response.status).toBe(404);
         expect(json.success).toBe(false);
         expect(json.error).toContain('Oiseau introuvable');
+        expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'bird_target_99', { lean: false });
     });
 });

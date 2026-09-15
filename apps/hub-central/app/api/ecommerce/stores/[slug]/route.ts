@@ -1,8 +1,7 @@
-// Fichier : app/api/stores/[slug]/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { StoreModel } from '@ilot/infrastructure';
+import { StoreModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { EcommerceOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
@@ -22,8 +21,14 @@ export const GET = withSilice(async (_req: Request, context: ApiContext) => {
       return NextResponse.json({ error: "Identifiant de boutique invalide." }, { status: 400 });
     }
          
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-    const store = await getCachedStore(slug);
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    
+    // Tentative via le cache, puis repli sur le helper unifié
+    let store = await getCachedStore(identifier);
+    if (!store) {
+      store = await findEntityBySlugOrUid(StoreModel, identifier);
+    }
+
     if (!store) {
       return NextResponse.json({ error: "Boutique introuvable dans la Silice." }, { status: 404 });
     }
@@ -43,20 +48,24 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, curren
     const sessionCaps = currentUser.capabilities || [];
     const resolvedParams = await context.params;
     const rawSlug = (resolvedParams as any)?.slug;
+
     if (!rawSlug) {
       return NextResponse.json({ error: "Identifiant de boutique invalide." }, { status: 400 });
     }
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-    const store = await StoreModel.findOne({ 
-       $or: [{ slug: slug }, { uid: slug }] 
-    });
+
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+    // 🔍 Utilisation de notre helper unifié (Slug ou UID)
+    const store: any = await findEntityBySlugOrUid(StoreModel, identifier);
     if (!store) {
       return NextResponse.json({ error: "Boutique introuvable." }, { status: 404 });
     }
+
     const signature: ActionSignature = {
       actorUid: userUid,
       capabilities: sessionCaps
     };
+
     const ecommerceOrch = new EcommerceOrchestrator();
     if (typeof (ecommerceOrch as any).dissolveStore === 'function') {
       await (ecommerceOrch as any).dissolveStore(store.uid, signature);
@@ -66,8 +75,12 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, curren
     
     // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('stores');
-    revalidateTag(`store-${slug}`);
+    revalidateTag(`store-${identifier}`);
     revalidateTag(`store-${store.uid}`);
+    if (store.slug) {
+      revalidateTag(`store-${store.slug}`);
+    }
+
     return NextResponse.json({ success: true, message: "La boutique a été dissoute de la matrice." }, { status: 200 });
   } catch (error: any) {
     console.error("  Erreur DELETE Store :", error);

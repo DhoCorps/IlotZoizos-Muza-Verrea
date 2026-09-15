@@ -22,12 +22,33 @@ vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb) => cb),
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  OrderModel: {
-    findOne: vi.fn(),
-  },
+vi.mock('@/lib/cache/ecommerce.cache', () => ({
+  getCachedOrder: vi.fn().mockResolvedValue(null),
 }));
+
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+}));
+
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    OrderModel: {
+      findOne: vi.fn(),
+    },
+    // 🪡 Helper unifié mocké robuste gérant le mode lean et non-lean
+    findEntityBySlugOrUid: vi.fn(async (model, identifier, options = { lean: true }) => {
+      const doc = await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] });
+      if (!doc) return null;
+      if (options.lean && typeof doc.lean === 'function') {
+        return await doc.lean();
+      }
+      return doc;
+    }),
+  };
+});
 
 declare global {
   var __mockUser: any;
@@ -89,6 +110,7 @@ describe('API Order [slug] (GET & PATCH)', () => {
         save: vi.fn().mockResolvedValue(true)
       };
 
+      // Pour la route PATCH (lean: false), findOne retourne directement le document Mongoose (mockOrderDoc)
       vi.mocked(OrderModel.findOne).mockResolvedValueOnce(mockOrderDoc as any);
 
       const req = new Request('http://localhost/api/orders/ord_123', {

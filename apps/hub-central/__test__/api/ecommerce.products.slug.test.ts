@@ -22,18 +22,35 @@ vi.mock('@/lib/slugify', () => ({
   slugify: vi.fn((val) => val),
 }));
 
+vi.mock('@/lib/cache/ecommerce.cache', () => ({
+  getCachedProduct: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
   unstable_cache: vi.fn((cb) => cb),
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  ProductModel: {
-    findOne: vi.fn(),
-    deleteOne: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    ProductModel: {
+      findOne: vi.fn(),
+      deleteOne: vi.fn(),
+    },
+    // Mock du helper unifié s'appuyant sur ProductModel.findOne
+    findEntityBySlugOrUid: vi.fn(async (model, identifier) => {
+      const doc = await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] });
+      if (!doc) return null;
+      if (typeof doc.lean === 'function') {
+        return await doc.lean();
+      }
+      return doc;
+    }),
+  };
+});
 
 vi.mock('@ilot/shared-core', () => ({
   EcommerceOrchestrator: vi.fn().mockImplementation(() => ({
@@ -91,10 +108,12 @@ describe('API Product [slug] (GET & DELETE)', () => {
     it('🟢 doit supprimer l\'artefact avec succès (200) et invalider le cache', async () => {
       global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
-      vi.mocked(ProductModel.findOne).mockResolvedValueOnce({
-        uid: 'prod_1',
-        slug: 'artefact-ancien',
-        storeUid: 'store_1'
+      vi.mocked(ProductModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({
+          uid: 'prod_1',
+          slug: 'artefact-ancien',
+          storeUid: 'store_1'
+        })
       } as any);
 
       const req = new Request('http://localhost/api/products/artefact-ancien', { method: 'DELETE' });

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse, NextRequest } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
@@ -6,13 +8,12 @@ import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { IlotError } from '@ilot/shared-core';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
-
-export const dynamic = 'force-dynamic';
+import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 
 // ==========================================
 // 📤 POST : Téléversement de média pour un Sujet avec Sceau SHA-256
 // ==========================================
-export const POST = withAura(async (req: NextRequest, context: ApiContext, _currentUser: OiseauUser) => {
+export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     // 1. Rate Limiting par IP
     const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
@@ -31,12 +32,35 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, _curr
       return NextResponse.json({ error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
     }
 
-    // 2. Résolution stricte et typée du slug
+    // 2. Résolution stricte et typée de l'identifiant
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    // 3. Récupération et validation du formulaire multipart
+    if (!identifier) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
+
+    // 🔍 3. Recherche unifiée pour récupérer le Sujet et valider son existence
+    let targetSujet: any;
+    try {
+      targetSujet = await findEntityBySlugOrUid(SujetModel, identifier);
+    } catch (err) {
+      return NextResponse.json({ error: "Erreur lors de la lecture de la Silice." }, { status: 500 });
+    }
+
+    if (!targetSujet) {
+      return NextResponse.json({ error: "Sujet introuvable." }, { status: 404 });
+    }
+
+    // 🛡️ Contrôle d'accès (Auteur ou Architecte)
+    const isAuthor = targetSujet.authorUid === currentUser.uid;
+    const isArchitect = currentUser.capabilities?.includes('*');
+    if (!isAuthor && !isArchitect) {
+      return NextResponse.json({ error: 'Tu ne peux modifier que tes propres monologues.' }, { status: 403 });
+    }
+
+    // 4. Récupération et validation du formulaire multipart
     let formData;
     try {
       formData = await req.formData();
@@ -73,7 +97,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, _curr
     const digitalSignature = generateFileHash(fileBuffer);
     const timestampedAt = new Date();
 
-    // 4. Génération de la clé structurée via la méthode unifiée en mode LEGACY
+    // 5. Génération de la clé structurée via la méthode unifiée en utilisant le véritable UID
     let structuredKey;
     try {
       structuredKey = storageService.generateKey({
@@ -81,7 +105,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, _curr
         inceptId: 'hub-central',
         locale: 'fr',
         entityType: 'projects',
-        entityId: slug,
+        entityId: targetSujet.uid, // Utilisation de l'UID robuste
         imageType: 'sujet_media',
         filename: file.name,
       });
@@ -113,9 +137,11 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, _curr
 
     // 💥 BOOM ! Invalidation chirurgicale du cache en cascade pour ce sujet
     revalidateTag('sujets');
-    revalidateTag(`sujet-${slug}`);
+    revalidateTag(`sujet-${identifier}`);
+    if (targetSujet.uid) revalidateTag(`sujet-${targetSujet.uid}`);
+    if (targetSujet.slug) revalidateTag(`sujet-${targetSujet.slug}`);
 
-    console.log(`📜 [Abyss] Média ancré pour le sujet [slug: ${slug}] : ${publicUrl}`);
+    console.log(`📜 [Abyss] Média ancré pour le sujet [uid: ${targetSujet.uid}] : ${publicUrl}`);
 
     return NextResponse.json({
       success: true,
@@ -138,14 +164,37 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, _curr
 // ==========================================
 // 🗑️ DELETE : Purge de média pour un Sujet
 // ==========================================
-export const DELETE = withAura(async (req: NextRequest, context: ApiContext, _currentUser: OiseauUser) => {
+export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 1. Résolution du slug
+    // 1. Résolution de l'identifiant
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    // 2. Extraction de l'URL du fichier depuis les paramètres de recherche
+    if (!identifier) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
+
+    // 🔍 2. Recherche unifiée pour valider les droits de suppression sur le Sujet
+    let targetSujet: any;
+    try {
+      targetSujet = await findEntityBySlugOrUid(SujetModel, identifier);
+    } catch (err) {
+      return NextResponse.json({ error: "Erreur lors de la lecture de la Silice." }, { status: 500 });
+    }
+
+    if (!targetSujet) {
+      return NextResponse.json({ error: "Sujet introuvable." }, { status: 404 });
+    }
+
+    // 🛡️ Contrôle d'accès
+    const isAuthor = targetSujet.authorUid === currentUser.uid;
+    const isArchitect = currentUser.capabilities?.includes('*');
+    if (!isAuthor && !isArchitect) {
+      return NextResponse.json({ error: 'Tu ne peux supprimer que tes propres monologues.' }, { status: 403 });
+    }
+
+    // 3. Extraction de l'URL du fichier depuis les paramètres de recherche
     let fileUrl;
     try {
       const { searchParams } = new URL(req.url);
@@ -159,7 +208,7 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, _cu
       return NextResponse.json({ error: "URL de l'artefact à purger manquante." }, { status: 400 });
     }
 
-    // 3. Extraction de la clé et désintégration du fichier
+    // 4. Extraction de la clé et désintégration du fichier
     let key;
     try {
       key = storageService.extractKeyFromUrl(fileUrl);
@@ -177,9 +226,11 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, _cu
 
     // 💥 BOOM ! Invalidation chirurgicale du cache
     revalidateTag('sujets');
-    revalidateTag(`sujet-${slug}`);
+    revalidateTag(`sujet-${identifier}`);
+    if (targetSujet.uid) revalidateTag(`sujet-${targetSujet.uid}`);
+    if (targetSujet.slug) revalidateTag(`sujet-${targetSujet.slug}`);
 
-    console.log(`🗑️ [Abyss] Média purgé pour le sujet [slug: ${slug}]`);
+    console.log(`🗑️ [Abyss] Média purgé pour le sujet [uid: ${targetSujet.uid}]`);
 
     return NextResponse.json({ success: true, message: 'Média désintégré du Nexus.' }, { status: 200 });
 

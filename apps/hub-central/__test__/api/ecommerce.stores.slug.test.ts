@@ -22,18 +22,35 @@ vi.mock('@/lib/slugify', () => ({
   slugify: vi.fn((val) => val),
 }));
 
+vi.mock('@/lib/cache/ecommerce.cache', () => ({
+  getCachedStore: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
   unstable_cache: vi.fn((cb) => cb),
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  StoreModel: {
-    findOne: vi.fn(),
-    deleteOne: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    StoreModel: {
+      findOne: vi.fn(),
+      deleteOne: vi.fn(),
+    },
+    // Mock du helper unifié s'appuyant sur StoreModel.findOne
+    findEntityBySlugOrUid: vi.fn(async (model, identifier) => {
+      const doc = await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] });
+      if (!doc) return null;
+      if (typeof doc.lean === 'function') {
+        return await doc.lean();
+      }
+      return doc;
+    }),
+  };
+});
 
 vi.mock('@ilot/shared-core', () => ({
   EcommerceOrchestrator: vi.fn().mockImplementation(() => ({
@@ -54,7 +71,7 @@ describe('API Store [slug] (GET & DELETE)', () => {
   describe('GET /api/stores/[slug]', () => {
     it('🟢 doit récupérer la boutique avec succès (200)', async () => {
       vi.mocked(StoreModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 'store_1', storeName: 'Ma Boutique' })
+        lean: vi.fn().mockResolvedValue({ uid: 'store_1', storeName: 'Ma Boutique', slug: 'ma-boutique' })
       } as any);
 
       const req = new Request('http://localhost/api/stores/ma-boutique');
@@ -90,9 +107,11 @@ describe('API Store [slug] (GET & DELETE)', () => {
     it('🟢 doit dissoudre la boutique avec succès (200) et invalider le cache', async () => {
       global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
-      vi.mocked(StoreModel.findOne).mockResolvedValueOnce({
-        uid: 'store_1',
-        slug: 'ma-boutique'
+      vi.mocked(StoreModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({
+          uid: 'store_1',
+          slug: 'ma-boutique'
+        })
       } as any);
 
       const req = new Request('http://localhost/api/stores/ma-boutique', { method: 'DELETE' });

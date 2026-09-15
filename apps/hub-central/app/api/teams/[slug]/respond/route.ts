@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { TeamModel, OiseauModel, ProjectModel, TaskModel, getNeo4jSession } from '@ilot/infrastructure'; 
+import { TeamModel, OiseauModel, ProjectModel, TaskModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure'; 
 import { TransactionManager } from '@ilot/shared-core';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
@@ -14,12 +14,7 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
   try {
     const userUid = currentUser.uid;
 
-    // 1. Résolution stricte et typée des paramètres de route
-    const resolvedParams = await context.params;
-    const rawSlug = resolvedParams?.slug;
-    const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-
-    // 2. Décodage sécurisé du corps de requête (JSON)
+    // 1. Décodage sécurisé et validation immédiate du corps de requête (avant toute IO)
     let body;
     try {
       body = await req.json();
@@ -33,17 +28,23 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
       return NextResponse.json({ error: "Mouvement invalide sur le Pacte." }, { status: 400 });
     }
 
-    // 3. Récupération du Nid dans la Silice
-    const team = await TeamModel.findOne({ 
-      $or: [{ slug: teamIdentifier }, { uid: teamIdentifier }] 
-    }).lean();
+    // 2. Résolution stricte et typée des paramètres de route
+    const resolvedParams = await context.params;
+    const rawSlug = resolvedParams?.slug;
+    const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
+    if (!teamIdentifier) {
+      return NextResponse.json({ error: "Identifiant de nid (slug) invalide." }, { status: 400 });
+    }
+
+    // 🔍 3. Résolution unifiée du Nid par slug ou UID via notre helper centralisé
+    const team: any = await findEntityBySlugOrUid(TeamModel, teamIdentifier);
     if (!team) {
       return NextResponse.json({ error: "Ce Nid s'est volatilisé de la Silice." }, { status: 404 });
     }
 
-    const teamUid = (team as any).uid;
-    const teamSlug = (team as any).slug;
+    const teamUid = team.uid;
+    const teamSlug = team.slug;
 
     // 4. Validation de l'invitation dans le Graphe Neo4j
     const neoSession = getNeo4jSession();
@@ -87,7 +88,7 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
 
           await OiseauModel.findOneAndUpdate(
             { uid: userUid },
-            { $addToSet: { teams: (team as any)._id } }, 
+            { $addToSet: { teams: team._id } }, 
             { session: mongoSession }
           );
         } else if (action === 'PURGE_REFUSE') {
@@ -130,13 +131,14 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
       return NextResponse.json({ error: txErr.message || "Échec de l'application du pacte." }, { status });
     }
 
-    // 💥 BOOM ! Invalidation chirurgicale du cache (profil utilisateur et nids)
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
     revalidateTag(`teams-${userUid}`);
     revalidateTag('teams');
     revalidateTag(`team-${teamIdentifier}`);
     if (teamSlug) revalidateTag(`team-${teamSlug}`);
+    if (team.uid) revalidateTag(`team-${team.uid}`);
 
-    const teamName = (team as any).name || 'Nid';
+    const teamName = team.name || 'Nid';
 
     return NextResponse.json({ 
       success: true, 

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { TeamModel, getNeo4jSession } from "@ilot/infrastructure"; 
+import { TeamModel, findEntityBySlugOrUid, getNeo4jSession } from "@ilot/infrastructure"; 
 import { TeamOrchestrator } from "@ilot/shared-core";
 import { CAPABILITIES, ActionSignature } from "@ilot/types";
 import { unstable_cache, revalidateTag } from 'next/cache';
@@ -64,12 +64,11 @@ async function getCapabilities(userUid: string, teamUid: string): Promise<string
 const getCachedTeamDetails = (teamIdentifier: string, userUid: string) => {
   return unstable_cache(
     async () => {
-      const team = await TeamModel.findOne({ 
-        $or: [{ slug: teamIdentifier }, { uid: teamIdentifier }] 
-      }).lean();
+      // 🔍 Utilisation de notre helper unifié
+      const team: any = await findEntityBySlugOrUid(TeamModel, teamIdentifier);
 
       if (!team) return null;
-      const teamUid = (team as any).uid;
+      const teamUid = team.uid;
 
       const caps = await getCapabilities(userUid, teamUid);
 
@@ -117,6 +116,10 @@ export const GET = withAura(async (req: Request, context: ApiContext, currentUse
     const rawSlug = resolvedParams?.slug;
     const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
+    if (!teamIdentifier) {
+      return NextResponse.json({ error: "Identifiant de nid (slug) invalide." }, { status: 400 });
+    }
+
     // ⚡ Appel au cache chirurgical
     const data = await getCachedTeamDetails(teamIdentifier, currentUser.uid);
 
@@ -151,13 +154,16 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     const rawSlug = resolvedParams?.slug;
     const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    const team = await TeamModel.findOne({ 
-      $or: [{ slug: teamIdentifier }, { uid: teamIdentifier }] 
-    }).lean();
+    if (!teamIdentifier) {
+      return NextResponse.json({ error: "Identifiant de nid (slug) invalide." }, { status: 400 });
+    }
 
+    // 🔍 Résolution unifiée de l'équipe
+    const team: any = await findEntityBySlugOrUid(TeamModel, teamIdentifier);
     if (!team) return NextResponse.json({ error: "Nid introuvable." }, { status: 404 });
-    const teamUid = (team as any).uid;
-    const teamSlug = (team as any).slug;
+
+    const teamUid = team.uid;
+    const teamSlug = team.slug;
 
     const caps = await getCapabilities(currentUser.uid, teamUid);
     
@@ -187,10 +193,11 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
       return NextResponse.json({ error: orchErr.message || "Échec de mutation du Nid." }, { status });
     }
 
-    // 💥 BOOM ! Invalidation des caches de ce Nid
+    // 💥 BOOM ! Invalidation des caches de ce Nid en cascade
     revalidateTag('teams');
     revalidateTag(`team-${teamIdentifier}`);
     if (teamSlug) revalidateTag(`team-${teamSlug}`);
+    if (team.uid) revalidateTag(`team-${team.uid}`);
 
     return NextResponse.json(updatedTeam, { status: 200 });
 
@@ -210,13 +217,16 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
     const rawSlug = resolvedParams?.slug;
     const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    const team = await TeamModel.findOne({ 
-      $or: [{ slug: teamIdentifier }, { uid: teamIdentifier }] 
-    }).lean();
+    if (!teamIdentifier) {
+      return NextResponse.json({ error: "Identifiant de nid (slug) invalide." }, { status: 400 });
+    }
 
+    // 🔍 Résolution unifiée de l'équipe
+    const team: any = await findEntityBySlugOrUid(TeamModel, teamIdentifier);
     if (!team) return NextResponse.json({ error: "Nid introuvable." }, { status: 404 });
-    const teamUid = (team as any).uid;
-    const teamSlug = (team as any).slug;
+
+    const teamUid = team.uid;
+    const teamSlug = team.slug;
 
     const caps = await getCapabilities(currentUser.uid, teamUid);
     
@@ -238,10 +248,11 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
       return NextResponse.json({ error: orchErr.message || "Échec de dissolution du Nid." }, { status });
     }
 
-    // 💥 BOOM ! Dissolution : Invalidation globale et spécifique
+    // 💥 BOOM ! Dissolution : Invalidation globale et spécifique en cascade
     revalidateTag('teams');
     revalidateTag(`team-${teamIdentifier}`);
     if (teamSlug) revalidateTag(`team-${teamSlug}`);
+    if (team.uid) revalidateTag(`team-${team.uid}`);
 
     return NextResponse.json({ 
       message: "Le Nid a été dissous. Les oiseaux ont pris leur envol." 

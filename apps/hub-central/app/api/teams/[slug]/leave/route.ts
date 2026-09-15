@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { TeamModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TeamOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
@@ -17,7 +18,17 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
     const rawSlug = resolvedParams?.slug;
     const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    // 2. Décodage du protocole mémoriel (corps JSON)
+    if (!teamIdentifier) {
+      return NextResponse.json({ error: "Identifiant de nid (slug) invalide." }, { status: 400 });
+    }
+
+    // 🔍 2. Résolution unifiée du Nid par slug ou UID via notre helper centralisé
+    const team: any = await findEntityBySlugOrUid(TeamModel, teamIdentifier);
+    if (!team) {
+      return NextResponse.json({ error: "Nid introuvable dans la Silice." }, { status: 404 });
+    }
+
+    // 3. Décodage du protocole mémoriel (corps JSON)
     let body;
     try {
         body = await req.json();
@@ -33,26 +44,28 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
       }, { status: 400 });
     }
 
-    // 3. Forge de la Signature d'Action à partir de l'Aura courante
+    // 4. Forge de la Signature d'Action à partir de l'Aura courante
     const signature: ActionSignature = {
       actorUid: currentUser.uid,
       capabilities: currentUser.capabilities || []
     };
 
-    // 4. Exécution du détachement via l'orchestrateur
+    // 5. Exécution du détachement via l'orchestrateur en ciblant l'UID officiel du Nid
     let result;
     try {
       const orchestrator = new TeamOrchestrator();
-      result = await orchestrator.leaveTeam(teamIdentifier, currentUser.uid, mode, signature);
+      result = await orchestrator.leaveTeam(team.uid, currentUser.uid, mode, signature);
     } catch (orchErr: any) {
       console.error("🌋 [TEAM ORCHESTRATOR LEAVE ERROR]", orchErr);
       const status = orchErr.status || orchErr.statusCode || 500;
       return NextResponse.json({ error: orchErr.message || "Erreur interne lors de la séparation." }, { status });
     }
     
-    // 💥 BOOM ! Invalidation chirurgicale du cache (Nids généraux, ce Nid spécifique et le profil de l'oiseau)
+    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
     revalidateTag('teams');
     revalidateTag(`team-${teamIdentifier}`);
+    if (team.slug) revalidateTag(`team-${team.slug}`);
+    if (team.uid) revalidateTag(`team-${team.uid}`);
     revalidateTag(`teams-${currentUser.uid}`);
     revalidateTag(`profile-${currentUser.uid}`);
 

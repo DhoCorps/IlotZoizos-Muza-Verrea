@@ -1,8 +1,7 @@
-// app/api/reports/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { OiseauModel, ReportModel } from '@ilot/infrastructure';
+import { OiseauModel, ReportModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { v4 as uuidv4 } from 'uuid';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards'; // Bouclier souverain strict
@@ -12,7 +11,8 @@ import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards'; // Bouclier
 // ==========================================
 export const GET = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const oiseau = await OiseauModel.findOne({ uid: currentUser.uid }).lean();
+    // 🔍 Résolution unifiée de l'Oiseau connecté
+    const oiseau: any = await findEntityBySlugOrUid(OiseauModel, currentUser.uid);
     if (!oiseau) {
       return NextResponse.json({ error: "Oiseau introuvable dans la matrice." }, { status: 404 });
     }
@@ -21,7 +21,7 @@ export const GET = withAura(async (req: Request, _context: ApiContext, currentUs
     const isAdmin = currentUser.capabilities?.includes('*');
     const query = isAdmin 
       ? {} 
-      : { $or: [{ reporter: (oiseau as any)._id }, { reportedUser: (oiseau as any)._id }] };
+      : { $or: [{ reporter: oiseau._id }, { reportedUser: oiseau._id }] };
 
     const reports = await ReportModel.find(query)
       .sort({ createdAt: -1 })
@@ -51,23 +51,21 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       return NextResponse.json({ error: "Paramètres incomplets. Une cible et un motif sont requis." }, { status: 400 });
     }
 
-    // 1. Résolution stricte de l'accusé
-    const targetUser = await OiseauModel.findOne({
-      $or: [{ slug: targetIdentifier }, { uid: targetIdentifier }, { pseudo: targetIdentifier }]
-    }).lean();
+    // 🔍 1. Résolution stricte et unifiée de l'accusé
+    const targetUser: any = await findEntityBySlugOrUid(OiseauModel, targetIdentifier);
 
     if (!targetUser) {
       return NextResponse.json({ error: "L'Oiseau signalé est introuvable dans la Silice." }, { status: 404 });
     }
 
-    // 2. Résolution du plaignant
-    const reporter = await OiseauModel.findOne({ uid: currentUser.uid }).lean();
+    // 🔍 2. Résolution unifiée du plaignant
+    const reporter: any = await findEntityBySlugOrUid(OiseauModel, currentUser.uid);
     if (!reporter) {
       return NextResponse.json({ error: "Oiseau plaignant introuvable." }, { status: 404 });
     }
 
     // 3. Empêcher l'auto-signalement
-    if ((targetUser as any).uid === currentUser.uid) {
+    if (targetUser.uid === currentUser.uid) {
       return NextResponse.json({ error: "Souveraineté paradoxale : On ne peut pas se signaler soi-même." }, { status: 400 });
     }
 
@@ -75,17 +73,17 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     const reportUid = `report_${uuidv4()}`;
     const newReport = await ReportModel.create({
       uid: reportUid, 
-      reporter: (reporter as any)._id,
-      reportedUser: (targetUser as any)._id,
+      reporter: reporter._id,
+      reportedUser: targetUser._id,
       reason: reason.substring(0, 1000), // Sécurité de longueur selon le schéma
       status: 'mediation', // Ouvre d'abord le sas de médiation avant le jugement !
       mediationLog: []
     });
 
-    // 💥 Invalidation chirurgicale du cache
+    // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('reports');
     revalidateTag(`user-reports-${currentUser.uid}`);
-    revalidateTag(`user-reports-${(targetUser as any).uid}`);
+    revalidateTag(`user-reports-${targetUser.uid}`);
 
     return NextResponse.json({
       success: true,

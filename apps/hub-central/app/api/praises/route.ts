@@ -1,8 +1,7 @@
-// app/api/praises/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { OiseauModel, PraiseModel } from '@ilot/infrastructure';
+import { OiseauModel, PraiseModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { syncUniversalInteraction } from '@ilot/infrastructure'; // Ou le chemin relatif vers neo4j.sync.service
@@ -16,16 +15,15 @@ export const GET = withAura(async (req: Request, _context: ApiContext, currentUs
     // On consulte soit la cible demandée, soit soi-même par défaut
     const targetIdentifier = url.searchParams.get('targetUid') || currentUser.uid;
 
-    const targetUser = await OiseauModel.findOne({
-      $or: [{ slug: targetIdentifier }, { uid: targetIdentifier }, { pseudo: targetIdentifier }]
-    }).lean();
+    // 🔍 Résolution unifiée de l'Oiseau ciblé
+    const targetUser: any = await findEntityBySlugOrUid(OiseauModel, targetIdentifier);
 
     if (!targetUser) {
       return NextResponse.json({ error: "L'Oiseau ciblé est introuvable." }, { status: 404 });
     }
 
     // Récupération des éloges avec les infos des auteurs
-    const praises = await PraiseModel.find({ recipient: (targetUser as any)._id })
+    const praises = await PraiseModel.find({ recipient: targetUser._id })
       .sort({ createdAt: -1 })
       .populate('author', 'uid pseudo avatarUrl')
       .lean();
@@ -58,22 +56,19 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       return NextResponse.json({ error: "L'éloge est trop long (500 caractères maximum)." }, { status: 400 });
     }
 
-    // 1. Résolution de l'expéditeur
-    const author = await OiseauModel.findOne({ uid: currentUser.uid }).lean();
+    // 🔍 1. Résolution unifiée de l'expéditeur
+    const author: any = await findEntityBySlugOrUid(OiseauModel, currentUser.uid);
     if (!author) {
       return NextResponse.json({ error: "Auteur introuvable." }, { status: 404 });
     }
 
-    // 2. Résolution de la cible
-    const recipient = await OiseauModel.findOne({
-      $or: [{ slug: targetIdentifier }, { uid: targetIdentifier }, { pseudo: targetIdentifier }]
-    }).lean();
-
+    // 🔍 2. Résolution unifiée de la cible
+    const recipient: any = await findEntityBySlugOrUid(OiseauModel, targetIdentifier);
     if (!recipient) {
       return NextResponse.json({ error: "L'Oiseau ciblé est introuvable." }, { status: 404 });
     }
 
-    const targetCanonicalUid = (recipient as any).uid;
+    const targetCanonicalUid = recipient.uid;
 
     // 3. Verrou d'humilité : Pas d'auto-éloge !
     if (targetCanonicalUid === currentUser.uid) {
@@ -82,22 +77,22 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
 
     // 4. Sédimentation de l'éloge
     const newPraise = await PraiseModel.create({
-      author: (author as any)._id,
-      recipient: (recipient as any)._id,
+      author: author._id,
+      recipient: recipient._id,
       text,
       type
     });
 
     // 5. Alimentation du Bouclier Karmique : on incrémente le compteur de la cible
     await OiseauModel.findOneAndUpdate(
-      { _id: (recipient as any)._id },
+      { _id: recipient._id },
       { $inc: { praisesCount: 1 } }
     );
 
     // 6. 🕸️ Tissage de la toile universelle en arrière-plan (Fire & Forget)
     syncUniversalInteraction(currentUser.uid, targetCanonicalUid, 'PRAISE').catch(console.error);
 
-    // 💥 Invalidation chirurgicale du cache
+    // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('praises');
     revalidateTag(`praises-${targetCanonicalUid}`);
     revalidateTag(`profile-${targetCanonicalUid}`); // Car le compteur praisesCount a changé !

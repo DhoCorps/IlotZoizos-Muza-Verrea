@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { TeamModel } from '@ilot/infrastructure';
+import { TeamModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '@ilot/shared-core';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
@@ -17,27 +17,29 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
     const rawSlug = resolvedParams?.slug;
     const rawTargetUid = resolvedParams?.targetUid;
 
-    const teamSlug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-    const targetUid = typeof rawTargetUid === 'string' ? rawTargetUid : Array.isArray(rawTargetUid) ? rawTargetUid[0] : '';
+    const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const targetUid = typeof rawTargetUid === 'string' ? rawTargetUid.trim() : Array.isArray(rawTargetUid) ? rawTargetUid[0]?.trim() : '';
+
+    if (!teamIdentifier) {
+      return NextResponse.json({ error: "Identifiant de nid (slug) invalide." }, { status: 400 });
+    }
 
     if (!targetUid) {
       return NextResponse.json({ error: "UID cible (targetUid) manquant dans la route." }, { status: 400 });
     }
 
-    // 2. Récupération du Nid dans la Silice
-    const team = await TeamModel.findOne({ 
-      $or: [{ slug: teamSlug }, { uid: teamSlug }] 
-    }).lean();
+    // 🔍 2. Récupération unifiée du Nid dans la Silice via notre helper centralisé (Slug ou UID)
+    const team: any = await findEntityBySlugOrUid(TeamModel, teamIdentifier);
 
     if (!team) {
       return NextResponse.json({ error: "Nid introuvable dans la Silice." }, { status: 404 });
     }
 
-    const teamId = (team as any).uid;
-    const teamRealSlug = (team as any).slug;
+    const teamId = team.uid;
+    const teamRealSlug = team.slug;
 
     // 3. 🛡️ DOUBLE VERROU DE GOUVERNANCE (Propriétaire du Nid ou Architecte global)
-    const isNestOwner = (team as any).ownerUid === currentUser.uid;
+    const isNestOwner = team.ownerUid === currentUser.uid;
     const isArchitect = currentUser.capabilities?.includes('*') || false;
 
     if (!isNestOwner && !isArchitect) {
@@ -46,9 +48,9 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
       }, { status: 403 });
     }
 
-    // 4. Exécution transactionnelle de la révocation (Mongo / Neo4j)
+    // 4. Exécution transactionnelle de la révocation (Mongo / Neo4j) en utilisant le targetUid validé
     try {
-      await TransactionManager.execute("Révocation d'Invitation", async (mongoSession, neo4jTx) => {
+      await TransactionManager.execute("Révocation d'Invitation", async (_mongoSession, neo4jTx) => {
         const cypherRevoke = `
           MATCH (u:User {uid: $targetUid})-[r:INVITED_TO]->(t:Team {uid: $teamId})
           DELETE r
@@ -71,7 +73,7 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
 
     // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
     revalidateTag('teams');
-    revalidateTag(`team-${teamSlug}`);
+    revalidateTag(`team-${teamIdentifier}`);
     if (teamRealSlug) revalidateTag(`team-${teamRealSlug}`);
     revalidateTag(`teams-${targetUid}`);
 

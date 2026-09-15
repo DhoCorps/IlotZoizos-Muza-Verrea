@@ -1,13 +1,12 @@
-// Fichier : app/api/barter/[slug]/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
+import { BarterOfferModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { EcommerceOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
-import { getCachedBarterOffer } from '@/lib/cache/ecommerce.cache';
 
 // ==========================================
 // GET : Ausculter une offre (Public / Silice)
@@ -15,11 +14,13 @@ import { getCachedBarterOffer } from '@/lib/cache/ecommerce.cache';
 export const GET = withSilice(async (_req: Request, context: ApiContext) => {
   try {
     const resolvedParams = await context.params;
-    const slug = (resolvedParams as any)?.slug;
+    const rawSlug = (resolvedParams as any)?.slug;
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
          
-    if (!slug) return NextResponse.json({ error: "Identifiant d'offre invalide." }, { status: 400 });
+    if (!identifier) return NextResponse.json({ error: "Identifiant d'offre invalide." }, { status: 400 });
          
-    const barter = await getCachedBarterOffer(slugify(slug));
+    // 🔍 Utilisation de notre helper unifié (Slug ou UID)
+    const barter = await findEntityBySlugOrUid(BarterOfferModel, identifier);
     if (!barter) return NextResponse.json({ error: "Offre introuvable." }, { status: 404 });
          
     return NextResponse.json(barter, { status: 200 });
@@ -37,8 +38,14 @@ export const PATCH = withAura(async (req: Request, context: ApiContext, currentU
     if (!body) return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     
     const resolvedParams = await context.params;
-    const slug = slugify((resolvedParams as any)?.slug || '');
+    const rawSlug = (resolvedParams as any)?.slug;
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
     
+    if (!identifier) return NextResponse.json({ error: "Identifiant d'offre invalide." }, { status: 400 });
+
+    const barter = await findEntityBySlugOrUid(BarterOfferModel, identifier);
+    if (!barter) return NextResponse.json({ error: "Offre introuvable." }, { status: 404 });
+
     const signature: ActionSignature = {
       actorUid: currentUser.uid,
       capabilities: currentUser.capabilities || []
@@ -46,14 +53,16 @@ export const PATCH = withAura(async (req: Request, context: ApiContext, currentU
     
     const orchestrator = new EcommerceOrchestrator();
     const result = await orchestrator.resolveBarter({
-      barterUid: slug,
+      barterUid: (barter as any).uid || identifier,
       acceptorUid: currentUser.uid,
       status: body.status || (body.action === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED')
     }, signature);
     
     // Invalidation
     revalidateTag('barter-offers');
-    revalidateTag(`barter-${slug}`);
+    revalidateTag(`barter-${identifier}`);
+    revalidateTag(`barter-${(barter as any).uid}`);
+    
     return NextResponse.json({ success: true, data: result }, { status: 200 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Échec de résolution." }, { status: error.statusCode || 500 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '@/app/api/tasks/[slug]/upload/route';
-import { TaskModel } from '@ilot/infrastructure';
+import { TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { revalidateTag } from 'next/cache';
@@ -23,18 +23,28 @@ vi.mock('@/lib/api-guards', () => ({
   },
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  TaskModel: {
-    findOne: vi.fn(),
-    findOneAndUpdate: vi.fn().mockResolvedValue(true),
-    updateOne: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
-  },
-  getNeo4jSession: vi.fn(),
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    TaskModel: {
+      findOne: vi.fn(),
+      findOneAndUpdate: vi.fn().mockResolvedValue(true),
+      updateOne: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
+    },
+    getNeo4jSession: vi.fn(),
+    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
+    findEntityBySlugOrUid: vi.fn(),
+  };
+});
 
 vi.mock('@/modules/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
+}));
+
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 declare global {
@@ -79,9 +89,7 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
 
     it('doit renvoyer (404) si l\'atome/tâche est introuvable', async () => {
       global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
-      vi.mocked(TaskModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue(null),
-      } as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
       const req = {
         headers: { get: () => '127.0.0.1' },
@@ -94,13 +102,16 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
       expect(res.status).toBe(404);
       expect(data.success).toBe(false);
       expect(data.message).toContain('Atome introuvable');
+      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TaskModel, 'inconnue');
     });
 
     it('doit téléverser un fichier valide, générer le Sceau SHA-256, l\'ajouter à l\'atome et invalider le cache (201)', async () => {
       global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
-      vi.mocked(TaskModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 'task_123', slug: 'ma-tache', name: 'Ma Tâche' }),
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+        uid: 'task_123',
+        slug: 'ma-tache',
+        name: 'Ma Tâche'
       } as any);
 
       const formData = new FormData();
@@ -120,6 +131,7 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
       expect(data.digitalSignature).toBeDefined();
       expect(typeof data.digitalSignature).toBe('string');
       expect(data.digitalSignature.length).toBe(64); // Vérification du hash SHA-256
+      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TaskModel, 'ma-tache');
       expect(revalidateTag).toHaveBeenCalledWith('task-ma-tache');
     });
   });
@@ -128,8 +140,9 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
     it('doit supprimer l\'artefact du stockage et de la Silice, puis invalider le cache (200)', async () => {
       global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
-      vi.mocked(TaskModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 'task_123', slug: 'ma-tache' }),
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+        uid: 'task_123',
+        slug: 'ma-tache'
       } as any);
 
       const req = new Request('http://localhost/api/tasks/ma-tache/artifacts', {
@@ -143,6 +156,7 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
 
       expect(res.status).toBe(200);
       expect(data.success).toBe(true);
+      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TaskModel, 'ma-tache');
       expect(storageService.extractKeyFromUrl).toHaveBeenCalledWith('https://cdn.ilot/doc.pdf');
       expect(storageService.deleteFile).toHaveBeenCalledWith('mock-key');
       expect(revalidateTag).toHaveBeenCalledWith('task-ma-tache');

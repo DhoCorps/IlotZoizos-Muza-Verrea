@@ -1,8 +1,8 @@
-// Fichier : app/api/projects/[slug]/route.ts
 import { NextResponse } from 'next/server';
 import { ProjectOrchestrator } from '@ilot/shared-core';
-import { ProjectModel, getNeo4jSession } from '@ilot/infrastructure';
+import { ProjectModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
+import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { getCachedProjectDetails } from '@/lib/cache/projects.cache';
@@ -18,7 +18,7 @@ async function getProjectCapabilities(userUid: string | undefined, projectUid: s
        OPTIONAL MATCH (u)-[rDirect:CONTRIBUTES_TO|OWNER_OF]->(p:Project {uid: $projectUid})
        OPTIONAL MATCH (u)-[rTeam:MEMBER_OF|OWNER_OF|INVITED_TO]->(t:Team)-[:HAS_PROJECT]->(p:Project {uid: $projectUid})
        WITH collect(rDirect.capabilities) + collect(rTeam.capabilities) AS compiledCaps,
-             collect(type(rTeam)) AS relTypes
+            collect(type(rTeam)) AS relTypes
        RETURN DISTINCT compiledCaps, relTypes`,
       { userUid, projectUid }
     );
@@ -46,27 +46,33 @@ async function getProjectCapabilities(userUid: string | undefined, projectUid: s
 export const GET = withOptionalAura(async (req: Request, context: ApiContext, currentUser?: OiseauUser) => {
   try {
     const resolvedParams = await context.params;
-    const projectId = typeof resolvedParams?.projectId === 'string'
+    const rawProjectId = typeof resolvedParams?.projectId === 'string'
        ? resolvedParams.projectId
        : Array.isArray(resolvedParams?.projectId)
          ? resolvedParams.projectId[0]
          : '';
          
-    if (!projectId) {
+    const identifier = slugify(rawProjectId);
+    if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
     
-    const project = await getCachedProjectDetails(projectId);
+    // Tentative via le cache, puis repli sur le helper unifié si nécessaire
+    let project: any = await getCachedProjectDetails(identifier);
+    if (!project) {
+      project = await findEntityBySlugOrUid(ProjectModel, identifier);
+    }
+
     if (!project) {
       return NextResponse.json({ error: "Chantier introuvable." }, { status: 404 });
     }
     
     const userUid = currentUser?.uid;
     const sessionCaps = currentUser?.capabilities || [];
-    const { hasAccess, capabilities } = await getProjectCapabilities(userUid, projectId);
+    const { hasAccess, capabilities } = await getProjectCapabilities(userUid, project.uid || identifier);
     const mergedCaps = [...new Set([...capabilities, ...sessionCaps])];
-    const isPublic = (project as any).visibility === 'PUBLIC' || (project as any).visibility === 'OPEN_SOURCE';
-    const hasReadPermission = mergedCaps.includes('project:read') || mergedCaps.includes('*') || (project as any).creatorUid === userUid;
+    const isPublic = project.visibility === 'PUBLIC' || project.visibility === 'OPEN_SOURCE';
+    const hasReadPermission = mergedCaps.includes('project:read') || mergedCaps.includes('*') || project.creatorUid === userUid;
     
     if (!isPublic && !hasAccess && !hasReadPermission) {
       return NextResponse.json({ error: "Ce chantier est protégé. L'accès t'est refusé." }, { status: 403 });
@@ -84,26 +90,28 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
 export const PUT = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
     const resolvedParams = await context.params;
-    const projectId = typeof resolvedParams?.projectId === 'string'
+    const rawProjectId = typeof resolvedParams?.projectId === 'string'
        ? resolvedParams.projectId
        : Array.isArray(resolvedParams?.projectId)
          ? resolvedParams.projectId[0]
          : '';
          
-    if (!projectId) {
+    const identifier = slugify(rawProjectId);
+    if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
     
     const userUid = currentUser.uid;
     const sessionCaps = currentUser.capabilities || [];
-    const { capabilities } = await getProjectCapabilities(userUid, projectId);
+    
+    // 🔍 Recherche unifiée pour récupérer le projet et son véritable UID pour Neo4j
+    const projectCheck: any = await findEntityBySlugOrUid(ProjectModel, identifier);
+    const targetUid = projectCheck?.uid || identifier;
+
+    const { capabilities } = await getProjectCapabilities(userUid, targetUid);
     const mergedCaps = [...new Set([...capabilities, ...sessionCaps])];
-    let projectCheck;
-    try {
-      projectCheck = await ProjectModel.findOne({ uid: projectId }).lean();
-    } catch(e) {}
          
-    const isCreator = (projectCheck as any)?.creatorUid === userUid;
+    const isCreator = projectCheck?.creatorUid === userUid;
     const canUpdate = mergedCaps.includes(CAPABILITIES.SYSTEM.ALL) || mergedCaps.includes(CAPABILITIES.PROJECT.UPDATE) || mergedCaps.includes('*') || isCreator;
          
     if (!canUpdate) {
@@ -122,16 +130,23 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     try {
       const projectOrch = new ProjectOrchestrator();
       if (body.newFiles && Array.isArray(body.newFiles)) {
-        await projectOrch.appendFiles(projectId, body.newFiles, signature);
+        await projectOrch.appendFiles(targetUid, body.newFiles, signature);
         delete body.newFiles;
       }
-      updatedProject = await projectOrch.mutateProject(projectId, body, signature);
+      updatedProject = await projectOrch.mutateProject(targetUid, body, signature);
     } catch (orchErr: any) {
       return NextResponse.json({ error: orchErr.message || "Impossible de muter le projet." }, { status: orchErr.statusCode || orchErr.status || 500 });
     }
     
     revalidateTag('projects');
-    revalidateTag(`project-${projectId}`);
+    revalidateTag(`project-${identifier}`);
+    if (projectCheck?.uid) {
+      revalidateTag(`project-${projectCheck.uid}`);
+    }
+    if (projectCheck?.slug) {
+      revalidateTag(`project-${projectCheck.slug}`);
+    }
+
     return NextResponse.json(updatedProject, { status: 200 });
   } catch (error: any) {
     console.error("  Erreur globale PUT Project:", error);
@@ -145,26 +160,28 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
 export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
     const resolvedParams = await context.params;
-    const projectId = typeof resolvedParams?.projectId === 'string'
+    const rawProjectId = typeof resolvedParams?.projectId === 'string'
        ? resolvedParams.projectId
        : Array.isArray(resolvedParams?.projectId)
          ? resolvedParams.projectId[0]
          : '';
          
-    if (!projectId) {
+    const identifier = slugify(rawProjectId);
+    if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
     
     const userUid = currentUser.uid;
     const sessionCaps = currentUser.capabilities || [];
-    const { capabilities } = await getProjectCapabilities(userUid, projectId);
+
+    // 🔍 Recherche unifiée pour récupérer le projet et son véritable UID
+    const projectCheck: any = await findEntityBySlugOrUid(ProjectModel, identifier);
+    const targetUid = projectCheck?.uid || identifier;
+
+    const { capabilities } = await getProjectCapabilities(userUid, targetUid);
     const mergedCaps = [...new Set([...capabilities, ...sessionCaps])];
-    let projectCheck;
-    try {
-      projectCheck = await ProjectModel.findOne({ uid: projectId }).lean();
-    } catch(e) {}
          
-    const isCreator = (projectCheck as any)?.creatorUid === userUid;
+    const isCreator = projectCheck?.creatorUid === userUid;
     const canDelete = mergedCaps.includes(CAPABILITIES.SYSTEM.ALL) || mergedCaps.includes(CAPABILITIES.PROJECT.DELETE) || mergedCaps.includes('*') || isCreator;
     
     if (!canDelete) {
@@ -174,13 +191,20 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
     const signature: ActionSignature = { actorUid: userUid, capabilities: mergedCaps };
     try {
       const projectOrch = new ProjectOrchestrator();
-      await projectOrch.dissolveProject(projectId, signature);
+      await projectOrch.dissolveProject(targetUid, signature);
     } catch (orchErr: any) {
       return NextResponse.json({ error: orchErr.message || "Le rituel a échoué." }, { status: orchErr.statusCode || orchErr.status || 500 });
     }
          
     revalidateTag('projects');
-    revalidateTag(`project-${projectId}`);
+    revalidateTag(`project-${identifier}`);
+    if (projectCheck?.uid) {
+      revalidateTag(`project-${projectCheck.uid}`);
+    }
+    if (projectCheck?.slug) {
+      revalidateTag(`project-${projectCheck.slug}`);
+    }
+
     return NextResponse.json({ message: "L'œuvre est retournée au silence.", status: "dissolved" }, { status: 200 });
   } catch (error: any) {
     console.error("  Erreur globale DELETE Project:", error);

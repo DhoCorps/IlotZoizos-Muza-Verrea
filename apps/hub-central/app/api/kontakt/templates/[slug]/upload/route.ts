@@ -4,6 +4,7 @@ import { NextResponse, NextRequest } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
 import { IlotError } from '@ilot/shared-core';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
+import { CVTemplateModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
@@ -11,7 +12,7 @@ import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 
 // ==========================================
 // 🚀 POST : Téléverser un aperçu graphique sur R2 avec Sceau SHA-256
 // ==========================================
-export const POST = withAura(async (req: NextRequest | Request, context: ApiContext, _currentUser: OiseauUser) => {
+export const POST = withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
     const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
     
@@ -32,10 +33,24 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
 
     const resolvedParams = await context.params;
     const rawSlug = (resolvedParams as any)?.slug;
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    if (!slug) {
+    if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
+
+    // 🔍 Résolution unifiée pour s'assurer de l'existence et récupérer le véritable UID
+    const template: any = await findEntityBySlugOrUid(CVTemplateModel, identifier);
+    
+    if (!template) {
+      return NextResponse.json({ error: "Parchemin introuvable dans la matrice." }, { status: 404 });
+    }
+
+    // 🛡️ Contrôle de souveraineté strict
+    const isOwner = template.authorUid === currentUser.uid;
+    const isArchitect = currentUser.capabilities?.includes('*');
+    if (!isOwner && !isArchitect) {
+      return NextResponse.json({ error: "Souveraineté violée : tu ne peux altérer ce parchemin." }, { status: 403 });
     }
 
     const formData = await req.formData().catch(() => null);
@@ -71,13 +86,13 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
     const digitalSignature = generateFileHash(fileBuffer);
     const timestampedAt = new Date();
 
-    // 5. Génération de la clé unifiée via le mode LEGACY
+    // 5. Génération de la clé unifiée via le mode LEGACY (Utilisation de l'UID robuste)
     const customKey = storageService.generateKey({
       mode: 'LEGACY',
       inceptId: 'hub-central',
       locale: 'fr',
       entityType: 'projects',
-      entityId: slug,
+      entityId: template.uid,
       imageType: 'cv_template_preview',
       filename: file.name,
     });
@@ -120,14 +135,28 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
 // ==========================================
 // 🗑️ DELETE : Désintégrer un artefact du Nexus R2 (Strictement Privé / Aura)
 // ==========================================
-export const DELETE = withAura(async (req: NextRequest | Request, context: ApiContext, _currentUser: OiseauUser) => {
+export const DELETE = withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
     const resolvedParams = await context.params;
     const rawSlug = (resolvedParams as any)?.slug;
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    if (!slug) {
+    if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
+
+    // 🔍 Résolution unifiée pour s'assurer de l'existence et récupérer le véritable UID
+    const template: any = await findEntityBySlugOrUid(CVTemplateModel, identifier);
+    
+    if (!template) {
+      return NextResponse.json({ error: "Parchemin introuvable dans la matrice." }, { status: 404 });
+    }
+
+    // 🛡️ Contrôle de souveraineté strict
+    const isOwner = template.authorUid === currentUser.uid;
+    const isArchitect = currentUser.capabilities?.includes('*');
+    if (!isOwner && !isArchitect) {
+      return NextResponse.json({ error: "Souveraineté violée : tu ne peux altérer ce parchemin." }, { status: 403 });
     }
 
     const { searchParams } = new URL(req.url);

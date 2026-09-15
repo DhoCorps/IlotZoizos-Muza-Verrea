@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { OiseauModel, getNeo4jSession } from '@ilot/infrastructure'; 
+import { OiseauModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure'; 
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { IOiseau } from '@ilot/types';
@@ -41,10 +41,14 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
 
   const resolvedParams = await context.params;
   const rawSlug = resolvedParams?.slug;
-  const targetSlug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+  const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+  if (!identifier) {
+    return NextResponse.json({ success: false, message: "Identifiant invalide." }, { status: 400 });
+  }
 
   // 2. Contrôle de Souveraineté
-  if (!currentUser || !assertSovereignty(currentUser.uid, currentUser.capabilities || [], targetSlug)) {
+  if (!currentUser || !assertSovereignty(currentUser.uid, currentUser.capabilities || [], identifier)) {
     return NextResponse.json({ success: false, message: "Souveraineté violée : vous ne pouvez modifier un autre Oiseau." }, { status: 403 });
   }
 
@@ -83,16 +87,14 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
      return NextResponse.json({ success: false, message: `La brindille est trop lourde (Max 5 Mo).` }, { status: 400 });
   }
 
-  // 🪡 Récupération de l'ancien utilisateur pour le Garbage Collection et calcul du SHA-256
-  const existingUser = (await OiseauModel.findOne(
-    { $or: [{ slug: targetSlug }, { uid: targetSlug }] }
-  ).lean()) as unknown as IOiseau | null;
+  // 🔍 🪡 Récupération unifiée de l'utilisateur via notre helper centralisé
+  const existingUser: any = await findEntityBySlugOrUid(OiseauModel, identifier);
 
   if (!existingUser) {
     return NextResponse.json({ success: false, message: "L'Oiseau est introuvable dans la matrice." }, { status: 404 });
   }
 
-  const oldImageUrl = (existingUser as any)[imageType];
+  const oldImageUrl = existingUser[imageType];
 
   // Calcul du hash SHA-256 (Sceau d'antériorité)
   let fileBuffer: Buffer;
@@ -123,7 +125,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
       inceptId: 'ilot-zoizos',
       locale: 'fr',
       entityType: 'users',
-      entityId: targetSlug, 
+      entityId: existingUser.uid, 
       imageType: imageType,
       filename: file.name
   });
@@ -156,9 +158,9 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
     }
   }
 
-  // 5. Suture Base de Données (MongoDB) avec le Sceau cryptographique
+  // 5. Suture Base de Données (MongoDB) avec le Sceau cryptographique basé sur l'UID canonique
   const updatedUser = (await OiseauModel.findOneAndUpdate(
-      { $or: [{ slug: targetSlug }, { uid: targetSlug }] }, 
+      { uid: existingUser.uid }, 
       { 
         [imageType]: publicUrl,
         [`${imageType}Seal`]: {
@@ -179,9 +181,9 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
     const neoSession = getNeo4jSession();
     try {
       await neoSession.run(
-        `MATCH (u:User) WHERE u.uid = $targetId OR u.slug = $targetId
+        `MATCH (u:User {uid: $targetUid})
          SET u.avatarUrl = $publicUrl, u.digitalSignature = $signature, u.updatedAt = datetime()`,
-        { targetId: targetSlug, publicUrl, signature: digitalSignature }
+        { targetUid: existingUser.uid, publicUrl, signature: digitalSignature }
       );
     } catch (neoError) {
       console.error("⚠️ [Neo4j] Échec mineur de propagation esthétique :", neoError);
@@ -190,17 +192,19 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
     }
   }
 
-  revalidateTag(`profile-${targetSlug}`);
+  revalidateTag(`profile-${identifier}`);
+  if (existingUser.slug) revalidateTag(`profile-${existingUser.slug}`);
+  if (existingUser.uid) revalidateTag(`profile-${existingUser.uid}`);
   revalidateTag('users');
 
   return NextResponse.json(
     {
       success: true,
-      message: `L'apparence de ${updatedUser.pseudo} a muté et son Sceau a été scellé !`,
+      message: `L'apparence de ${(updatedUser as any).pseudo} a muté et son Sceau a été scellé !`,
       publicUrl: publicUrl,
       digitalSignature,
       timestampedAt,
-      user: updatedUser.pseudo 
+      user: (updatedUser as any).pseudo 
     },
     { status: 201 }
   );
@@ -213,10 +217,20 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, use
   const currentUser = userFromGuard || (context as any).user || (req as any).user;
   const resolvedParams = await context.params;
   const rawSlug = resolvedParams?.slug;
-  const targetSlug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+  const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
   
-  if (!currentUser || !assertSovereignty(currentUser.uid, currentUser.capabilities || [], targetSlug)) {
+  if (!identifier) {
+    return NextResponse.json({ message: "Identifiant invalide." }, { status: 400 });
+  }
+
+  if (!currentUser || !assertSovereignty(currentUser.uid, currentUser.capabilities || [], identifier)) {
     return NextResponse.json({ message: "Souveraineté violée" }, { status: 403 });
+  }
+
+  // 🔍 Résolution unifiée via le helper centralisé
+  const existingUser: any = await findEntityBySlugOrUid(OiseauModel, identifier);
+  if (!existingUser) {
+    return NextResponse.json({ message: "Oiseau introuvable." }, { status: 404 });
   }
 
   let body;
@@ -244,7 +258,7 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, use
 
   // 2. Nettoyage Silice (MongoDB)
   await OiseauModel.updateOne(
-      { $or: [{ slug: targetSlug }, { uid: targetSlug }] }, 
+      { uid: existingUser.uid }, 
       { $set: { [imageType]: null, [`${imageType}Seal`]: null } }
   );
 
@@ -253,9 +267,9 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, use
       const neoSession = getNeo4jSession();
       try {
           await neoSession.run(
-              `MATCH (u:User) WHERE u.uid = $targetId OR u.slug = $targetId 
+              `MATCH (u:User {uid: $targetUid})
                SET u.avatarUrl = null, u.digitalSignature = null, u.updatedAt = datetime()`, 
-              { targetId: targetSlug }
+              { targetUid: existingUser.uid }
           );
       } catch (neoErr) {
           console.error("⚠️ [Neo4j] Échec de purge esthétique", neoErr);
@@ -264,7 +278,9 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, use
       }
   }
 
-  revalidateTag(`profile-${targetSlug}`);
+  revalidateTag(`profile-${identifier}`);
+  if (existingUser.slug) revalidateTag(`profile-${existingUser.slug}`);
+  if (existingUser.uid) revalidateTag(`profile-${existingUser.uid}`);
   revalidateTag('users');
 
   return NextResponse.json({ success: true, message: "Artefact et sceau désintégrés de l'apparence." });

@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, NextRequest } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
-import { ProjectModel, getNeo4jSession } from '@ilot/infrastructure';
+import { ProjectModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { CAPABILITIES } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
@@ -40,9 +40,9 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
   try {
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    if (!slug) {
+    if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
@@ -62,10 +62,10 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
       return NextResponse.json({ success: false, message: "Trop de téléversements. Veuillez patienter." }, { status: 429 });
     }
 
-    // Recherche du projet par son slug dans la Silice
-    let project;
+    // Recherche unifiée du projet par son slug ou son UID dans la Silice
+    let project: any;
     try {
-      project = await ProjectModel.findOne({ slug }).lean();
+      project = await findEntityBySlugOrUid(ProjectModel, identifier);
     } catch (dbErr) {
       return NextResponse.json({ error: "Erreur lors de la lecture de la Silice." }, { status: 500 });
     }
@@ -74,7 +74,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
       return NextResponse.json({ success: false, message: "Chantier introuvable." }, { status: 404 });
     }
 
-    const isAuthorized = await canUpdateProject(currentUser.uid, (project as any).uid);
+    const isAuthorized = await canUpdateProject(currentUser.uid, project.uid);
     if (!isAuthorized && !currentUser.capabilities.includes('*')) {
       return NextResponse.json({ success: false, message: "Aura insuffisante." }, { status: 403 });
     }
@@ -123,13 +123,13 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     const digitalSignature = generateFileHash(fileBuffer);
     const timestampedAt = new Date();
 
-    // 🪡 Alignement sur la méthode unifiée generateKey (même logique que les tâches)
+    // 🪡 Alignement sur la méthode unifiée generateKey
     const customKey = storageService.generateKey({
       mode: 'LEGACY',
       inceptId: 'ilot-zoizos',
       locale: 'fr',
       entityType: 'projects',
-      entityId: (project as any).uid,
+      entityId: project.uid,
       imageType: 'attachments',
       filename: file.name
     });
@@ -168,7 +168,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     let updatedProject;
     try {
       updatedProject = await ProjectModel.findOneAndUpdate(
-        { slug },
+        { uid: project.uid },
         { $push: { documents: documentPayload }, $set: { "dates.lastActivity": new Date() } },
         { new: true }
       ).lean();
@@ -180,8 +180,11 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
 
     // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
     revalidateTag('projects');
-    revalidateTag(`project-${(project as any).uid}`);
-    revalidateTag(`project-slug-${slug}`);
+    revalidateTag(`project-${project.uid}`);
+    if (project.slug) {
+      revalidateTag(`project-${project.slug}`);
+      revalidateTag(`project-slug-${project.slug}`);
+    }
 
     return NextResponse.json({ 
       success: true, 
@@ -205,16 +208,15 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
   try {
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
-    const rawRawSlug = rawSlug;
-    const slug = slugify(typeof rawRawSlug === 'string' ? rawRawSlug : Array.isArray(rawRawSlug) ? rawRawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    if (!slug) {
+    if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    let project;
+    let project: any;
     try {
-      project = await ProjectModel.findOne({ slug }).lean();
+      project = await findEntityBySlugOrUid(ProjectModel, identifier);
     } catch (dbErr) {
       return NextResponse.json({ error: "Erreur base de données." }, { status: 500 });
     }
@@ -223,7 +225,7 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       return NextResponse.json({ success: false, message: "Chantier introuvable." }, { status: 404 });
     }
 
-    const isAuthorized = await canUpdateProject(currentUser.uid, (project as any).uid);
+    const isAuthorized = await canUpdateProject(currentUser.uid, project.uid);
     if (!isAuthorized && !currentUser.capabilities.includes('*')) {
       return NextResponse.json({ message: "Souveraineté insuffisante." }, { status: 403 });
     }
@@ -245,15 +247,18 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
     }
 
     try {
-      await ProjectModel.updateOne({ slug }, { $pull: { documents: { url: body.key } } });
+      await ProjectModel.updateOne({ uid: project.uid }, { $pull: { documents: { url: body.key } } });
     } catch (dbErr) { 
       return NextResponse.json({ error: "Échec nettoyage Silice." }, { status: 500 }); 
     }
 
     // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
     revalidateTag('projects');
-    revalidateTag(`project-${(project as any).uid}`);
-    revalidateTag(`project-slug-${slug}`);
+    revalidateTag(`project-${project.uid}`);
+    if (project.slug) {
+      revalidateTag(`project-${project.slug}`);
+      revalidateTag(`project-slug-${project.slug}`);
+    }
 
     return NextResponse.json({ success: true, message: "Artefact désintégré." }, { status: 200 });
 

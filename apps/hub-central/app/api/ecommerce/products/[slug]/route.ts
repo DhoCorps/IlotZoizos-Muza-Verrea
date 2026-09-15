@@ -1,8 +1,7 @@
-// Fichier : app/api/products/[slug]/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { ProductModel } from '@ilot/infrastructure';
+import { ProductModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { EcommerceOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
@@ -22,8 +21,14 @@ export const GET = withSilice(async (_req: Request, context: ApiContext) => {
       return NextResponse.json({ error: "Slug de produit invalide." }, { status: 400 });
     }
          
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-    const product = await getCachedProduct(slug);
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    
+    // Tentative via le cache, puis repli sur le helper unifié ou la base de données
+    let product = await getCachedProduct(identifier);
+    if (!product) {
+      product = await findEntityBySlugOrUid(ProductModel, identifier);
+    }
+
     if (!product) {
       return NextResponse.json({ error: "Artefact introuvable dans l'îlot." }, { status: 404 });
     }
@@ -43,20 +48,24 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, curren
     const sessionCaps = currentUser.capabilities || [];
     const resolvedParams = await context.params;
     const rawSlug = (resolvedParams as any)?.slug;
+
     if (!rawSlug) {
       return NextResponse.json({ error: "Slug de produit invalide." }, { status: 400 });
     }
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-    const product = await ProductModel.findOne({ 
-       $or: [{ slug: slug }, { uid: slug }] 
-    });
+
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+    // 🔍 Utilisation de notre helper unifié (Slug ou UID)
+    const product: any = await findEntityBySlugOrUid(ProductModel, identifier);
     if (!product) {
       return NextResponse.json({ error: "Artefact introuvable." }, { status: 404 });
     }
+
     const signature: ActionSignature = {
       actorUid: userUid,
       capabilities: sessionCaps
     };
+
     const ecommerceOrch = new EcommerceOrchestrator();
     if (typeof (ecommerceOrch as any).removeProduct === 'function') {
       await (ecommerceOrch as any).removeProduct(product.uid, signature);
@@ -66,11 +75,12 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, curren
     
     // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('products');
-    revalidateTag(`product-${slug}`);
+    revalidateTag(`product-${identifier}`);
     revalidateTag(`product-${product.uid}`);
-    if ((product as any).storeUid) {
-      revalidateTag(`store-products-${(product as any).storeUid}`);
+    if (product.storeUid) {
+      revalidateTag(`store-products-${product.storeUid}`);
     }
+
     return NextResponse.json({ success: true, message: "L'artefact a été retiré de la matrice." }, { status: 200 });
   } catch (error: any) {
     console.error("  Erreur DELETE Product :", error);

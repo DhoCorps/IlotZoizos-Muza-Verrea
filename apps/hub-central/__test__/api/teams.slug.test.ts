@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PUT, DELETE } from '@/app/api/teams/[slug]/route';
 import { getServerSession } from 'next-auth/next';
-import { TeamModel, getNeo4jSession } from '@ilot/infrastructure';
+import { TeamModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { TeamOrchestrator } from '@ilot/shared-core';
 import { CAPABILITIES } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
@@ -18,12 +18,22 @@ vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  TeamModel: {
-    findOne: vi.fn(),
-  },
-  getNeo4jSession: vi.fn(),
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    TeamModel: {
+      findOne: vi.fn(),
+    },
+    getNeo4jSession: vi.fn(),
+    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
+    findEntityBySlugOrUid: vi.fn(),
+  };
+});
+
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 // -------------------------------------------------------------------------
@@ -60,8 +70,10 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
         user: { uid: 'u-123', capabilities: [] }
       } as any);
 
-      vi.mocked(TeamModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 't-123', slug: 'mon-nid', name: 'Mon Nid' }),
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+        uid: 't-123',
+        slug: 'mon-nid',
+        name: 'Mon Nid'
       } as any);
 
       // Neo4j renvoie des capacités vides
@@ -76,6 +88,7 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
 
       expect(response.status).toBe(403);
       expect(json.error).toContain("Accès refusé");
+      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TeamModel, 'mon-nid');
     });
 
     it('doit réussir (200) et renvoyer le Nid avec les capacités si autorisé', async () => {
@@ -83,8 +96,10 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
         user: { uid: 'u-123', capabilities: [] }
       } as any);
 
-      vi.mocked(TeamModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 't-123', slug: 'mon-nid', name: 'Mon Nid' }),
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+        uid: 't-123',
+        slug: 'mon-nid',
+        name: 'Mon Nid'
       } as any);
 
       // Neo4j renvoie le droit TEAM.READ
@@ -106,6 +121,7 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
       expect(response.status).toBe(200);
       expect(json.uid).toBe('t-123');
       expect(json.myCapabilities).toContain(CAPABILITIES.TEAM.READ);
+      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TeamModel, 'mon-nid');
     });
   });
 
@@ -115,8 +131,10 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
         user: { uid: 'u-123', capabilities: [] }
       } as any);
 
-      vi.mocked(TeamModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 't-123', slug: 'mon-nid', name: 'Mon Nid' }),
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+        uid: 't-123',
+        slug: 'mon-nid',
+        name: 'Mon Nid'
       } as any);
 
       vi.mocked(getNeo4jSession).mockReturnValue({
@@ -136,10 +154,12 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
 
       expect(response.status).toBe(200);
       expect(json.name).toBe('Nid Muté');
+      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TeamModel, 'mon-nid');
 
       // 💥 Vérification de l'invalidation du cache
       expect(revalidateTag).toHaveBeenCalledWith('teams');
       expect(revalidateTag).toHaveBeenCalledWith('team-mon-nid');
+      expect(revalidateTag).toHaveBeenCalledWith('team-t-123');
     });
   });
 
@@ -149,8 +169,10 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
         user: { uid: 'u-123', capabilities: [] }
       } as any);
 
-      vi.mocked(TeamModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 't-123', slug: 'mon-nid', name: 'Mon Nid' }),
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+        uid: 't-123',
+        slug: 'mon-nid',
+        name: 'Mon Nid'
       } as any);
 
       vi.mocked(getNeo4jSession).mockReturnValue({
@@ -169,10 +191,12 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
 
       expect(response.status).toBe(200);
       expect(json.message).toContain("dissous");
+      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TeamModel, 'mon-nid');
 
       // 💥 Vérification de l'invalidation du cache
       expect(revalidateTag).toHaveBeenCalledWith('teams');
       expect(revalidateTag).toHaveBeenCalledWith('team-mon-nid');
+      expect(revalidateTag).toHaveBeenCalledWith('team-t-123');
     });
   });
 });

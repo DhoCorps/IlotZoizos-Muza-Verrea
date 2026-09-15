@@ -29,15 +29,32 @@ vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb) => cb),
 }));
 
-const mockLean = vi.fn();
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  CVTemplateModel: {
-    findOne: vi.fn(() => ({ lean: mockLean })),
-    findOneAndUpdate: vi.fn(() => ({ lean: mockLean })),
-    findOneAndDelete: vi.fn(),
-  },
+vi.mock('@/lib/cache/kontakt.cache', () => ({
+  getCachedTemplateDetail: vi.fn().mockResolvedValue(null),
 }));
+
+const mockLean = vi.fn();
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    connectToDatabase: vi.fn().mockResolvedValue(true),
+    CVTemplateModel: {
+      findOne: vi.fn(() => ({ lean: mockLean })),
+      findOneAndUpdate: vi.fn(() => ({ lean: mockLean })),
+      findOneAndDelete: vi.fn(),
+    },
+    // Mock du helper unifié s'appuyant sur CVTemplateModel.findOne
+    findEntityBySlugOrUid: vi.fn(async (model, identifier, options = { lean: true }) => {
+      const doc = await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] });
+      if (!doc) return null;
+      if (options.lean && typeof doc.lean === 'function') {
+        return await doc.lean();
+      }
+      return doc;
+    }),
+  };
+});
 
 declare global {
   var __mockUser: any;
@@ -100,7 +117,9 @@ describe('API Kontakt Template Slug - Gestion d\'un template spécifique', () =>
 
     it('doit muter le template avec succès (200) et invalider le cache', async () => {
       global.__mockUser = { uid: 'bird_1', capabilities: [] };
-      mockLean.mockResolvedValueOnce({ slug: 'cyberpunk', title: 'Muté' });
+      // Premier appel pour findEntityBySlugOrUid, second appel pour findOneAndUpdate.lean()
+      mockLean.mockResolvedValueOnce({ uid: 't_1', slug: 'cyberpunk', title: 'Cyberpunk' })
+              .mockResolvedValueOnce({ slug: 'cyberpunk', title: 'Muté' });
 
       const req = new Request('http://localhost/api/kontakt/templates/cyberpunk', {
         method: 'PUT',
@@ -137,6 +156,8 @@ describe('API Kontakt Template Slug - Gestion d\'un template spécifique', () =>
 
     it('doit dissoudre le template avec succès (200) et purger le cache', async () => {
       global.__mockUser = { uid: 'bird_1', capabilities: [] };
+      // findEntityBySlugOrUid retourne le document via lean()
+      mockLean.mockResolvedValueOnce({ uid: 't_1', slug: 'cyberpunk' });
       vi.mocked(CVTemplateModel.findOneAndDelete).mockResolvedValueOnce({ slug: 'cyberpunk' } as any);
 
       const req = new Request('http://localhost/api/kontakt/templates/cyberpunk', {
