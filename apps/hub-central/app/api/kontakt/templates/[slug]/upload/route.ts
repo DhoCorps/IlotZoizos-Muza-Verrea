@@ -86,7 +86,7 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
     const digitalSignature = generateFileHash(fileBuffer);
     const timestampedAt = new Date();
 
-    // 5. Génération de la clé unifiée via le mode LEGACY (Utilisation de l'UID robuste)
+    // Génération de la clé unifiée via le mode LEGACY (Utilisation de l'UID robuste)
     const customKey = storageService.generateKey({
       mode: 'LEGACY',
       inceptId: 'hub-central',
@@ -111,6 +111,12 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
     }
 
     const storageKey = uploadResult?.key || customKey;
+
+    // 🔄 Optionnel mais recommandé : Mise à jour de l'URL d'aperçu dans le template MongoDB
+    await CVTemplateModel.updateOne(
+      { uid: template.uid },
+      { $set: { previewUrl: publicUrl } }
+    );
 
     return NextResponse.json({
       success: true,
@@ -166,8 +172,20 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
       return NextResponse.json({ error: 'URL de l\'artefact à purger manquante.' }, { status: 400 });
     }
 
+    // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que l'URL appartient bien à ce template !
+    // Si le template possède un champ previewUrl ou un tableau d'artefacts, on valide la correspondance
+    if (template.previewUrl && template.previewUrl !== fileUrl) {
+      return NextResponse.json({ error: "Souveraineté brisée : cet artefact n'appartient pas à ce template." }, { status: 403 });
+    }
+
     const key = storageService.extractKeyFromUrl(fileUrl);
     await storageService.deleteFile(key);
+
+    // Nettoyage de la base de données
+    await CVTemplateModel.updateOne(
+      { uid: template.uid },
+      { $set: { previewUrl: null } }
+    );
 
     return NextResponse.json({ 
       success: true, 

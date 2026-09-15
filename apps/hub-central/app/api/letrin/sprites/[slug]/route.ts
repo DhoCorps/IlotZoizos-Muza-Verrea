@@ -6,6 +6,19 @@ import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { getCachedFontDetail } from '@/lib/cache/letrin.cache';
+import { IlotError } from '@ilot/shared-core';
+import { z } from 'zod';
+
+// 🛡️ Schéma Zod strict pour interdire l'assignation de masse sur les champs sensibles des sprites
+const UpdateLetterSpriteSchema = z.object({
+  name: z.string().min(1, "Le nom de la police est requis.").optional(),
+  gridSize: z.object({
+    width: z.number().int().positive(),
+    height: z.number().int().positive()
+  }).optional(),
+  glyphs: z.array(z.any()).optional(),
+  status: z.string().optional(),
+});
 
 // ==========================================
 // GET : Ausculter un sprite spécifique
@@ -37,7 +50,9 @@ export const GET = withSilice(async (_req: Request, context: ApiContext) => {
     return NextResponse.json(font, { status: 200 });
   } catch (error: any) {
     console.error("  Erreur globale GET Letr'In Sprite Slug :", error);
-    return NextResponse.json({ error: "Erreur globale." }, { status: 500 });
+    const status = error instanceof IlotError ? error.status : 500;
+    const message = error instanceof IlotError ? error.message : "Erreur interne lors de la consultation du sprite.";
+    return NextResponse.json({ error: message }, { status });
   }
 });
 
@@ -61,6 +76,13 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
+    // 🛡️ Validation et assainissement stricts via Zod pour bloquer le Mass Assignment
+    const validation = UpdateLetterSpriteSchema.safeParse(body);
+    if (!validation.success) {
+      return NextResponse.json({ error: "Données de mutation de sprite invalides.", details: validation.error.flatten() }, { status: 400 });
+    }
+    const sanitizedData = validation.data;
+
     // 🔍 Recherche unifiée par slug ou UID pour cibler l'entité
     const targetSprite: any = await findEntityBySlugOrUid(LetterSpriteModel, identifier, { lean: false });
     if (!targetSprite) {
@@ -78,12 +100,12 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     try {
       updated = await LetterSpriteModel.findOneAndUpdate(
         { uid: targetSprite.uid },
-        { $set: body },
+        { $set: sanitizedData },
         { new: true }
       ).lean();
     } catch (updateErr) {
       console.error("  [SPRITE PUT ERROR]", updateErr);
-      return NextResponse.json({ error: "Fracture lors de la mutation." }, { status: 500 });
+      return NextResponse.json({ error: "Échec de la mutation du sprite." }, { status: 500 });
     }
 
     if (!updated) {
@@ -104,7 +126,9 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     return NextResponse.json({ success: true, data: updated }, { status: 200 });
   } catch (error: any) {
     console.error("  Erreur globale PUT Letr'In Sprite Slug :", error);
-    return NextResponse.json({ error: "Erreur globale." }, { status: 500 });
+    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
+    const message = error instanceof IlotError ? error.message : "Erreur interne lors de la mutation du sprite.";
+    return NextResponse.json({ error: message }, { status });
   }
 });
 
@@ -160,6 +184,8 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, curren
     return NextResponse.json({ success: true, message: "Police dissoute avec succès." }, { status: 200 });
   } catch (error: any) {
     console.error("  Erreur globale DELETE Letr'In Sprite Slug :", error);
-    return NextResponse.json({ error: "Erreur globale." }, { status: 500 });
+    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
+    const message = error instanceof IlotError ? error.message : "Erreur interne lors de la dissolution du sprite.";
+    return NextResponse.json({ error: message }, { status });
   }
 });

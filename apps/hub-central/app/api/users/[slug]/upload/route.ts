@@ -160,16 +160,16 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
 
   // 5. Suture Base de Données (MongoDB) avec le Sceau cryptographique basé sur l'UID canonique
   const updatedUser = (await OiseauModel.findOneAndUpdate(
-      { uid: existingUser.uid }, 
-      { 
-        [imageType]: publicUrl,
-        [`${imageType}Seal`]: {
-          digitalSignature,
-          timestampedAt,
-          copyrightClaimed: true
-        }
-      }, 
-      { new: true } 
+    { uid: existingUser.uid }, 
+    { 
+      [imageType]: publicUrl,
+      [`${imageType}Seal`]: {
+        digitalSignature,
+        timestampedAt,
+        copyrightClaimed: true
+      }
+    }, 
+    { new: true } 
   ).lean()) as unknown as IOiseau | null;
 
   if (!updatedUser) {
@@ -246,6 +246,11 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, use
   
   const allowedTypes = ['avatarUrl', 'coverPicture'];
   if (!allowedTypes.includes(imageType)) return NextResponse.json({ message: "Type invalide" }, { status: 400 });
+
+  // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que l'URL appartient bien à cet Oiseau !
+  if (existingUser[imageType] && existingUser[imageType] !== url) {
+    return NextResponse.json({ message: "Souveraineté brisée : cet artefact n'appartient pas à cet Oiseau." }, { status: 403 });
+  }
 
   // 1. Désintégration Physique Cloudflare R2
   try {

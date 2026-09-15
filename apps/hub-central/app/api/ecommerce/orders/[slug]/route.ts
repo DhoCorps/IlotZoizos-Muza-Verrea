@@ -1,3 +1,4 @@
+// Fichier : app/api/orders/[slug]/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -12,7 +13,8 @@ import { getCachedOrder } from '@/lib/cache/ecommerce.cache';
 // ==========================================
 export const GET = withAura(async (_req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const userUid = currentUser.uid || currentUser.id;
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    const userUid = currentUser.uid;
     const isAdmin = currentUser.capabilities?.includes('ADMIN') || false;
     const resolvedParams = await context.params;
     const rawSlug = (resolvedParams as any)?.slug;
@@ -48,7 +50,8 @@ export const GET = withAura(async (_req: Request, context: ApiContext, currentUs
 // ==========================================
 export const PATCH = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const userUid = currentUser.uid || currentUser.id;
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    const userUid = currentUser.uid;
     const isAdmin = currentUser.capabilities?.includes('ADMIN') || false;
     const resolvedParams = await context.params;
     const rawSlug = (resolvedParams as any)?.slug;
@@ -92,7 +95,7 @@ export const PATCH = withAura(async (req: Request, context: ApiContext, currentU
     return NextResponse.json({ 
        success: true, 
        message: "Statut de la commande mis à jour avec succès.", 
-       data: order 
+      data: order 
     }, { status: 200 });
   } catch (error: any) {
     console.error("🔥 Erreur fatale PATCH Order :", error);

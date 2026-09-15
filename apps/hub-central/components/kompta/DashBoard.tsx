@@ -4,12 +4,19 @@
 import React, { useEffect, useState } from 'react';
 import { ShieldCheck, ArrowDownLeft, ArrowUpRight, Wallet, Activity, Loader2 } from 'lucide-react';
 
-export function KomptaDashboard() {
+interface KomptaDashboardProps {
+  userUid?: string;
+}
+
+export function KomptaDashboard({ userUid }: KomptaDashboardProps) {
   const [ledgerData, setLedgerData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/kompta/ledger')
+    // Construction de l'URL avec l'UID optionnel si transmis pour l'alignement de la canopée
+    const endpoint = userUid ? `/api/kompta/ledger?userUid=${encodeURIComponent(userUid)}` : '/api/kompta/ledger';
+
+    fetch(endpoint)
       .then(res => res.json())
       .then(json => {
         if (json.success) {
@@ -18,7 +25,7 @@ export function KomptaDashboard() {
       })
       .catch(err => console.error("Erreur chargement Kompta :", err))
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [userUid]);
 
   if (isLoading) {
     return (
@@ -79,8 +86,8 @@ export function KomptaDashboard() {
         </h3>
 
         <div className="space-y-3">
-          {entries.map((entry: any) => (
-            <div key={entry.entryUid} className="p-4 bg-slate-950/60 border border-slate-800/80 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-all hover:border-amber-500/30">
+          {entries.map((entry: any, index: number) => (
+            <div key={entry.entryUid || entry._id || index} className="p-4 bg-slate-950/60 border border-slate-800/80 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-all hover:border-amber-500/30">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className={`text-[10px] font-mono px-2 py-0.5 rounded-md uppercase font-bold ${entry.type === 'CREDIT' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}`}>
@@ -93,7 +100,7 @@ export function KomptaDashboard() {
               </div>
 
               <div className={`text-base font-black font-mono ${entry.type === 'CREDIT' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {entry.type === 'CREDIT' ? '+' : '-'}{(entry.amountCents / 100).toFixed(2)} {entry.currency}
+                {entry.type === 'CREDIT' ? '+' : '-'}{(entry.amountCents / 100).toFixed(2)} {entry.currency || 'EUR'}
               </div>
             </div>
           ))}

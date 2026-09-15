@@ -46,10 +46,11 @@ async function getProjectCapabilities(userUid: string | undefined, projectUid: s
 export const GET = withOptionalAura(async (req: Request, context: ApiContext, currentUser?: OiseauUser) => {
   try {
     const resolvedParams = await context.params;
-    const rawProjectId = typeof resolvedParams?.projectId === 'string'
-       ? resolvedParams.projectId
-       : Array.isArray(resolvedParams?.projectId)
-         ? resolvedParams.projectId[0]
+    const rawParam = resolvedParams?.slug ?? resolvedParams?.projectId;
+    const rawProjectId = typeof rawParam === 'string'
+       ? rawParam
+       : Array.isArray(rawParam)
+         ? rawParam[0]
          : '';
          
     const identifier = slugify(rawProjectId);
@@ -90,10 +91,11 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
 export const PUT = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
     const resolvedParams = await context.params;
-    const rawProjectId = typeof resolvedParams?.projectId === 'string'
-       ? resolvedParams.projectId
-       : Array.isArray(resolvedParams?.projectId)
-         ? resolvedParams.projectId[0]
+    const rawParam = resolvedParams?.slug ?? resolvedParams?.projectId;
+    const rawProjectId = typeof rawParam === 'string'
+       ? rawParam
+       : Array.isArray(rawParam)
+         ? rawParam[0]
          : '';
          
     const identifier = slugify(rawProjectId);
@@ -160,10 +162,11 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
 export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
     const resolvedParams = await context.params;
-    const rawProjectId = typeof resolvedParams?.projectId === 'string'
-       ? resolvedParams.projectId
-       : Array.isArray(resolvedParams?.projectId)
-         ? resolvedParams.projectId[0]
+    const rawParam = resolvedParams?.slug ?? resolvedParams?.projectId;
+    const rawProjectId = typeof rawParam === 'string'
+       ? rawParam
+       : Array.isArray(rawParam)
+         ? rawParam[0]
          : '';
          
     const identifier = slugify(rawProjectId);

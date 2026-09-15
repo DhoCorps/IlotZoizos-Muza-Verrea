@@ -46,7 +46,14 @@ export default function SamploTekPage() {
     setSelectedTrackForSample(null);
   };
 
-  // 3. Exporter le projet via l'Orchestrateur (Sceau et Neo4j)
+  // 3. Nettoyage instantané de l'état local suite à la dissolution d'un sample
+  const handleSampleDeleted = (deletedIdentifier: string) => {
+    setSamples((prevSamples) => 
+      prevSamples.filter(s => s.uid !== deletedIdentifier && s.slug !== deletedIdentifier)
+    );
+  };
+
+  // 4. Exporter le projet via l'Orchestrateur (Sceau et Neo4j)
   const handleExportProject = async () => {
     const activeTracks = tracks.filter((t: any) => !t.isLocked && t.sampleUrl);
     
@@ -55,7 +62,6 @@ export default function SamploTekPage() {
       return;
     }
 
-    // Le titre devrait idéalement être demandé via une modale, ici on simule pour l'exemple
     const projectTitle = prompt("Donne un nom à ton œuvre rythmique :");
     if (!projectTitle) return;
 
@@ -136,6 +142,7 @@ export default function SamploTekPage() {
             samples={samples}
             onSelectSample={handleSelectSample}
             onOpenUploadModal={() => setIsUploadOpen(true)}
+            onSampleDeleted={handleSampleDeleted}
           />
         </aside>
 

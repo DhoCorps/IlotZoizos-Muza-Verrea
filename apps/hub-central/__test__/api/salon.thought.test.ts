@@ -1,15 +1,16 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/salon/thought/route';
 import { ConsciousnessSalonOrchestrator } from '@ilot/shared-core';
+import { getServerSession } from "next-auth/next";
+import { connectToDatabase } from '@ilot/infrastructure';
 
-// Force l'environnement de test
-beforeAll(() => {
-  vi.stubEnv('NODE_ENV', 'test');
-});
+vi.mock('next-auth/next', () => ({
+  getServerSession: vi.fn(),
+}));
 
-afterAll(() => {
-  vi.unstubAllEnvs(); // Restaure les variables d'environnement après les tests
-});
+vi.mock('@ilot/infrastructure', () => ({
+  connectToDatabase: vi.fn().mockResolvedValue(true),
+}));
 
 vi.mock('@ilot/shared-core', () => ({
   ConsciousnessSalonOrchestrator: {
@@ -20,6 +21,14 @@ vi.mock('@ilot/shared-core', () => ({
 }));
 
 describe('API Salon Privé - Pensées Quantiques', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Simulation d'une session utilisateur valide par défaut
+    vi.mocked(getServerSession).mockResolvedValue({
+      user: { uid: 'test-user', capabilities: ['*'] }
+    } as any);
+  });
+
   it('🟢 ENTANGLEMENT : doit réussir (200)', async () => {
     vi.mocked(ConsciousnessSalonOrchestrator.calculateEntanglementLevel).mockReturnValue(95);
     const req = new Request('http://localhost/api', { 
@@ -29,6 +38,7 @@ describe('API Salon Privé - Pensées Quantiques', () => {
     const data = await res.json();
     expect(res.status).toBe(200);
     expect(data.entanglementLevel).toBe(95);
+    expect(connectToDatabase).toHaveBeenCalled();
   });
 
   it('🔥 UNSEAL : doit gérer les erreurs (500)', async () => {
@@ -41,6 +51,6 @@ describe('API Salon Privé - Pensées Quantiques', () => {
       }) 
     });
     const res = await POST(req);
-    expect(res.status).toBe(500); // Maintenant cela devrait être capturé proprement
+    expect(res.status).toBe(500);
   });
 });

@@ -1,12 +1,24 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { CVTemplateModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { IlotError } from '@ilot/shared-core';
 import { getCachedTemplateDetail } from '@/lib/cache/kontakt.cache';
+import { z } from 'zod';
+
+// 🛡️ Schéma Zod strict pour éviter les vulnérabilités d'assignation de masse (Mass Assignment)
+const UpdateCVTemplateSchema = z.object({
+  title: z.string().min(1, "Le titre est requis.").optional(),
+  description: z.string().optional(),
+  priceShards: z.number().min(0).optional(),
+  barterAccepted: z.boolean().optional(),
+  letrinFontFamily: z.string().optional(),
+  blocks: z.array(z.any()).optional(),
+  previewUrl: z.string().url().nullable().optional(),
+});
 
 export const GET = withSilice(async (_req: Request, context: ApiContext) => {
   try {
@@ -36,8 +48,10 @@ export const GET = withSilice(async (_req: Request, context: ApiContext) => {
     }
     return NextResponse.json({ success: true, data: template }, { status: 200 });
   } catch (error: any) {
+    console.error("🔥 [KONTAKT TEMPLATE GET ERROR] :", error);
     const status = error instanceof IlotError ? error.status : 500;
-    return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
+    const message = error instanceof IlotError ? error.message : 'Erreur interne du serveur.';
+    return NextResponse.json({ error: message }, { status });
   }
 });
 
@@ -60,6 +74,13 @@ export const PUT = withAura(async (req: Request, context: ApiContext, _currentUs
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
+    // 🛡️ Validation stricte via Zod pour bloquer le Mass Assignment
+    const validation = UpdateCVTemplateSchema.safeParse(body);
+    if (!validation.success) {
+      return NextResponse.json({ error: 'Données de mutation corrompues.', details: validation.error.flatten() }, { status: 400 });
+    }
+    const sanitizedData = validation.data;
+
     // 🔍 Recherche unifiée pour trouver l'entité par slug ou UID avant mise à jour
     const targetTemplate: any = await findEntityBySlugOrUid(CVTemplateModel, identifier, { lean: false });
     if (!targetTemplate) {
@@ -68,7 +89,7 @@ export const PUT = withAura(async (req: Request, context: ApiContext, _currentUs
 
     const updatedTemplate = await CVTemplateModel.findOneAndUpdate(
       { uid: targetTemplate.uid }, 
-      body, 
+      { $set: sanitizedData }, 
       { new: true }
     ).lean();
 
@@ -92,8 +113,10 @@ export const PUT = withAura(async (req: Request, context: ApiContext, _currentUs
       data: updatedTemplate
     }, { status: 200 });
   } catch (error: any) {
-    const status = error instanceof IlotError ? error.status : 500;
-    return NextResponse.json({ error: error.message || 'Erreur lors de la mise à jour.' }, { status });
+    console.error("🔥 [KONTAKT TEMPLATE PUT ERROR] :", error);
+    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
+    const message = error instanceof IlotError ? error.message : 'Erreur lors de la mise à jour.';
+    return NextResponse.json({ error: message }, { status });
   }
 });
 
@@ -135,7 +158,9 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, _curre
       message: `Le template [${identifier}] a été désintégré de la matrice.`
     }, { status: 200 });
   } catch (error: any) {
-    const status = error instanceof IlotError ? error.status : 500;
-    return NextResponse.json({ error: error.message || 'Erreur lors de la suppression.' }, { status });
+    console.error("🔥 [KONTAKT TEMPLATE DELETE ERROR] :", error);
+    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
+    const message = error instanceof IlotError ? error.message : 'Erreur lors de la suppression.';
+    return NextResponse.json({ error: message }, { status });
   }
 });

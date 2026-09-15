@@ -10,6 +10,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { generateFileHash } from '@/lib/cryptoHelper';
 import { SamplotekOrchestrator } from '@ilot/shared-core';
 
+// ==========================================
+// 🎵 POST : Ingestion et scellement d'un sample audio
+// ==========================================
 export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
     // 1. Rate Limiting par IP
@@ -80,7 +83,7 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     const publicUrl = typeof uploadResult === 'string' ? uploadResult : (uploadResult?.publicUrl || uploadResult?.url || 'https://mock-url.com/sample.mp3');
     const storageKey = uploadResult?.key || customKey;
 
-    // 6. Transfert de responsabilité à l'Orchestrateur
+    // 6. Transfert de responsabilité à l'Orchestrateur (qui associe l'auteur via currentUser.uid)
     const orchestrator = new SamplotekOrchestrator();
     const result = await orchestrator.fosterSample({
       uid: sampleUid,

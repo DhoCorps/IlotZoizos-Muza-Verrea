@@ -137,12 +137,37 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
   });
 
   describe('DELETE /api/tasks/[slug]/artifacts', () => {
+    it('doit rejeter (403) en cas de tentative IDOR sur une URL étrangère', async () => {
+      global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
+
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+        uid: 'task_123',
+        slug: 'ma-tache',
+        documents: [{ url: 'https://cdn.ilot/doc.pdf' }]
+      } as any);
+
+      const req = new Request('http://localhost/api/tasks/ma-tache/artifacts', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'https://cdn.ilot/document-etranger.pdf' }),
+      }) as unknown as NextRequest;
+
+      const res = await DELETE(req, { params: Promise.resolve({ slug: 'ma-tache' }) });
+      const data = await res.json();
+
+      expect(res.status).toBe(403);
+      expect(data.message).toContain('Souveraineté brisée');
+      expect(storageService.deleteFile).not.toHaveBeenCalled();
+      expect(TaskModel.updateOne).not.toHaveBeenCalled();
+    });
+
     it('doit supprimer l\'artefact du stockage et de la Silice, puis invalider le cache (200)', async () => {
       global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 'task_123',
-        slug: 'ma-tache'
+        slug: 'ma-tache',
+        documents: [{ url: 'https://cdn.ilot/doc.pdf' }]
       } as any);
 
       const req = new Request('http://localhost/api/tasks/ma-tache/artifacts', {

@@ -8,6 +8,18 @@ import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { getCachedSujetDetails } from '@/lib/cache/sujets.cache';
+import { IlotError } from '@ilot/shared-core';
+import { z } from 'zod';
+
+// 🛡️ Schéma de validation Zod strict pour interdire l'assignation de masse sur les champs sensibles
+const UpdateSujetSchema = z.object({
+  title: z.string().min(1, "Le titre est requis.").optional(),
+  content: z.string().optional(),
+  status: z.string().optional(),
+  category: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  mediaUrl: z.string().url().nullable().optional(),
+});
 
 // ==========================================
 // GET : Ausculter un sujet spécifique
@@ -44,12 +56,14 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
     return NextResponse.json(sujet, { status: 200 });
   } catch (error: any) {
     console.error("  Erreur globale GET Sujet :", error);
-    return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
+    const status = error instanceof IlotError ? error.status : 500;
+    const message = error instanceof IlotError ? error.message : "Erreur interne lors de l'auscultation du sujet.";
+    return NextResponse.json({ error: message }, { status });
   }
 });
 
 // ==========================================
-// PUT : Mutation du Sujet
+// PUT : Mutation du Sujet (Sécurisée par Zod)
 // ==========================================
 export const PUT = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
@@ -80,11 +94,18 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
+    // 🛡️ Validation et assainissement stricts via Zod (bloque le Mass Assignment)
+    const validation = UpdateSujetSchema.safeParse(body);
+    if (!validation.success) {
+      return NextResponse.json({ error: "Données de mutation invalides.", details: validation.error.flatten() }, { status: 400 });
+    }
+    const sanitizedData = validation.data;
+
     let updatedSujet;
     try {
       updatedSujet = await SujetModel.findOneAndUpdate(
         { uid: sujet.uid },
-        { $set: body },
+        { $set: sanitizedData },
         { new: true }
       ).lean();
     } catch (updateErr) {
@@ -100,8 +121,9 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     return NextResponse.json({ success: true, data: updatedSujet }, { status: 200 });
   } catch (error: any) {
     console.error("  Erreur globale PUT Sujet :", error);
-    const status = error.statusCode || 500;
-    return NextResponse.json({ error: error.message || "Erreur interne." }, { status });
+    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
+    const message = error instanceof IlotError ? error.message : "Erreur interne lors de la mutation du sujet.";
+    return NextResponse.json({ error: message }, { status });
   }
 });
 
@@ -144,8 +166,9 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
       }
     } catch (orchErr: any) {
       console.error("  [SUJET ORCHESTRATOR DISINTEGRATE ERROR]", orchErr);
-      const status = orchErr.statusCode || 500;
-      return NextResponse.json({ error: orchErr.message || "Échec de la désintégration du monologue." }, { status });
+      const status = orchErr instanceof IlotError ? orchErr.status : (orchErr.statusCode || 500);
+      const message = orchErr instanceof IlotError ? orchErr.message : "Échec de la désintégration du monologue.";
+      return NextResponse.json({ error: message }, { status });
     }
          
     revalidateTag('sujets');
@@ -159,7 +182,8 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
     }, { status: 200 });
   } catch (error: any) {
     console.error("  Erreur globale DELETE Sujet :", error);
-    const status = error.statusCode || 500;
-    return NextResponse.json({ error: error.message || "Erreur interne." }, { status });
+    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
+    const message = error instanceof IlotError ? error.message : "Erreur interne lors de la suppression du sujet.";
+    return NextResponse.json({ error: message }, { status });
   }
 });

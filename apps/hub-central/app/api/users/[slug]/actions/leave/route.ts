@@ -4,7 +4,7 @@ import { TeamOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withOptionalAura, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { getCachedOiseau } from '@/lib/cache/users.cache';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +12,6 @@ export const dynamic = 'force-dynamic';
 // ==========================================
 // GET : Lecture du Signal / Profil (Miroir)
 // ==========================================
-// withOptionalAura : Accessible à tous, mais identifie l'Oiseau connecté
 export const GET = withOptionalAura(async (req: NextRequest, context: ApiContext, currentUser?: OiseauUser) => {
   try {
     const resolvedParams = await context.params;
@@ -23,10 +22,7 @@ export const GET = withOptionalAura(async (req: NextRequest, context: ApiContext
       return NextResponse.json({ message: "Identifiant invalide." }, { status: 400 });
     }
 
-    const visitorUid = currentUser?.uid;
-    const isSelf = visitorUid === identifier || (visitorUid ? slugify(visitorUid) === identifier : false);
-    
-    // Appel direct au service de cache centralisé, ou repli unifié
+    // 🔍 1. Résolution unifiée de l'Oiseau en premier
     let oiseau: any = await getCachedOiseau(identifier);
     if (!oiseau) {
       oiseau = await findEntityBySlugOrUid(OiseauModel, identifier);
@@ -35,6 +31,10 @@ export const GET = withOptionalAura(async (req: NextRequest, context: ApiContext
     if (!oiseau) {
       return NextResponse.json({ message: "L'onde s'est dissipée : Oiseau introuvable." }, { status: 404 });
     }
+
+    // 🛡️ 2. Contrôle de souveraineté basé sur l'UID canonique résolu
+    const visitorUid = currentUser?.uid;
+    const isSelf = visitorUid === oiseau.uid;
     
     const baseProfile = {
       uid: oiseau.uid,
@@ -99,15 +99,24 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
          
-    // VÉRIFICATIONS DE GOUVERNANCE
-    if (currentUser.uid !== identifier && slugify(currentUser.uid) !== identifier) {
-      return NextResponse.json({ error: "Souveraineté violée : vous ne pouvez forcer l'exil d'un autre." }, { status: 403 });
+    if (!identifier) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
-    
-    // 🔍 Résolution unifiée pour s'assurer de l'existence de l'oiseau via le helper
-    const targetOiseau: any = await findEntityBySlugOrUid(OiseauModel, identifier);
+
+    // 🔍 1. Résolution unifiée pour s'assurer de l'existence de l'oiseau via le helper en premier
+    let targetOiseau: any = await getCachedOiseau(identifier);
+    if (!targetOiseau) {
+      targetOiseau = await findEntityBySlugOrUid(OiseauModel, identifier);
+    }
     if (!targetOiseau) {
       return NextResponse.json({ error: "Oiseau introuvable dans la Silice." }, { status: 404 });
+    }
+
+    // 🛡️ 2. Vérifications de gouvernance basées sur l'UID canonique résolu (ou Admin)
+    const isSelf = currentUser.uid === targetOiseau.uid;
+    const isAdmin = currentUser.capabilities?.includes('*');
+    if (!isSelf && !isAdmin) {
+      return NextResponse.json({ error: "Souveraineté violée : vous ne pouvez forcer l'exil d'un autre." }, { status: 403 });
     }
 
     let body;
@@ -116,25 +125,25 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     } catch (e) {
         return NextResponse.json({ error: "L'onde est muette : Corps de requête invalide" }, { status: 400 });
     }
-    
+     
     const { mode, teamId } = body;
     if (!teamId || !mode || (mode !== 'CLEAN' && mode !== 'TRACE')) {
       return NextResponse.json({ error: "Données incomplètes (attendu: CLEAN ou TRACE)." }, { status: 400 });
     }
-    
+     
     const signature: ActionSignature = {
       actorUid: currentUser.uid,
       capabilities: currentUser.capabilities
     };
-    
-    const orchestrator = new TeamOrchestrator();
-    const result = await orchestrator.leaveTeam(teamId, currentUser.uid, mode, signature);
      
+    const orchestrator = new TeamOrchestrator();
+    const result = await orchestrator.leaveTeam(teamId, targetOiseau.uid, mode, signature);
+      
     revalidateTag('teams');
     revalidateTag(`profile-${identifier}`);
     if (targetOiseau.uid) revalidateTag(`profile-${targetOiseau.uid}`);
     if (targetOiseau.slug) revalidateTag(`profile-${targetOiseau.slug}`);
-    
+     
     return NextResponse.json(result, { status: 200 });
   } catch (error: any) {
     console.error("  Fracture globale lors de l'envol :", error);

@@ -89,6 +89,11 @@ describe('Route API : Miroir & Envol (GET / POST)', () => {
     it('doit rejeter (403) si l\'utilisateur tente de forcer l\'exil d\'un autre', async () => {
       vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'intrus', capabilities: [] } } as any);
 
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+        uid: 'dho',
+        slug: 'dho'
+      } as any);
+
       const req = new Request('http://localhost/api/users/dho', {
         method: 'POST',
         body: JSON.stringify({ mode: 'CLEAN', teamId: 't-1' }),

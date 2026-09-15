@@ -1,9 +1,9 @@
-// Fichier : lib/cache/salon.cache.ts
+// Fichier : lib/cache/messages.cache.ts
 import { unstable_cache } from 'next/cache';
 import { MessageModel } from '@ilot/infrastructure';
 
 // -------------------------------------------------------------------------
-// CACHE SÉCURISÉ : Récupération des messages d'un salon
+// CACHE SÉCURISÉ : Récupération des messages d'un salon (avec bypass en test)
 // -------------------------------------------------------------------------
 export async function getCachedMessages(conversationSlug: string, limit: number, before?: string | null) {
   const fetcher = async () => {
@@ -30,7 +30,7 @@ export async function getCachedMessages(conversationSlug: string, limit: number,
 }
 
 // -------------------------------------------------------------------------
-// CACHE SÉCURISÉ : Comptage des messages non lus par utilisateur
+// CACHE SÉCURISÉ : Comptage des messages non lus par utilisateur (avec bypass en test)
 // -------------------------------------------------------------------------
 export async function getCachedUnreadCount(userSlug: string) {
   const fetcher = async () => {

@@ -1,3 +1,4 @@
+// Fichier : app/api/games/save-result/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -21,7 +22,8 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       );
     }
 
-    const username = currentUser.slug || currentUser.id || currentUser.uid || 'Oiseau Inconnu';
+    // 🛡️ Uniformisation : Utilisation du slug ou de l'UID canonique garanti par le gardien
+    const username = currentUser.slug || currentUser.uid || 'Oiseau Inconnu';
 
     // 1. Sédimentation du résultat dans la base de données
     const result = await GameResultModel.create({

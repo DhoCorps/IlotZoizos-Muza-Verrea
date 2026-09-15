@@ -99,7 +99,7 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
   });
 
   describe('PUT - Mutation du Sujet', () => {
-    it('doit réussir (200) si l\'utilisateur est l\'auteur et invalider le cache', async () => {
+    it('doit réussir (200) si l\'utilisateur est l\'auteur, valide via Zod et invalide le cache', async () => {
       vi.mocked(getServerSession).mockResolvedValue({
         user: { uid: 'u-owner', capabilities: [] }
       } as any);
@@ -116,7 +116,7 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
 
       const req = new Request('http://localhost/api/sujets/mon-sujet', {
         method: 'PUT',
-        body: JSON.stringify({ title: 'Titre Modifié' }),
+        body: JSON.stringify({ title: 'Titre Modifié', authorUid: 'fake-hack' }), // authorUid sera filtré par Zod
       });
 
       const response = await PUT(req as any, { params: Promise.resolve({ slug: 'mon-sujet' }) });

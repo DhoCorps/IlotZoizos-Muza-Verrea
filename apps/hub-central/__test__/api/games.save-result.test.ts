@@ -1,3 +1,4 @@
+// Fichier : __test__/api/games.save-result.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/games/save-result/route';
 import { GameResultModel } from '@ilot/infrastructure';
@@ -84,6 +85,14 @@ describe('API Games Save Result', () => {
     expect(json.success).toBe(true);
     expect(json.id).toBe('result_id_123');
     
+    // Vérification que le modèle a bien reçu l'UID canonique et le slug
+    expect(GameResultModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userUid: 'bird_1',
+        username: 'mage-silice',
+      })
+    );
+
     // Vérification de l'invalidation chirurgicale du cache des classements
     expect(revalidateTag).toHaveBeenCalledWith('game-leaderboard');
     expect(revalidateTag).toHaveBeenCalledWith('leaderboard-memory');

@@ -1,3 +1,4 @@
+// Fichier : __test__/api/games.leaderboard.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/games/leaderboard/route';
 import { GameResultModel } from '@ilot/infrastructure';
@@ -49,6 +50,7 @@ describe('GET /api/games/leaderboard', () => {
     expect(data.success).toBe(true);
     expect(data.scores).toHaveLength(1);
     expect(data.scores[0].username).toBe('Oiseau');
-    expect(GameResultModel.find).toHaveBeenCalledWith({ gameType: 'KoOonTreez' });
+    // Alignement sur la casse convertie par le cache/route
+    expect(GameResultModel.find).toHaveBeenCalledWith({ gameType: 'kooontreez' });
   });
 });

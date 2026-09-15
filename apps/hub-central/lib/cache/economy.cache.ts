@@ -7,6 +7,7 @@ import { EconomyService } from '@ilot/infrastructure';
 // -------------------------------------------------------------------------
 export async function getCachedInventory(userUid: string) {
   const fetcher = async () => {
+    if (!userUid) throw new Error("Identifiant d'oiseau requis pour ausculter l'Alvéole.");
     return await EconomyService.getInventory(userUid);
   };
 
@@ -14,9 +15,11 @@ export async function getCachedInventory(userUid: string) {
     return await fetcher();
   }
 
+  const cacheKey = `alveole-inventory-${userUid}`;
+  
   return await unstable_cache(
     fetcher,
-    [`alveole-inventory-${userUid}`],
+    [cacheKey],
     { revalidate: 30, tags: ['economy', `alveole-${userUid}`] }
   )();
 }

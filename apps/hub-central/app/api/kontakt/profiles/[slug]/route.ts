@@ -5,6 +5,18 @@ import { KontaktProfileModel, findEntityBySlugOrUid } from '@ilot/infrastructure
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { IlotError } from '@ilot/shared-core';
+import { z } from 'zod';
+
+// 🛡️ Schéma Zod strict pour interdire l'assignation de masse sur les profils Kontakt
+const UpdateKontaktProfileSchema = z.object({
+  professionalTitle: z.string().min(1, "Le titre professionnel est requis.").optional(),
+  bio: z.string().max(1000).optional(),
+  alignment: z.string().optional(),
+  skills: z.array(z.string()).optional(),
+  status: z.string().optional(),
+  portfolioUrl: z.string().url().nullable().optional(),
+});
 
 // ==========================================
 // GET : Ausculter un profil Kontakt spécifique (Public / Silice)
@@ -36,7 +48,9 @@ export const GET = withSilice(async (_req: Request, context: ApiContext) => {
 
   } catch (error: any) {
     console.error("🔥 Erreur globale GET Kontakt Profile Slug :", error);
-    return NextResponse.json({ error: "Erreur interne du serveur." }, { status: 500 });
+    const status = error instanceof IlotError ? error.status : 500;
+    const message = error instanceof IlotError ? error.message : "Erreur interne du serveur.";
+    return NextResponse.json({ error: message }, { status });
   }
 });
 
@@ -61,6 +75,13 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
+    // 🛡️ Validation et assainissement stricts via Zod (Bloque le Mass Assignment)
+    const validation = UpdateKontaktProfileSchema.safeParse(body);
+    if (!validation.success) {
+      return NextResponse.json({ error: "Données de mutation de profil invalides.", details: validation.error.flatten() }, { status: 400 });
+    }
+    const sanitizedData = validation.data;
+
     // 🔍 Recherche unifiée pour trouver le profil par slug ou UID avant mise à jour
     const targetProfile: any = await findEntityBySlugOrUid(KontaktProfileModel, identifier, { lean: false });
 
@@ -77,8 +98,9 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     }
 
     // Si on met à jour le titre professionnel, on génère un nouveau slug
-    if (body.professionalTitle) {
-      const baseSlug = slugify(body.professionalTitle);
+    let newSlug = targetProfile.slug;
+    if (sanitizedData.professionalTitle) {
+      const baseSlug = slugify(sanitizedData.professionalTitle);
       let finalSlug = baseSlug;
       let slugExists = await findEntityBySlugOrUid(KontaktProfileModel, finalSlug);
       let counter = 1;
@@ -90,12 +112,17 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
         counter++;
         safetyCounter++;
       }
-      body.slug = finalSlug;
+      newSlug = finalSlug;
     }
+
+    const payloadToUpdate = {
+      ...sanitizedData,
+      ...(sanitizedData.professionalTitle ? { slug: newSlug } : {})
+    };
 
     const updatedProfile = await KontaktProfileModel.findOneAndUpdate(
       { uid: targetProfile.uid },
-      { $set: body },
+      { $set: payloadToUpdate },
       { new: true }
     ).lean();
 
@@ -113,7 +140,9 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
 
   } catch (error: any) {
     console.error("🔥 Erreur globale PUT Kontakt Profile :", error);
-    return NextResponse.json({ error: error.message || "Erreur lors de la mise à jour." }, { status: 500 });
+    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
+    const message = error instanceof IlotError ? error.message : "Erreur interne lors de la mise à jour du profil.";
+    return NextResponse.json({ error: message }, { status });
   }
 });
 
@@ -166,6 +195,8 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, curren
 
   } catch (error: any) {
     console.error("🔥 Erreur globale DELETE Kontakt Profile :", error);
-    return NextResponse.json({ error: error.message || "Erreur lors de la suppression." }, { status: 500 });
+    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
+    const message = error instanceof IlotError ? error.message : "Erreur interne lors de la suppression du profil.";
+    return NextResponse.json({ error: message }, { status });
   }
 });

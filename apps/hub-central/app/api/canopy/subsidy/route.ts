@@ -7,10 +7,7 @@ import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { getCachedSubsidies } from '@/lib/cache/canopy.cache';
 
-export const GET = withAura(async (_req: Request, _context: ApiContext, currentUser: OiseauUser | null) => {
-  if (!currentUser) {
-    return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
-  }
+export const GET = withAura(async (_req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
     const subsidies = await getCachedSubsidies();
     return NextResponse.json({ success: true, subsidies }, { status: 200 });
@@ -21,10 +18,7 @@ export const GET = withAura(async (_req: Request, _context: ApiContext, currentU
   }
 });
 
-export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser | null) => {
-  if (!currentUser) {
-    return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
-  }
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
     const body = await req.json().catch(() => null);
     if (!body) {
@@ -34,7 +28,10 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     if (!title || !motivation || !requestedAmount || !currency) {
       return NextResponse.json({ error: "Paramètres de subvention incomplets (titre, motivation, montant, devise requis)." }, { status: 400 });
     }
-    const userId = currentUser.uid || currentUser.id;
+    
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    const userId = currentUser.uid;
+
     const newSubsidy = await SubsidyModel.create({
       requesterUid: userId,
       title,

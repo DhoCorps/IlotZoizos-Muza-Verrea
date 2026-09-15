@@ -135,6 +135,12 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
 
     const storageKey = uploadResult?.key || structuredKey;
 
+    // Mise à jour de la Silice avec l'URL du média ancré
+    await SujetModel.updateOne(
+      { uid: targetSujet.uid },
+      { $set: { mediaUrl: publicUrl } }
+    );
+
     // 💥 BOOM ! Invalidation chirurgicale du cache en cascade pour ce sujet
     revalidateTag('sujets');
     revalidateTag(`sujet-${identifier}`);
@@ -208,6 +214,11 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       return NextResponse.json({ error: "URL de l'artefact à purger manquante." }, { status: 400 });
     }
 
+    // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que l'URL appartient bien à ce sujet !
+    if (targetSujet.mediaUrl && targetSujet.mediaUrl !== fileUrl) {
+      return NextResponse.json({ error: "Souveraineté brisée : cet artefact n'appartient pas à ce sujet." }, { status: 403 });
+    }
+
     // 4. Extraction de la clé et désintégration du fichier
     let key;
     try {
@@ -223,6 +234,12 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       console.error("🔥 [STORAGE DELETE ERROR]", deleteErr);
       return NextResponse.json({ error: "Échec de la désintégration de l'artefact dans le Nexus." }, { status: 500 });
     }
+
+    // Nettoyage de l'attribut média en base
+    await SujetModel.updateOne(
+      { uid: targetSujet.uid },
+      { $set: { mediaUrl: null } }
+    );
 
     // 💥 BOOM ! Invalidation chirurgicale du cache
     revalidateTag('sujets');

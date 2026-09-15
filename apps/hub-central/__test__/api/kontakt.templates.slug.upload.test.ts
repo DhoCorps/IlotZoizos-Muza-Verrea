@@ -21,6 +21,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     ...actual,
     CVTemplateModel: {
       findOne: vi.fn(),
+      updateOne: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
     },
     // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
     findEntityBySlugOrUid: vi.fn(),
@@ -75,7 +76,7 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
   });
 
   it('doit réussir (201) l\'upload d\'un template, forger le Sceau SHA-256 et retourner les métadonnées', async () => {
-    global.__mockUser = { uid: 'u-123' };
+    global.__mockUser = { uid: 'u-123', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 'tmpl_123',
@@ -102,12 +103,31 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
     expect(findEntityBySlugOrUid).toHaveBeenCalledWith(CVTemplateModel, 'mon-template');
   });
 
-  it('DELETE - doit réussir (200) la purge', async () => {
-    global.__mockUser = { uid: 'u-123' };
+  it('DELETE - doit échouer (403) en cas de tentative IDOR sur une URL étrangère', async () => {
+    global.__mockUser = { uid: 'u-123', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 'tmpl_123',
-      authorUid: 'u-123'
+      authorUid: 'u-123',
+      previewUrl: 'https://cdn.ilot/doc.pdf'
+    } as any);
+
+    const req = new Request('http://localhost/api/kontakt/templates/mon-template/upload?url=https://cdn.ilot/url-etrangere.pdf', {
+      method: 'DELETE',
+    }) as unknown as NextRequest;
+
+    const res = await DELETE(req, { params: Promise.resolve({ slug: 'mon-template' }) });
+    expect(res.status).toBe(403);
+    expect(storageService.deleteFile).not.toHaveBeenCalled();
+  });
+
+  it('DELETE - doit réussir (200) la purge sécurisée', async () => {
+    global.__mockUser = { uid: 'u-123', capabilities: [] };
+
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 'tmpl_123',
+      authorUid: 'u-123',
+      previewUrl: 'https://cdn.ilot/doc.pdf'
     } as any);
 
     const req = new Request('http://localhost/api/kontakt/templates/mon-template/upload?url=https://cdn.ilot/doc.pdf', {
@@ -119,6 +139,10 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
 
     expect(res.status).toBe(200);
     expect(storageService.deleteFile).toHaveBeenCalledWith('mock-key');
+    expect(CVTemplateModel.updateOne).toHaveBeenCalledWith(
+      { uid: 'tmpl_123' },
+      { $set: { previewUrl: null } }
+    );
     expect(findEntityBySlugOrUid).toHaveBeenCalledWith(CVTemplateModel, 'mon-template');
   });
 });

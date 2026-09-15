@@ -1,3 +1,4 @@
+// Fichier : __test__/api/ecommerce.orders.slug.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PATCH } from '@/app/api/ecommerce/orders/[slug]/route';
 import { OrderModel } from '@ilot/infrastructure';

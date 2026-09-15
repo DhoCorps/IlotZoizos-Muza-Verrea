@@ -1,3 +1,4 @@
+// Fichier : app/api/showcase/preferences/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -16,7 +17,9 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     }
 
     const { sourceApp, consentForShowcase, consentForMusicSync } = body;
-    const userUid = currentUser.uid || currentUser.id;
+    
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par withAura)
+    const userUid = currentUser.uid;
 
     // Mise à jour groupée ou par application source des consentements de l'oiseau dans le registre universel
     const filter: any = { ownerUid: userUid };

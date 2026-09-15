@@ -1,3 +1,4 @@
+// Fichier : __test__/api/ecommerce.wishlist.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/ecommerce/wishlist/route';
 import { WishlistModel } from '@ilot/infrastructure';

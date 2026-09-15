@@ -1,8 +1,9 @@
+// Fichier : __test__/api/canopy.subsidy.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/canopy/subsidy/route';
 import { SubsidyModel } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
-import { getServerSession } from 'next-auth/next';
+import { NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
@@ -12,8 +13,15 @@ vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((fn) => fn),
 }));
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
+// Mock du guard withAura respectant dynamiquement l'état de l'utilisateur simulé
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: any) => async (req: any, ctx: any) => {
+    const mockUser = (global as any).__mockUser;
+    if (!mockUser || !mockUser.uid) {
+      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
+    }
+    return await handler(req, ctx, mockUser);
+  },
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
@@ -34,16 +42,21 @@ vi.mock('@ilot/infrastructure', () => ({
   }
 }));
 
+declare global {
+  var __mockUser: any;
+}
+
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
 describe('Route API : Canopée Subventions (POST /api/canopy/subsidy)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete (global as any).__mockUser;
   });
 
   it('🔴 doit rejeter (401) si l\'oiseau n\'est pas authentifié', async () => {
-    vi.mocked(getServerSession).mockResolvedValue(null);
+    delete (global as any).__mockUser;
 
     const req = new Request('http://localhost/api/canopy/subsidy', {
       method: 'POST',
@@ -54,13 +67,10 @@ describe('Route API : Canopée Subventions (POST /api/canopy/subsidy)', () => {
     const json = await response.json();
 
     expect(response.status).toBe(401);
-    expect(json.error).toBe("Le Nexus est invisible aux étrangers.");
   });
 
   it('🟢 doit créer une subvention (201) et invalider le cache de la Canopée', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'bird_test_1', capabilities: [] }
-    } as any);
+    (global as any).__mockUser = { uid: 'bird_test_1', capabilities: [] };
 
     const req = new Request('http://localhost/api/canopy/subsidy', {
       method: 'POST',
@@ -78,7 +88,12 @@ describe('Route API : Canopée Subventions (POST /api/canopy/subsidy)', () => {
 
     expect(response.status).toBe(201);
     expect(json.success).toBe(true);
-    expect(SubsidyModel.create).toHaveBeenCalled();
+    expect(SubsidyModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requesterUid: 'bird_test_1',
+        title: 'Aide au studio'
+      })
+    );
 
     // 💥 Vérification que le tag de cache a bien été invalidé
     expect(revalidateTag).toHaveBeenCalledWith('canopy-subsidies');

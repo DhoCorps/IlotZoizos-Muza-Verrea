@@ -1,3 +1,4 @@
+// app/api/economy/kontrakt/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
@@ -9,7 +10,7 @@ import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 // ==========================================
 // GET : Lister les KonTraKts du marché (avec filtre optionnel sur les 'pending')
 // ==========================================
-export const GET = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
+export const GET = withAura(async (req: NextRequest, _context: ApiContext, _currentUser: OiseauUser) => {
   try {
     const { searchParams } = new URL(req.url);
     const statusFilter = searchParams.get('status') || 'pending';
@@ -49,7 +50,7 @@ export const GET = withAura(async (req: NextRequest, context: ApiContext, curren
 // ==========================================
 // POST : Sceller un KonTraKt de Konfiance (Multijoueur)
 // ==========================================
-export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   let neoSession;
   
   try {
@@ -58,8 +59,8 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
       return NextResponse.json({ error: "L'onde est muette : Corps de requête illisible." }, { status: 400 });
     }
 
-    // 🟢 LA CORRECTION EST ICI : Formatage pré-validation
-    const userUid = currentUser.uid || currentUser.id;
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    const userUid = currentUser.uid;
     body.creatorId = userUid; // On injecte l'ID sécurisé pour satisfaire Zod
     
     // On convertit le string ISO du JSON en véritable objet Date

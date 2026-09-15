@@ -96,12 +96,41 @@ describe('Route API : Nid Artefacts & Sceau Cryptographique (POST / DELETE)', ()
     expect(revalidateTag).toHaveBeenCalledWith('team-t-1');
   });
 
-  it('DELETE - doit supprimer un fichier si autorisé', async () => {
+  it('DELETE - doit refuser (403) en cas de tentative IDOR sur une URL étrangère', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 't-1',
-      slug: 't-1'
+      slug: 't-1',
+      documents: [{ url: 'https://cdn.ilot/file.jpg' }]
+    } as any);
+
+    vi.mocked(getNeo4jSession).mockReturnValue({
+      run: vi.fn().mockResolvedValue({ records: [{ get: () => [CAPABILITIES.FILE.BURN] }] }),
+      close: vi.fn(),
+    } as any);
+
+    const req = new Request('http://localhost', { 
+        method: 'DELETE', 
+        body: JSON.stringify({ key: 'https://cdn.ilot/document-etranger.jpg' }) 
+    }) as unknown as NextRequest;
+
+    const response = await DELETE(req as any, { params: Promise.resolve({ slug: 't-1' }) });
+    const data = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(data.message).toContain('Souveraineté brisée');
+    expect(storageService.deleteFile).not.toHaveBeenCalled();
+    expect(TeamModel.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('DELETE - doit supprimer un fichier si autorisé et si l\'artefact appartient au nid', async () => {
+    global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
+
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 't-1',
+      slug: 't-1',
+      documents: [{ url: 'https://cdn.ilot/file.jpg' }]
     } as any);
 
     vi.mocked(getNeo4jSession).mockReturnValue({

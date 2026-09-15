@@ -10,9 +10,11 @@ export async function getCachedSubsidies() {
   const fetcher = async () => {
     return await SubsidyModel.find({}).sort({ voteCount: -1, createdAt: -1 }).lean().exec();
   };
+
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
   }
+
   return await unstable_cache(
     fetcher,
     ['canopy-subsidies-list'],
@@ -21,17 +23,27 @@ export async function getCachedSubsidies() {
 }
 
 export async function executeCachedVote(subsidyId: string, userId: string) {
+  if (!subsidyId || !userId) {
+    throw new Error("ID de subvention et identifiant utilisateur requis pour voter.");
+  }
+
   const performer = async () => {
     return await CanopySubsidyOrchestrator.voteForSubsidy(subsidyId, userId);
   };
+
   if (process.env.NODE_ENV === 'test') {
     return await performer();
   }
+
+  // Note : Une action d'écriture/vote ne devrait pas idéalement être cachée via unstable_cache de la sorte, 
+  // mais on conserve le pattern avec une clé dynamisée par vote pour éviter les collisions de cache.
+  const cacheKey = `canopy-subsidy-vote-${subsidyId}-${userId}`;
   const cachedAction = unstable_cache(
     performer,
-    ['canopy-subsidy-vote-action'],
+    [cacheKey],
     { revalidate: 3600, tags: ['canopy-subsidies'] }
   );
+  
   return await cachedAction();
 }
 
@@ -45,9 +57,11 @@ export async function getCachedCanopyStats() {
       .lean<IMessageDocument>()
       .exec();
   };
+
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
   }
+
   return await unstable_cache(
     fetcher,
     ['canopy-stats-latest'],
@@ -59,16 +73,20 @@ export async function getCachedCanopyStats() {
 // 3. AWARDS (Trophées)
 // -------------------------------------------------------------------------
 export async function getCachedAwards(yearMonth?: string) {
-  const query = yearMonth ? { yearMonth } : {};
+  const cleanYearMonth = yearMonth ? yearMonth.trim() : 'all';
+  const query = cleanYearMonth !== 'all' ? { yearMonth: cleanYearMonth } : {};
+
   const fetcher = async () => {
     return await CanopyAwardModel.find(query).sort({ createdAt: -1 }).lean().exec();
   };
+
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
   }
+
   return await unstable_cache(
     fetcher,
-    [`canopy-awards-${yearMonth || 'all'}`],
+    [`canopy-awards-${cleanYearMonth}`],
     { revalidate: 1800, tags: ['canopy-awards'] }
   )();
 }

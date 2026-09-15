@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '@/app/api/users/[slug]/upload/route';
-import { NextRequest } from 'next/server';
+import { POST, DELETE } from '@/app/api/users/[slug]/upload/route';
+import { NextRequest, NextResponse } from 'next/server';
 import { OiseauModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
 import { revalidateTag } from 'next/cache';
@@ -51,7 +51,7 @@ declare global {
   var __mockUser: any;
 }
 
-describe('API Route : Upload Avatar avec Sceau Cryptographique (POST /api/users/[slug]/upload)', () => {
+describe('API Route : Upload Avatar avec Sceau Cryptographique (POST / DELETE /api/users/[slug]/upload)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
@@ -103,5 +103,28 @@ describe('API Route : Upload Avatar avec Sceau Cryptographique (POST /api/users/
     expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'bird-test');
     expect(storageService.deleteFile).toHaveBeenCalledWith('old-key.png');
     expect(revalidateTag).toHaveBeenCalledWith('profile-bird-test');
+  });
+
+  it('🔴 DELETE - doit rejeter (403) en cas de tentative IDOR sur une URL étrangère', async () => {
+    global.__mockUser = { uid: 'bird_123', capabilities: ['*'] };
+
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 'bird_123',
+      slug: 'bird-test',
+      avatarUrl: 'https://cdn.ilot/avatar.png',
+    } as any);
+
+    const req = new Request('http://localhost/api/users/bird-test/upload', {
+      method: 'DELETE',
+      body: JSON.stringify({ imageType: 'avatarUrl', url: 'https://cdn.ilot/avatar-etranger.png' }),
+    }) as unknown as NextRequest;
+
+    const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'bird-test' }) });
+    const data = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(data.message).toContain('Souveraineté brisée');
+    expect(storageService.deleteFile).not.toHaveBeenCalled();
+    expect(OiseauModel.updateOne).not.toHaveBeenCalled();
   });
 });

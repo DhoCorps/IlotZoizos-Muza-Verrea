@@ -1,3 +1,4 @@
+// app/api/economy/kontrakt/resolve/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
@@ -34,7 +35,9 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     }
 
     const { kontraktId, isWinner, victoryBasket } = validation.data;
-    const userUid = currentUser.uid || currentUser.id;
+    
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    const userUid = currentUser.uid;
 
     // 1. Auscultation du Contrat Scellé
     const contract = await KonTraKt.findById(kontraktId);

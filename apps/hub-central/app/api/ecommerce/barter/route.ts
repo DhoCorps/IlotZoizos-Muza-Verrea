@@ -27,7 +27,8 @@ export const GET = withSilice(async (_req: Request, _context: ApiContext) => {
 // ==========================================
 export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const initiatorUid = currentUser.uid || currentUser.id;
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    const initiatorUid = currentUser.uid;
     
     // 🛡️ DOUANE VIBRATOIRE : Vérification du statut de l'Oiseau dans le Tribunal de la Canopée
     const oiseauProfile = await OiseauModel.findOne({ uid: initiatorUid }).lean() as any;
@@ -82,7 +83,8 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
 // ==========================================
 export const PATCH = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const acceptorUid = currentUser.uid || currentUser.id;
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    const acceptorUid = currentUser.uid;
     
     const oiseauProfile = await OiseauModel.findOne({ uid: acceptorUid }).lean() as any;
     if (oiseauProfile && (oiseauProfile.isBanned || oiseauProfile.profileStatus === 'INDESIRABLE')) {

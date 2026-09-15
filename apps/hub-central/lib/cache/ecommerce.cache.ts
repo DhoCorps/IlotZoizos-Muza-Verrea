@@ -16,6 +16,7 @@ import { v4 as uuidv4 } from 'uuid';
 // -------------------------------------------------------------------------
 export async function getCachedUserWishlists(userUid: string) {
   const fetcher = async () => {
+    if (!userUid) throw new Error("Identifiant d'oiseau requis pour les wishlists.");
     let wishlists = await WishlistModel.find({ userUid }).lean();
     if (!wishlists || wishlists.length === 0) {
       const defaultWishlist = await WishlistModel.create({
@@ -29,9 +30,11 @@ export async function getCachedUserWishlists(userUid: string) {
     }
     return wishlists;
   };
+
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
   }
+
   return await unstable_cache(
     fetcher,
     [`wishlists-user-${userUid}`],
@@ -46,9 +49,11 @@ export async function getCachedVerifiedStores() {
   const fetcher = async () => {
     return await StoreModel.find({ isVerified: true }).sort({ createdAt: -1 }).lean();
   };
+
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
   }
+
   return await unstable_cache(
     fetcher,
     ['verified-stores-cache'],
@@ -62,9 +67,11 @@ export async function getCachedStore(slug: string) {
       $or: [{ slug: slug }, { uid: slug }]
     }).lean();
   };
+
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
   }
+
   return await unstable_cache(
     fetcher,
     [`store-${slug}`],
@@ -82,9 +89,11 @@ export async function getCachedProducts(storeUid?: string | null, category?: str
     if (category) query.category = category;
     return await ProductModel.find(query).sort({ createdAt: -1 }).lean();
   };
+
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
   }
+
   const cacheKey = `products-${storeUid || 'all'}-${category || 'all'}`;
   return await unstable_cache(
     fetcher,
@@ -102,9 +111,11 @@ export async function getCachedProduct(slug: string) {
       $or: [{ slug: slug }, { uid: slug }]
     }).lean();
   };
+
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
   }
+
   return await unstable_cache(
     fetcher,
     [`product-${slug}`],
@@ -122,9 +133,11 @@ export async function getCachedOrder(slug: string) {
       $or: [{ uid: slug }, { _id: queryId }]
     }).lean();
   };
+
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
   }
+
   return await unstable_cache(
     fetcher,
     [`order-${slug}`],
@@ -156,9 +169,11 @@ export async function getCachedMarketplaceProducts(category?: string | null, sty
       authorSlug: product.authorSlug || product.ownerUid || product.storeOwnerUid || null
     }));
   };
+
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
   }
+
   const cacheKey = `marketplace-${category || 'all'}-${style || 'all'}-${author || 'all'}`;
   return await unstable_cache(
     fetcher,
@@ -180,9 +195,11 @@ export async function getCachedPendingBarters() {
   const fetcher = async () => {
     return await BarterOfferModel.find({ status: 'PENDING' }).sort({ createdAt: -1 }).lean();
   };
+
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
   }
+
   return await unstable_cache(
     fetcher,
     ['pending-barter-offers'],
@@ -194,9 +211,11 @@ export async function getCachedBarterOffer(slug: string) {
   const fetcher = async () => {
     return await BarterOfferModel.findOne({ uid: slug }).lean();
   };
+
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
   }
+
   return await unstable_cache(
     fetcher,
     [`barter-${slug}`],
@@ -214,7 +233,7 @@ export async function getCachedMatchmakerResults(userUid: string) {
         OPTIONAL MATCH (u)-[:WANTS]->(p:Product)<-[:OWNS]-(other)
         OPTIONAL MATCH (other)-[:WANTS]->(p2:Product)<-[:OWNS]-(u)
         RETURN other.uid AS matchUid,
-               other.pseudo AS matchPseudo,
+               other.matchPseudo AS matchPseudo,
                collect(DISTINCT p.uid) AS itemsTheyHaveThatYouWant,
                collect(DISTINCT p2.uid) AS itemsYouHaveThatTheyWant
         LIMIT 5
@@ -232,9 +251,11 @@ export async function getCachedMatchmakerResults(userUid: string) {
       }
     }
   };
+
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
   }
+
   const cacheKey = `matchmaker-user-${userUid}`;
   return await unstable_cache(
     fetcher,

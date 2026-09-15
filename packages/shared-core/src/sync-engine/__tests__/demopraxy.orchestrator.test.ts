@@ -59,6 +59,36 @@ describe('DemopraxyOrchestrator - Modération Démopraxique', () => {
     });
   });
 
+  describe('getDemopraxicMetrics (Auscultation)', () => {
+    it('🟢 doit retourner les métriques de l\'oiseau si trouvé', async () => {
+      const mockUser = {
+        uid: 'bird_1',
+        slug: 'oiseau-libre',
+        sanctuaryVerrouille: false,
+        demopraxyState: { lastExScore: 1.2 }
+      };
+
+      vi.mocked(OiseauModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValueOnce(mockUser)
+      } as any);
+
+      const orchestrator = new DemopraxyOrchestrator();
+      const metrics = await orchestrator.getDemopraxicMetrics('oiseau-libre');
+
+      expect(metrics.uid).toBe('bird_1');
+      expect(metrics.sanctuaryVerrouille).toBe(false);
+    });
+
+    it('🔴 doit lever une erreur 404 si l\'oiseau n\'existe pas', async () => {
+      vi.mocked(OiseauModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValueOnce(null)
+      } as any);
+
+      const orchestrator = new DemopraxyOrchestrator();
+      await expect(orchestrator.getDemopraxicMetrics('inconnu')).rejects.toThrow(IlotError);
+    });
+  });
+
   describe('processDemopraxicEvaluation (Double Scellement)', () => {
     const adminSignature = { actorUid: 'admin-1', capabilities: ['*'] };
     const restrictedSignature = { actorUid: 'u1', capabilities: ['READ'] };

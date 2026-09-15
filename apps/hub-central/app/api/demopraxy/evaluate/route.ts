@@ -1,3 +1,4 @@
+// Fichier : app/api/demopraxy/evaluate/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -22,7 +23,8 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       return NextResponse.json({ error: "Identifiant de l'oiseau ou métriques manquants." }, { status: 400 });
     }
 
-    const actorUid = currentUser.uid || currentUser.id;
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    const actorUid = currentUser.uid;
     const capabilities = currentUser.capabilities || [];
 
     const signature: ActionSignature = {

@@ -13,7 +13,8 @@ import { getCachedUserWishlists } from '@/lib/cache/ecommerce.cache';
 // ==========================================
 export const GET = withAura(async (_req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const userUid = currentUser.uid || currentUser.id;
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    const userUid = currentUser.uid;
     const wishlists = await getCachedUserWishlists(userUid);
     return NextResponse.json({ success: true, data: wishlists }, { status: 200 });
   } catch (error: any) {
@@ -27,7 +28,9 @@ export const GET = withAura(async (_req: Request, _context: ApiContext, currentU
 // ==========================================
 export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const userUid = currentUser.uid || currentUser.id;
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    const userUid = currentUser.uid;
+    
     const body = await req.json().catch(() => null);
     if (!body) {
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });

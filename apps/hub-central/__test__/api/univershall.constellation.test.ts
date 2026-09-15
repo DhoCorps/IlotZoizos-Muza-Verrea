@@ -30,6 +30,17 @@ describe('API Route /api/univershall/constellation', () => {
     expect(json.error).toContain("paramètre 'tag' est requis");
   });
 
+  it('doit rejeter (400) si le paramètre tag dépasse 50 caractères (protection ReDoS)', async () => {
+    const longTag = 'a'.repeat(51);
+    const req = new Request(`http://localhost/api/univershall/constellation?tag=${longTag}`);
+    const res = await GET(req as any, {} as any);
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.success).toBe(false);
+    expect(json.error).toContain("trop long");
+  });
+
   it('doit retourner les balises correspondantes regroupées par module pour un tag donné', async () => {
     vi.mocked(UniversHallBeaconModel.find).mockReturnValue({
       sort: vi.fn().mockReturnThis(),

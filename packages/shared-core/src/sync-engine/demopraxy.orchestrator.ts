@@ -45,6 +45,26 @@ export class DemopraxyOrchestrator {
     }
 
     /**
+     * 🔍 Récupère l'état et les métriques démopraxiques d'un oiseau via son identifiant (slug, uid ou pseudo)
+     */
+    public async getDemopraxicMetrics(userIdentifier: string) {
+        const user = await OiseauModel.findOne({ 
+            $or: [{ slug: userIdentifier }, { uid: userIdentifier }, { pseudo: userIdentifier }] 
+        }).lean() as any;
+
+        if (!user) {
+            throw new IlotError("Oiseau introuvable dans la Silice pour auscultation démopraxique.", "NOT_FOUND", 404);
+        }
+
+        return {
+            uid: user.uid,
+            slug: user.slug,
+            sanctuaryVerrouille: user.sanctuaryVerrouille || false,
+            demopraxyState: user.demopraxyState || null
+        };
+    }
+
+    /**
      * 🌀 ÉVALUATION ET APPLICATION DE LA STASE D'EXCLUSION
      * Enregistre l'évaluation dans MongoDB et applique l'exclusion/verrouillage indexé dans Neo4j.
      */
@@ -74,7 +94,7 @@ export class DemopraxyOrchestrator {
                 { uid: canonicalUid },
                 { 
                     $set: { 
-                        sanctuaireVerrouille: evaluation.isExcluded,
+                        sanctuaryVerrouille: evaluation.isExcluded,
                         'demopraxyState': {
                             lastExScore: evaluation.exScore,
                             isExcluded: evaluation.isExcluded,
@@ -89,7 +109,7 @@ export class DemopraxyOrchestrator {
             // 3. Propagation ultra-rapide dans le Graphe (Neo4j) via Index Strict
             const cypher = `
                 MATCH (u:User {uid: $canonicalUid})
-                SET u.sanctuaireVerrouille = $isExcluded,
+                SET u.sanctuaryVerrouille = $isExcluded,
                     u.demopraxyExScore = $exScore,
                     u.updatedAt = datetime()
                 RETURN u

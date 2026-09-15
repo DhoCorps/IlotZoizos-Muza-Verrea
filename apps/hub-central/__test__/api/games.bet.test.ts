@@ -1,3 +1,4 @@
+// Fichier : __test__/api/games.bet.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '../../app/api/games/bet/route';
 import { BettingOrchestrator } from '@ilot/shared-core';

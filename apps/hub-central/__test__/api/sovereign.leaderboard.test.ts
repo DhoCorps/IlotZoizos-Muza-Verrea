@@ -15,6 +15,7 @@ vi.mock('@lib/api-guards', () => ({
     withSilice: (handler: any) => handler,
 }));
 
+// Mock propre de Next.js cache pour exécuter directement le fetcher pendant les tests
 vi.mock('next/cache', () => ({
     unstable_cache: (fn: any) => fn,
 }));

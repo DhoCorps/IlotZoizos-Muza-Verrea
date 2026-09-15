@@ -136,11 +136,40 @@ describe('Route API : Project Attachments & Sceau SHA-256 (POST / DELETE /api/pr
   });
 
   describe('DELETE - Purge d\'un artefact', () => {
+    it('doit refuser (403) si l\'artefact n\'appartient pas au projet (Protection IDOR)', async () => {
+      mockNeo4jAuth(true);
+
+      vi.mocked(ProjectModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ 
+          uid: 'proj-1', 
+          slug: 'mon-chantier', 
+          documents: [{ url: 'https://cdn.ilot/autre-doc.pdf' }] 
+        }),
+      } as any);
+
+      const req = new Request('http://localhost/api/projects/mon-chantier/attachments', {
+        method: 'DELETE',
+        body: JSON.stringify({ key: 'https://cdn.ilot/doc-etranger.pdf' }),
+      });
+
+      const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'mon-chantier' }) });
+      const json = await response.json();
+
+      expect(response.status).toBe(403);
+      expect(json.message).toContain('Souveraineté brisée');
+      expect(storageService.deleteFile).not.toHaveBeenCalled();
+      expect(ProjectModel.updateOne).not.toHaveBeenCalled();
+    });
+
     it('doit supprimer l\'artefact du stockage et de la Silice, puis invalider le cache (200)', async () => {
       mockNeo4jAuth(true);
 
       vi.mocked(ProjectModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 'proj-1', slug: 'mon-chantier' }),
+        lean: vi.fn().mockResolvedValue({ 
+          uid: 'proj-1', 
+          slug: 'mon-chantier',
+          documents: [{ url: 'https://cdn.ilot/doc.pdf' }]
+        }),
       } as any);
 
       vi.mocked(ProjectModel.updateOne).mockResolvedValueOnce({ modifiedCount: 1 } as any);

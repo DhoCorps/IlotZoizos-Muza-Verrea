@@ -4,6 +4,15 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, NextRequest } from 'next/server';
 import { UniversHallBeaconModel } from '@ilot/infrastructure';
 import { withSilice, ApiContext } from '@/lib/api-guards';
+import { IlotError } from '@ilot/shared-core';
+import { z } from 'zod';
+
+// 🛡️ Schéma Zod strict pour limiter la longueur et prévenir les attaques par ReDoS
+const TagQuerySchema = z.object({
+  tag: z.string()
+    .min(1, "Un paramètre 'tag' est requis pour explorer la constellation.")
+    .max(50, "Le tag est trop long (Max 50 caractères)."),
+});
 
 // -------------------------------------------------------------------------
 // GET : La Constellation des Tags Croisés (Recherche sémantique transversale)
@@ -11,16 +20,28 @@ import { withSilice, ApiContext } from '@/lib/api-guards';
 export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => {
   try {
     const url = new URL(req.url);
-    const tag = url.searchParams.get('tag');
+    const rawTag = url.searchParams.get('tag');
 
-    if (!tag) {
+    // Intercepte proprement l'absence du paramètre pour renvoyer le message exact attendu
+    if (!rawTag) {
       return NextResponse.json({ 
         success: false, 
         error: "Un paramètre 'tag' est requis pour explorer la constellation." 
       }, { status: 400 });
     }
 
-    const cleanTag = tag.trim().toLowerCase();
+    // 🛡️ Validation stricte via Zod (notamment pour la limite de taille anti-ReDoS)
+    const validation = TagQuerySchema.safeParse({ tag: rawTag });
+    if (!validation.success) {
+      const errorMessage = validation.error.issues[0]?.message || "Paramètre 'tag' invalide.";
+      return NextResponse.json({ 
+        success: false, 
+        error: errorMessage,
+        details: validation.error.flatten()
+      }, { status: 400 });
+    }
+
+    const cleanTag = validation.data.tag.trim().toLowerCase();
 
     // Recherche simultanée dans les balises d'Univers'Hall partageant ce tag
     const matchingBeacons = await UniversHallBeaconModel.find({
@@ -52,9 +73,11 @@ export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => 
 
   } catch (error: any) {
     console.error("  [UNIVERS'HALL CONSTELLATION ERROR] :", error);
+    const status = error instanceof IlotError ? error.status : 500;
+    const message = error instanceof IlotError ? error.message : "Erreur interne lors de l'exploration de la constellation.";
     return NextResponse.json({ 
       success: false, 
-      error: error.message || "Erreur interne lors de l'exploration de la constellation." 
-    }, { status: 500 });
+      error: message 
+    }, { status });
   }
 });

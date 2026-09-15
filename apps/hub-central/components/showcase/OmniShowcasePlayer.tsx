@@ -59,7 +59,7 @@ const VideoMediaViewer: React.FC<{ src: string; title: string; isPlaying: boolea
   );
 };
 
-const AudioMediaViewer: React.FC<{ title: string; ownerSlug: string; thumbnailUrl?: string; isPlaying: boolean }> = ({ title, ownerSlug, thumbnailUrl, isPlaying }) => (
+const AudioMediaViewer: React.FC<{ title: string; ownerSlug: string; thumbnailUrl?: string; isPlaying: boolean }> = ({ title, thumbnailUrl, isPlaying }) => (
   <div className="flex flex-col items-center justify-center space-y-6 p-8 animate-in fade-in duration-500">
     <div className={`relative w-48 h-48 sm:w-60 sm:h-60 rounded-full p-2 bg-gradient-to-tr from-slate-900 to-slate-800 border border-slate-700 shadow-[0_0_40px_rgba(220,38,38,0.15)] ${isPlaying ? 'animate-spin duration-[10000ms]' : ''}`}>
       <div className="w-full h-full rounded-full overflow-hidden relative flex items-center justify-center bg-black">
@@ -108,11 +108,14 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const progressInterval = useRef<NodeJS.Timeout | null>(null);
 
+  // Tri stable des applications pour correspondre exactement au pattern de cache backend
+  const sortedSelectedApps = [...selectedApps].sort();
+
   const { data: playlist = [], isLoading, isError } = useQuery({
-    queryKey: ['showcase-stream', userUid, selectedApps, onlyTradable],
+    queryKey: ['showcase-stream', userUid, sortedSelectedApps, onlyTradable],
     queryFn: async () => {
       const params = new URLSearchParams({ userUid });
-      if (selectedApps.length > 0) params.append('apps', selectedApps.join(','));
+      if (sortedSelectedApps.length > 0) params.append('apps', sortedSelectedApps.join(','));
       if (onlyTradable) params.append('onlyTradable', 'true');
 
       const res = await fetch(`/api/showcase/stream?${params.toString()}`);

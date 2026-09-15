@@ -1,3 +1,4 @@
+// Fichier : __test__/api/ecommerce.orders.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/ecommerce/orders/route';
 import { OrderModel } from '@ilot/infrastructure';
@@ -89,6 +90,13 @@ describe('API Orders (Commandes)', () => {
     expect(res.status).toBe(201);
     expect(json.success).toBe(true);
     expect(json.data.uid).toBe('ord_test_123');
+    expect(OrderModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buyerUid: 'bird_1',
+        totalAmount: 120,
+        status: 'PAID'
+      })
+    );
     expect(revalidateTag).toHaveBeenCalledWith('orders');
     expect(revalidateTag).toHaveBeenCalledWith('user-orders-bird_1');
   });

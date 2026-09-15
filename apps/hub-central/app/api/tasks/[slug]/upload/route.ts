@@ -187,8 +187,29 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
   }
 
   const { key } = await req.json();
-  await storageService.deleteFile(storageService.extractKeyFromUrl(key));
-  await TaskModel.updateOne({ uid: task.uid }, { $pull: { documents: { url: key } } });
+  if (!key) {
+    return NextResponse.json({ success: false, message: "Clé ou URL manquante." }, { status: 400 });
+  }
+
+  // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que le document appartient bien à cette tâche !
+  const documents = Array.isArray(task.documents) ? task.documents : [];
+  const targetDoc = documents.find((doc: any) => doc.url === key || doc.uid === key);
+
+  if (!targetDoc) {
+    return NextResponse.json({ success: false, message: "Souveraineté brisée : cet artefact n'appartient pas à cet atome." }, { status: 403 });
+  }
+
+  try {
+    const storageKey = storageService.extractKeyFromUrl(key);
+    await storageService.deleteFile(storageKey);
+  } catch (s3Err) {
+    console.error("🔥 [Storage DELETE ERROR]", s3Err);
+  }
+
+  await TaskModel.updateOne(
+    { uid: task.uid }, 
+    { $pull: { documents: { $or: [{ url: key }, { uid: key }] } } }
+  );
 
   // 💥 Invalidation du cache en cascade
   revalidateTag(`task-${identifier}`);

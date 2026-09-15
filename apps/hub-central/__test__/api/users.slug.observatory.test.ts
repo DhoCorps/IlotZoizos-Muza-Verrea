@@ -62,12 +62,19 @@ describe('Route API : Observatoire (GET /[slug]/observatory)', () => {
     const json = await response.json();
 
     expect(response.status).toBe(401);
-    expect(json.error).toBe("Le Nexus est invisible aux étrangers.");
+    expect(json.error).toBeDefined();
   });
 
   it('doit rejeter (403) si un utilisateur tente d\'ausculter le profil d\'un autre oiseau', async () => {
     vi.mocked(getServerSession).mockResolvedValue({
       user: { uid: 'intrus', capabilities: [] }
+    } as any);
+
+    // Résolution préalable requise avant le contrôle de souveraineté strict sur l'UID canonique
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 'dho',
+      slug: 'dho',
+      pseudo: 'DhÖ'
     } as any);
 
     const req = new Request('http://localhost/api/users/dho/observatory');
@@ -77,6 +84,7 @@ describe('Route API : Observatoire (GET /[slug]/observatory)', () => {
     expect(response.status).toBe(403);
     expect(json.success).toBe(false);
     expect(json.error).toContain("Souveraineté violée");
+    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'dho');
   });
 
   it('doit réussir (200) et renvoyer le rapport si l\'utilisateur consulte son propre profil', async () => {

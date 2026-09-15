@@ -239,6 +239,14 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
     
     if (!body.key) return NextResponse.json({ message: "Clé manquante" }, { status: 400 });
 
+    // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que le document appartient bien à ce projet !
+    const documents = Array.isArray(project.documents) ? project.documents : [];
+    const targetDoc = documents.find((doc: any) => doc.url === body.key || doc.uid === body.key);
+
+    if (!targetDoc) {
+      return NextResponse.json({ message: "Souveraineté brisée : cet artefact n'appartient pas à ce chantier." }, { status: 403 });
+    }
+
     try {
       const storageKey = storageService.extractKeyFromUrl(body.key);
       await storageService.deleteFile(storageKey);
@@ -247,7 +255,7 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
     }
 
     try {
-      await ProjectModel.updateOne({ uid: project.uid }, { $pull: { documents: { url: body.key } } });
+      await ProjectModel.updateOne({ uid: project.uid }, { $pull: { documents: { $or: [{ url: body.key }, { uid: body.key }] } } });
     } catch (dbErr) { 
       return NextResponse.json({ error: "Échec nettoyage Silice." }, { status: 500 }); 
     }

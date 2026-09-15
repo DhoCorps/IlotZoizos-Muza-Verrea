@@ -5,7 +5,7 @@ import { OiseauModel } from '@ilot/infrastructure';
 import { unstable_cache } from 'next/cache';
 import { withSilice, ApiContext } from '@/lib/api-guards';
 
-// 🧠 CACHE SÉCURISÉ : Mise en cache du Hall of Fame (60s) avec bypass en mode test
+// 🧠 CACHE SÉCURISÉ : Mise en cache standard du Hall of Fame (60s)
 async function getCachedLeaderboard() {
   const fetcher = async () => {
     return await OiseauModel.find({ 
@@ -17,10 +17,6 @@ async function getCachedLeaderboard() {
       .select('uid pseudo nickname ifvScore profileStatus avatarUrl createdAt')
       .lean();
   };
-
-  if (process.env.NODE_ENV === 'test') {
-    return await fetcher();
-  }
 
   return await unstable_cache(
     fetcher,

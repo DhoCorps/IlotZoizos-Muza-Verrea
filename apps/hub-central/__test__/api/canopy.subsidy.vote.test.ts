@@ -1,5 +1,6 @@
+// Fichier : __test__/api/canopy.subsidy.vote.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '@/app/api/canopy/subsidy/vote/route'; // Ajuste le chemin selon ton arborescence exacte
+import { POST } from '@/app/api/canopy/subsidy/vote/route';
 import { CanopySubsidyOrchestrator } from '@ilot/shared-core';
 
 vi.mock('next/cache', () => ({
@@ -18,6 +19,14 @@ vi.mock('@/lib/api-guards', () => ({
     const currentUser = (global as any).__mockUser !== undefined 
       ? (global as any).__mockUser 
       : { uid: 'bird_voter_123' };
+    
+    if (!currentUser) {
+      return new Response(JSON.stringify({ success: false, error: "Oiseau non identifié" }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     return handler(req, context, currentUser);
   }
 }));

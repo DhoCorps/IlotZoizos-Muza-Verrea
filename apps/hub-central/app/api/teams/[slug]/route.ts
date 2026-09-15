@@ -5,8 +5,23 @@ import { CAPABILITIES, ActionSignature } from "@ilot/types";
 import { unstable_cache, revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards'; // 🪡 Notre bouclier souverain
 import { slugify } from '@/lib/slugify';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
+
+// 🛡️ Schéma Zod strict pour interdire l'assignation de masse (Mass Assignment) sur les Nids
+const UpdateTeamSchema = z.object({
+  name: z.string().min(1, "Le nom du Nid est requis.").optional(),
+  description: z.string().max(1000).optional(),
+  avatarUrl: z.string().url().nullable().optional(),
+  coverPicture: z.string().url().nullable().optional(),
+  isPublic: z.boolean().optional(),
+  settings: z.object({
+    isGlobalReducedSpeed: z.boolean().optional(),
+    allowSearch: z.boolean().optional(),
+    defaultLocale: z.string().optional(),
+  }).partial().optional(),
+});
 
 /**
  * 🛡️ UTILITAIRE DE DOUANE (Garde Frontière)
@@ -178,6 +193,13 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
+    // 🛡️ Validation et assainissement stricts via Zod (Blocage du Mass Assignment)
+    const validation = UpdateTeamSchema.safeParse(body);
+    if (!validation.success) {
+      return NextResponse.json({ error: "Données de mutation de nid invalides.", details: validation.error.flatten() }, { status: 400 });
+    }
+    const sanitizedData = validation.data;
+
     const signature: ActionSignature = {
         actorUid: currentUser.uid,
         capabilities: caps
@@ -186,7 +208,7 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     let updatedTeam;
     try {
       const teamEngine = new TeamOrchestrator(); 
-      updatedTeam = await teamEngine.mutateTeam(teamUid, body, signature);
+      updatedTeam = await teamEngine.mutateTeam(teamUid, sanitizedData as any, signature);
     } catch (orchErr: any) {
       console.error("🌋 [TEAM ORCHESTRATOR MUTATE ERROR]", orchErr);
       const status = orchErr.statusCode || orchErr.status || 500;

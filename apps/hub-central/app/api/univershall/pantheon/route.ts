@@ -1,4 +1,3 @@
-// app/api/univershall/pantheon/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
@@ -6,15 +5,11 @@ import { UniversHallPantheonOrchestrator } from '@ilot/shared-core';
 import { withSilice, ApiContext } from '@/lib/api-guards';
 import { unstable_cache } from 'next/cache';
 
-// Gestion sécurisée du cache avec contournement en mode test (Vitest)
+// Gestion sécurisée et propre du cache de production (totalement agnostique du contexte Vitest)
 const getCachedPantheon = (yearMonth?: string) => {
   const fetcher = async () => {
     return await UniversHallPantheonOrchestrator.calculatePantheon(yearMonth);
   };
-
-  if (process.env.NODE_ENV === 'test') {
-    return fetcher();
-  }
 
   return unstable_cache(
     fetcher,

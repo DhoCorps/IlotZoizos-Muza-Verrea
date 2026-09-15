@@ -1,3 +1,4 @@
+// __test__/api/economy.kontrakt.market.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/economy/kontrakt/route';
 import { KonTraKt, EconomyService, getNeo4jSession } from '@ilot/infrastructure';
@@ -87,7 +88,6 @@ describe('GET /api/economy/kontrakt - Test du Marché', () => {
 });
 
 describe('Route API - Création de KonTraKt', () => {
-  
   const mockRun = vi.fn().mockResolvedValue(true);
   const mockClose = vi.fn().mockResolvedValue(true);
 
@@ -100,7 +100,6 @@ describe('Route API - Création de KonTraKt', () => {
     } as any);
   });
 
-  // Payload aligné avec CurrencyEnum ('plumes' en minuscules) et GameModeEnum
   const validPayload = {
     gameId: 'plajia_lvl_1',
     gameMode: 'multiplayer',

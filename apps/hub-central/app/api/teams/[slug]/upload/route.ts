@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 import { NextRequest, NextResponse } from 'next/server';
 import { TeamModel, findEntityBySlugOrUid, getNeo4jSession, ITeamDocument } from '@ilot/infrastructure'; 
 import { CAPABILITIES } from '@ilot/types'; 
@@ -208,8 +206,25 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
   const { key } = await req.json();
   if (!key) return NextResponse.json({ success: false, message: "Clé manquante." }, { status: 400 });
 
-  await storageService.deleteFile(storageService.extractKeyFromUrl(key));
-  await TeamModel.updateOne({ uid: team.uid }, { $pull: { documents: { url: key } } });
+  // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que le document appartient bien à cette équipe !
+  const documents = Array.isArray(team.documents) ? team.documents : [];
+  const targetDoc = documents.find((doc: any) => doc.url === key || doc.uid === key);
+
+  if (!targetDoc) {
+    return NextResponse.json({ success: false, message: "Souveraineté brisée : cet artefact n'appartient pas à ce nid." }, { status: 403 });
+  }
+
+  try {
+    const storageKey = storageService.extractKeyFromUrl(key);
+    await storageService.deleteFile(storageKey);
+  } catch (s3Err) {
+    console.error("🔥 [Storage DELETE ERROR]", s3Err);
+  }
+
+  await TeamModel.updateOne(
+    { uid: team.uid }, 
+    { $pull: { documents: {$or: [{ url: key }, { uid: key }] } } }
+  );
 
   // 💥 Invalidation en cascade
   revalidateTag('teams');
@@ -219,3 +234,5 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
 
   return NextResponse.json({ success: true }, { status: 200 });
 });
+
+export const dynamic = 'force-dynamic';

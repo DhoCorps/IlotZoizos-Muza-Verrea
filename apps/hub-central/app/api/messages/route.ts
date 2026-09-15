@@ -1,8 +1,7 @@
-// Fichier : app/api/salon/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { MessageModel, OiseauModel } from '@ilot/infrastructure';
+import { MessageModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { attachmentRegistry } from '@ilot/shared-core';
 import { SendMessageBodySchema } from '@ilot/types';
 import { randomUUID } from 'crypto';
@@ -40,7 +39,9 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
   try {
     const senderSlug = currentUser.slug || currentUser.uid;
 
-    const oiseauProfile = await OiseauModel.findOne({ uid: senderSlug }).lean() as Record<string, any> | null;
+    // 🛡️ Suture de Souveraineté : Utilisation du helper unifié pour attraper le profil même via un slug personnalisé
+    const oiseauProfile = await findEntityBySlugOrUid(OiseauModel, senderSlug) as Record<string, any> | null;
+    
     if (oiseauProfile && (oiseauProfile.isBanned || oiseauProfile.profileStatus === 'INDESIRABLE')) {
       return NextResponse.json({ 
          error: "Souveraineté restreinte : Votre fréquence est jugée indésirable. Le salon vous est fermé." 

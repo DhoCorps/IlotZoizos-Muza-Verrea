@@ -16,7 +16,10 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     if (!body) {
       return NextResponse.json({ error: "Corps de requête illisible ou malformé." }, { status: 400 });
     }
-    const buyerUid = currentUser.uid || currentUser.id || 'anonymous-bird';
+    
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    const buyerUid = currentUser.uid;
+
     const order = await OrderModel.create({
       uid: `ord_${uuidv4()}`,
       buyerUid,
@@ -29,11 +32,13 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('orders');
     revalidateTag(`user-orders-${buyerUid}`);
+
     return NextResponse.json({ 
        success: true, 
        message: "📦 Commande sédimentée avec succès dans le grand livre de l'îlot.",
       data: order 
     }, { status: 201 });
+
   } catch (error: any) {
     console.error("  Erreur POST Order :", error);
     return NextResponse.json({ error: error.message || "Erreur interne de commande." }, { status: 500 });

@@ -6,10 +6,7 @@ import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { executeCachedVote } from '@/lib/cache/canopy.cache';
 
-export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser | null) => {
-  if (!currentUser) {
-    return NextResponse.json({ success: false, error: "Oiseau non identifié" }, { status: 401 });
-  }
+export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
     const body = await req.json().catch(() => null);
     if (!body) {
@@ -19,7 +16,9 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     if (!subsidyId) {
       return NextResponse.json({ success: false, error: "ID de subvention requis pour voter." }, { status: 400 });
     }
-    const userId = currentUser.uid || currentUser.id;
+    
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    const userId = currentUser.uid;
     
     await executeCachedVote(subsidyId, userId);
     revalidateTag('canopy-subsidies');

@@ -5,7 +5,7 @@ import { NextRequest } from 'next/server';
 
 vi.mock('@/modules/security/rateLimiter', () => ({ checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }) }));
 
-// Adaptation du mock sur generateKey au lieu de generateStructuredKey
+// Adaptation du mock sur generateKey
 vi.mock('@/modules/storage/storage.service', () => ({
   storageService: { 
     generateKey: vi.fn(), 
@@ -13,7 +13,7 @@ vi.mock('@/modules/storage/storage.service', () => ({
   }
 }));
 
-// Mock de l'Orchestrateur sous forme de VRAIE CLASSE avec importOriginal
+// Mock de l'Orchestrateur sous forme de vraie classe avec importOriginal
 vi.mock('@ilot/shared-core', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {

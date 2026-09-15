@@ -21,11 +21,7 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
       return NextResponse.json({ message: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 2. Le visiteur est-il propriétaire du profil ?
-    const visitorUid = currentUser?.uid;
-    const isSelf = visitorUid === identifier || (visitorUid ? slugify(visitorUid) === identifier : false);
-
-    // 3. Appel au cache, avec ré-ancrage sur le helper unifié si nécessaire
+    // 🔍 2. Résolution unifiée en premier (Cache ou Silice) pour obtenir l'entité canonique
     let oiseau: any = await getCachedOiseau(identifier);
     if (!oiseau) {
       oiseau = await findEntityBySlugOrUid(OiseauModel, identifier);
@@ -34,6 +30,10 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
     if (!oiseau) {
       return NextResponse.json({ message: "L'onde s'est dissipée." }, { status: 404 });
     }
+
+    // 🛡️ 3. Vérification de la propriété basée sur l'UID canonique résolu
+    const visitorUid = currentUser?.uid;
+    const isSelf = visitorUid === oiseau.uid;
 
     // --- LE MIROIR INTIME (Expose les données privées) ---
     if (isSelf) {

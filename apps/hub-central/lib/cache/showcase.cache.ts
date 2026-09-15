@@ -14,7 +14,13 @@ export async function getCachedStream(userUid: string, filters: any) {
     return await fetcher();
   }
 
-  const cacheKey = `showcase-stream-${userUid}-${filters.selectedApps.join('-')}-${filters.onlyTradable}`;
+  // Normalisation du tri des applications pour assurer l'unicité et la stabilité de la clé de cache
+  const sortedApps = Array.isArray(filters?.selectedApps) 
+    ? [...filters.selectedApps].sort().join('-') 
+    : '';
+
+  const cacheKey = `showcase-stream-${userUid}-${sortedApps}-${filters?.onlyTradable ?? false}`;
+  
   return await unstable_cache(
     fetcher,
     [cacheKey],

@@ -13,8 +13,8 @@ export const GET = withAura(async (req: Request, _context: ApiContext, currentUs
   try {
     const { searchParams } = new URL(req.url);
     
-    // Identification sécurisée de l'oiseau par son jeton (on ignore le paramètre URL pour la sécurité)
-    const userUid = currentUser.uid || currentUser.id; 
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    const userUid = currentUser.uid; 
 
     // Extraction et CASTING des filtres granulaires depuis l'URL
     const appsParam = searchParams.get('apps');

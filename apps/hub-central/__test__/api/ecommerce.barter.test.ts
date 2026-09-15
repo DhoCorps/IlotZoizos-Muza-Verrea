@@ -1,3 +1,4 @@
+// Fichier : __test__/api/ecommerce.barter.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/ecommerce/barter/route';
 import { BarterOfferModel, OiseauModel } from '@ilot/infrastructure';

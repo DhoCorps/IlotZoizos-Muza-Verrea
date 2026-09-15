@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '../../app/api/messages/route';
-import { MessageModel, OiseauModel } from '@ilot/infrastructure';
+import { MessageModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { SendMessageBodySchema } from '@ilot/types';
 
 // Mock global de l'infrastructure
@@ -15,11 +15,9 @@ vi.mock('@ilot/infrastructure', () => ({
             }),
         }),
     },
-    OiseauModel: {
-        findOne: vi.fn().mockReturnValue({
-            lean: vi.fn().mockResolvedValue(null),
-        }),
-    },
+    OiseauModel: {},
+    // 🛡️ Suture unifiée : Utilisation du helper par slug ou UID
+    findEntityBySlugOrUid: vi.fn(),
 }));
 
 // Mock du registre d'attachements
@@ -60,12 +58,11 @@ describe('POST /api/messages (Douane Vibratoire de la Messagerie)', () => {
     });
 
     it('🔴 doit rejeter avec une erreur 403 si l oiseau est classé INDESIRABLE ou banni', async () => {
-        vi.mocked(OiseauModel.findOne).mockReturnValueOnce({
-            lean: vi.fn().mockResolvedValueOnce({
-                uid: 'bird_clean_1',
-                profileStatus: 'INDESIRABLE',
-                isBanned: false,
-            })
+        vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+            uid: 'bird_clean_1',
+            slug: 'bird_clean_1',
+            profileStatus: 'INDESIRABLE',
+            isBanned: false,
         } as any);
 
         vi.mocked(SendMessageBodySchema.safeParse).mockReturnValueOnce({
@@ -85,15 +82,15 @@ describe('POST /api/messages (Douane Vibratoire de la Messagerie)', () => {
         expect(response.status).toBe(403);
         expect(json.error).toContain('Souveraineté restreinte');
         expect(MessageModel.create).not.toHaveBeenCalled();
+        expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'bird_clean_1');
     });
 
     it('🟢 doit autoriser la propagation du message si l oiseau est respectueux ou neutre', async () => {
-        vi.mocked(OiseauModel.findOne).mockReturnValueOnce({
-            lean: vi.fn().mockResolvedValueOnce({
-                uid: 'bird_clean_1',
-                profileStatus: 'RESPECTABLE',
-                isBanned: false,
-            })
+        vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+            uid: 'bird_clean_1',
+            slug: 'bird_clean_1',
+            profileStatus: 'RESPECTABLE',
+            isBanned: false,
         } as any);
 
         vi.mocked(SendMessageBodySchema.safeParse).mockReturnValueOnce({
@@ -120,5 +117,6 @@ describe('POST /api/messages (Douane Vibratoire de la Messagerie)', () => {
         expect(json.success).toBe(true);
         expect(json.message).toHaveProperty('slug', 'msg_123');
         expect(MessageModel.create).toHaveBeenCalledTimes(1);
+        expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'bird_clean_1');
     });
 });

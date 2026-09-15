@@ -1,3 +1,4 @@
+// Fichier : app/api/economy/unlock/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -13,7 +14,9 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     }
 
     const { featureId } = body;
-    const userUid = currentUser.uid || currentUser.id;
+    
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    const userUid = currentUser.uid;
 
     // Tentative de transaction non-marchande via le service
     const updatedInventory = await EconomyService.unlockFeature(userUid, String(featureId));

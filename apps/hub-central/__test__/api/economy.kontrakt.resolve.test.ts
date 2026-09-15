@@ -1,3 +1,4 @@
+// __test__/api/economy.kontrakt.resolve.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/economy/kontrakt/resolve/route';
 import { KonTraKt, EconomyService } from '@ilot/infrastructure';
@@ -30,8 +31,7 @@ describe('Route API - Résolution de KonTraKt', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     
-    // 🟢 LA CORRECTION EST ICI : On regénère un contrat vierge avant chaque test
-    // pour éviter que la mutation du test de défaite ne contamine les suivants.
+    // 🟢 On regénère un contrat vierge avant chaque test
     mockContractDoc = {
       _id: 'contract_123',
       creatorId: 'champion_bird', 
@@ -51,7 +51,6 @@ describe('Route API - Résolution de KonTraKt', () => {
   } as any);
 
   it('🔴 doit bloquer si le contrat n\'est pas "accepted"', async () => {
-    // On force un statut "pending" juste pour ce test
     vi.mocked(KonTraKt.findById).mockResolvedValueOnce({ ...mockContractDoc, status: 'pending' } as any);
 
     const response = await POST(mockRequest({ kontraktId: 'contract_123', isWinner: true }), {} as any);
@@ -100,7 +99,7 @@ describe('Route API - Résolution de KonTraKt', () => {
 
     const perfectBasket = [
       { currency: 'totamtoes', quantity: 2, unitDhOValue: 1.5 }, // 3.0 DhÔ
-      { currency: 'plumes', quantity: 1, unitDhOValue: 1.0 }     // 1.0 DhÔ
+      { currency: 'plumes', quantity: 1, unitDhOValue: 1.0 }    // 1.0 DhÔ
     ];
 
     const response = await POST(mockRequest({ kontraktId: 'contract_123', isWinner: true, victoryBasket: perfectBasket }), {} as any);

@@ -7,7 +7,7 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-// 🛡️ MOCK INTELLIGENT DE L'INFRASTRUCTURE (LA CORRECTION EST ICI)
+// 🛡️ MOCK INTELLIGENT DE L'INFRASTRUCTURE
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
@@ -21,7 +21,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 // 🛡️ MOCK DU GARDE D'AURA
 vi.mock('@/lib/api-guards', () => ({
   withAura: (handler: any) => async (req: any, context: any) => {
-    // Simule un oiseau connecté avec l'UID 'bird_alpha'
+    // Simule un oiseau connecté avec l'UID canonique 'bird_alpha'
     return handler(req, context, { uid: 'bird_alpha', capabilities: ['*'] });
   },
 }));

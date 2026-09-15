@@ -1,3 +1,4 @@
+// Fichier : app/api/games/bet/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -27,7 +28,8 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       return NextResponse.json({ error: "Paramètres de pari invalides (gameId, bets ou targets requis)." }, { status: 400 });
     }
 
-    const userId = currentUser.uid || currentUser.id;
+    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par withAura)
+    const userId = currentUser.uid;
 
     // Appel de l'orchestrateur avec le contrat de troc
     const result = await BettingOrchestrator.placeBet(userId, gameId, bets as IAssetValue[], targets as IAssetValue[]);

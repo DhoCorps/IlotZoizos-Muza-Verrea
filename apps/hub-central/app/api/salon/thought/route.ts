@@ -8,25 +8,20 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
-    // Connexion DB conditionnelle
-    if (process.env.NODE_ENV !== 'test') {
-      await connectToDatabase();
-    }
+    // Connexion standardisée à la base de données (totalement agnostique du contexte d'exécution)
+    await connectToDatabase();
 
-    // 🛡️ MOCK AUTH POUR TESTS : On court-circuite NextAuth si on est en test
-    let session;
-    if (process.env.NODE_ENV === 'test') {
-      session = { user: { uid: 'test-user', capabilities: ['*'] } };
-    } else {
-      session = await getServerSession(authOptions);
-    }
+    // Récupération standard de la session via NextAuth
+    const session = await getServerSession(authOptions);
 
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
     let body;
-    try { body = await req.json(); } catch (err) {
+    try { 
+      body = await req.json(); 
+    } catch (err) {
       return NextResponse.json({ error: "Requête illisible." }, { status: 400 });
     }
 
@@ -53,11 +48,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Action inconnue.' }, { status: 400 });
 
   } catch (error: any) {
-    // On n'affiche l'erreur dans la console QUE si on n'est PAS en train de faire tourner les tests Vitest
-    if (process.env.NODE_ENV !== 'test') {
-       console.error("API Salon Quantique - Erreur :", error);
-    }
-    
+    console.error("API Salon Quantique - Erreur :", error);
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
   }
 }

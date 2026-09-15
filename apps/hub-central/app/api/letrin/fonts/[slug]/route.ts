@@ -5,6 +5,15 @@ import { FontProject, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { IlotError } from '@ilot/shared-core';
+import { z } from 'zod';
+
+// 🛡️ Schéma Zod strict pour interdire l'assignation de masse sur les projets de polices
+const UpdateFontProjectSchema = z.object({
+  name: z.string().min(1, "Le nom du projet de police est requis.").optional(),
+  payload: z.any().optional(),
+  status: z.string().optional(),
+});
 
 // ==========================================
 // 🚀 PUT : Muter un projet de police (Strictement Privé / Aura)
@@ -27,6 +36,13 @@ export const PUT = withAura(async (request: Request, context: ApiContext, curren
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
+    // 🛡️ Validation et assainissement stricts via Zod (Bloque le Mass Assignment)
+    const validation = UpdateFontProjectSchema.safeParse(body);
+    if (!validation.success) {
+      return NextResponse.json({ error: "Données de mutation de projet invalides.", details: validation.error.flatten() }, { status: 400 });
+    }
+    const sanitizedData = validation.data;
+
     // 🔍 Recherche unifiée par slug ou UID
     const targetProject: any = await findEntityBySlugOrUid(FontProject, identifier, { lean: false });
     if (!targetProject) {
@@ -42,7 +58,7 @@ export const PUT = withAura(async (request: Request, context: ApiContext, curren
 
     let updated;
     try {
-      updated = await FontProject.findOneAndUpdate({ uid: targetProject.uid }, body, { new: true }).lean();
+      updated = await FontProject.findOneAndUpdate({ uid: targetProject.uid }, { $set: sanitizedData }, { new: true }).lean();
     } catch (updateErr) {
       console.error("🔥 [FONTS PUT UPDATE ERROR]", updateErr);
       return NextResponse.json({ error: "Échec de la mutation du projet." }, { status: 500 });
@@ -67,7 +83,9 @@ export const PUT = withAura(async (request: Request, context: ApiContext, curren
 
   } catch (error: any) {
     console.error("🔥 Erreur globale PUT Fonts :", error);
-    return NextResponse.json({ error: "Erreur globale interne." }, { status: 500 });
+    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
+    const message = error instanceof IlotError ? error.message : "Erreur globale interne lors de la mutation de la typographie.";
+    return NextResponse.json({ error: message }, { status });
   }
 });
 
@@ -125,6 +143,8 @@ export const DELETE = withAura(async (_request: Request, context: ApiContext, cu
 
   } catch (error: any) {
     console.error("🔥 Erreur globale DELETE Fonts :", error);
-    return NextResponse.json({ error: "Erreur globale interne." }, { status: 500 });
+    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
+    const message = error instanceof IlotError ? error.message : "Erreur globale interne lors de la dissolution de la typographie.";
+    return NextResponse.json({ error: message }, { status });
   }
 });

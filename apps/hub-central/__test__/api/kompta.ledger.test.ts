@@ -1,3 +1,4 @@
+// Fichier : __test__/api/kompta.ledger.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '../../app/api/kompta/ledger/route';
 import { LedgerEntryModel } from '@ilot/infrastructure';
@@ -35,5 +36,8 @@ describe('GET /api/kompta/ledger', () => {
     expect(json.data.summary.totalCredits).toBe(10);
     expect(json.data.summary.totalDebits).toBe(2.5);
     expect(json.data.summary.netBalance).toBe(7.5);
+    
+    // Vérifie que la recherche s'effectue bien sur le nouvel UID canonique de l'oiseau
+    expect(LedgerEntryModel.find).toHaveBeenCalledWith({ ownerUid: 'bird_test_123' });
   });
 });

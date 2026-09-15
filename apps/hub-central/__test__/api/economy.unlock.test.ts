@@ -1,3 +1,4 @@
+// Fichier : __test__/api/economy.unlock.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '../../app/api/economy/unlock/route';
 import { EconomyService } from '@ilot/infrastructure';
