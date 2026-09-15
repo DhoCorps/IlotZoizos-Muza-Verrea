@@ -21,15 +21,21 @@ vi.mock('@/lib/api-guards', () => ({
   },
 }));
 
-vi.mock('@ilot/infrastructure', () => ({
-  LibraryBookModel: {
-    findOne: vi.fn(),
-  },
-  AnnotationModel: {
-    find: vi.fn(),
-    create: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    LibraryBookModel: {
+      findOne: vi.fn(),
+    },
+    AnnotationModel: {
+      find: vi.fn(),
+      create: vi.fn(),
+    },
+    // On conserve le helper réel ou on le mocke si besoin, mais comme il appelle LibraryBookModel.findOne, 
+    // mocker directement LibraryBookModel suffira à le faire fonctionner !
+  };
+});
 
 declare global {
   var __mockUser: any;
@@ -42,7 +48,7 @@ describe('API Bibliotek - Sous-route Annotations ([slug]/annotations)', () => {
   });
 
   it('🟢 GET : doit lister les notes associées au livre par son slug', async () => {
-    // 🪡 Suture du .lean() chaînable sur le mock findOne
+    // 🪡 Suture du .lean() chaînable sur findOne (utilisé par le helper findEntityBySlugOrUid)
     vi.mocked(LibraryBookModel.findOne).mockReturnValue({
       lean: vi.fn().mockResolvedValue({
         uid: 'book_999',
@@ -69,7 +75,6 @@ describe('API Bibliotek - Sous-route Annotations ([slug]/annotations)', () => {
   it('🟢 POST : doit créer une note rattachée au livre résolu par son slug (201)', async () => {
     global.__mockUser = { uid: 'bird_reader', capabilities: [] };
 
-    // 🪡 Suture du .lean() chaînable sur le mock findOne
     vi.mocked(LibraryBookModel.findOne).mockReturnValue({
       lean: vi.fn().mockResolvedValue({
         uid: 'book_999',

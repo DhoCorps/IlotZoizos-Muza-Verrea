@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
-import { AnnotationModel, LibraryBookModel } from '@ilot/infrastructure';
+import { AnnotationModel, LibraryBookModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { slugify } from '@/lib/slugify';
 import { randomUUID } from 'crypto';
@@ -14,9 +14,10 @@ export const GET = withOptionalAura(async (_req: NextRequest, context: ApiContex
   try {
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    const book = await LibraryBookModel.findOne({ $or: [{ slug }, { uid: slug }] }).lean();
+    // 🔍 Utilisation de notre helper unifié (Slug ou UID)
+    const book = await findEntityBySlugOrUid(LibraryBookModel, identifier);
     if (!book) {
       return NextResponse.json({ error: "Ouvrage introuvable." }, { status: 404 });
     }
@@ -41,9 +42,10 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
   try {
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
-    const slug = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    const book = await LibraryBookModel.findOne({ $or: [{ slug }, { uid: slug }] }).lean();
+    // 🔍 Utilisation de notre helper unifié (Slug ou UID)
+    const book = await findEntityBySlugOrUid(LibraryBookModel, identifier);
     if (!book) {
       return NextResponse.json({ error: "Ouvrage introuvable." }, { status: 404 });
     }

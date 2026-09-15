@@ -86,3 +86,5 @@ export * from './database/models/nosql/annotation.model';
 export * from './database/models/nosql/lexiconEntry.model';
 export * from './database/models/nosql/univershallBeacon.model';
 
+export * from './database/utils/entityResolver';
+
