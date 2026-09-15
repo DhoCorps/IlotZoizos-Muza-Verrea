@@ -63,7 +63,6 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
   it('🟢 POST : doit réussir l’upload d’un manuscrit, forger le Sceau SHA-256 et mettre à jour l’ouvrage (201)', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
 
-    // Remplacement par le helper unifié
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 'book_999', 
       slug: 'essai-sur-la-silice',
@@ -103,7 +102,6 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
   it('🟢 DELETE : doit purger l’artefact du cloud et nettoyer la Silice (200)', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
 
-    // Remplacement par le helper unifié
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 'book_999', 
       slug: 'essai-sur-la-silice',
@@ -127,5 +125,30 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
       { $set: { fileUrl: '' } }
     );
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
+  });
+
+  it('🔴 DELETE : doit rejeter (403) si l’URL fournie n’appartient pas à l’ouvrage (Protection IDOR)', async () => {
+    global.__mockUser = { uid: 'bird_writer', capabilities: [] };
+
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 'book_999', 
+      slug: 'essai-sur-la-silice',
+      authorUid: 'bird_writer', 
+      fileUrl: 'https://cdn.ilot/books/essai.epub' 
+    } as any);
+
+    // Tentative de suppression d'une URL arbitraire étrangère
+    const req = new NextRequest('http://localhost/api/bibliotek/essai-sur-la-silice/upload?url=https://cdn.ilot/books/volée-par-un-intrus.epub', {
+      method: 'DELETE',
+    });
+
+    const res = await DELETE(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
+    const json = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(json.error).toContain("Souveraineté brisée");
+    // Le vaporisateur R2 ne doit surtout pas s'être déclenché !
+    expect(storageService.deleteFile).not.toHaveBeenCalled();
+    expect(LibraryBookModel.updateOne).not.toHaveBeenCalled();
   });
 });

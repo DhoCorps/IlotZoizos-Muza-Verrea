@@ -165,7 +165,6 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
     const resolvedParams = await context.params;
     const rawSlug = (resolvedParams as any)?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-
     if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
@@ -176,6 +175,7 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
       return NextResponse.json({ error: "Ouvrage introuvable." }, { status: 404 });
     }
 
+    // 🛡️ Contrôle de souveraineté strict
     const isAuthor = book.authorUid === currentUser.uid;
     const isArchitect = currentUser.capabilities?.includes('*');
     if (!isAuthor && !isArchitect) {
@@ -184,22 +184,28 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
 
     const { searchParams } = new URL(req.url);
     const fileUrl = searchParams.get('url');
-
     if (!fileUrl) {
       return NextResponse.json({ error: 'URL de l\'artefact à purger manquante.' }, { status: 400 });
     }
 
+    // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que l'URL appartient bien à ce livre !
+    const isManuscrit = book.fileUrl === fileUrl;
+    const isCover = book.coverUrl === fileUrl;
+
+    if (!isManuscrit && !isCover) {
+      return NextResponse.json({ error: "Souveraineté brisée : cet artefact n'appartient pas à cet ouvrage." }, { status: 403 });
+    }
+
+    // 1. Purge physique sur R2 (uniquement après validation formelle)
     const key = storageService.extractKeyFromUrl(fileUrl);
     await storageService.deleteFile(key);
 
-    // Nettoyage conditionnel en base basé strictement sur l'UID
+    // 2. Nettoyage conditionnel en base basé strictement sur l'UID
     const updateQuery: any = {};
-    if (book.fileUrl === fileUrl) updateQuery.fileUrl = '';
-    if (book.coverUrl === fileUrl) updateQuery.coverUrl = '';
+    if (isManuscrit) updateQuery.fileUrl = '';
+    if (isCover) updateQuery.coverUrl = '';
 
-    if (Object.keys(updateQuery).length > 0) {
-      await LibraryBookModel.updateOne({ uid: book.uid }, { $set: updateQuery });
-    }
+    await LibraryBookModel.updateOne({ uid: book.uid }, { $set: updateQuery });
 
     // 💥 Invalidation en cascade
     revalidateTag('bibliotek');

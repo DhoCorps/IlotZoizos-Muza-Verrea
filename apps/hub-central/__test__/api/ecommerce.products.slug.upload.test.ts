@@ -147,6 +147,26 @@ describe('POST /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
       expect(response.status).toBe(403);
     });
 
+    it('🔴 doit rejeter (403) si l\'URL fournie n\'appartient pas au produit (Protection IDOR)', async () => {
+      global.__mockUser = { uid: 'merchant_123', capabilities: [] };
+
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+        uid: 'prod_999',
+        slug: 'mon-produit',
+        ownerUid: 'merchant_123',
+        imageUrl: 'https://cdn.ilot/product.jpg'
+      } as any);
+
+      const req = new Request('http://localhost/api/ecommerce/products/mon-produit/upload?url=https://cdn.ilot/image-etrangere.jpg', {
+        method: 'DELETE',
+      }) as unknown as NextRequest;
+
+      const response = await DELETE(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
+      expect(response.status).toBe(403);
+      expect(storageService.deleteFile).not.toHaveBeenCalled();
+      expect(ProductModel.updateOne).not.toHaveBeenCalled();
+    });
+
     it('🟢 doit purger l\'artefact, mettre à jour la base de données et désindexer (200)', async () => {
       global.__mockUser = { uid: 'merchant_123', capabilities: ['*'] };
 
@@ -154,6 +174,7 @@ describe('POST /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
         uid: 'prod_999',
         slug: 'mon-produit',
         ownerUid: 'merchant_123',
+        imageUrl: 'https://cdn.ilot/product.jpg',
       } as any);
 
       const req = new Request('http://localhost/api/ecommerce/products/mon-produit/upload?url=https://cdn.ilot/product.jpg', {

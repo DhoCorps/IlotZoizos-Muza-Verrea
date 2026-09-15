@@ -180,6 +180,11 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
     const { searchParams } = new URL(req.url);
     const fileUrl = searchParams.get('url');
     if (!fileUrl) return NextResponse.json({ error: 'URL manquante.' }, { status: 400 });
+
+    // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que l'URL appartient bien à ce produit !
+    if (product.imageUrl !== fileUrl) {
+      return NextResponse.json({ error: "Souveraineté brisée : cet artefact n'appartient pas à ce produit." }, { status: 403 });
+    }
     
     // Purge de l'artefact sur R2
     const key = storageService.extractKeyFromUrl(fileUrl);
