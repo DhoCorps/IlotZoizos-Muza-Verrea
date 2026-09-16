@@ -76,6 +76,33 @@ describe('KomptaLedgerService (Grand Livre Souverain)', () => {
       // Vérification que le nouveau hash inclut bien le hash précédent
       expect(savedCallArgs.previousHash).toBe('PREVIOUS_HASH_MOCK');
     });
+
+    it('🟢 doit respecter et persister un horodatage (createdAt) personnalisé s\'il est fourni', async () => {
+      const customDate = new Date('2026-08-15T12:00:00Z');
+      const paramsWithDate: RecordLedgerParams = {
+        ...mockParams,
+        createdAt: customDate
+      };
+
+      vi.mocked(LedgerEntryModel.findOne).mockReturnValue({
+        sort: vi.fn().mockReturnThis(),
+        session: vi.fn().mockReturnThis(),
+        lean: vi.fn().mockResolvedValue(null)
+      } as any);
+
+      const saveMock = vi.fn();
+      vi.mocked(LedgerEntryModel).mockImplementation(() => ({
+        save: saveMock,
+        toObject: vi.fn().mockReturnValue(paramsWithDate)
+      } as any));
+
+      await KomptaLedgerService.recordEntry(paramsWithDate);
+
+      const savedCallArgs = vi.mocked(LedgerEntryModel).mock.calls[0][0] as any;
+
+      // Vérification que la date personnalisée a bien été passée au modèle
+      expect(savedCallArgs.createdAt).toEqual(customDate);
+    });
   });
 
   describe('getUserBalances (Calcul de Soldes)', () => {

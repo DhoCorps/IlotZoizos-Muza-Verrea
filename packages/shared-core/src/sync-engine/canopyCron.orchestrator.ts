@@ -7,6 +7,9 @@ export class CanopyCronOrchestrator {
    */
   static async closeCycle(yearMonth: string) {
     console.log(`🌀 [Canopy Cron] Début de la clôture du cycle pour ${yearMonth}...`);
+    
+    // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now' pour la clôture
+    const now = new Date();
 
     for (const [key, definition] of Object.entries(CANOPY_AWARDS_CATALOG)) {
       try {
@@ -31,6 +34,7 @@ export class CanopyCronOrchestrator {
             recipientUid: winnerUid,
             category: definition.category,
             loreDescription: definition.defaultLore,
+            awardedAt: now, // Horodatage synchronisé de l'attribution
           },
           { upsert: true, new: true }
         );

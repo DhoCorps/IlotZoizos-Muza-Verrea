@@ -26,6 +26,9 @@ export class KomptaLedgerOrchestrator {
     }
 
     await TransactionManager.execute("Transfert Souverain Kompta", async (mongoSession, _neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       // 1. Enregistrement du Débit chez l'émetteur
       await KomptaLedgerService.recordEntry({
         ownerUid: fromUid,
@@ -36,6 +39,7 @@ export class KomptaLedgerOrchestrator {
         category,
         referenceUid,
         description: `Débit : ${description}`,
+        createdAt: now,
         session: mongoSession
       });
 
@@ -49,6 +53,7 @@ export class KomptaLedgerOrchestrator {
         category,
         referenceUid,
         description: `Crédit : ${description}`,
+        createdAt: now,
         session: mongoSession
       });
     });

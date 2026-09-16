@@ -14,11 +14,15 @@ export class EcommerceOrchestrator {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour créer une boutique.", "UNAUTHORIZED", 401);
     }
+
     return await TransactionManager.execute("Création de boutique", async (_mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       // Utilisation d'un MATCH strict : L'utilisateur DOIT exister, on ne crée pas de fantôme avec MERGE
       const query = `
         MATCH (u:User { uid: $ownerUid })
-        CREATE (s:Store { uid: $uid, storeName: $storeName, slug: $slug, createdAt: datetime() })
+        CREATE (s:Store { uid: $uid, storeName: $storeName, slug: $slug, createdAt: datetime($now) })
         CREATE (u)-[:OWNS_STORE]->(s)
         RETURN s
       `;
@@ -27,7 +31,8 @@ export class EcommerceOrchestrator {
         ownerUid: data.ownerUid,
         uid: data.uid,
         storeName: data.storeName,
-        slug: data.slug
+        slug: data.slug,
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) {
@@ -49,11 +54,14 @@ export class EcommerceOrchestrator {
     }
 
     const result = await TransactionManager.execute("Enregistrement de commande", async (_mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       // On récupère également l'UID du vendeur (owner) via la boutique pour la synchro
       const query = `
         MATCH (buyer:User { uid: $buyerUid })
         MATCH (store:Store { uid: $storeUid })<-[:OWNS_STORE]-(owner:User)
-        CREATE (o:Order { uid: $uid, totalAmountCents: $totalAmountCents, status: 'PAID', createdAt: datetime() })
+        CREATE (o:Order { uid: $uid, totalAmountCents: $totalAmountCents, status: 'PAID', createdAt: datetime($now) })
         CREATE (buyer)-[:BOUGHT]->(o)
         CREATE (o)-[:FULFILLED_BY]->(store)
         RETURN o, owner.uid AS ownerUid
@@ -63,7 +71,8 @@ export class EcommerceOrchestrator {
         buyerUid: data.buyerUid,
         storeUid: data.storeUid,
         uid: data.uid,
-        totalAmountCents: data.totalAmountCents
+        totalAmountCents: data.totalAmountCents,
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) {
@@ -75,9 +84,13 @@ export class EcommerceOrchestrator {
       return { success: true, orderUid: data.uid, ownerUid };
     });
 
-    // 🕸️ Tissage de la toile universelle en arrière-plan avec attente sécurisée (Serverless safe)
+    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle en arrière-plan avec protection try/catch (Serverless safe)
     if (result.ownerUid && result.ownerUid !== data.buyerUid) {
-      await syncUniversalInteraction(data.buyerUid, result.ownerUid, 'ECOMMERCE');
+      try {
+        await syncUniversalInteraction(data.buyerUid, result.ownerUid, 'ECOMMERCE');
+      } catch (err) {
+        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (recordOrder) :`, err);
+      }
     }
 
     return { success: result.success, orderUid: result.orderUid };
@@ -96,9 +109,12 @@ export class EcommerceOrchestrator {
     }
     
     const result = await TransactionManager.execute("Proposition de Troc", async (_mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const query = `
         MATCH (initiator:User { uid: $initiatorUid })
-        CREATE (b:BarterOffer { uid: $uid, status: 'PENDING', createdAt: datetime() })
+        CREATE (b:BarterOffer { uid: $uid, status: 'PENDING', createdAt: datetime($now) })
         CREATE (initiator)-[:PROPOSES_BARTER]->(b)
         ${data.receiverUid ? 'WITH b MATCH (receiver:User { uid: $receiverUid }) CREATE (b)-[:TARGETS_USER]->(receiver)' : ''}
         RETURN b
@@ -107,7 +123,8 @@ export class EcommerceOrchestrator {
       const neoResult = await neo4jTx.run(query, {
         uid: data.uid,
         initiatorUid: signature.actorUid,
-        receiverUid: data.receiverUid || null
+        receiverUid: data.receiverUid || null,
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) {
@@ -116,9 +133,13 @@ export class EcommerceOrchestrator {
       return { success: true, barterUid: data.uid };
     });
 
-    // 🕸️ S'il y a une cible précise, c'est une interaction sécurisée par await !
+    // 🛡️ PROBLÈME 1 : S'il y a une cible précise, interaction sécurisée par try/catch
     if (data.receiverUid && data.receiverUid !== data.initiatorUid) {
-      await syncUniversalInteraction(data.initiatorUid, data.receiverUid, 'ECOMMERCE');
+      try {
+        await syncUniversalInteraction(data.initiatorUid, data.receiverUid, 'ECOMMERCE');
+      } catch (err) {
+        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (proposeBarter) :`, err);
+      }
     }
 
     return result;
@@ -161,9 +182,13 @@ export class EcommerceOrchestrator {
       return { success: true, status: data.status, initiatorUid };
     });
 
-    // 🕸️ Tissage de la toile universelle sécurisé
+    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle sécurisé par try/catch
     if (result.initiatorUid && result.initiatorUid !== data.acceptorUid) {
-      await syncUniversalInteraction(result.initiatorUid, data.acceptorUid, 'ECOMMERCE');
+      try {
+        await syncUniversalInteraction(result.initiatorUid, data.acceptorUid, 'ECOMMERCE');
+      } catch (err) {
+        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (resolveBarter) :`, err);
+      }
     }
 
     return { success: result.success, status: result.status };

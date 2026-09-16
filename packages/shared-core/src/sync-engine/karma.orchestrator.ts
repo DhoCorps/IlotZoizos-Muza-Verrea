@@ -60,6 +60,9 @@ export class KarmaOrchestrator {
     const targetCanonicalUid = await this.resolveCanonicalUid(targetIdentifier);
 
     return await TransactionManager.execute("Sentence Karmique", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const targetUser = await OiseauModel.findOne({ uid: targetCanonicalUid }).session(mongoSession);
       if (!targetUser) throw new IlotError("Accusé introuvable.", "NOT_FOUND", 404);
 
@@ -88,14 +91,14 @@ export class KarmaOrchestrator {
 
       targetUser.karmaStatus = newKarmaStatus;
       if (appliedLevel === 3) targetUser.accountStatus = 'EXILED';
-      targetUser.updatedAt = new Date();
+      targetUser.updatedAt = now;
 
       await targetUser.save({ session: mongoSession });
 
       // Mise à jour sécurisée du rapport via le modèle ReportModel centralisé
       await ReportModel.findOneAndUpdate(
         { uid: reportUid },
-        { $set: { status: 'sanctioned', 'dates.updatedAt': new Date() } },
+        { $set: { status: 'sanctioned', 'dates.updatedAt': now } },
         { session: mongoSession }
       );
 
@@ -104,14 +107,15 @@ export class KarmaOrchestrator {
         SET u.karmaStatus = $karmaStatus,
             u.strikes = $strikes,
             u.gracesUsed = $gracesUsed,
-            u.updatedAt = datetime()
+            u.updatedAt = datetime($now)
         RETURN u
       `;
       await neo4jTx.run(cypher, {
         uid: targetCanonicalUid,
         karmaStatus: newKarmaStatus,
         strikes: targetUser.strikes,
-        gracesUsed: targetUser.gracesUsed
+        gracesUsed: targetUser.gracesUsed,
+        now: now.toISOString()
       });
 
       return {

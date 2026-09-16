@@ -31,6 +31,9 @@ export class CanopyEvolutionOrchestrator {
       throw new IlotError(`Trophée introuvable pour l'application [${appModule}] : ${trophyId}`, "NOT_FOUND", 404);
     }
 
+    // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now' pour l'instant de l'attribution
+    const now = new Date();
+
     // Versement de la dotation depuis la Trésorerie de la Canopée
     await KomptaLedgerOrchestrator.transfer({
       fromUid: 'system_canopy_treasury',
@@ -38,7 +41,7 @@ export class CanopyEvolutionOrchestrator {
       amount: trophyDef.rewardAmount,
       currency: trophyDef.rewardCurrency,
       category: 'BET_WIN',
-      referenceUid: `app_trophy_${appModule}_${trophyId}_${cycleReference}`,
+      referenceUid: `app_trophy_${appModule}_${trophyId}_${cycleReference}_${now.getTime()}`,
       description: `Trophée [${trophyDef.appModule.toUpperCase()}] - ${trophyDef.title} : ${trophyDef.description}`
     });
   }

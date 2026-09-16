@@ -29,7 +29,7 @@ export class BibliotekOrchestrator {
   private storageService: IStorageManager;
 
   constructor(customStorageService?: IStorageManager) {
-    // Par défaut (pour les tests), on injecte un mock silencieux
+    // Par défaut (for tests), on injecte un mock silencieux
     this.storageService = customStorageService || {
       deleteFile: async () => ({ success: true }),
       extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
@@ -73,7 +73,9 @@ export class BibliotekOrchestrator {
         style: data.style || 'philosophie'
       });
       const digitalSignature = generateFileHash(canonicalContent);
-      const timestampedAt = new Date();
+      
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
 
       const newBookData = {
         uid: bookUid,
@@ -87,7 +89,7 @@ export class BibliotekOrchestrator {
         coverUrl: data.coverUrl || null,
         format: data.format || 'epub',
         digitalSignature,
-        timestampedAt,
+        timestampedAt: now,
         copyrightClaimed: true,
         settings: data.settings || { allowReadExchange: true, consentForShowcase: true }
       };
@@ -95,7 +97,7 @@ export class BibliotekOrchestrator {
       // 1. Sédimentation dans la Silice (MongoDB)
       const [newBook] = await LibraryBookModel.create([newBookData], { session: mongoSession });
 
-      // 2. Tissage dans le Graphe (Neo4j) avec MATCH strict sur l'auteur canonique
+      // 2. Tissage dans le Graphe (Neo4j) avec MATCH strict sur l'auteur canonique et horodatage synchronisé
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (b:LibraryBook {
@@ -106,7 +108,7 @@ export class BibliotekOrchestrator {
            style: $style,
            format: $format,
            digitalSignature: $digitalSignature,
-           createdAt: datetime()
+           createdAt: datetime($now)
         })
         CREATE (u)-[:WROTE]->(b)
         RETURN b
@@ -120,7 +122,8 @@ export class BibliotekOrchestrator {
         writingType: newBook.writingType,
         style: newBook.style,
         format: newBook.format,
-        digitalSignature: newBook.digitalSignature
+        digitalSignature: newBook.digitalSignature,
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) {
@@ -152,9 +155,11 @@ export class BibliotekOrchestrator {
     }
 
     return await TransactionManager.execute("Mutation d'Ouvrage Bibliotek", async (mongoSession, neo4jTx) => {
+      const now = new Date();
+      
       const updatedBook = await LibraryBookModel.findOneAndUpdate(
         { uid: existing.uid },
-        { $set: updates },
+        { $set: { ...updates, "dates.updatedAt": now } },
         { new: true, session: mongoSession }
       ).lean() as unknown as ILibraryBook;
 
@@ -166,14 +171,15 @@ export class BibliotekOrchestrator {
               b.writingType = coalesce($writingType, b.writingType),
               b.style = coalesce($style, b.style),
               b.format = coalesce($format, b.format),
-              b.updatedAt = datetime()
+              b.updatedAt = datetime($now)
           RETURN b
         `, {
           bookUid: existing.uid,
           title: updates.title || null,
           writingType: updates.writingType || null,
           style: updates.style || null,
-          format: updates.format || null
+          format: updates.format || null,
+          now: now.toISOString()
         });
       }
 

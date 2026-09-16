@@ -84,6 +84,9 @@ export class DemopraxyOrchestrator {
         const evaluation = DemopraxyOrchestrator.evaluateSanctuarySafety(metrics);
 
         return await TransactionManager.execute("Stase Démopraxique", async (mongoSession, neo4jTx) => {
+            // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+            const now = new Date();
+
             // 2. Mise à jour documentaire dans la Silice (MongoDB)
             const updatedUser = await OiseauModel.findOneAndUpdate(
                 { uid: canonicalUid },
@@ -94,26 +97,28 @@ export class DemopraxyOrchestrator {
                             lastExScore: evaluation.exScore,
                             isExcluded: evaluation.isExcluded,
                             metrics,
-                            evaluatedAt: new Date()
-                        }
+                            evaluatedAt: now
+                        },
+                        'dates.updatedAt': now
                     } 
                 },
                 { new: true, session: mongoSession }
             ).lean();
 
-            // 3. Propagation ultra-rapide dans le Graphe (Neo4j) via Index Strict
+            // 3. Propagation ultra-rapide dans le Graphe (Neo4j) via Index Strict et horodatage synchronisé
             const cypher = `
                 MATCH (u:User {uid: $canonicalUid})
                 SET u.sanctuaryVerrouille = $isExcluded,
                     u.demopraxyExScore = $exScore,
-                    u.updatedAt = datetime()
+                    u.updatedAt = datetime($now)
                 RETURN u
             `;
 
             await neo4jTx.run(cypher, {
                 canonicalUid,
                 isExcluded: evaluation.isExcluded,
-                exScore: evaluation.exScore
+                exScore: evaluation.exScore,
+                now: now.toISOString()
             });
 
             return {

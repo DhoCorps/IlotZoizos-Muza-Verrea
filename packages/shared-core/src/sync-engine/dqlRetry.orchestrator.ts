@@ -21,6 +21,9 @@ export class DlqRetryOrchestrator {
 
     try {
       for (const entry of pendingEntries) {
+        // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now' pour chaque tentative
+        const now = new Date();
+
         try {
           console.log(`🔄 [DLQ Worker] Tentative de rejeu pour l'opération : ${entry.operationName} (Essai ${entry.retryCount + 1})`);
           
@@ -31,7 +34,7 @@ export class DlqRetryOrchestrator {
 
           // Si la matrice répond, on marque l'entrée comme résolue
           entry.status = 'RESOLVED';
-          entry.lastAttemptAt = new Date();
+          entry.lastAttemptAt = now;
           await entry.save();
 
           resolvedCount++;
@@ -39,7 +42,7 @@ export class DlqRetryOrchestrator {
         } catch (err: any) {
           console.error(`🔥 [DLQ Worker] Échec du rejeu pour ${entry.operationName} :`, err.message);
           entry.retryCount += 1;
-          entry.lastAttemptAt = new Date();
+          entry.lastAttemptAt = now;
           
           if (entry.retryCount >= maxRetries) {
             entry.status = 'FAILED_PERMANENTLY';

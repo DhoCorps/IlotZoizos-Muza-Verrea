@@ -37,11 +37,14 @@ export class ConsciousnessSalonOrchestrator {
         ciphertext += cipher.final('hex');
         const tag = cipher.getAuthTag().toString('hex');
 
+        // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+        const now = new Date();
+
         return {
             ciphertext,
             iv: iv.toString('hex'),
             tag,
-            timestamp: Date.now()
+            timestamp: now.getTime()
         };
     }
 

@@ -14,6 +14,7 @@ export interface RecordLedgerParams {
   referenceUid: string;
   description: string;
   session?: any;
+  createdAt?: Date;
 }
 
 export class KomptaLedgerService {
