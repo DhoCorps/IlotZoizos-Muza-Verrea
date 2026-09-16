@@ -3,7 +3,7 @@ import { CanopyCronOrchestrator } from '../canopyCron.orchestrator';
 import { CanopyAwardModel } from '@ilot/infrastructure';
 import * as AwardsRegistry from '../../constants/canopyAwardRegistry.config';
 
-// 🛡️ MOCK DE L'INFRASTRUCTURE (Mongoose)
+// 🛡️ MOCK DE L'INFRASTRUCTURE (Mongoose) sous l'alias centralisé
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {

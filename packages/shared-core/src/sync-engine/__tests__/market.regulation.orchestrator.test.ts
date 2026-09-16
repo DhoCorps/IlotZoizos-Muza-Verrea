@@ -1,7 +1,6 @@
-// packages/shared-core/src/sync-engine/__test__/market.regulation.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MarketRegulationOrchestrator, MarketEntityContext, MarketContractPayload } from '../market.regulation.orchestrator';
-import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
@@ -10,14 +9,14 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   return {
     ...actual,
     OiseauModel: {
-      findOne: vi.fn(),
       findOneAndUpdate: vi.fn(),
     },
+    findEntityBySlugOrUid: vi.fn(),
   };
 });
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_node' }] }) })),
+    execute: vi.fn(async (_name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_node' }] }) })),
   },
 }));
 
@@ -29,10 +28,8 @@ describe('MarketRegulationOrchestrator - Régulation & Contrats (Prêt, Don, Tro
     vi.clearAllMocks();
     orchestrator = new MarketRegulationOrchestrator();
 
-    // Simulation du résolveur MongoDB
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      lean: vi.fn().mockImplementation(async () => ({ uid: 'resolved_uid_123', exchanges: [] }))
-    } as any);
+    // Simulation de findEntityBySlugOrUid
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValue({ uid: 'resolved_uid_123', exchanges: [] } as any);
   });
 
   describe('evaluateMarketAccess', () => {
@@ -51,17 +48,17 @@ describe('MarketRegulationOrchestrator - Régulation & Contrats (Prêt, Don, Tro
   });
 
   describe('processConnectedRegulation', () => {
-    it('🟢 doit évaluer, persister dans la Silice et propager dans Neo4j par canonicalUid', async () => {
+    it('🟢 doit évaluer, persister dans la Silice et propager dans Neo4j par targetUid direct', async () => {
       vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce({ uid: 'resolved_uid_123', marketRegulationState: { isAuthorized: true } }),
       } as any);
 
       const res = await orchestrator.processConnectedRegulation(
-        'oiseau-slug', 5, 1.0, 1.0, dummySignature as any
+        'resolved_uid_123', 5, 1.0, 1.0, dummySignature as any
       );
 
       expect(res.success).toBe(true);
-      expect(res.targetUid).toBe('resolved_uid_123'); // Vérifie l'éradication du OR slug
+      expect(res.targetUid).toBe('resolved_uid_123');
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });
@@ -86,8 +83,6 @@ describe('MarketRegulationOrchestrator - Régulation & Contrats (Prêt, Don, Tro
 
       expect(res.success).toBe(true);
       expect(res.contractUid).toBe('ctr_loan_1');
-      // Vérifie que les deux UIDs ont été résolus canoniquement avant la transaction
-      expect(OiseauModel.findOne).toHaveBeenCalledTimes(2);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
 

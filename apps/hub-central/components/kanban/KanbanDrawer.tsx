@@ -1,8 +1,8 @@
-"use client";
+'use client';
 
 import React, { useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
-import { moveTaskAction } from '@/app/actions/kanban.actions';
+import { moveTaskAction, completePomodoroAction } from '@/app/actions/kanban.actions';
 import { ITask, TaskStatus } from '@ilot/types';
 
 // Colonnes du Kanban alignées sur tes types
@@ -26,6 +26,28 @@ export default function KanbanDrawer({ tasks, isOpen, onClose }: { tasks: ITask[
   }, [tasks]);
 
   if (!isOpen) return null;
+
+  // 🍅 Incrémentation d'un cycle Pomodoro directement via la Server Action
+  const handleCompletePomodoro = async (taskUid: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Évite les conflits d'événements avec le drag-and-drop
+    try {
+      const res = await completePomodoroAction(taskUid);
+
+      if (!res.success) {
+        throw new Error(res.error || "Échec de la validation du Pomodoro.");
+      }
+
+      // Mise à jour optimiste de l'état local pour refléter le cycle validé instantanément
+      setLocalTasks(prev => prev.map(t => 
+        t.uid === taskUid ? { 
+          ...t, 
+          pomodoros: { ...t.pomodoros, completed: res.newCount ?? (t.pomodoros.completed + 1) } 
+        } : t
+      ));
+    } catch (error) {
+      console.error("Erreur lors de la récolte du Pomodoro :", error);
+    }
+  };
 
   const onDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId } = result;
@@ -103,10 +125,18 @@ export default function KanbanDrawer({ tasks, isOpen, onClose }: { tasks: ITask[
                               <p className="text-sm font-bold text-slate-200 mb-3">{task.content?.title || "Atome sans nom"}</p>
                               
                               <div className="flex justify-between items-center text-[9px] font-mono uppercase tracking-widest text-slate-500">
-                                <span className="flex items-center gap-1">
-                                  <span className="w-2 h-2 rounded-full bg-[#E5484D]" /> 
-                                  {task.pomodoros?.completed || 0}/{task.pomodoros?.estimated || 1}
-                                </span>
+                                {/* 🍅 Suture interactive : Clic pour valider un cycle Pomodoro via Server Action */}
+                                <button 
+                                  type="button"
+                                  onClick={(e) => handleCompletePomodoro(task.uid, e)}
+                                  className="flex items-center gap-1 bg-white/5 hover:bg-red-500/20 border border-white/5 hover:border-red-500/40 px-2 py-1 rounded transition-all cursor-pointer group"
+                                  title="Cliquer pour valider un cycle Pomodoro 🍅"
+                                >
+                                  <span className="w-2 h-2 rounded-full bg-[#E5484D] group-hover:scale-125 transition-transform" /> 
+                                  <span className="text-slate-400 group-hover:text-red-300 font-mono">
+                                    {task.pomodoros?.completed || 0}/{task.pomodoros?.estimated || 1}
+                                  </span>
+                                </button>
                                 
                                 {/* 🩸 SUTURE : mentalLoad devient complexity (sur 10) */}
                                 <span className="bg-white/5 border border-white/5 px-2 py-1 rounded">

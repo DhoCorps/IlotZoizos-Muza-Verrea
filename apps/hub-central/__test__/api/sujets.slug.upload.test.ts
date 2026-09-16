@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '@/app/api/sujets/[slug]/upload/route';
 import { storageService } from '@/modules/storage/storage.service';
+import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { SujetModel } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
@@ -12,9 +13,17 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-// Neutralisation du bouclier withAura cohérente avec les autres tests
+// Mocks unifiés des api-guards incluant withRateLimit
 vi.mock('@/lib/api-guards', () => ({
   withAura: (handler: any) => async (req: any, context: any) => {
+    const mockUser = global.__mockUser || { uid: 'u-123', capabilities: ['*'] };
+    return await handler(req, context, mockUser);
+  },
+  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
+    const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
+    if (rateLimitResult && rateLimitResult.allowed === false) {
+      return NextResponse.json({ error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
+    }
     const mockUser = global.__mockUser || { uid: 'u-123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
   },

@@ -1,19 +1,16 @@
-// packages/shared-core/src/sync-engine/__tests__/resonance.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ResonanceOrchestrator } from '../resonance.orchestrator';
-import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid, syncUniversalInteraction } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
-import { syncUniversalInteraction } from '@ilot/infrastructure';
 
 // 🛡️ Mock unifié et sécurisé de l'infrastructure et de Neo4j
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
     ...actual,
-    OiseauModel: {
-      findOne: vi.fn(),
-    },
+    OiseauModel: {},
+    findEntityBySlugOrUid: vi.fn(),
     syncUniversalInteraction: vi.fn(async () => true),
     getNeo4jSession: vi.fn(() => ({
       run: vi.fn().mockResolvedValue({ records: [] }),
@@ -24,7 +21,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => {
+    execute: vi.fn(async (_name, cb) => {
       const mockNeo4jTx = {
         run: vi.fn().mockResolvedValue({ 
           records: [{ 
@@ -40,16 +37,13 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-
 describe('ResonanceOrchestrator - Tissage du Graphe & Scans Stricts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Simule la résolution canonique
-    vi.mocked(OiseauModel.findOne).mockImplementation(({ $or }: any) => {
-      const identifier = $or[0].slug || $or[1].uid || 'unknown';
-      return {
-        lean: vi.fn().mockResolvedValue({ uid: `resolved_${identifier}` })
-      } as any;
+    // Simule la résolution canonique interne via findEntityBySlugOrUid
+    vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model, identifier: any) => {
+      const clean = identifier || 'unknown';
+      return { uid: `resolved_${clean}` } as any;
     });
   });
 
@@ -58,7 +52,7 @@ describe('ResonanceOrchestrator - Tissage du Graphe & Scans Stricts', () => {
       const restrictedSignature = { actorUid: 'b1', capabilities: [] };
       
       // On simule un refus du graphe
-      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (name, cb) => {
+      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name, cb) => {
         return await cb({} as any, { run: vi.fn().mockResolvedValue({ records: [] }) } as any);
       });
 
@@ -95,7 +89,7 @@ describe('ResonanceOrchestrator - Tissage du Graphe & Scans Stricts', () => {
       
       expect(res.success).toBe(true);
       expect(res.content).toBe('Belle composition !');
-      expect(OiseauModel.findOne).toHaveBeenCalledTimes(1);
+      expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
       // Vérification du tissage universel (acteur <-> créateur de la Partita)
@@ -116,7 +110,7 @@ describe('ResonanceOrchestrator - Tissage du Graphe & Scans Stricts', () => {
       });
 
       expect(isHarmonic).toBe(true);
-      expect(OiseauModel.findOne).toHaveBeenCalledTimes(2);
+      expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(2);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
       // Tissage universel !
@@ -131,7 +125,7 @@ describe('ResonanceOrchestrator - Tissage du Graphe & Scans Stricts', () => {
         type: 'FOLLOWS_GLOBAL' as any
       });
 
-      expect(OiseauModel.findOne).toHaveBeenCalledTimes(2);
+      expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(2);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });

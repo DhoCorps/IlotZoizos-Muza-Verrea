@@ -1,7 +1,4 @@
-// packages/shared-core/src/sync-engine/komptaStats.orchestrator.ts
-import { LedgerEntryModel } from '@ilot/infrastructure';
-import { CommentModel } from '@ilot/infrastructure';
-import { ReactionModel } from '@ilot/infrastructure';
+import { LedgerEntryModel, CommentModel, ReactionModel } from '@ilot/infrastructure';
 
 export interface MultiCurrencyVolume {
   [currency: string]: number;

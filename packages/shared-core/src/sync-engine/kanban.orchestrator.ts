@@ -1,9 +1,7 @@
-// packages/shared-core/src/sync-engine/kanban.orchestrator.ts
-import { TaskModel } from '@ilot/infrastructure';
-import { OiseauModel } from '@ilot/infrastructure';
+import { TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
-import { TaskStatus, CAPABILITIES, ActionSignature } from '@ilot/types'; 
+import { CAPABILITIES, ActionSignature } from '@ilot/types'; 
 import { syncUniversalInteraction } from '@ilot/infrastructure';
 
 export interface KanbanSyncResult {
@@ -13,24 +11,9 @@ export interface KanbanSyncResult {
 }
 
 export class KanbanOrchestrator {
-  
-  /**
-   * 🔍 Utilitaire interne pour résoudre l'UID canonique d'un Oiseau depuis la Silice.
-   */
-  private async resolveCanonicalUid(identifier: string): Promise<string> {
-    const user = await OiseauModel.findOne({ 
-      $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
-    }).lean();
-    
-    if (!user) {
-      throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
-    }
-    return (user as any).uid;
-  }
 
   /**
-   * 🌀 MISE À JOUR GÉNÉRIQUE (Atome)
-   * Résout l'identifiant par MongoDB puis propage l'état dans Neo4j via UID canonique indexé.
+   * 🌀 MISE À JOUR GÉNÉRIQUE (Atome Kanban)
    */
   async updateTask(
     taskIdentifier: string, 
@@ -44,15 +27,27 @@ export class KanbanOrchestrator {
 
     return await TransactionManager.execute("Mutation Atome Kanban", async (mongoSession, neo4jTx) => {
       
-      const mongoUpdate = { 
+      const mongoUpdate: any = { 
         ...updateData,
         "dates.updatedAt": new Date(),
         ...(updateData.status === 'DONE' ? { "dates.completedAt": new Date() } : {})
       };
 
-      // 1. Résolution stricte dans la Silice (MongoDB)
+      if (updateData.dates) {
+        delete mongoUpdate.dates;
+        for (const [key, value] of Object.entries(updateData.dates)) {
+          mongoUpdate[`dates.${key}`] = value;
+        }
+      }
+
+      // 1. Résolution stricte dans la Silice (MongoDB) via la recherche unifiée
+      const existingTask = await findEntityBySlugOrUid(TaskModel, taskIdentifier);
+      if (!existingTask) {
+        throw new IlotError("Atome introuvable dans la Silice", "NOT_FOUND", 404);
+      }
+
       const updatedTask = await TaskModel.findOneAndUpdate(
-        { $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] },
+        { uid: (existingTask as any).uid },
         { $set: mongoUpdate },
         { new: true, session: mongoSession }
       ).lean(); 
@@ -75,7 +70,7 @@ export class KanbanOrchestrator {
         neoResult = await neo4jTx.run(cypher, { 
           canonicalUid, 
           newStatus: updateData.status,
-          completedAt: mongoUpdate["dates.completedAt"] ? mongoUpdate["dates.completedAt"].toISOString() : null
+          completedAt: mongoUpdate["dates.completedAt"] ? new Date(mongoUpdate["dates.completedAt"]).toISOString() : null
         });
 
         if (neoResult.records.length === 0) {
@@ -117,20 +112,17 @@ export class KanbanOrchestrator {
       throw new IlotError("Aura insuffisante pour tisser ce lien.", "FORBIDDEN", 403);
     }
 
-    // Résolution stricte des UIDs pour la cohérence du Graphe (évite les fantômes)
-    const actorCanonicalUid = await this.resolveCanonicalUid(signature.actorUid);
-    const memberCanonicalUid = await this.resolveCanonicalUid(memberUid);
+    const actorCanonicalUid = signature.actorUid;
+    const memberCanonicalUid = memberUid;
 
     const result = await TransactionManager.execute("Assignation Kanban", async (mongoSession, neo4jTx) => {
-      const task = await TaskModel.findOne({ 
-        $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] 
-      }).session(mongoSession);
+      const task = await findEntityBySlugOrUid(TaskModel, taskIdentifier);
 
       if (!task) {
         throw new IlotError("Atome introuvable dans la Silice", "NOT_FOUND", 404);
       }
 
-      const taskUid = task.uid;
+      const taskUid = (task as any).uid;
 
       await TaskModel.findOneAndUpdate(
         { uid: taskUid },
@@ -153,9 +145,9 @@ export class KanbanOrchestrator {
       return { success: true };
     });
 
-    // 🕸️ Tissage de la toile universelle (uniquement s'il assigne un autre oiseau)
+    // 🕸️ Tissage de la toile universelle (attendu avec await pour s'affranchir du Serverless Vercel)
     if (actorCanonicalUid !== memberCanonicalUid) {
-      syncUniversalInteraction(actorCanonicalUid, memberCanonicalUid, 'TASK').catch(console.error);
+      await syncUniversalInteraction(actorCanonicalUid, memberCanonicalUid, 'TASK');
     }
 
     return result;

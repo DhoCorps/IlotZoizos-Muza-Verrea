@@ -5,7 +5,7 @@ import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { IlotError } from '@ilot/shared-core';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
 import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
@@ -13,25 +13,8 @@ import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 // ==========================================
 // 📤 POST : Téléversement de média pour un Sujet avec Sceau SHA-256
 // ==========================================
-export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 1. Rate Limiting par IP
-    const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-    let rateLimitResult: { allowed?: boolean } = { allowed: true };
-    try {
-      const res = await checkRateLimit(`upload-sujet-slug:${clientIp}`, 10, 60);
-      if (res && typeof res === 'object') {
-        rateLimitResult = res;
-      }
-    } catch (rateErr) {
-      console.error("⚠️ [RATE LIMIT ERROR ABYSS UPLOAD]", rateErr);
-      rateLimitResult = { allowed: true };
-    }
-
-    if (rateLimitResult.allowed === false) {
-      return NextResponse.json({ error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
-    }
-
     // 2. Résolution stricte et typée de l'identifiant
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
@@ -165,7 +148,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     const status = error instanceof IlotError ? error.status : 500;
     return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
   }
-});
+}));
 
 // ==========================================
 // 🗑️ DELETE : Purge de média pour un Sujet

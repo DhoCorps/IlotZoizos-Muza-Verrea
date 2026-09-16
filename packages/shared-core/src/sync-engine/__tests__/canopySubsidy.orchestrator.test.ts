@@ -1,4 +1,3 @@
-// packages/shared-core/src/sync-engine/__tests__/canopySubsidy.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CanopySubsidyOrchestrator } from '../canopySubsidy.orchestrator';
 import { SubsidyModel } from '@ilot/infrastructure';
@@ -34,7 +33,7 @@ describe('CanopySubsidyOrchestrator - Système de Subventions', () => {
       voterUids: [],
       save: vi.fn().mockResolvedValue(true)
     };
-    vi.mocked(SubsidyModel.findById).mockResolvedValue(mockSubsidy);
+    vi.mocked(SubsidyModel.findById).mockResolvedValue(mockSubsidy as any);
 
     await CanopySubsidyOrchestrator.voteForSubsidy('sub_1', 'bird_voter_1');
 
@@ -49,7 +48,7 @@ describe('CanopySubsidyOrchestrator - Système de Subventions', () => {
       voterUids: ['bird_voter_1'],
       save: vi.fn()
     };
-    vi.mocked(SubsidyModel.findById).mockResolvedValue(mockSubsidy);
+    vi.mocked(SubsidyModel.findById).mockResolvedValue(mockSubsidy as any);
 
     await CanopySubsidyOrchestrator.voteForSubsidy('sub_1', 'bird_voter_1');
 
@@ -68,7 +67,7 @@ describe('CanopySubsidyOrchestrator - Système de Subventions', () => {
       save: vi.fn().mockResolvedValue(true)
     };
     
-    vi.mocked(SubsidyModel.find).mockResolvedValue([mockWinner]);
+    vi.mocked(SubsidyModel.find).mockResolvedValue([mockWinner] as any);
 
     // Force le tirage à toujours retourner le gagnant si nécessaire
     vi.spyOn(CanopySubsidyOrchestrator as any, 'weightedRandomDraw').mockReturnValue(mockWinner);
@@ -77,5 +76,5 @@ describe('CanopySubsidyOrchestrator - Système de Subventions', () => {
 
     expect(KomptaLedgerOrchestrator.transfer).toHaveBeenCalled();
     expect(mockWinner.status).toBe('PAID');
-    });
+  });
 });

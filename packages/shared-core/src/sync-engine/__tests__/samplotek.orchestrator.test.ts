@@ -1,7 +1,6 @@
-// packages/shared-core/src/sync-engine/__tests__/samplotek.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SamplotekOrchestrator } from '../samplotek.orchestrator';
-import { SampleModel, PartitaModel, OiseauModel, UniversalMediaRegistry } from '@ilot/infrastructure';
+import { SampleModel, PartitaModel, UniversalMediaRegistry } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
@@ -28,7 +27,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, callback) => {
+    execute: vi.fn(async (_name, callback) => {
       const mockMongoSession = {};
       const mockNeo4jTx = { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_node' }] }) };
       return await callback(mockMongoSession, mockNeo4jTx);
@@ -36,18 +35,17 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+}));
+
 describe('SamplotekOrchestrator - Le Moteur du Studio E-Jay', () => {
   let orchestrator: SamplotekOrchestrator;
-  const userSignature = { actorUid: 'oiseau_dj', capabilities: [] };
+  const userSignature = { actorUid: 'bird_canonical_dj', capabilities: [] };
 
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new SamplotekOrchestrator();
-
-    // Simulation de la résolution canonique stricte
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 'bird_canonical_dj' })
-    } as any);
   });
 
   describe('fosterSample (Gravure)', () => {
@@ -78,7 +76,6 @@ describe('SamplotekOrchestrator - Le Moteur du Studio E-Jay', () => {
 
       expect(result.success).toBe(true);
       expect(result.mongo.slug).toBe('snare-lofi');
-      expect(OiseauModel.findOne).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });

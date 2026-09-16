@@ -1,10 +1,9 @@
-// packages/shared-core/src/sync-engine/__tests__/canopyEvolution.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CanopyEvolutionOrchestrator } from '../canopyEvolution.orchestrator';
 import { KomptaLedgerOrchestrator } from '../komptaLedger.orchestrator';
 import { IlotError } from '../../errors/ilot.errors';
 
-// 🛡️ CORRECTION DU CHEMIN RELATIFS : On remonte d'un cran car on est dans __tests__/
+// 🛡️ MOCK DU LEDGER : On isole la brique financière
 vi.mock('../komptaLedger.orchestrator', () => ({
   KomptaLedgerOrchestrator: {
     transfer: vi.fn().mockResolvedValue(true)
@@ -14,7 +13,7 @@ vi.mock('../komptaLedger.orchestrator', () => ({
 // Sécurité supplémentaire : mock direct du TransactionManager si besoin
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => cb({}, { run: vi.fn() }))
+    execute: vi.fn(async (_name, cb) => cb({}, { run: vi.fn() }))
   }
 }));
 

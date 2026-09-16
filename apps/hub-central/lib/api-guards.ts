@@ -1,8 +1,8 @@
-// Fichier : src/lib/api-guards.ts
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { getServerSession } from "next-auth/next";
 import { connectToDatabase } from '@ilot/infrastructure';
 import { authOptions } from "@/lib/auth";
+import { checkRateLimit } from '@/modules/security/rateLimiter';
 
 export interface OiseauUser {
   id: string;
@@ -85,6 +85,40 @@ export function withOptionalAura<Req>(handler: OptionalRouteHandler<Req>) {
     }
 
     const currentUser = session?.user as OiseauUser | undefined;
+
+    return await handler(req, context, currentUser);
+  };
+}
+
+/**
+ * 🛡️ 4. withRateLimit : Protège une route contre les abus (ex: Uploads massifs)
+ */
+function getClientIp(req: NextRequest | Request): string {
+  if ('headers' in req && typeof req.headers.get === 'function') {
+    return req.headers.get('x-forwarded-for') || '127.0.0.1';
+  }
+  return '127.0.0.1';
+}
+
+export function withRateLimit<Req extends NextRequest | Request>(
+  actionKey: string,
+  maxRequests: number = 10,
+  windowSeconds: number = 60,
+  handler: ProtectedRouteHandler<Req> | PublicRouteHandler<Req>
+) {
+  return async (req: Req, context: ApiContext = {}, currentUser?: any) => {
+    const clientIp = getClientIp(req);
+    try {
+      const rateLimitResult = await checkRateLimit(`${actionKey}:${clientIp}`, maxRequests, windowSeconds);
+      if (rateLimitResult && rateLimitResult.allowed === false) {
+        return NextResponse.json(
+          { success: false, message: "Trop de requêtes. Ralentis le rythme, oiseau voyageur." }, 
+          { status: 429 }
+        );
+      }
+    } catch (err) {
+      console.error("⚠️ [RATE LIMIT ERROR]", err);
+    }
 
     return await handler(req, context, currentUser);
   };

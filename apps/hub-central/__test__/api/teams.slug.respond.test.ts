@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/teams/[slug]/respond/route';
 import { getServerSession } from 'next-auth/next';
-import { TeamModel, OiseauModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
-import { TransactionManager } from '@ilot/shared-core';
+import { TeamModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
 
 // -------------------------------------------------------------------------
@@ -28,7 +27,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       findOneAndUpdate: vi.fn(),
     },
     getNeo4jSession: vi.fn(),
-    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
     findEntityBySlugOrUid: vi.fn(),
   };
 });
@@ -71,7 +69,7 @@ describe('Route API : Réponse au Pacte d\'Adhésion (POST /api/teams/[slug]/res
     expect(json.error).toBe("Le Nexus est invisible aux étrangers.");
   });
 
-  it('doit rejeter (451) si aucune invitation n\'existe pour cet oiseau sur ce nid', async () => {
+  it('doit rejeter (404) si aucune invitation n\'existe pour cet oiseau sur ce nid', async () => {
     vi.mocked(getServerSession).mockResolvedValue({
       user: { uid: 'u-123', capabilities: [] }
     } as any);
@@ -96,7 +94,7 @@ describe('Route API : Réponse au Pacte d\'Adhésion (POST /api/teams/[slug]/res
     const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-nid' }) });
     const json = await response.json();
 
-    expect(response.status).toBe(451);
+    expect(response.status).toBe(404); // 🛡️ Vérification du passage au code 404 sémantique
     expect(json.error).toContain("Souveraineté violée");
     expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TeamModel, 'mon-nid');
   });

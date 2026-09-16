@@ -1,13 +1,11 @@
-// packages/shared-core/src/sync-engine/__tests__/komptaPayment.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KomptaPaymentOrchestrator } from '../komptaPayment.orchestrator';
 import { TransactionManager } from '../transactionManager';
-import { WalletModel, KomptaLedgerService } from '@ilot/infrastructure';
-import { syncUniversalInteraction } from '@ilot/infrastructure';
+import { WalletModel, KomptaLedgerService, syncUniversalInteraction } from '@ilot/infrastructure';
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, callback) => {
+    execute: vi.fn(async (_name, callback) => {
       const mockMongoSession = {};
       const mockNeo4jTx = {
         run: vi.fn().mockResolvedValue({ records: [{ get: () => 'tx_123' }] })
@@ -17,7 +15,7 @@ vi.mock('../transactionManager', () => ({
   }
 }));
 
-// 🛡️ Mock unifié et sécurisé de l'infrastructure
+// 🛡️ Mock unifié et sécurisé de l'infrastructure sous l'alias centralisé
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
@@ -53,7 +51,7 @@ describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
   });
 
   describe('Transferts et Transactions', () => {
-    it('🟢 doit enregistrer un transfert direct et propager l\'interaction universelle', async () => {
+    it('🟢 doit enregistrer un transfert direct et propager l\'interaction universelle de manière synchrone (await)', async () => {
       const payload = {
         transferUid: 'tx_1',
         senderUid: 'bird_investor_1',
@@ -67,7 +65,7 @@ describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
       expect(result.success).toBe(true);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
-      // Vérification du tissage universel (Fire & Forget)
+      // Vérification du tissage universel (attendu via await)
       expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
       expect(syncUniversalInteraction).toHaveBeenCalledWith('bird_investor_1', 'bird_receiver_1', 'ECOMMERCE');
     });

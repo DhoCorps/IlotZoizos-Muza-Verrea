@@ -1,6 +1,4 @@
-import { SystemGraphDlqModel } from '@ilot/infrastructure';
-import { getNeo4jDriver } from '@ilot/infrastructure';
-import { IlotError } from '../errors/ilot.errors';
+import { SystemGraphDlqModel, getNeo4jDriver } from '@ilot/infrastructure';
 
 export class DlqRetryOrchestrator {
   /**
@@ -15,34 +13,40 @@ export class DlqRetryOrchestrator {
     }).limit(50);
 
     let resolvedCount = 0;
+    const session = getNeo4jDriver().session();
 
-    for (const entry of pendingEntries) {
-      const session = getNeo4jDriver().session();
-      try {
-        console.log(`🔄 [DLQ Worker] Tentative de rejeu pour l'opération : ${entry.operationName} (Essai ${entry.retryCount + 1})`);
-        
-        // Test de reconnexion / ping de la matrice Neo4j
-        await session.run('RETURN 1');
+    try {
+      for (const entry of pendingEntries) {
+        try {
+          console.log(`🔄 [DLQ Worker] Tentative de rejeu pour l'opération : ${entry.operationName} (Essai ${entry.retryCount + 1})`);
+          
+          // Utilisation de session.executeWrite pour la session mutualisée
+          await session.executeWrite(async (tx) => {
+            return await tx.run('RETURN 1');
+          });
 
-        // Si la matrice répond, on marque l'entrée comme résolue (ou on peut y attacher un rejeu de requêtes plus poussé)
-        entry.status = 'RESOLVED';
-        entry.lastAttemptAt = new Date();
-        await entry.save();
+          // Si la matrice répond, on marque l'entrée comme résolue
+          entry.status = 'RESOLVED';
+          entry.lastAttemptAt = new Date();
+          await entry.save();
 
-        resolvedCount++;
-        console.log(`✨ [DLQ Worker] Opération ${entry.operationName} réconciliée avec succès.`);
-      } catch (err: any) {
-        console.error(`🔥 [DLQ Worker] Échec du rejeu pour ${entry.operationName} :`, err.message);
-        entry.retryCount += 1;
-        entry.lastAttemptAt = new Date();
-        
-        if (entry.retryCount >= maxRetries) {
-          entry.status = 'FAILED_PERMANENTLY';
-          console.error(`🛑 [DLQ Worker] L'opération ${entry.operationName} a atteint le seuil critique d'échecs (Abandon définitif).`);
+          resolvedCount++;
+          console.log(`✨ [DLQ Worker] Opération ${entry.operationName} réconciliée avec succès.`);
+        } catch (err: any) {
+          console.error(`🔥 [DLQ Worker] Échec du rejeu pour ${entry.operationName} :`, err.message);
+          entry.retryCount += 1;
+          entry.lastAttemptAt = new Date();
+          
+          if (entry.retryCount >= maxRetries) {
+            entry.status = 'FAILED_PERMANENTLY';
+            console.error(`🛑 [DLQ Worker] L'opération ${entry.operationName} a atteint le seuil critique d'échecs (Abandon définitif).`);
+          }
+          
+          await entry.save();
         }
-        
-        await entry.save();
-      } finally {
+      }
+    } finally {
+      if (session) {
         await session.close();
       }
     }

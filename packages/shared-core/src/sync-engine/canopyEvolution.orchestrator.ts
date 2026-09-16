@@ -1,4 +1,3 @@
-// packages/shared-core/src/sync-engine/canopyEvolution.orchestrator.ts
 import { CANOPY_REGISTRY } from '../../../../apps/hub-central/constants/canopyRegistry.config';
 import { KomptaLedgerOrchestrator } from './komptaLedger.orchestrator';
 import { IlotError } from '../errors/ilot.errors';

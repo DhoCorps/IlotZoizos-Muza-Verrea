@@ -1,4 +1,3 @@
-// packages/shared-core/src/sync-engine/__tests__/consciousnouss.salon.orchestrator.test.ts
 import { describe, it, expect } from 'vitest';
 import { ConsciousnessSalonOrchestrator } from '../consciousness.salon.orchestrator';
 import { IlotError } from '../../errors/ilot.errors';

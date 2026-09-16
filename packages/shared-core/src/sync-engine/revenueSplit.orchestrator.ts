@@ -1,4 +1,3 @@
-// packages/shared-core/src/sync-engine/revenueSplit.orchestrator.ts
 import { TransactionManager } from './transactionManager';
 import { KomptaLedgerService, SovereignCurrency } from '@ilot/infrastructure';
 import { IlotError } from '../errors/ilot.errors';

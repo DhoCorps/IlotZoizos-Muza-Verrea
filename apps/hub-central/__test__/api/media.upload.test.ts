@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '../../app/api/media/upload/route';
 import { storageService } from '@/modules/storage/storage.service';
+import { checkRateLimit } from '@/modules/security/rateLimiter';
+import { NextResponse } from 'next/server';
 
 // 🪡 Neutralisation de Next.js Cache
 vi.mock('next/cache', () => ({
@@ -9,6 +11,22 @@ vi.mock('next/cache', () => ({
 
 vi.mock('@/modules/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true })
+}));
+
+// Mocks unifiés des api-guards incluant withRateLimit et withAura
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: any) => async (req: any, context: any) => {
+    const mockUser = global.__mockUser || { uid: 'oiseau_666', slug: 'amiga-mia', capabilities: [] };
+    return await handler(req, context, mockUser);
+  },
+  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
+    const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
+    if (rateLimitResult && rateLimitResult.allowed === false) {
+      return NextResponse.json({ error: 'Trop de téléversements. La matrice surcharge.' }, { status: 429 });
+    }
+    const mockUser = global.__mockUser || { uid: 'oiseau_666', slug: 'amiga-mia', capabilities: [] };
+    return await handler(req, context, mockUser);
+  },
 }));
 
 vi.mock('@/modules/storage/storage.service', () => ({
@@ -45,15 +63,14 @@ vi.mock('@ilot/shared-core', () => ({
   }
 }));
 
-vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
-    return handler(req, context, { uid: 'oiseau_666', slug: 'amiga-mia', capabilities: [] });
-  }
-}));
+declare global {
+  var __mockUser: any;
+}
 
 describe('API Route: /api/media/upload', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete (global as any).__mockUser;
   });
 
   describe('POST : Téléversement', () => {

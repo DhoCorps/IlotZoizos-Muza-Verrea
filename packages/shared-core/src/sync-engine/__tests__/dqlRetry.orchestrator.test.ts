@@ -18,7 +18,7 @@ describe('DlqRetryOrchestrator - Réconciliation de la Matrice', () => {
     vi.clearAllMocks();
   });
 
-  it('🟢 doit résoudre avec succès les tâches en attente si Neo4j répond', async () => {
+  it('🟢 doit résoudre avec succès les tâches en attente si Neo4j répond via session mutualisée et executeWrite', async () => {
     const mockEntry = {
       operationName: 'Test_Op',
       retryCount: 0,
@@ -31,7 +31,7 @@ describe('DlqRetryOrchestrator - Réconciliation de la Matrice', () => {
     } as any);
 
     const mockSession = {
-      run: vi.fn().mockResolvedValue(true),
+      executeWrite: vi.fn(async (cb) => cb({ run: vi.fn().mockResolvedValue(true) })),
       close: vi.fn().mockResolvedValue(true)
     };
     vi.mocked(getNeo4jDriver).mockReturnValue({
@@ -44,6 +44,7 @@ describe('DlqRetryOrchestrator - Réconciliation de la Matrice', () => {
     expect(result.resolved).toBe(1);
     expect(mockEntry.status).toBe('RESOLVED');
     expect(mockEntry.save).toHaveBeenCalled();
+    expect(mockSession.close).toHaveBeenCalledTimes(1); // Vérifie la fermeture unique globale
   });
 
   it('🔴 doit incrémenter le retryCount et marquer en FAILED_PERMANENTLY si le max d’essais est atteint', async () => {
@@ -59,12 +60,12 @@ describe('DlqRetryOrchestrator - Réconciliation de la Matrice', () => {
     } as any);
 
     const mockSession = {
-      run: vi.fn().mockRejectedValue(new Error('Neo4j down')),
+      executeWrite: vi.fn().mockRejectedValue(new Error('Neo4j down')),
       close: vi.fn().mockResolvedValue(true)
     };
     vi.mocked(getNeo4jDriver).mockReturnValue({
       session: vi.fn().mockReturnValue(mockSession)
-    }as any);
+    } as any);
 
     const result = await DlqRetryOrchestrator.processDlqBatch(3);
 
@@ -73,5 +74,6 @@ describe('DlqRetryOrchestrator - Réconciliation de la Matrice', () => {
     expect(mockEntry.retryCount).toBe(3);
     expect(mockEntry.status).toBe('FAILED_PERMANENTLY');
     expect(mockEntry.save).toHaveBeenCalled();
+    expect(mockSession.close).toHaveBeenCalledTimes(1);
   });
 });

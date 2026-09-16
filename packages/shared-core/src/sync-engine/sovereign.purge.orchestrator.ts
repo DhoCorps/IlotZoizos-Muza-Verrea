@@ -1,5 +1,4 @@
-// packages/shared-core/src/sync-engine/sovereign.purge.orchestrator.ts
-import { OiseauModel, TaskModel, ProjectModel } from '@ilot/infrastructure';
+import { OiseauModel, TaskModel, ProjectModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
@@ -47,16 +46,14 @@ export class SovereignPurgeOrchestrator {
         const payload = SovereignPurgeOrchestrator.buildPurgePayload(context);
 
         return await TransactionManager.execute("Dissolution Souveraine", async (mongoSession, neo4jTx) => {
-            // 1. Résolution préalable stricte dans la Silice (MongoDB) via uid, slug ou pseudo
-            const targetUser = await OiseauModel.findOne({
-                $or: [{ uid: context.entityId }, { slug: context.entityId }, { pseudo: context.entityId }]
-            }).session(mongoSession);
+            // 1. Résolution préalable stricte dans la Silice (MongoDB) via l'utilitaire global unifié
+            const targetUser = await findEntityBySlugOrUid(OiseauModel, context.entityId);
 
             if (!targetUser && !hasRootPower) {
                 throw new IlotError("Entité introuvable pour la purge souveraine.", "NOT_FOUND", 404);
             }
 
-            const canonicalUid = targetUser ? targetUser.uid : context.entityId;
+            const canonicalUid = targetUser ? (targetUser as any).uid : context.entityId;
 
             // 2. Suppression dans les collections de la Silice (MongoDB)
             await OiseauModel.deleteOne({ uid: canonicalUid }, { session: mongoSession });

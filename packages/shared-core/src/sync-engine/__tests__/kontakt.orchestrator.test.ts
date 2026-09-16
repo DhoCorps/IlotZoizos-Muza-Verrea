@@ -1,7 +1,6 @@
-// packages/shared-core/src/sync-engine/__tests__/kontakt.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KontaktOrchestrator } from '../kontakt.orchestrator';
-import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 import { syncUniversalInteraction } from '@ilot/infrastructure';
@@ -11,19 +10,17 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
     ...actual,
-    OiseauModel: {
-      findOne: vi.fn(),
-    },
+    OiseauModel: {},
+    findEntityBySlugOrUid: vi.fn(),
     syncUniversalInteraction: vi.fn(async () => true),
   };
 });
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => ({}) }] }) })),
+    execute: vi.fn(async (_name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => ({}) }] }) })),
   },
 }));
-
 
 describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
   let orchestrator: KontaktOrchestrator;
@@ -33,12 +30,10 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
     vi.clearAllMocks();
     orchestrator = new KontaktOrchestrator();
     
-    // Simulation dynamique pour différencier les UIDs lors des appels à resolveCanonicalUid
-    vi.mocked(OiseauModel.findOne).mockImplementation(({ $or }: any) => {
-      const identifier = $or[0].slug || $or[1].uid || 'unknown';
-      return {
-        lean: vi.fn().mockImplementation(async () => ({ uid: `resolved_${identifier}` }))
-      } as any;
+    // Simulation dynamique pour différencier les UIDs lors des appels internes de résolution via findEntityBySlugOrUid
+    vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model, identifier: any) => {
+      const clean = identifier || 'unknown';
+      return { uid: `resolved_${clean}` } as any;
     });
   });
 
@@ -49,7 +44,7 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
           .mockResolvedValueOnce({ records: [{ get: () => ({}) }] }) // Simulation check match = true
           .mockResolvedValueOnce({ records: [] }) // Création
       };
-      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (name, cb) => {
+      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name, cb) => {
         return await cb({} as any, mockNeo4jTx as any);
       });
 
@@ -60,7 +55,7 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
 
       expect(res.success).toBe(true);
       expect(res.match).toBe(true);
-      expect(OiseauModel.findOne).toHaveBeenCalledTimes(2);
+      expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(2);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
       // Vérification du tissage universel !
@@ -104,7 +99,7 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
 
       expect(res.success).toBe(true);
       expect(res.status).toBe('PENDING');
-      expect(OiseauModel.findOne).toHaveBeenCalledTimes(3); 
+      expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(3); 
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
       // Vérification du tissage universel (Demandeur <-> Intermédiaire) !

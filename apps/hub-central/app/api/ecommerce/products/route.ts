@@ -1,4 +1,3 @@
-// Fichier : app/api/products/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -8,6 +7,7 @@ import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { getCachedProducts } from '@/lib/cache/ecommerce.cache';
+import { ProductSchema } from '@ilot/types';
 
 // ==========================================
 // GET : Recenser les artefacts du catalogue (Public / Silice)
@@ -44,10 +44,21 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     if (!body) {
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
+
+    // 🛡️ BLINDAGE MASS ASSIGNMENT : Validation stricte via ProductSchema
+    const validation = ProductSchema.safeParse(body);
+    if (!validation.success) {
+      return NextResponse.json({ 
+        error: "Contrat souverain invalide : Le format des données produit est corrompu.", 
+        details: validation.error.flatten() 
+      }, { status: 400 });
+    }
+
+    const validatedData = validation.data;
     const productUid = `prod_${uuidv4()}`;
     
     // 1. Génération sécurisée et unique du Slug avec garde-fou anti-boucle
-    const baseSlug = slugify(body.title || 'artefact');
+    const baseSlug = slugify(validatedData.title || 'artefact');
     let finalSlug = baseSlug;
          
     let slugExists = await ProductModel.findOne({ slug: finalSlug }).lean();
@@ -60,18 +71,17 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       safetyCounter++;
     }
     
-    // 2. Enregistrement en base de données
+    // 2. Enregistrement en base de données de manière strictement filtrée (sans sellerUid absent du schema)
     const newProduct = await ProductModel.create({
-      ...body,
+      ...validatedData,
       uid: productUid,
       slug: finalSlug,
-      sellerUid: body.sellerUid || userUid
     });
     
     // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('products');
-    if (body.storeUid) {
-      revalidateTag(`store-products-${body.storeUid}`);
+    if (validatedData.storeUid) {
+      revalidateTag(`store-products-${validatedData.storeUid}`);
     }
     return NextResponse.json({
       success: true,

@@ -7,7 +7,7 @@ import { ProjectModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infr
 import { CAPABILITIES } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
 
 // 🧠 Vérification Neo4j des permissions de mise à jour du projet
@@ -36,7 +36,7 @@ async function canUpdateProject(userUid: string, projectUid: string): Promise<bo
 // ==========================================
 // 📤 POST : Téléversement d'un artefact/document sur un Chantier avec Sceau SHA-256
 // ==========================================
-export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withRateLimit('upload-project-attachment', 10, 60, withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     const resolvedParams = await context.params;
     const rawSlug = resolvedParams?.slug;
@@ -44,22 +44,6 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
 
     if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
-    }
-
-    // 🛡️ SUTURE DE SOUVERAINETÉ ABSOLUE : Rate Limiting blindé anti-undefined
-    const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-    let rateLimitResult: { allowed?: boolean } = { allowed: true };
-    try {
-      const res = await checkRateLimit(`upload-project-attachment:${clientIp}`, 10, 60);
-      if (res && typeof res === 'object') {
-        rateLimitResult = res;
-      }
-    } catch {
-      rateLimitResult = { allowed: true };
-    }
-
-    if (rateLimitResult.allowed === false) {
-      return NextResponse.json({ success: false, message: "Trop de téléversements. Veuillez patienter." }, { status: 429 });
     }
 
     // Recherche unifiée du projet par son slug ou son UID dans la Silice
@@ -199,7 +183,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     console.error("❌ [PROJECT ATTACHMENTS POST ERROR]", error);
     return NextResponse.json({ success: false, message: "Le téléversement a échoué." }, { status: 500 }); 
   }
-});
+}));
 
 // ==========================================
 // 🗑️ DELETE : Désintégration / Purge d'un artefact de Chantier

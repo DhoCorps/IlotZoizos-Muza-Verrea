@@ -1,10 +1,12 @@
-// packages/shared-core/src/sync-engine/__tests__/partita.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PartitaOrchestrator } from '../partita.orchestrator';
-import { PartitaModel } from '@ilot/infrastructure';
+import { PartitaModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
+const mockFindOneAndUpdate = vi.fn();
+
+// 🛡️ MOCK UNIFIÉ ET SÉCURISÉ DE L'INFRASTRUCTURE
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
@@ -12,15 +14,16 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     PartitaModel: {
       findOne: vi.fn(),
       create: vi.fn(),
-      findOneAndUpdate: vi.fn(),
+      findOneAndUpdate: (...args: any[]) => mockFindOneAndUpdate(...args),
       deleteOne: vi.fn(),
     },
+    findEntityBySlugOrUid: vi.fn(),
   };
 });
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, callback) => {
+    execute: vi.fn(async (_name, callback) => {
       const mockMongoSession = {};
       const mockNeo4jTx = { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_node' }] }) };
       return await callback(mockMongoSession, mockNeo4jTx);
@@ -53,11 +56,15 @@ describe('PartitaOrchestrator - Sédimentation Musicale', () => {
         session: vi.fn().mockResolvedValue(null)
       } as any);
 
-      vi.mocked(PartitaModel.create).mockResolvedValue([{ 
+      // Simulation d'un document Mongoose avec la méthode .toObject()
+      const mockCreatedDoc = {
         uid: 'partita-123', 
         title: 'Ma Superbe Basse', 
-        slug: 'ma-superbe-basse' 
-      }] as any);
+        slug: 'ma-superbe-basse',
+        toObject: function() { return this; }
+      };
+
+      vi.mocked(PartitaModel.create).mockResolvedValue([mockCreatedDoc] as any);
 
       const result = await orchestrator.fosterPartita(data, userSignature as any);
       
@@ -67,10 +74,9 @@ describe('PartitaOrchestrator - Sédimentation Musicale', () => {
     });
   });
 
-  // Les autres tests (Update et Delete) restent identiques...
   describe('disintegratePartita (Suppression)', () => {
     it('🟢 devrait retourner les URLs des fichiers à purger au Hub-Central', async () => {
-      vi.mocked(PartitaModel.findOne).mockResolvedValue({ 
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValue({ 
         uid: 'partita-123', 
         authorUid: 'oiseau-A',
         media: {

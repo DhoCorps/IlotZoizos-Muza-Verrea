@@ -8,6 +8,38 @@ import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { getCachedPartitaDetails } from '@/lib/cache/partita.cache';
+import { z } from 'zod';
+
+// ==========================================
+// 🛡️ SCHÉMA DE VALIDATION ZOD (Anti Mass Assignment - PUT)
+// ==========================================
+const UpdatePartitaSchema = z.object({
+  title: z.string().min(1).optional(),
+  content: z.string().min(1).optional(),
+  instrument: z.string().optional(),
+  format: z.string().optional(),
+  tuning: z.string().optional(),
+  status: z.string().optional(),
+  slug: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  connections: z.object({
+    relatedProjects: z.array(z.string()).optional(),
+    relatedTasks: z.array(z.string()).optional(),
+    relatedProducts: z.array(z.string()).optional(),
+    relatedGames: z.array(z.string()).optional(),
+  }).optional(),
+  merchLink: z.object({
+    productId: z.string(),
+  }).optional().nullable(),
+  media: z.object({
+    coverImageUrl: z.string().url().optional().nullable(),
+    audioTrackUrl: z.string().url().optional().nullable(),
+  }).optional(),
+  settings: z.object({
+    allowComments: z.boolean().optional(),
+    allowEmojiReactions: z.boolean().optional(),
+  }).optional()
+});
 
 // ==========================================
 // GET : Consulter une Partition spécifique (Public / Optionnel Aura)
@@ -62,10 +94,10 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
 export const PUT = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
     let resolvedParams;
-    let body;
+    let rawBody;
     try {
       resolvedParams = await context.params;
-      body = await req.json();
+      rawBody = await req.json();
     } catch (err) {
       return NextResponse.json({ error: "Corps de requête ou paramètres illisibles." }, { status: 400 });
     }
@@ -75,6 +107,15 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
+
+    // Validation stricte par Zod (Anti Mass Assignment)
+    const validationResult = UpdatePartitaSchema.safeParse(rawBody);
+    if (!validationResult.success) {
+      const errorMessage = validationResult.error.issues.map(e => e.message).join(', ');
+      return NextResponse.json({ error: `Données de mutation invalides : ${errorMessage}` }, { status: 400 });
+    }
+
+    const validatedUpdates = validationResult.data;
 
     // 🔍 Résolution unifiée pour s'assurer de l'existence et obtenir l'UID canonique
     const targetPartition: any = await findEntityBySlugOrUid(PartitaModel, identifier, { lean: false });
@@ -90,7 +131,7 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     let updatedPartition;
     try {
       const partitaOrch = new PartitaOrchestrator();
-      updatedPartition = await partitaOrch.updatePartita(targetPartition.uid, body, signature);
+      updatedPartition = await partitaOrch.updatePartita(targetPartition.uid, validatedUpdates, signature);
     } catch (orchErr: any) {
       console.error("🔥 [PARTITA ORCHESTRATOR PUT ERROR]", orchErr);
       const status = orchErr.statusCode || orchErr.status || 500;
@@ -102,14 +143,13 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     revalidateTag(`partita-${identifier}`);
     
     // 🛡️ TYPAGE STRICT : On extrait le document métier proprement
-    // Si l'orchestrateur renvoie un objet SyncResult, le document est dans .mongo
-    const documentStruture = ('mongo' in updatedPartition ? updatedPartition.mongo : updatedPartition) as Partial<IPartita>;
+    const documentStructure = ('mongo' in updatedPartition ? updatedPartition.mongo : updatedPartition) as Partial<IPartita>;
 
-    if (documentStruture?.uid) {
-      revalidateTag(`partita-${documentStruture.uid}`);
+    if (documentStructure?.uid) {
+      revalidateTag(`partita-${documentStructure.uid}`);
     }
-    if (documentStruture?.slug) {
-      revalidateTag(`partita-${documentStruture.slug}`);
+    if (documentStructure?.slug) {
+      revalidateTag(`partita-${documentStructure.slug}`);
     }
     
     return NextResponse.json(updatedPartition, { status: 200 });

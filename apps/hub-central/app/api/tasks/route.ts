@@ -5,8 +5,36 @@ import { CAPABILITIES, ActionSignature } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { getCachedTasks } from '@/lib/cache/tasks.cache';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
+
+// ==========================================
+// 🛡️ SCHÉMA DE VALIDATION ZOD (Anti Mass Assignment)
+// ==========================================
+const CreateTaskSchema = z.object({
+  projectUid: z.string().min(1, "Le projectUid est requis."),
+  title: z.string().optional(),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  status: z.string().optional(),
+  priority: z.string().optional(),
+  parentUid: z.string().optional().nullable(),
+  assigneeUids: z.array(z.string()).optional(),
+  pomoEst: z.number().optional(),
+  complexity: z.number().optional(),
+  dates: z.object({
+    scheduledAt: z.string().optional(),
+  }).optional(),
+  connections: z.object({
+    targetModule: z.string().optional(),
+    targetEntityUid: z.string().optional(),
+  }).optional(),
+  documents: z.array(z.any()).optional(),
+}).refine(data => data.title || data.name, {
+  message: "Un titre ou un nom est requis pour forger l'atome.",
+  path: ["title"],
+});
 
 async function getProjectCapabilities(userUid: string, projectUid: string): Promise<string[]> {
   const session = getNeo4jSession();
@@ -62,17 +90,33 @@ export const GET = withAura(async (req: Request, _context: ApiContext, currentUs
 // POST : Forger un nouvel Atome
 // ==========================================
 export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
-  const body = await req.json();
-  const { projectUid } = body;
-  if (!projectUid) return NextResponse.json({ error: "projectUid obligatoire." }, { status: 400 });
+  let rawBody;
+  try {
+    rawBody = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
+  }
+
+  // Validation stricte par Zod pour empêcher toute injection malveillante (Mass Assignment)
+  const validationResult = CreateTaskSchema.safeParse(rawBody);
+  if (!validationResult.success) {
+    const errorMessage = validationResult.error.issues.map(e => e.message).join(', ');
+    return NextResponse.json({ error: `Données d'atome invalides : ${errorMessage}` }, { status: 400 });
+  }
+
+  const validatedData = validationResult.data;
+  const projectUid = validatedData.projectUid;
+
   const project = await ProjectModel.findOne({ uid: projectUid }).lean();
   if (!project) return NextResponse.json({ error: "Chantier introuvable." }, { status: 404 });
+
   const caps = await getProjectCapabilities(currentUser.uid, projectUid);
   const canCreate = currentUser.capabilities?.includes('*') || project.creatorUid === currentUser.uid || caps.includes(CAPABILITIES.TASK.CREATE);
   if (!canCreate) return NextResponse.json({ error: "Aura insuffisante." }, { status: 403 });
+
   const signature: ActionSignature = { actorUid: currentUser.uid, capabilities: currentUser.capabilities };
   const taskOrch = new TaskOrchestrator();
-  const newTask = await taskOrch.fosterTask(body, signature);
+  const newTask = await taskOrch.fosterTask(validatedData, signature);
   
   revalidateTag(`project-${projectUid}`);
   revalidateTag(`user-tasks-${currentUser.uid}`);

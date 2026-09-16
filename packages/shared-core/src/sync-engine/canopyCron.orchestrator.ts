@@ -10,7 +10,7 @@ export class CanopyCronOrchestrator {
 
     for (const [key, definition] of Object.entries(CANOPY_AWARDS_CATALOG)) {
       try {
-        // Détermination du vainqueur (soit via l'évaluateur custom du trophée, soit par défaut)
+        // Détermination du vainqueur (via l'évaluateur custom du trophée)
         let winnerUid = null;
         if (definition.evaluator) {
           winnerUid = await definition.evaluator({ yearMonth });

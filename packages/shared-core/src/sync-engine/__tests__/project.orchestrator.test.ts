@@ -1,8 +1,7 @@
-// packages/shared-core/src/sync-engine/__tests__/project.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProjectOrchestrator } from '../project.orchestrator';
 import { TransactionManager } from '../transactionManager';
-import { ProjectModel, TaskModel } from '@ilot/infrastructure';
+import { ProjectModel, TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 import { IlotError } from '../../errors/ilot.errors';
 
@@ -12,7 +11,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   return {
     ...actual,
     ProjectModel: {
-      findOne: vi.fn(),
       findOneAndUpdate: vi.fn(),
       create: vi.fn(),
       find: vi.fn(),
@@ -22,6 +20,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       find: vi.fn(),
       deleteMany: vi.fn(),
     },
+    findEntityBySlugOrUid: vi.fn(),
     getNeo4jSession: vi.fn().mockReturnValue({
       run: vi.fn().mockResolvedValue({ records: [] }),
       close: vi.fn().mockResolvedValue(true),
@@ -91,7 +90,7 @@ describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
     it("🧬 doit valider le Double Verrou territorial via Neo4j et mettre à jour", async () => {
       const signature: ActionSignature = { actorUid: 'bird-invite', capabilities: [] }; // Pas root, pas creator
       
-      vi.mocked(ProjectModel.findOne).mockResolvedValueOnce({ uid: 'proj_123', creatorUid: 'other_bird' } as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ uid: 'proj_123', creatorUid: 'other_bird' } as any);
       vi.mocked(ProjectModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'proj_123', name: 'Mutation OK', status: 'CONCEPT' })
       } as any);
@@ -107,7 +106,7 @@ describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
     it("🌋 doit désintégrer le chantier entier (Projets + Tâches) sans boucles de sous-transactions", async () => {
       const signature: ActionSignature = { actorUid: 'architect_root', capabilities: ['*'] };
       
-      vi.mocked(ProjectModel.findOne).mockResolvedValueOnce({ uid: 'proj_123' } as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ uid: 'proj_123' } as any);
       
       // Mocks des documents pour tester la purge S3
       vi.mocked(TaskModel.find).mockReturnValue({

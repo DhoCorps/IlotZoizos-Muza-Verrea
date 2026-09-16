@@ -1,5 +1,4 @@
-// packages/shared-core/src/sync-engine/demopraxy.orchestrator.ts
-import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
@@ -45,12 +44,10 @@ export class DemopraxyOrchestrator {
     }
 
     /**
-     * 🔍 Récupère l'état et les métriques démopraxiques d'un oiseau via son identifiant (slug, uid ou pseudo)
+     * 🔍 Récupère l'état et les métriques démopraxiques d'un oiseau via la recherche unifiée
      */
     public async getDemopraxicMetrics(userIdentifier: string) {
-        const user = await OiseauModel.findOne({ 
-            $or: [{ slug: userIdentifier }, { uid: userIdentifier }, { pseudo: userIdentifier }] 
-        }).lean() as any;
+        const user = await findEntityBySlugOrUid(OiseauModel, userIdentifier) as any;
 
         if (!user) {
             throw new IlotError("Oiseau introuvable dans la Silice pour auscultation démopraxique.", "NOT_FOUND", 404);
@@ -78,10 +75,8 @@ export class DemopraxyOrchestrator {
             throw new IlotError("Aura insuffisante pour invoquer le vortex démopraxique.", "FORBIDDEN", 403);
         }
 
-        // 1. Résolution de l'identité : La Silice traduit le pseudo/slug en UID canonique
-        const user = await OiseauModel.findOne({ 
-            $or: [{ slug: userIdentifier }, { uid: userIdentifier }, { pseudo: userIdentifier }] 
-        });
+        // 1. Résolution de l'identité via l'utilitaire global unifié
+        const user = await findEntityBySlugOrUid(OiseauModel, userIdentifier) as any;
         
         if (!user) throw new IlotError("Oiseau introuvable dans la Silice.", "NOT_FOUND", 404);
 
@@ -124,7 +119,7 @@ export class DemopraxyOrchestrator {
             return {
                 success: true,
                 targetUid: canonicalUid,
-                targetSlug: (user as any).slug || null,
+                targetSlug: user.slug || null,
                 ...evaluation,
                 user: updatedUser
             };

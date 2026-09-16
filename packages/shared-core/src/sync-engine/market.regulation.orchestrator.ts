@@ -1,5 +1,4 @@
-// packages/shared-core/src/sync-engine/market.regulation.orchestrator.ts
-import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { SeveEngine, ExchangeItem } from '../utils/seve.engine';
 import { IlotError } from '../errors/ilot.errors';
@@ -40,20 +39,6 @@ export interface MarketContractPayload {
 export class MarketRegulationOrchestrator {
     
     /**
-     * Utilitaire interne pour résoudre strictement l'UID canonique via la Silice (MongoDB)
-     */
-    private async resolveCanonicalUid(identifier: string): Promise<string> {
-        const user = await OiseauModel.findOne({ 
-            $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
-        }).lean();
-        
-        if (!user) {
-            throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
-        }
-        return (user as any).uid;
-    }
-
-    /**
      * ⚖️ ÉVALUATION DE L'ACCÈS AU MARCHÉ ET AU TROC
      */
     public static evaluateMarketAccess(context: MarketEntityContext, minJustTakeThreshold: number = 1.0): MarketEvaluationResult {
@@ -83,7 +68,7 @@ export class MarketRegulationOrchestrator {
     }
 
     /**
-     * 🔄 TRAITEMENT DE LA RÉGULATION CONNECTÉE (Double Scellement Mongo/Neo4j)
+     * 🔄 TRAITEMENT DE LA RÉGULATION CONNECTÉE (Double Scellement Mongo/Neo4j via recherche unifiée)
      */
     public async processConnectedRegulation(
         userIdentifier: string,
@@ -94,21 +79,25 @@ export class MarketRegulationOrchestrator {
     ): Promise<ConnectedRegulationResult> {
         if (!signature.actorUid) throw new IlotError("Identité requise.", "UNAUTHORIZED", 401);
 
-        const canonicalUid = await this.resolveCanonicalUid(userIdentifier);
-        const user = await OiseauModel.findOne({ uid: canonicalUid }).lean();
+        const user = await findEntityBySlugOrUid(OiseauModel, userIdentifier) as any;
+        if (!user) {
+            throw new IlotError(`Oiseau introuvable dans la Silice : ${userIdentifier}`, "NOT_FOUND", 404);
+        }
+
+        const targetUid = user.uid;
 
         const context: MarketEntityContext = {
-            uid: canonicalUid,
-            exchanges: (user as any).exchanges || [],
+            uid: targetUid,
+            exchanges: user.exchanges || [],
             currentNeeds,
             creationFactor
         };
 
         const evaluation = MarketRegulationOrchestrator.evaluateMarketAccess(context, minJustTakeThreshold);
 
-        return await TransactionManager.execute("Régulation de Marché", async (mongoSession, neo4jTx) => {
+        return await TransactionManager.execute("Régulation de Marché", async (_mongoSession, neo4jTx) => {
             const updatedUser = await OiseauModel.findOneAndUpdate(
-                { uid: canonicalUid },
+                { uid: targetUid },
                 {
                     $set: {
                         'marketRegulationState': {
@@ -117,12 +106,12 @@ export class MarketRegulationOrchestrator {
                         }
                     }
                 },
-                { new: true, session: mongoSession }
+                { new: true }
             ).lean();
 
             // Sédimentation dans le Graphe pour impacter la vitesse des futures requêtes Neo4j
             const cypher = `
-                MATCH (u:User {uid: $canonicalUid})
+                MATCH (u:User {uid: $targetUid})
                 SET u.marketAuthorized = $isAuthorized,
                     u.vitalBalance = $vitalBalance,
                     u.marketLatencyMs = $latencyMs,
@@ -131,7 +120,7 @@ export class MarketRegulationOrchestrator {
             `;
 
             await neo4jTx.run(cypher, {
-                canonicalUid,
+                targetUid,
                 isAuthorized: evaluation.isAuthorized,
                 vitalBalance: evaluation.vitalBalance,
                 latencyMs: evaluation.latencyMs
@@ -139,7 +128,7 @@ export class MarketRegulationOrchestrator {
 
             return {
                 success: true,
-                targetUid: canonicalUid,
+                targetUid,
                 ...evaluation,
                 user: updatedUser
             };
@@ -162,10 +151,7 @@ export class MarketRegulationOrchestrator {
             throw new IlotError("Un contrat nécessite deux entités distinctes.", "BAD_REQUEST", 400);
         }
 
-        const initiatorCanonicalUid = await this.resolveCanonicalUid(payload.initiatorUid);
-        const targetCanonicalUid = await this.resolveCanonicalUid(payload.targetUid);
-
-        return await TransactionManager.execute("Forge de Contrat Marchand", async (mongoSession, neo4jTx) => {
+        return await TransactionManager.execute("Forge de Contrat Marchand", async (_mongoSession, neo4jTx) => {
             
             const cypher = `
                 MATCH (initiator:User {uid: $initiatorUid})
@@ -187,8 +173,8 @@ export class MarketRegulationOrchestrator {
             `;
 
             const neoResult = await neo4jTx.run(cypher, {
-                initiatorUid: initiatorCanonicalUid,
-                targetUid: targetCanonicalUid,
+                initiatorUid: payload.initiatorUid,
+                targetUid: payload.targetUid,
                 contractUid: payload.contractUid,
                 contractType: payload.contractType,
                 virtualValueAmount: payload.virtualValueAmount,

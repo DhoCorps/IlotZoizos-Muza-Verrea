@@ -59,7 +59,7 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
       if (checkResult.records.length === 0) {
         return NextResponse.json({ 
           error: "Souveraineté violée : Aucune invitation en attente pour ce Nid." 
-        }, { status: 451 }); 
+        }, { status: 404 }); // 🛡️ Remplacement propre du 451 par 404 Not Found
       }
       
       invitationCapabilities = checkResult.records[0].get('caps') || [];

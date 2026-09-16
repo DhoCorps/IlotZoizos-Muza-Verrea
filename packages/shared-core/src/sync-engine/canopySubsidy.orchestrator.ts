@@ -1,4 +1,3 @@
-// packages/shared-core/src/sync-engine/canopySubsidy.orchestrator.ts
 import { SubsidyModel } from '@ilot/infrastructure';
 import { KomptaLedgerOrchestrator } from './komptaLedger.orchestrator';
 
@@ -7,6 +6,8 @@ export class CanopySubsidyOrchestrator {
   // Vote pour un dossier
   public static async voteForSubsidy(subsidyUid: string, voterUid: string) {
     const subsidy = await SubsidyModel.findById(subsidyUid);
+    if (!subsidy) return;
+    
     if (!subsidy.voterUids.includes(voterUid)) {
       subsidy.voterUids.push(voterUid);
       subsidy.voteCount += 1;
@@ -15,7 +16,7 @@ export class CanopySubsidyOrchestrator {
   }
 
   // Tirage au sort mensuel (le "Chapeau de la Canopée")
- public static async executeMonthlyDraw() {
+  public static async executeMonthlyDraw() {
     const pendingRequests = await SubsidyModel.find({ status: 'PENDING' });
     if (!pendingRequests || pendingRequests.length === 0) return;
     
@@ -37,7 +38,7 @@ export class CanopySubsidyOrchestrator {
       winner.status = 'PAID';
       await winner.save();
     }
-}
+  }
 
   private static weightedRandomDraw(top: any[], low: any[]): any {
     // Logique de tirage : on met 3 copies de chaque dossier topTier et 1 de lowTier dans le chapeau

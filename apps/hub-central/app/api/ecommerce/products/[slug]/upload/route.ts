@@ -7,30 +7,14 @@ import { UniversalMediaRegistry, ProductModel, findEntityBySlugOrUid } from '@il
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'intégrité technique
 
 // ==========================================
 // POST : Verser et Indexer une image de produit
 // ==========================================
-export const POST = withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withRateLimit('upload-product-slug', 10, 60, withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-          
-    // 🛡️ SUTURE DE SOUVERAINETÉ ABSOLUE : Protection blindée anti-undefined et anti-plantage
-    let rateLimitResult: { allowed?: boolean } = { allowed: true };
-    try {
-      const res = await checkRateLimit(`upload-product-slug:${clientIp}`, 10, 60);
-      if (res && typeof res === 'object') {
-        rateLimitResult = res;
-      }
-    } catch {
-      rateLimitResult = { allowed: true };
-    }
-    if (rateLimitResult.allowed === false) {
-      return NextResponse.json({ error: 'Trop de versements. Veuillez patienter.' }, { status: 429 });
-    }
-    
     const resolvedParams = await context.params;
     const rawSlug = (resolvedParams as any)?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
@@ -152,7 +136,7 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
     const status = error instanceof IlotError ? error.status : 500;
     return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
   }
-});
+}));
 
 // ==========================================
 // DELETE : Purger et Désindexer l'image

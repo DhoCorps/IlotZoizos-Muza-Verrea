@@ -1,20 +1,23 @@
-// packages/shared-core/src/sync-engine/__tests__/paymentTokenization.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PaymentTokenizationOrchestrator, TokenizePaymentPayload } from '../paymentTokenisation.orchestrator';
-import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-vi.mock('@ilot/infrastructure', () => ({
-  OiseauModel: {
-    findOne: vi.fn(),
-    findOneAndUpdate: vi.fn(),
-  },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    OiseauModel: {
+      findOneAndUpdate: vi.fn(),
+    },
+    findEntityBySlugOrUid: vi.fn(),
+  };
+});
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, callback) => {
+    execute: vi.fn(async (_name, callback) => {
       const mockMongoSession = {};
       const mockNeo4jTx = { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_uid' }] }) };
       return await callback(mockMongoSession, mockNeo4jTx);
@@ -27,7 +30,6 @@ describe('PaymentTokenizationOrchestrator - Sécurité Financière', () => {
   
   const validSignature = { actorUid: 'bird_alpha', capabilities: [] };
   const hackerSignature = { actorUid: 'bird_hacker', capabilities: [] };
-  const adminSignature = { actorUid: 'architect_root', capabilities: ['*'] };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -60,9 +62,7 @@ describe('PaymentTokenizationOrchestrator - Sécurité Financière', () => {
     });
 
     it('🔴 doit rejeter (404) si l\'oiseau est introuvable lors de la résolution canonique', async () => {
-      vi.mocked(OiseauModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce(null),
-      } as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
       const payload: TokenizePaymentPayload = {
         userUid: 'bird_ghost',
@@ -78,9 +78,7 @@ describe('PaymentTokenizationOrchestrator - Sécurité Financière', () => {
     it('🟢 doit lier avec succès les tokens externes pour soi-même après résolution canonique', async () => {
       const mockUser = { uid: 'bird_canonical_alpha' };
       
-      vi.mocked(OiseauModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce(mockUser),
-      } as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockUser as any);
 
       vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce({
@@ -100,15 +98,13 @@ describe('PaymentTokenizationOrchestrator - Sécurité Financière', () => {
       expect(result.success).toBe(true);
       expect(result.userUid).toBe('bird_canonical_alpha'); // L'UID a bien été résolu et traduit
       expect(result.hasActiveWallet).toBe(true);
-      expect(OiseauModel.findOne).toHaveBeenCalledTimes(1);
+      expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(1);
       expect(OiseauModel.findOneAndUpdate).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
 
     it('🔴 doit lever une erreur interne (500) si la synchronisation Neo4j échoue (nœud introuvable)', async () => {
-      vi.mocked(OiseauModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce({ uid: 'bird_canonical_alpha' }),
-      } as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ uid: 'bird_canonical_alpha' } as any);
 
       // On simule également le findOneAndUpdate pour éviter l'erreur TypeError reading 'lean'
       vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
@@ -116,7 +112,7 @@ describe('PaymentTokenizationOrchestrator - Sécurité Financière', () => {
       } as any);
 
       // Simulation d'une rupture Neo4j : L'oiseau existe dans Mongo mais pas dans le Graphe
-      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (name, cb) => {
+      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name, cb) => {
         return await cb({} as any, { run: vi.fn().mockResolvedValue({ records: [] }) } as any);
       });
 

@@ -1,5 +1,3 @@
-// packages/shared-core/src/sync-engine/__tests__/poetrik.orchestrator.test.ts
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PoetrikOrchestrator } from '../poetrik.orchestrator';
 import { LexiconEntryModel } from '@ilot/infrastructure';
@@ -19,7 +17,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, callback) => {
+    execute: vi.fn(async (_name, callback) => {
       const mockMongoSession = {};
       const mockNeo4jTx = { 
         run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_node' }] }) 

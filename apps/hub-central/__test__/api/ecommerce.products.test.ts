@@ -48,7 +48,7 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
 
         const req = new Request('http://localhost/api/ecommerce/products', {
             method: 'POST',
-            body: JSON.stringify({ title: 'Artefact Interdit', priceCents: 1000, category: 'PHYSICAL' }),
+            body: JSON.stringify({ title: 'Artefact Interdit', priceCents: 1000, category: 'PHYSICAL_ARTIFACT', storeUid: 'store_1', description: 'Test' }),
             headers: { 'Content-Type': 'application/json' }
         }) as unknown as import('next/server').NextRequest;
 
@@ -60,7 +60,31 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
         expect(ProductModel.create).not.toHaveBeenCalled();
     });
 
-    it('🟢 doit autoriser l ajout d un artefact si l oiseau est respectueux ou neutre', async () => {
+    it('🔴 doit rejeter avec une erreur 400 si le payload ne respecte pas le contrat Zod (ex: champs requis manquants ou invalides)', async () => {
+        vi.mocked(OiseauModel.findOne).mockReturnValue({
+            lean: vi.fn().mockResolvedValueOnce({
+                uid: 'bird_clean_1',
+                profileStatus: 'RESPECTABLE',
+                isBanned: false,
+            })
+        } as any);
+
+        // Payload volontairement invalide (absence de storeUid et de catégorie valide)
+        const req = new Request('http://localhost/api/ecommerce/products', {
+            method: 'POST',
+            body: JSON.stringify({ title: 'Artefact Invalide', priceCents: -50 }),
+            headers: { 'Content-Type': 'application/json' }
+        }) as unknown as import('next/server').NextRequest;
+
+        const response = await POST(req, { params: {} } as any);
+        const json = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(json.error).toContain('Contrat souverain invalide');
+        expect(ProductModel.create).not.toHaveBeenCalled();
+    });
+
+    it('🟢 doit autoriser l ajout d un artefact si l oiseau est respectueux ou neutre et que le contrat Zod est validé', async () => {
         // 1. Simulation du profil sain via findOne().lean()
         vi.mocked(OiseauModel.findOne).mockReturnValue({
             lean: vi.fn().mockResolvedValueOnce({
@@ -79,12 +103,20 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
             uid: 'prod_123',
             title: 'Artefact Lumineux',
             slug: 'artefact-lumineux',
-            sellerUid: 'bird_clean_1'
+            storeUid: 'store_1'
         } as any);
 
         const req = new Request('http://localhost/api/ecommerce/products', {
             method: 'POST',
-            body: JSON.stringify({ title: 'Artefact Lumineux', priceCents: 1500, category: 'DIGITAL' }),
+            body: JSON.stringify({ 
+                uid: 'prod_123',
+                storeUid: 'store_1',
+                title: 'Artefact Lumineux', 
+                slug: 'artefact-lumineux',
+                description: 'Un bel objet',
+                priceCents: 1500, 
+                category: 'DIGITAL_GOOD' 
+            }),
             headers: { 'Content-Type': 'application/json' }
         }) as unknown as import('next/server').NextRequest;
 

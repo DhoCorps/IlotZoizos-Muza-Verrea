@@ -1,47 +1,28 @@
-// packages/shared-core/src/sync-engine/samplotek.orchestrator.ts
-import { SampleModel, PartitaModel, OiseauModel, UniversalMediaRegistry } from '@ilot/infrastructure';
+import { SampleModel, PartitaModel, UniversalMediaRegistry } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
+import { slugify } from '@/lib/slugify';
 
 export interface SamplotekSyncResult {
   success: boolean;
   status: string;
-  mongo: any;
-  neo4j: any;
+  mongo: any; // Type souple et compatible avec les documents Mongoose
+  neo4j: import('neo4j-driver').QueryResult;
 }
-
-const generateSlug = (text: string) => {
-  return text.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
-};
 
 /**
  * SAMPLOTEK ORCHESTRATOR
  * Gère la sédimentation des samples (E-Jay) et le mixage final.
- * Applique la résolution stricte par UID Canonique (Phase 2) et le tissage Neo4j.
+ * Applique le tissage Neo4j avec un typage strict.
  */
 export class SamplotekOrchestrator {
   
   /**
-   * Utilitaire interne pour résoudre strictement l'UID canonique via la Silice (MongoDB)
-   * Permet d'éradiquer les "FULL GRAPH SCANS" dans Neo4j.
-   */
-  private async resolveCanonicalUid(identifier: string): Promise<string> {
-    const user = await OiseauModel.findOne({ 
-       $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
-     }).lean();
-     
-    if (!user) {
-      throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
-    }
-    return (user as any).uid;
-  }
-
-  /**
    * 💽 GRAVER UN NOUVEAU SAMPLE
    */
-  async fosterSample(data: any, signature: ActionSignature): Promise<SamplotekSyncResult> {
+  async fosterSample(data: Record<string, unknown>, signature: ActionSignature): Promise<SamplotekSyncResult> {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour graver un sample.", "UNAUTHORIZED", 401);
     }
@@ -50,13 +31,13 @@ export class SamplotekOrchestrator {
       throw new IlotError("Données de sample incomplètes ou non scellées.", "BAD_REQUEST", 400);
     }
 
-    const actorCanonicalUid = await this.resolveCanonicalUid(signature.actorUid);
+    const actorCanonicalUid = signature.actorUid;
 
     return await TransactionManager.execute("Fondation Sample", async (mongoSession, neo4jTx) => {
-      const sampleUid = data.uid || `samp_${randomUUID()}`;
+      const sampleUid = (data.uid as string) || `samp_${randomUUID()}`;
 
       // Sécurisation de l'unicité du slug dans la Silice
-      let baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(data.title);
+      const baseSlug = slugify((data.slug as string) || (data.title as string));
       let finalSlug = baseSlug;
       let slugExists = await SampleModel.findOne({ slug: finalSlug }).session(mongoSession);
       let counter = 1;
@@ -97,8 +78,8 @@ export class SamplotekOrchestrator {
         sampleUid: newSample.uid,
         title: newSample.title,
         slug: newSample.slug,
-        tempoBpm: newSample.tempoBpm || 120,
-        style: newSample.style || 'Ambient',
+        tempoBpm: (newSample as any).tempoBpm || 120,
+        style: (newSample as any).style || 'Ambient',
         digitalSignature: newSample.digitalSignature
       });
 
@@ -113,21 +94,22 @@ export class SamplotekOrchestrator {
   /**
    * 🎛️ EXPORTER UN PROJET STUDIO (MIXAGE)
    */
-  async exportProject(data: any, signature: ActionSignature): Promise<SamplotekSyncResult> {
+  async exportProject(data: Record<string, unknown>, signature: ActionSignature): Promise<SamplotekSyncResult> {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour mixer un projet.", "UNAUTHORIZED", 401);
     }
-    if (!data.title || !data.tracks || data.tracks.length === 0) {
+    const tracks = data.tracks as unknown[];
+    if (!data.title || !tracks || tracks.length === 0) {
       throw new IlotError("Un projet E-Jay nécessite un titre et au moins une piste active.", "BAD_REQUEST", 400);
     }
 
-    const actorCanonicalUid = await this.resolveCanonicalUid(signature.actorUid);
+    const actorCanonicalUid = signature.actorUid;
 
     return await TransactionManager.execute("Exportation Studio", async (mongoSession, neo4jTx) => {
-      const projectUid = data.uid || `samplotek_${randomUUID()}`;
+      const projectUid = (data.uid as string) || `samplotek_${randomUUID()}`;
 
       // Sécurisation de l'unicité du slug
-      let baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(data.title);
+      const baseSlug = slugify((data.slug as string) || (data.title as string));
       let finalSlug = baseSlug;
       let slugExists = await PartitaModel.findOne({ slug: finalSlug }).session(mongoSession);
       let counter = 1;
@@ -151,7 +133,8 @@ export class SamplotekOrchestrator {
       }], { session: mongoSession });
 
       // 2. Tissage dans Neo4j avec liens vers les samples utilisés (Héritage)
-      const usedSampleUids = data.metadata?.usedSampleUids || [];
+      const metadataObj = data.metadata as Record<string, unknown> | undefined;
+      const usedSampleUids = (metadataObj?.usedSampleUids as string[]) || [];
       
       const cypher = `
         MATCH (u:User { uid: $actorUid })
@@ -185,16 +168,17 @@ export class SamplotekOrchestrator {
       }
 
       // 3. Indexation Universelle si autorisé (Intègre le composant au Diaporama Agora)
-      if (data.metadata?.permissions?.allowShowcase) {
+      const permissions = metadataObj?.permissions as Record<string, boolean> | undefined;
+      if (permissions?.allowShowcase) {
         await UniversalMediaRegistry.indexItem({
           mediaId: newProject.uid,
-          sourceApp: 'PARTITA', // Intégration native à l'écosystème musical
+          sourceApp: 'PARTITA',
           ownerUid: actorCanonicalUid,
-          ownerSlug: data.authorSlug || actorCanonicalUid,
-          title: data.title,
+          ownerSlug: (data.authorSlug as string) || actorCanonicalUid,
+          title: data.title as string,
           mediaUrl: '',
           consentForShowcase: true,
-          consentForMusicSync: data.metadata.permissions.allowRadio,
+          consentForMusicSync: permissions.allowRadio,
           createdAt: new Date(),
           metadata: { isStudioProject: true }
         });

@@ -1,5 +1,3 @@
-export const dynamic = 'force-dynamic';
-
 import { NextResponse } from 'next/server';
 import { TaskIrrigationOrchestrator } from '@ilot/shared-core';
 import { TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
@@ -7,13 +5,21 @@ import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * 💧 POST : Déclenchement de l'Irrigation de la Sève sur un Atome (Tâche)
  */
 export const POST = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 1. Résolution des paramètres de route
-    const resolvedParams = await context.params;
+    // 1. Résolution des paramètres de route avec gestion d'erreur robuste
+    let resolvedParams;
+    try {
+      resolvedParams = await context.params;
+    } catch {
+      return NextResponse.json({ error: "Paramètres de route invalides." }, { status: 400 });
+    }
+
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 

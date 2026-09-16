@@ -1,5 +1,4 @@
-// packages/shared-core/src/sync-engine/kontakt.orchestrator.ts
-import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
@@ -8,13 +7,11 @@ import { syncUniversalInteraction } from '@ilot/infrastructure'; // 👈 Import 
 export class KontaktOrchestrator {
 
   /**
-   * Utilitaire interne pour résoudre strictement l'UID canonique via la Silice (MongoDB)
+   * Utilitaire interne pour résoudre strictement l'UID canonique via l'utilitaire global
    * Permet d'éradiquer les "FULL GRAPH SCANS" dans Neo4j.
    */
   private async resolveCanonicalUid(identifier: string): Promise<string> {
-    const user = await OiseauModel.findOne({ 
-      $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
-    }).lean();
+    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
     
     if (!user) {
       throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
@@ -86,8 +83,10 @@ export class KontaktOrchestrator {
       return { success: true, action: data.action, match: isMatch };
     });
 
-    // 🕸️ Tissage de la toile universelle en arrière-plan (Fire & Forget)
-    syncUniversalInteraction(swiperCanonicalUid, targetCanonicalUid, 'KONTAKT').catch(console.error);
+    // 🕸️ Tissage de la toile universelle en arrière-plan avec attente sécurisée (Serverless safe)
+    if (swiperCanonicalUid !== targetCanonicalUid) {
+      await syncUniversalInteraction(swiperCanonicalUid, targetCanonicalUid, 'KONTAKT');
+    }
 
     return result;
   }
@@ -132,8 +131,8 @@ export class KontaktOrchestrator {
       return { success: true, targetUid: targetCanonicalUid, skill: data.skillName };
     });
 
-    // 🕸️ Tissage de la toile universelle
-    syncUniversalInteraction(endorserCanonicalUid, targetCanonicalUid, 'KONTAKT').catch(console.error);
+    // 🕸️ Tissage de la toile universelle sécurisé
+    await syncUniversalInteraction(endorserCanonicalUid, targetCanonicalUid, 'KONTAKT');
 
     return result;
   }
@@ -180,8 +179,8 @@ export class KontaktOrchestrator {
       return { success: true, status: 'PENDING' };
     });
 
-    // 🕸️ Tissage de la toile universelle : Interaction entre le demandeur et l'intermédiaire
-    syncUniversalInteraction(requesterCanonicalUid, intermediaryCanonicalUid, 'KONTAKT').catch(console.error);
+    // 🕸️ Tissage de la toile universelle sécurisé (Demandeur <-> Intermédiaire)
+    await syncUniversalInteraction(requesterCanonicalUid, intermediaryCanonicalUid, 'KONTAKT');
 
     return result;
   }

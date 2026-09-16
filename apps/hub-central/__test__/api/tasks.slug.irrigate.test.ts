@@ -34,7 +34,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     TaskModel: {
       findOne: vi.fn(),
     },
-    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
     findEntityBySlugOrUid: vi.fn(),
   };
 });

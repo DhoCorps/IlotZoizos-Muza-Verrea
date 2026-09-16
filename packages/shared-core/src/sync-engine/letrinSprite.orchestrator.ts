@@ -1,5 +1,4 @@
-// packages/shared-core/src/sync-engine/letrinSprite.orchestrator.ts
-import { OiseauModel, FontModel } from '@ilot/infrastructure';
+import { OiseauModel, FontModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
@@ -13,13 +12,11 @@ export interface GlyphData {
 export class LetrinSpriteOrchestrator {
   
   /**
-   * Utilitaire interne pour résoudre strictement l'UID canonique via la Silice (MongoDB)
+   * Utilitaire interne pour résoudre strictement l'UID canonique via l'utilitaire global
    * Permet d'éradiquer les "FULL GRAPH SCANS" dans Neo4j.
    */
   private async resolveCanonicalUid(identifier: string): Promise<string> {
-    const user = await OiseauModel.findOne({ 
-      $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
-    }).lean();
+    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
     
     if (!user) {
       throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
@@ -49,7 +46,7 @@ export class LetrinSpriteOrchestrator {
 
     const fontStatus = fontData.status || 'DRAFT';
     
-    // 1. Résolution stricte de l'UID
+    // 1. Résolution stricte de l'UID via findEntityBySlugOrUid
     const authorCanonicalUid = await this.resolveCanonicalUid(fontData.authorUid);
 
     return await TransactionManager.execute("Sédimentation Police Sprite Letr'In", async (mongoSession, neo4jTx) => {

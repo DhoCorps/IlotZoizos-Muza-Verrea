@@ -1,5 +1,3 @@
-// packages/shared-core/src/sync-engine/__tests__/univershallPantheon.orchestrator.test.ts
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UniversHallPantheonOrchestrator } from '../univershallPantheon.orchestrator';
 import { OiseauModel, LedgerEntryModel } from '@ilot/infrastructure';

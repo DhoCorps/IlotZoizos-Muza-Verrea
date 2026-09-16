@@ -1,4 +1,3 @@
-// packages/shared-core/src/sync-engine/consciousness.salon.orchestrator.ts
 import * as crypto from 'crypto';
 import { IlotError } from '../errors/ilot.errors';
 

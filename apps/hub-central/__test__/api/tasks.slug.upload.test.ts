@@ -21,6 +21,14 @@ vi.mock('@/lib/api-guards', () => ({
     }
     return await handler(req, context, mockUser);
   },
+  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
+    // 🪡 On réactive l'appel au rate limiter mocké dans le test
+    const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
+    if (rateLimitResult && rateLimitResult.allowed === false) {
+      return NextResponse.json({ success: false, message: "Trop de requêtes." }, { status: 429 });
+    }
+    return await handler(req, context);
+  },
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -34,7 +42,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       updateOne: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
     },
     getNeo4jSession: vi.fn(),
-    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
     findEntityBySlugOrUid: vi.fn(),
   };
 });
@@ -59,7 +66,6 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
     vi.clearAllMocks();
     delete (global as any).__mockUser;
 
-    // Utilisation de generateKey au lieu de generateStructuredKey
     vi.spyOn(storageService, 'generateKey').mockReturnValue('hub-central/fr/tasks/task_123/attachments/test.pdf');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
@@ -70,7 +76,7 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
   });
 
-  describe('POST /api/tasks/[slug]/artifacts', () => {
+  describe('POST /api/tasks/[slug]/upload', () => {
     it('doit refuser (429) si le rate limit est dépassé', async () => {
       global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
       vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0 } as any);
@@ -130,13 +136,13 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
       expect(data.url).toBe('https://cdn.ilot/doc.pdf');
       expect(data.digitalSignature).toBeDefined();
       expect(typeof data.digitalSignature).toBe('string');
-      expect(data.digitalSignature.length).toBe(64); // Vérification du hash SHA-256
+      expect(data.digitalSignature.length).toBe(64);
       expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TaskModel, 'ma-tache');
       expect(revalidateTag).toHaveBeenCalledWith('task-ma-tache');
     });
   });
 
-  describe('DELETE /api/tasks/[slug]/artifacts', () => {
+  describe('DELETE /api/tasks/[slug]/upload', () => {
     it('doit rejeter (403) en cas de tentative IDOR sur une URL étrangère', async () => {
       global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
@@ -146,7 +152,7 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
         documents: [{ url: 'https://cdn.ilot/doc.pdf' }]
       } as any);
 
-      const req = new Request('http://localhost/api/tasks/ma-tache/artifacts', {
+      const req = new Request('http://localhost/api/tasks/ma-tache/upload', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'https://cdn.ilot/document-etranger.pdf' }),
@@ -170,7 +176,7 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
         documents: [{ url: 'https://cdn.ilot/doc.pdf' }]
       } as any);
 
-      const req = new Request('http://localhost/api/tasks/ma-tache/artifacts', {
+      const req = new Request('http://localhost/api/tasks/ma-tache/upload', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'https://cdn.ilot/doc.pdf' }),

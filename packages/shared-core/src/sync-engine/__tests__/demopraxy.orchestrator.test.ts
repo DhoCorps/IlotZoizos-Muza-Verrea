@@ -1,7 +1,6 @@
-// packages/shared-core/src/sync-engine/__tests__/demopraxy.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DemopraxyOrchestrator, NuisanceMetrics } from '../demopraxy.orchestrator';
-import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
@@ -10,15 +9,15 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   return {
     ...actual,
     OiseauModel: {
-      findOne: vi.fn(),
       findOneAndUpdate: vi.fn(),
     },
+    findEntityBySlugOrUid: vi.fn(),
   };
 });
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue(true) })),
+    execute: vi.fn(async (_name, _cb) => _cb('mock-mongo-session', { run: vi.fn().mockResolvedValue(true) })),
   },
 }));
 
@@ -68,9 +67,7 @@ describe('DemopraxyOrchestrator - Modération Démopraxique', () => {
         demopraxyState: { lastExScore: 1.2 }
       };
 
-      vi.mocked(OiseauModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce(mockUser)
-      } as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockUser as any);
 
       const orchestrator = new DemopraxyOrchestrator();
       const metrics = await orchestrator.getDemopraxicMetrics('oiseau-libre');
@@ -80,9 +77,7 @@ describe('DemopraxyOrchestrator - Modération Démopraxique', () => {
     });
 
     it('🔴 doit lever une erreur 404 si l\'oiseau n\'existe pas', async () => {
-      vi.mocked(OiseauModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce(null)
-      } as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
       const orchestrator = new DemopraxyOrchestrator();
       await expect(orchestrator.getDemopraxicMetrics('inconnu')).rejects.toThrow(IlotError);
@@ -105,7 +100,7 @@ describe('DemopraxyOrchestrator - Modération Démopraxique', () => {
     });
 
     it('🔴 doit lever une erreur 404 si l\'Oiseau est introuvable dans la Silice', async () => {
-      vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(null);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
       
       const orchestrator = new DemopraxyOrchestrator();
       await expect(
@@ -124,9 +119,9 @@ describe('DemopraxyOrchestrator - Modération Démopraxique', () => {
         pseudo: 'Toxique',
       };
       
-      vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockUser as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockUser as any);
       vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce({ ...mockUser, sanctuaireVerrouille: true }),
+        lean: vi.fn().mockResolvedValueOnce({ ...mockUser, sanctuaryVerrouille: true }),
       } as any);
 
       const orchestrator = new DemopraxyOrchestrator();

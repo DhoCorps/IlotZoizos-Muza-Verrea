@@ -6,8 +6,48 @@ import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { getCachedTaskDetails } from '@/lib/cache/tasks.cache';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
+
+// ==========================================
+// 🛡️ SCHÉMA DE VALIDATION ZOD (Anti Mass Assignment - PATCH / POST Subtask)
+// ==========================================
+const UpdateTaskSchema = z.object({
+  title: z.string().min(1).optional(),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  status: z.string().optional(),
+  priority: z.string().optional(),
+  parentUid: z.string().optional().nullable(),
+  assigneeUids: z.array(z.string()).optional(),
+  pomoEst: z.number().optional(),
+  complexity: z.number().optional(),
+  dates: z.object({
+    scheduledAt: z.string().optional(),
+  }).optional(),
+  connections: z.object({
+    targetModule: z.string().optional(),
+    targetEntityUid: z.string().optional(),
+  }).optional(),
+  documents: z.array(z.any()).optional(),
+});
+
+const SubTaskSchema = z.object({
+  title: z.string().min(1, "Le titre de la sous-tâche est requis."),
+  description: z.string().optional(),
+  priority: z.string().optional(),
+  assigneeUids: z.array(z.string()).optional(),
+  pomoEst: z.number().optional(),
+  complexity: z.number().optional(),
+  dates: z.object({
+    scheduledAt: z.string().optional(),
+  }).optional(),
+  connections: z.object({
+    targetModule: z.string().optional(),
+    targetEntityUid: z.string().optional(),
+  }).optional(),
+});
 
 async function getTaskCapabilities(userUid: string, taskUid: string): Promise<string[]> {
   const session = getNeo4jSession();
@@ -109,21 +149,25 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
   let body;
   try {
     body = await req.json();
-  } catch (parseErr) {
+  } catch {
     return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
   }
 
   const { action, data } = body;
-  const signature: ActionSignature = {
-      actorUid: currentUser.uid,
-      capabilities: caps
-  };
-
+  
   if (action === 'CREATE_SUBTASK') {
+    const validationResult = SubTaskSchema.safeParse(data);
+    if (!validationResult.success) {
+      const errorMessage = validationResult.error.issues.map(e => e.message).join(', ');
+      return NextResponse.json({ error: `Données de sous-tâche invalides : ${errorMessage}` }, { status: 400 });
+    }
+
     try {
       const taskOrch = new TaskOrchestrator();
+      const signature: ActionSignature = { actorUid: currentUser.uid, capabilities: caps };
       const newSubTask = await taskOrch.fosterTask({
-        ...data,
+        ...validationResult.data,
+        projectUid: taskEntity?.projectUid,
         parentUid: targetUid
       }, signature);
       revalidateTag('tasks');
@@ -161,22 +205,28 @@ export const PATCH = withAura(async (req: Request, context: ApiContext, currentU
       return NextResponse.json({ error: "Tu ne peux pas faire muter cet Atome." }, { status: 403 });
   }
 
+  let rawBody;
+  try {
+    rawBody = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
+  }
+
+  const validationResult = UpdateTaskSchema.safeParse(rawBody);
+  if (!validationResult.success) {
+    const errorMessage = validationResult.error.issues.map(e => e.message).join(', ');
+    return NextResponse.json({ error: `Données de mutation invalides : ${errorMessage}` }, { status: 400 });
+  }
+
   const signature: ActionSignature = {
       actorUid: currentUser.uid,
       capabilities: caps
   };
 
-  let body;
-  try {
-    body = await req.json();
-  } catch (parseErr) {
-    return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
-  }
-
   let updatedTask;
   try {
     const taskOrch = new TaskOrchestrator();
-     updatedTask = await taskOrch.updateTask(targetUid, body, signature);
+     updatedTask = await taskOrch.updateTask(targetUid, validationResult.data, signature);
   } catch (orchErr: any) {
     console.error("  [TASK ORCHESTRATOR UPDATE ERROR]", orchErr);
     const status = orchErr.statusCode || orchErr.status || 500;

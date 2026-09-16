@@ -1,7 +1,6 @@
-// packages/shared-core/src/sync-engine/__tests__/karma.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KarmaOrchestrator } from '../karma.orchestrator';
-import { OiseauModel, ReportModel } from '@ilot/infrastructure';
+import { OiseauModel, ReportModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
@@ -15,6 +14,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     ReportModel: {
       findOneAndUpdate: vi.fn(),
     },
+    findEntityBySlugOrUid: vi.fn(),
   };
 });
 
@@ -51,6 +51,7 @@ describe('KarmaOrchestrator - Tribunal de la Canopée & Bouclier Karmique', () =
         save: vi.fn().mockResolvedValue(true)
       };
 
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockUser as any);
       vi.mocked(OiseauModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue(mockUser),
         session: vi.fn().mockResolvedValue(mockUser)
@@ -80,6 +81,7 @@ describe('KarmaOrchestrator - Tribunal de la Canopée & Bouclier Karmique', () =
         save: vi.fn().mockResolvedValue(true)
       };
 
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockUser as any);
       vi.mocked(OiseauModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue(mockUser),
         session: vi.fn().mockResolvedValue(mockUser)

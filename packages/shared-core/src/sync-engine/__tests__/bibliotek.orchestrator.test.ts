@@ -1,9 +1,9 @@
-// packages/shared-core/src/sync-engine/__tests__/bibliotek.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BibliotekOrchestrator } from '../bibliotek.orchestrator';
 import { LibraryBookModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
+import { findEntityBySlugOrUid } from '@ilot/infrastructure';
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
@@ -15,12 +15,13 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       findOneAndUpdate: vi.fn(),
       deleteOne: vi.fn(),
     },
+    findEntityBySlugOrUid: vi.fn(),
   };
 });
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, callback) => {
+    execute: vi.fn(async (_name, callback) => {
       const mockMongoSession = {};
       const mockNeo4jTx = { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_node' }] }) };
       return await callback(mockMongoSession, mockNeo4jTx);
@@ -81,19 +82,19 @@ describe('BibliotekOrchestrator - Sanctuaire des Écrits Libres & Sceau SHA-256'
 
   describe('updateBook (Mutation)', () => {
     it('devrait rejeter si l\'ouvrage n\'existe pas dans la Silice', async () => {
-      vi.mocked(LibraryBookModel.findOne).mockResolvedValue(null);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValue(null);
       await expect(orchestrator.updateBook('inconnu', {}, userSignature as any))
-        .rejects.toThrow(/introuvable dans la Silice/);
+        .rejects.toThrow(/Ouvrage introuvable dans la Silice/);
     });
 
     it('devrait rejeter si l\'oiseau n\'est pas l\'auteur (Usurpation)', async () => {
-      vi.mocked(LibraryBookModel.findOne).mockResolvedValue({ authorUid: 'autre-oiseau' } as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValue({ authorUid: 'autre-oiseau' } as any);
       await expect(orchestrator.updateBook('book-999', {}, userSignature as any))
         .rejects.toThrow(/Tu ne peux modifier que tes propres ouvrages/);
     });
 
     it('devrait mettre à jour l\'ouvrage avec succès', async () => {
-      vi.mocked(LibraryBookModel.findOne).mockResolvedValue({ uid: 'book-999', authorUid: 'oiseau-writer' } as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValue({ uid: 'book-999', authorUid: 'oiseau-writer' } as any);
       vi.mocked(LibraryBookModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'book-999', title: 'Nouveau Titre' })
       } as any);
@@ -112,7 +113,7 @@ describe('BibliotekOrchestrator - Sanctuaire des Écrits Libres & Sceau SHA-256'
 
   describe('disintegrateBook (Suppression)', () => {
     it('devrait retourner les URLs des fichiers à purger au stockage', async () => {
-      vi.mocked(LibraryBookModel.findOne).mockResolvedValue({ 
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValue({ 
         uid: 'book-999', 
         authorUid: 'oiseau-writer',
         fileUrl: 'https://cdn.ilot/book.epub',

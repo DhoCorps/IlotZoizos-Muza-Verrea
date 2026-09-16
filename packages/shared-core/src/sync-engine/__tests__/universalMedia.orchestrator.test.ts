@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UniversalMediaOrchestrator } from '../universalMedia.orchestrator';
-import { UniversalMediaModel, OiseauModel } from '@ilot/infrastructure';
+import { UniversalMediaModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
-import { IlotError } from '../../errors/ilot.errors';
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
@@ -13,15 +12,12 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       findOne: vi.fn(),
       deleteOne: vi.fn(),
     },
-    OiseauModel: {
-      findOne: vi.fn(),
-    }
   };
 });
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'node_mock' }] }) })),
+    execute: vi.fn(async (_name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'node_mock' }] }) })),
   },
 }));
 
@@ -33,24 +29,9 @@ describe('UniversalMediaOrchestrator - La Forge du Socle Matériel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new UniversalMediaOrchestrator();
-    
-    // Simule la résolution canonique
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 'bird_creator' })
-    } as any);
   });
 
   describe('fosterMedia (Fondation)', () => {
-    it('doit rejeter (404) si l\'Oiseau créateur n\'est pas trouvé dans la Silice', async () => {
-      vi.mocked(OiseauModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValue(null)
-      } as any);
-
-      await expect(
-        orchestrator.fosterMedia({ title: { fr: 'Test' } }, userSignature as any)
-      ).rejects.toThrow(/Oiseau introuvable/);
-    });
-
     it('doit forger un Asset dans MongoDB et Neo4j via le TransactionManager', async () => {
       const mockMediaData = {
         mediaId: 'media_123',

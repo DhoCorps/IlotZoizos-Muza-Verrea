@@ -1,7 +1,6 @@
-// packages/shared-core/src/sync-engine/__tests__/user.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OiseauOrchestrator } from '../user.orchestrator';
-import { OiseauModel, TeamModel, ProjectModel, TaskModel } from '@ilot/infrastructure';
+import { OiseauModel, TeamModel, ProjectModel, TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { IlotError } from '../../errors/ilot.errors';
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -9,7 +8,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   return {
     ...actual,
     OiseauModel: {
-      findOne: vi.fn(),
       create: vi.fn(),
       findOneAndUpdate: vi.fn(),
       findOneAndDelete: vi.fn(),
@@ -26,27 +24,34 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       find: vi.fn(), 
       deleteMany: vi.fn() 
     },
+    findEntityBySlugOrUid: vi.fn(),
   };
 });
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => cb('mock-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => 1 }] }) })),
+    execute: vi.fn(async (_name, cb) => cb('mock-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => 1 }] }) })),
   },
 }));
 
 describe('OiseauOrchestrator - Souveraineté de l\'Oiseau (Phase 2)', () => {
   let orchestrator: OiseauOrchestrator;
-  const selfSignature = { actorUid: 'bird_1', capabilities: [] };
+  const selfSignature = { actorUid: 'bird_canonical_1', capabilities: [] };
+
+  const mockStorageManager = {
+    extractKeyFromUrl: vi.fn((url) => `key_${url}`),
+    deleteFile: vi.fn().mockResolvedValue(true),
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
-    orchestrator = new OiseauOrchestrator();
+    orchestrator = new OiseauOrchestrator(mockStorageManager);
 
-    // Simulation de la résolution canonique
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 'bird_canonical_1', slug: 'bird-1' })
-    } as any);
+    // Simulation dynamique pour la résolution canonique via findEntityBySlugOrUid
+    vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model, identifier: any) => {
+      const clean = identifier || 'unknown';
+      return { uid: `resolved_${clean}` } as any;
+    });
   });
 
   describe('fosterOiseau', () => {
@@ -61,28 +66,28 @@ describe('OiseauOrchestrator - Souveraineté de l\'Oiseau (Phase 2)', () => {
 
   describe('syncOiseau', () => {
     it('🔴 doit rejeter (403) si l\'acteur usurpe un autre profil', async () => {
-      // Simulation d'une tentative d'altération d'un autre utilisateur
-      vi.mocked(OiseauModel.findOne)
-        .mockReturnValueOnce({ lean: vi.fn().mockResolvedValueOnce({ uid: 'bird_hacker' }) } as any)
-        .mockReturnValueOnce({ lean: vi.fn().mockResolvedValueOnce({ uid: 'bird_victim' }) } as any);
+      vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model, identifier: any) => {
+        return { uid: identifier } as any;
+      });
 
       await expect(
         orchestrator.syncOiseau({ uid: 'bird_victim', pseudo: 'Hack' }, { actorUid: 'bird_hacker', capabilities: [] })
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit synchroniser l\'oiseau après résolution canonique stricte', async () => {
+    it('🟢 doit synchroniser l\'oiseau directement par UID canonique via findEntityBySlugOrUid', async () => {
       vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce({ uid: 'bird_canonical_1', pseudo: 'Modifié' })
       } as any);
 
       const res = await orchestrator.syncOiseau(
-        { uid: 'bird_1', pseudo: 'Modifié' }, 
+        { uid: 'bird_canonical_1', pseudo: 'Modifié' }, 
         selfSignature
       );
 
       expect(res.success).toBe(true);
       expect(res.mongo.pseudo).toBe('Modifié');
+      expect(findEntityBySlugOrUid).toHaveBeenCalled();
     });
   });
 });

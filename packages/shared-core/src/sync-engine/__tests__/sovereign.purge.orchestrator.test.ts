@@ -1,9 +1,6 @@
-// packages/shared-core/src/sync-engine/__tests__/sovereign.purge.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SovereignPurgeOrchestrator } from '../sovereign.purge.orchestrator';
-import { OiseauModel } from '@ilot/infrastructure';
-import { TaskModel } from '@ilot/infrastructure';
-import { ProjectModel } from '@ilot/infrastructure';
+import { OiseauModel, TaskModel, ProjectModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
@@ -12,7 +9,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   return {
     ...actual,
     OiseauModel: {
-      findOne: vi.fn(),
       deleteOne: vi.fn(),
     },
     TaskModel: {
@@ -21,12 +17,13 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     ProjectModel: {
       deleteMany: vi.fn(),
     },
+    findEntityBySlugOrUid: vi.fn(),
   };
 });
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => cb({} as any, { 
+    execute: vi.fn(async (_name, cb) => cb({} as any, { 
       run: vi.fn().mockResolvedValue({ records: [{ get: () => ({ toNumber: () => 1 }) }] }) 
     })),
   },
@@ -59,13 +56,11 @@ describe('SovereignPurgeOrchestrator - Dissolution Souveraine (Phase 2)', () => 
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit exécuter la purge souveraine avec succès en résolvant l\'UID canonique', async () => {
+    it('🟢 doit exécuter la purge souveraine avec succès en résolvant l\'UID canonique via findEntityBySlugOrUid', async () => {
       const orchestrator = new SovereignPurgeOrchestrator();
       const selfSignature = { actorUid: 'bird_1', capabilities: [] };
 
-      vi.mocked(OiseauModel.findOne).mockReturnValue({
-        session: vi.fn().mockResolvedValueOnce({ uid: 'bird_canonical_1', slug: 'bird-slug' })
-      } as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ uid: 'bird_canonical_1', slug: 'bird-slug' } as any);
 
       const res = await orchestrator.executeSovereignPurge(
         { entityId: 'bird_1', reason: 'VOLUNTARY_EXILE' }, 
@@ -74,7 +69,7 @@ describe('SovereignPurgeOrchestrator - Dissolution Souveraine (Phase 2)', () => 
 
       expect(res.success).toBe(true);
       expect(res.neo4jDeletedCount).toBe(1);
-      expect(OiseauModel.findOne).toHaveBeenCalledTimes(1);
+      expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });

@@ -1,13 +1,11 @@
-// packages/shared-core/src/sync-engine/project.orchestrator.ts
-import { ProjectModel, TaskModel, getNeo4jSession } from '@ilot/infrastructure';
+import { ProjectModel, TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { IProject, CAPABILITIES, ActionSignature } from '@ilot/types';
 import { TransactionManager } from './transactionManager';
-import { randomUUID } from 'crypto';
 import { IlotError } from '../errors/ilot.errors';
 import { v4 as uuidv4 } from 'uuid';
 
 // Interface d'injection pour isoler le shared-core du service cloud de l'application
-export interface IStorageManager {
+interface IStorageManager {
   deleteFile(key: string): Promise<any>;
   extractKeyFromUrl(url: string): string;
 }
@@ -19,10 +17,6 @@ export interface ProjectSyncResult {
   mongo?: any;
   neo4j?: any;
   purgedCount?: number;
-}
-
-const generateSlug = (text: string) => {
-  return text.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
 }
 
 /**
@@ -67,7 +61,7 @@ export class ProjectOrchestrator {
         ownerUid: teamUid,
         creatorUid: actorUid,
         documents: projectData.documents || [],
-        slug: projectData.slug || (projectData.name ? generateSlug(projectData.name) : uid)
+        slug: projectData.slug || uid
       };
 
       const [newProject] = await ProjectModel.create([finalProjectData], { session: mongoSession });
@@ -97,7 +91,7 @@ export class ProjectOrchestrator {
       });
 
       if (neoResult.records.length === 0) {
-        throw new IlotError("Échec du scellement : Utilisateur ou Nid introuvable dans le Graphe.", "NOT_FOUND", 404);
+        throw new IlotError("Échec du scelllement : Utilisateur ou Nid introuvable dans le Graphe.", "NOT_FOUND", 404);
       }
 
       return {
@@ -111,15 +105,15 @@ export class ProjectOrchestrator {
 
   // --- 🧬 MUTATION (Update) ---
   async mutateProject(projectIdentifier: string, updates: any, signature: ActionSignature): Promise<ProjectSyncResult> {
-    // 1. Résolution universelle vers UID canonique strict (Phase 2)
-    const project = await ProjectModel.findOne({ $or: [{ slug: projectIdentifier }, { uid: projectIdentifier }] });
+    // 1. Résolution universelle vers UID canonique strict via findEntityBySlugOrUid
+    const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier);
     if (!project) throw new IlotError("Chantier introuvable dans la Silice.", "NOT_FOUND", 404);
 
-    const projectUid = project.uid;
+    const projectUid = (project as any).uid;
 
-    return await TransactionManager.execute("Mutation Chantier", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Mutation Chantier", async (_mongoSession, neo4jTx) => {
       
-      const isCreator = project.creatorUid === signature.actorUid;
+      const isCreator = (project as any).creatorUid === signature.actorUid;
       const isArchitect = signature.capabilities.includes('*');
 
       // Vérification des droits via le graphe en cascade
@@ -141,7 +135,7 @@ export class ProjectOrchestrator {
       }
 
       const updatedProject = await ProjectModel.findOneAndUpdate(
-        { uid: projectUid }, { $set: updates }, { new: true, session: mongoSession }
+        { uid: projectUid }, { $set: updates }, { new: true }
       ).lean();
 
       // Mutation légère Neo4j
@@ -161,11 +155,11 @@ export class ProjectOrchestrator {
    * Supprime l'intégralité de l'arbre (Sous-projets, Tâches) en une seule transaction massive 
    * plutôt que de boucler individuellement.
    */
-  async dissolveProject(projectIdentifier: string, signature: ActionSignature) {
-    const project = await ProjectModel.findOne({ $or: [{ slug: projectIdentifier }, { uid: projectIdentifier }] });
+  async dissolveProject(projectIdentifier: string, _signature: ActionSignature) {
+    const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier);
     if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
     
-    const projectUid = project.uid;
+    const projectUid = (project as any).uid;
 
     return await TransactionManager.execute("Désintégration Totale", async (mongoSession, neo4jTx) => {
       
@@ -234,11 +228,11 @@ export class ProjectOrchestrator {
       throw new IlotError("Aura insuffisante pour injecter des données dans ce chantier.", "FORBIDDEN", 403);
     }
 
-    const project = await ProjectModel.findOne({ $or: [{ slug: projectIdentifier }, { uid: projectIdentifier }] });
+    const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier);
     if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
 
     const updated = await ProjectModel.findOneAndUpdate(
-      { uid: project.uid },
+      { uid: (project as any).uid },
       { $push: { fileUploads: { $each: fileUrls } }, $set: { "dates.lastActivity": new Date() } },
       { new: true }
     );

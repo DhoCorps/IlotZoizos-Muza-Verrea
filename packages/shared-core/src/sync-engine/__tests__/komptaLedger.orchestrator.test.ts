@@ -1,11 +1,10 @@
-// packages/shared-core/src/sync-engine/__tests__/komptaLedger.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KomptaLedgerOrchestrator } from '../komptaLedger.orchestrator';
-import { KomptaLedgerService } from '@ilot/infrastructure/';
+import { KomptaLedgerService } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-// 🛡️ Mock unifié et sécurisé de l'infrastructure pour le Grand Livre
+// 🛡️ Mock unifié et sécurisé de l'infrastructure pour le Grand Livre sous l'alias centralisé
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
@@ -15,9 +14,10 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     }
   };
 });
+
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => cb({}, { run: vi.fn() }))
+    execute: vi.fn(async (_name, cb) => cb({}, { run: vi.fn() }))
   }
 }));
 

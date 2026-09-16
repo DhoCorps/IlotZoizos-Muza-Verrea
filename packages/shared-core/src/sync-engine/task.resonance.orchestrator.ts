@@ -1,6 +1,5 @@
-// packages/shared-core/src/sync-engine/task.resonance.orchestrator.ts
 import { TaskResonanceInput } from './../utils/seve.engine';
-import { TaskModel, OiseauModel } from '../../../infrastructure';
+import { TaskModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
@@ -32,13 +31,11 @@ export class TaskResonanceOrchestrator {
 
     /**
      * 🎶 CALCUL CONNECTÉ DE LA RÉSONANCE D'UN OISEAU
-     * Résout l'identité dans MongoDB pour obtenir le canonicalUid, puis met à jour Mongo et Neo4j sans Full Graph Scan.
+     * Résout l'identité dans MongoDB via findEntityBySlugOrUid pour obtenir le canonicalUid, puis met à jour Mongo et Neo4j sans Full Graph Scan.
      */
     public async processUserTaskResonance(userIdentifier: string, signature: ActionSignature) {
-        // 1. Résolution stricte de l'Oiseau dans la Silice
-        const user = await OiseauModel.findOne({ 
-            $or: [{ slug: userIdentifier }, { uid: userIdentifier }, { pseudo: userIdentifier }] 
-        });
+        // 1. Résolution stricte de l'Oiseau dans la Silice via l'utilitaire global
+        const user = await findEntityBySlugOrUid(OiseauModel, userIdentifier) as any;
 
         if (!user) throw new IlotError("Oiseau introuvable dans la Silice.", "NOT_FOUND", 404);
 

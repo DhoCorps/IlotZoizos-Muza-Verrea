@@ -1,9 +1,7 @@
-// packages/shared-core/src/sync-engine/__tests__/monthlyStats.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MonthlyStatsOrchestrator } from '../monthlyStats.orchestrator';
 import { KomptaStatsEngine } from '../komptaStats.orchestrator';
-import { RewardEntryModel } from '@ilot/infrastructure';
-import { OiseauModel } from '@ilot/infrastructure';
+import { RewardEntryModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 import { CAPABILITIES } from '@ilot/types';
@@ -17,13 +15,14 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   return {
     ...actual,
     RewardEntryModel: { insertMany: vi.fn().mockResolvedValue([]) },
-    OiseauModel: { findOne: vi.fn() },
+    OiseauModel: {},
+    findEntityBySlugOrUid: vi.fn(),
   };
 });
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, callback) => {
+    execute: vi.fn(async (_name, callback) => {
       const mockMongoSession = {};
       const mockNeo4jTx = { run: vi.fn().mockResolvedValue({ records: [] }) };
       return await callback(mockMongoSession, mockNeo4jTx);
@@ -70,15 +69,9 @@ describe('MonthlyStatsOrchestrator - Le Rituel de la Moisson Mensuelle', () => {
 
     vi.mocked(KomptaStatsEngine.calculateMonthlyStats).mockResolvedValueOnce(mockStats as any);
     
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      session: vi.fn().mockReturnValue({
-        lean: vi.fn()
-          .mockResolvedValueOnce({ uid: 'seller_1' })
-          .mockResolvedValueOnce({ uid: 'buyer_1' })
-          .mockResolvedValueOnce({ uid: 'echo_1' })
-          .mockResolvedValueOnce({ uid: 'react_1' })
-      })
-    } as any);
+    vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model, identifier: any) => {
+      return { uid: identifier } as any;
+    });
 
     const result = await orchestrator.executeMonthlyHarvest(targetYearMonth, adminSignature as any);
 
@@ -89,7 +82,7 @@ describe('MonthlyStatsOrchestrator - Le Rituel de la Moisson Mensuelle', () => {
     // Vérification de l'envoi via notre mock injecté
     expect(mockMessageManager.sendSystemNewsletter).toHaveBeenCalledWith(
       expect.objectContaining({
-        subject: `📢 Chronique de la Canopée - Cycle de 2026-08`,
+        subject: `📢 Chronique de la Canopée - Cycle de de ${targetYearMonth}`.replace('de de', 'de'),
         content: expect.stringContaining('150.00 éclats fiduciaires'),
       })
     );

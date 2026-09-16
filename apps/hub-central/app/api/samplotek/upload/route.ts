@@ -5,7 +5,7 @@ import { SampleUploadSchema } from '@ilot/types';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { v4 as uuidv4 } from 'uuid';
 import { generateFileHash } from '@/lib/cryptoHelper';
 import { SamplotekOrchestrator } from '@ilot/shared-core';
@@ -13,21 +13,8 @@ import { SamplotekOrchestrator } from '@ilot/shared-core';
 // ==========================================
 // 🎵 POST : Ingestion et scellement d'un sample audio
 // ==========================================
-export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withRateLimit('upload-sample', 10, 60, withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 1. Rate Limiting par IP
-    const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-    let rateLimitResult: { allowed?: boolean } = { allowed: true };
-    try {
-      const res = await checkRateLimit(`upload-sample:${clientIp}`, 10, 60);
-      if (res && typeof res === 'object') rateLimitResult = res;
-    } catch {
-      rateLimitResult = { allowed: true };
-    }
-    if (rateLimitResult.allowed === false) {
-      return NextResponse.json({ success: false, error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
-    }
-
     // 2. Extraction du FormData
     let formData: FormData;
     try {
@@ -79,7 +66,14 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       filename: file.name || 'sample.mp3',
     });
 
-    const uploadResult: any = await storageService.uploadFile(file, customKey);
+    let uploadResult: any;
+    try {
+      uploadResult = await storageService.uploadFile(file, customKey);
+    } catch (uploadErr) {
+      console.error("🔥 [STORAGE UPLOAD ERROR]", uploadErr);
+      return NextResponse.json({ success: false, error: 'Échec du téléversement dans le Nexus R2.' }, { status: 500 });
+    }
+
     const publicUrl = typeof uploadResult === 'string' ? uploadResult : (uploadResult?.publicUrl || uploadResult?.url || 'https://mock-url.com/sample.mp3');
     const storageKey = uploadResult?.key || customKey;
 
@@ -115,4 +109,4 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     console.error('🔥 [SAMPLE UPLOAD ERROR] :', error);
     return NextResponse.json({ success: false, error: error.message || 'Erreur interne du serveur.' }, { status: error.status || 500 });
   }
-});
+}));

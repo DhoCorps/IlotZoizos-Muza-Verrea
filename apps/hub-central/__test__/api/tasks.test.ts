@@ -58,8 +58,7 @@ describe('Route API : Atomes (Tasks) /api/tasks', () => {
 
         const req = new Request('http://localhost:3000/api/tasks');
 
-        const res = await GET(req as any, {} as any
-        );
+        const res = await GET(req as any, {} as any);
         const data = await res.json();
 
         expect(res.status).toBe(200);
@@ -67,14 +66,14 @@ describe('Route API : Atomes (Tasks) /api/tasks', () => {
         expect(data[0].uid).toBe('task_1');
     });
 
-    it('🟢 POST : doit créer un nouvel atome/tâche si autorisé', async () => {
+    it('🟢 POST : doit créer un nouvel atome/tâche si autorisé et validé par Zod', async () => {
         vi.mocked(ProjectModel.findOne).mockReturnValue({
             lean: vi.fn().mockResolvedValue({ uid: 'proj_123', creatorUid: 'bird_123' })
         } as any);
 
         const req = new Request('http://localhost:3000/api/tasks', {
             method: 'POST',
-            body: JSON.stringify({ projectUid: 'proj_123', name: 'Nouvel Atome' }),
+            body: JSON.stringify({ projectUid: 'proj_123', title: 'Nouvel Atome' }),
             headers: { 'Content-Type': 'application/json' },
         });
 

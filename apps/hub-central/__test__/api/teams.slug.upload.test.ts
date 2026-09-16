@@ -2,17 +2,25 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '@/app/api/teams/[slug]/upload/route';
 import { TeamModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
+import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { revalidateTag } from 'next/cache';
 import { CAPABILITIES } from '@ilot/types';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 vi.mock('next/cache', () => ({ revalidateTag: vi.fn() }));
 
-// Neutralisation du bouclier withAura cohérente
+// Mocks unifiés des api-guards
 vi.mock('@/lib/api-guards', () => ({
   withAura: (handler: any) => async (req: any, context: any) => {
     const mockUser = global.__mockUser || { uid: 'u-123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
+  },
+  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
+    const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
+    if (rateLimitResult && rateLimitResult.allowed === false) {
+      return NextResponse.json({ success: false, message: "Trop de requêtes." }, { status: 429 });
+    }
+    return await handler(req, context);
   },
 }));
 
@@ -26,7 +34,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       updateOne: vi.fn(),
     },
     getNeo4jSession: vi.fn(),
-    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
     findEntityBySlugOrUid: vi.fn(),
   };
 });
@@ -46,13 +53,11 @@ describe('Route API : Nid Artefacts & Sceau Cryptographique (POST / DELETE)', ()
     vi.clearAllMocks();
     delete (global as any).__mockUser;
 
-    // Espions actifs sur le storageService mis à jour
     vi.spyOn(storageService, 'generateKey').mockReturnValue('mock-key');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({ publicUrl: 'https://cdn.ilot/file.jpg', key: 'mock-key' } as any);
     vi.spyOn(storageService, 'extractKeyFromUrl').mockReturnValue('mock-key');
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue(true as any);
 
-    // Mocks des méthodes Mongoose de TeamModel
     vi.mocked(TeamModel.findOneAndUpdate).mockReturnValue({
       lean: vi.fn().mockResolvedValue({ uid: 't-1', documents: [] }),
     } as any);
@@ -63,13 +68,11 @@ describe('Route API : Nid Artefacts & Sceau Cryptographique (POST / DELETE)', ()
   it('POST - doit téléverser un fichier, sceller le SHA-256 et valider l\'autorisation', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
     
-    // Simulation du helper unifié par slug ou uid
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 't-1',
       slug: 't-1'
     } as any);
 
-    // Mock Neo4j pour hasCapability
     vi.mocked(getNeo4jSession).mockReturnValue({
       run: vi.fn().mockResolvedValue({ records: [{ get: () => [CAPABILITIES.FILE.UPLOAD] }] }),
       close: vi.fn(),
@@ -91,7 +94,7 @@ describe('Route API : Nid Artefacts & Sceau Cryptographique (POST / DELETE)', ()
     expect(data.url).toBe('https://cdn.ilot/file.jpg');
     expect(data.digitalSignature).toBeDefined();
     expect(typeof data.digitalSignature).toBe('string');
-    expect(data.digitalSignature.length).toBe(64); // Vérification de la signature SHA-256
+    expect(data.digitalSignature.length).toBe(64);
     expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TeamModel, 't-1');
     expect(revalidateTag).toHaveBeenCalledWith('team-t-1');
   });

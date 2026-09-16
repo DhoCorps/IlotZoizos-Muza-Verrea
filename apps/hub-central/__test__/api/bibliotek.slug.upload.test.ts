@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '@/app/api/bibliotek/[slug]/upload/route';
 import { storageService } from '@/modules/storage/storage.service';
+import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { LibraryBookModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
@@ -11,6 +12,17 @@ vi.mock('next/cache', () => ({
 
 vi.mock('@/lib/api-guards', () => ({
   withAura: (handler: any) => async (req: any, context: any) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser || !mockUser.uid) {
+      return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
+    }
+    return await handler(req, context, mockUser);
+  },
+  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
+    const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
+    if (rateLimitResult && rateLimitResult.allowed === false) {
+      return NextResponse.json({ error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
+    }
     const mockUser = global.__mockUser;
     if (!mockUser || !mockUser.uid) {
       return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });

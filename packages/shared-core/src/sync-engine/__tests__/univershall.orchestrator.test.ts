@@ -1,8 +1,6 @@
-// packages/shared-core/src/sync-engine/__tests__/univershall.orchestrator.test.ts
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UniversHallOrchestrator } from '../univershall.orchestrator';
-import { UniversHallBeaconModel } from '@ilot/infrastructure';
+import { UniversHallBeaconModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
@@ -11,16 +9,17 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   return {
     ...actual,
     UniversHallBeaconModel: {
-      findOne: vi.fn(),
       create: vi.fn(),
+      findOne: vi.fn(),
       deleteOne: vi.fn(),
     },
+    findEntityBySlugOrUid: vi.fn(),
   };
 });
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, callback) => {
+    execute: vi.fn(async (_name, callback) => {
       const mockMongoSession = {};
       const mockNeo4jTx = { 
         run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_beacon_node' }] }) 
@@ -28,6 +27,10 @@ vi.mock('../transactionManager', () => ({
       return await callback(mockMongoSession, mockNeo4jTx);
     }),
   },
+}));
+
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 describe('UniversHallOrchestrator - L\'Agora Centrale', () => {
@@ -93,7 +96,7 @@ describe('UniversHallOrchestrator - L\'Agora Centrale', () => {
 
   describe('dissolveBeacon (Retrait de Balise)', () => {
     it('doit rejeter (403) si l\'oiseau tente de supprimer une balise qui ne lui appartient pas', async () => {
-      vi.mocked(UniversHallBeaconModel.findOne).mockResolvedValueOnce({
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 'beacon_123',
         authorUid: 'bird_creator'
       } as any);
@@ -103,8 +106,8 @@ describe('UniversHallOrchestrator - L\'Agora Centrale', () => {
       ).rejects.toThrow(/Seul l'auteur ou le système peut retirer cette balise/);
     });
 
-    it('doit dissoudre la balise avec succès si l\'auteur est légitime', async () => {
-      vi.mocked(UniversHallBeaconModel.findOne).mockResolvedValueOnce({
+    it('doit dissoudre la balise avec succès si l\'auteur est légitime via findEntityBySlugOrUid', async () => {
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 'beacon_123',
         authorUid: 'bird_creator'
       } as any);
@@ -113,6 +116,7 @@ describe('UniversHallOrchestrator - L\'Agora Centrale', () => {
 
       expect(result.success).toBe(true);
       expect(result.purgedCount).toBe(1);
+      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(UniversHallBeaconModel, 'beacon_123');
       expect(UniversHallBeaconModel.deleteOne).toHaveBeenCalledTimes(1);
     });
   });

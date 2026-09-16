@@ -1,10 +1,14 @@
-// packages/shared-core/src/sync-engine/sujet.orchestrator.ts
-import { SujetModel } from '@ilot/infrastructure';
+import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
-import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
+
+// Interface d'injection pour isoler le shared-core du service de stockage externe de l'application
+interface IStorageManager {
+  deleteFile(key: string): Promise<any>;
+  extractKeyFromUrl(url: string): string;
+}
 
 export interface SujetSyncResult {
   success: boolean;
@@ -23,6 +27,15 @@ const generateSlug = (text: string) => {
  * Phase 2 : Utilisation d'un index strict sur l'auteur canonique dans Neo4j.
  */
 export class SujetOrchestrator {
+  private storageService: IStorageManager;
+
+  constructor(customStorageService?: IStorageManager) {
+    // Par défaut (pour les tests), on injecte un mock silencieux
+    this.storageService = customStorageService || {
+      deleteFile: async () => ({ success: true }),
+      extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
+    };
+  }
   
   /**
    * FONDATION : FORGER UN NŒUD DE PENSÉE (Sujet)
@@ -134,20 +147,20 @@ export class SujetOrchestrator {
   }
 
   /**
-   * MUTATION : METTRE À JOUR UN SUJET (Résolution Silice -> Propagation Graphe)
+   * MUTATION : METTRE À JOUR UN SUJET (Résolution Silice via findEntityBySlugOrUid -> Propagation Graphe)
    */
   async updateSujet(sujetIdentifier: string, updates: any, signature: ActionSignature): Promise<SujetSyncResult> {
-    const existing = await SujetModel.findOne({ $or: [{ uid: sujetIdentifier }, { slug: sujetIdentifier }] });
+    const existing = await findEntityBySlugOrUid(SujetModel, sujetIdentifier);
     if (!existing) throw new IlotError("Sujet introuvable dans la Silice.", "NOT_FOUND", 404);
 
-    const isAuthor = existing.authorUid === signature.actorUid;
+    const isAuthor = (existing as any).authorUid === signature.actorUid;
     if (!isAuthor && !signature.capabilities.includes('*')) {
       throw new IlotError("Tu ne peux modifier que tes propres pensées.", "FORBIDDEN", 403);
     }
 
     return await TransactionManager.execute("Mutation de Sujet", async (mongoSession, neo4jTx) => {
       const updatedSujet = await SujetModel.findOneAndUpdate(
-        { uid: existing.uid },
+        { uid: (existing as any).uid },
         { $set: updates },
         { new: true, session: mongoSession }
       ).lean();
@@ -176,7 +189,7 @@ export class SujetOrchestrator {
 
           RETURN s
         `, { 
-          sujetUid: existing.uid, 
+          sujetUid: (existing as any).uid, 
           title: updates.title || null,
           status: updates.status || null, 
           category: updates.category || null,
@@ -197,24 +210,25 @@ export class SujetOrchestrator {
    * DÉSINTÉGRATION : PURGER UN SUJET
    */
   async disintegrateSujet(sujetIdentifier: string, signature: ActionSignature) {
-    const existing = await SujetModel.findOne({ $or: [{ uid: sujetIdentifier }, { slug: sujetIdentifier }] });
+    const existing = await findEntityBySlugOrUid(SujetModel, sujetIdentifier);
     if (!existing) throw new IlotError("Sujet introuvable.", "NOT_FOUND", 404);
 
-    const isAuthor = existing.authorUid === signature.actorUid;
+    const isAuthor = (existing as any).authorUid === signature.actorUid;
     if (!isAuthor && !signature.capabilities.includes('*')) {
       throw new IlotError("Seul l'auteur ou le système peut brûler ce texte.", "FORBIDDEN", 403);
     }
 
     return await TransactionManager.execute("Désintégration de Sujet", async (mongoSession, neo4jTx) => {
-      if (existing.media?.coverImageUrl) {
-        try { await storageService.deleteFile(storageService.extractKeyFromUrl(existing.media.coverImageUrl)); } catch {}
+      const media = (existing as any).media;
+      if (media?.coverImageUrl) {
+        try { await this.storageService.deleteFile(this.storageService.extractKeyFromUrl(media.coverImageUrl)); } catch {}
       }
-      if (existing.media?.audioTrackUrl) {
-        try { await storageService.deleteFile(storageService.extractKeyFromUrl(existing.media.audioTrackUrl)); } catch {}
+      if (media?.audioTrackUrl) {
+        try { await this.storageService.deleteFile(this.storageService.extractKeyFromUrl(media.audioTrackUrl)); } catch {}
       }
 
-      await neo4jTx.run(`MATCH (s:Sujet { uid: $sujetUid }) DETACH DELETE s`, { sujetUid: existing.uid });
-      await SujetModel.deleteOne({ uid: existing.uid }, { session: mongoSession });
+      await neo4jTx.run(`MATCH (s:Sujet { uid: $sujetUid }) DETACH DELETE s`, { sujetUid: (existing as any).uid });
+      await SujetModel.deleteOne({ uid: (existing as any).uid }, { session: mongoSession });
 
       return { success: true, purgedCount: 1 };
     });

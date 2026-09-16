@@ -3,11 +3,10 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { OiseauModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure'; 
 import { storageService } from '@/modules/storage/storage.service';
-import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { IOiseau } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, ApiContext, OiseauUser } from '@/lib/api-guards';
+import { withAura, withRateLimit, ApiContext, OiseauUser } from '@/lib/api-guards';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256
 
 // 🛡️ Utilitaire interne : Vérification stricte de la Souveraineté (Self ou Admin)
@@ -20,24 +19,8 @@ function assertSovereignty(visitorUid: string, visitorCaps: string[], targetSlug
 // ==========================================
 // 📤 POST : Téléversement avec Sceau d'Antériorité & Garbage Collection
 // ==========================================
-export const POST = withAura(async (req: NextRequest, context: ApiContext, userFromGuard?: OiseauUser) => {
+export const POST = withRateLimit('upload-user-slug', 10, 60, withAura(async (req: NextRequest, context: ApiContext, userFromGuard?: OiseauUser) => {
   const currentUser = userFromGuard || (context as any).user || (req as any).user;
-  
-  // 1. Rate Limiting sur l'IP avec Suture de Souveraineté Absolue
-  const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-  let rateLimitResult: { allowed?: boolean } = { allowed: true };
-  try {
-    const res = await checkRateLimit(`upload-user-slug:${clientIp}`, 10, 60);
-    if (res && typeof res === 'object') {
-      rateLimitResult = res;
-    }
-  } catch {
-    rateLimitResult = { allowed: true };
-  }
-
-  if (rateLimitResult.allowed === false) {
-    return NextResponse.json({ success: false, message: "Trop de téléversements. Veuillez patienter." }, { status: 429 });
-  }
 
   const resolvedParams = await context.params;
   const rawSlug = resolvedParams?.slug;
@@ -178,17 +161,24 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
 
   // 6. Propagation Graphe (Neo4j) si c'est un avatar
   if (imageType === 'avatarUrl') {
-    const neoSession = getNeo4jSession();
+    let neoSession = null;
     try {
-      await neoSession.run(
-        `MATCH (u:User {uid: $targetUid})
-         SET u.avatarUrl = $publicUrl, u.digitalSignature = $signature, u.updatedAt = datetime()`,
-        { targetUid: existingUser.uid, publicUrl, signature: digitalSignature }
-      );
+      neoSession = getNeo4jSession();
+      if (neoSession) {
+        await neoSession.run(
+          `MATCH (u:User {uid: $targetUid})
+           SET u.avatarUrl = $publicUrl, u.digitalSignature = $signature, u.updatedAt = datetime()`,
+          { targetUid: existingUser.uid, publicUrl, signature: digitalSignature }
+        );
+      }
     } catch (neoError) {
       console.error("⚠️ [Neo4j] Échec mineur de propagation esthétique :", neoError);
     } finally {
-      try { await neoSession.close(); } catch {}
+      try {
+        if (neoSession && typeof neoSession.close === 'function') {
+          await neoSession.close();
+        }
+      } catch {}
     }
   }
 
@@ -208,7 +198,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, userF
     },
     { status: 201 }
   );
-});
+}));
 
 // ==========================================
 // 🧨 DELETE : Désintégration Physique et Silice
@@ -217,7 +207,8 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, use
   const currentUser = userFromGuard || (context as any).user || (req as any).user;
   const resolvedParams = await context.params;
   const rawSlug = resolvedParams?.slug;
-  const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+  const rawQuery = rawSlug;
+  const identifier = slugify(typeof rawQuery === 'string' ? rawQuery : Array.isArray(rawQuery) ? rawQuery[0] : '');
   
   if (!identifier) {
     return NextResponse.json({ message: "Identifiant invalide." }, { status: 400 });
@@ -269,17 +260,24 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, use
 
   // 3. Propagation Graphe (Neo4j)
   if (imageType === 'avatarUrl') {
-      const neoSession = getNeo4jSession();
+      let neoSession = null;
       try {
-          await neoSession.run(
-              `MATCH (u:User {uid: $targetUid})
-               SET u.avatarUrl = null, u.digitalSignature = null, u.updatedAt = datetime()`, 
-              { targetUid: existingUser.uid }
-          );
+          neoSession = getNeo4jSession();
+          if (neoSession) {
+              await neoSession.run(
+                  `MATCH (u:User {uid: $targetUid})
+                   SET u.avatarUrl = null, u.digitalSignature = null, u.updatedAt = datetime()`, 
+                  { targetUid: existingUser.uid }
+              );
+          }
       } catch (neoErr) {
           console.error("⚠️ [Neo4j] Échec de purge esthétique", neoErr);
       } finally { 
-          try { await neoSession.close(); } catch {} 
+          try {
+              if (neoSession && typeof neoSession.close === 'function') {
+                  await neoSession.close();
+              }
+          } catch {} 
       }
   }
 

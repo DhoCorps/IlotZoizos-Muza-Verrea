@@ -6,6 +6,24 @@ import { BibliotekOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
 import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { z } from 'zod';
+
+// ==========================================
+// 🛡️ SCHÉMA DE VALIDATION ZOD (Anti Mass Assignment)
+// ==========================================
+const CreateBookSchema = z.object({
+  title: z.string().min(1, "Le titre est requis."),
+  fileUrl: z.string().min(1, "La source du fichier est requise."),
+  writingType: z.string().optional(),
+  style: z.string().optional(),
+  slug: z.string().optional(),
+  coverUrl: z.string().optional().nullable(),
+  format: z.string().optional(),
+  settings: z.object({
+    allowReadExchange: z.boolean().optional(),
+    consentForShowcase: z.boolean().optional()
+  }).optional()
+});
 
 // ==========================================
 // GET : Le Sanctuaire des Écrits Libres (Public / Optionnel Aura)
@@ -43,16 +61,21 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
 // ==========================================
 export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let body;
+    let rawBody;
     try {
-      body = await req.json();
+      rawBody = await req.json();
     } catch {
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
-    if (!body.title || !body.fileUrl) {
-      return NextResponse.json({ error: "Un ouvrage nécessite au moins un titre et une source sur le Nexus (fileUrl)." }, { status: 400 });
+    // Validation stricte par Zod pour éliminer tout risque de Mass Assignment
+    const validationResult = CreateBookSchema.safeParse(rawBody);
+    if (!validationResult.success) {
+      const errorMessage = validationResult.error.issues.map(e => e.message).join(', ');
+      return NextResponse.json({ error: `Données d'ouvrage invalides : ${errorMessage}` }, { status: 400 });
     }
+
+    const validatedData = validationResult.data;
 
     const signature: ActionSignature = {
       actorUid: currentUser.uid,
@@ -63,7 +86,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     try {
       const bibliotekOrch = new BibliotekOrchestrator();
       const dataToForge = { 
-        ...body, 
+        ...validatedData, 
         authorUid: currentUser.uid,
         authorSlug: currentUser.slug || currentUser.uid
       };

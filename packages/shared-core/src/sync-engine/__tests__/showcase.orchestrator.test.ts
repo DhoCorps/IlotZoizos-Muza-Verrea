@@ -1,8 +1,6 @@
-// packages/shared-core/src/sync-engine/__tests__/showcase.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ShowcaseOrchestrator } from '../showcase.orchestrator';
-import { UniversalMediaModel } from '@ilot/infrastructure';
-import { OiseauModel } from '@ilot/infrastructure';
+import { UniversalMediaModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { UserShowcaseShuffler } from '../../utils/userShowcaseShuffler';
 import { IlotError } from '../../errors/ilot.errors';
 
@@ -14,9 +12,8 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     UniversalMediaModel: {
       find: vi.fn(),
     },
-    OiseauModel: {
-      findOne: vi.fn(),
-    },
+    OiseauModel: {},
+    findEntityBySlugOrUid: vi.fn(),
   };
 });
 
@@ -40,9 +37,7 @@ describe('ShowcaseOrchestrator - Séquençage et Association Multimédia', () =>
   });
 
   it('🔴 doit rejeter l\'appel (404) si l\'Oiseau est un fantôme (non résolu dans la Silice)', async () => {
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValueOnce(null),
-    } as any);
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
     await expect(
       ShowcaseOrchestrator.getPersonalizedShowcase('bird_ghost', { selectedApps: [] })
@@ -50,10 +45,8 @@ describe('ShowcaseOrchestrator - Séquençage et Association Multimédia', () =>
   });
 
   it('🟢 doit ordonner la playlist et habiller les œuvres visuelles avec une piste d\'ambiance sonore', async () => {
-    // 1. Simulation de la résolution canonique de l'Oiseau
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValueOnce({ uid: 'bird_canonical_observer' }),
-    } as any);
+    // 1. Simulation de la résolution canonique de l'Oiseau via findEntityBySlugOrUid
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ uid: 'bird_canonical_observer' } as any);
 
     const mockDbItems = [
       {

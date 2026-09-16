@@ -1,8 +1,6 @@
-// packages/shared-core/src/sync-engine/__test__/task.resonance.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TaskResonanceOrchestrator } from '../task.resonance.orchestrator';
-import { OiseauModel } from '@ilot/infrastructure';
-import { TaskModel } from '@ilot/infrastructure';
+import { OiseauModel, TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
@@ -11,18 +9,18 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   return {
     ...actual,
     OiseauModel: {
-      findOne: vi.fn(),
       findOneAndUpdate: vi.fn(),
     },
     TaskModel: {
       find: vi.fn(),
     },
+    findEntityBySlugOrUid: vi.fn(),
   };
 });
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { 
+    execute: vi.fn(async (_name, cb) => cb('mock-mongo-session', { 
       run: vi.fn().mockResolvedValue({ records: [{ get: () => 'node_mock' }] }) 
     })),
   },
@@ -32,7 +30,6 @@ describe('TaskResonanceOrchestrator - Résonance des Atomes (Phase 2)', () => {
   let orchestrator: TaskResonanceOrchestrator;
   
   const selfSignature = { actorUid: 'bird_1', capabilities: [] };
-  const adminSignature = { actorUid: 'admin_bird', capabilities: ['*'] };
   const strangerSignature = { actorUid: 'bird_stranger', capabilities: [] };
 
   beforeEach(() => {
@@ -54,7 +51,7 @@ describe('TaskResonanceOrchestrator - Résonance des Atomes (Phase 2)', () => {
 
   describe('processUserTaskResonance', () => {
     it('🔴 doit rejeter (404) si l\'Oiseau est introuvable', async () => {
-      vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(null);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
       await expect(
         orchestrator.processUserTaskResonance('ghost', selfSignature as any)
@@ -63,7 +60,7 @@ describe('TaskResonanceOrchestrator - Résonance des Atomes (Phase 2)', () => {
 
     it('🔴 doit rejeter (403) si l\'acteur n\'est ni l\'oiseau concerné ni admin', async () => {
       const mockUser = { uid: 'bird_1', slug: 'bird-1' };
-      vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockUser as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockUser as any);
 
       await expect(
         orchestrator.processUserTaskResonance('bird-1', strangerSignature as any)
@@ -73,7 +70,7 @@ describe('TaskResonanceOrchestrator - Résonance des Atomes (Phase 2)', () => {
     it('🟢 doit calculer et persister la résonance via canonicalUid avec succès', async () => {
       const mockUser = { uid: 'bird_1', slug: 'bird-1' };
       
-      vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockUser as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockUser as any);
       
       vi.mocked(TaskModel.find).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce([

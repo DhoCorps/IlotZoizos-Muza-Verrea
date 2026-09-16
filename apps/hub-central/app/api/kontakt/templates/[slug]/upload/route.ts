@@ -2,35 +2,18 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
-import { IlotError } from '@ilot/shared-core';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
+import { IlotError } from '@ilot/shared-core';
 import { CVTemplateModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
 
 // ==========================================
 // 🚀 POST : Téléverser un aperçu graphique sur R2 avec Sceau SHA-256
 // ==========================================
-export const POST = withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withRateLimit('upload-kontakt', 10, 60, withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-    
-    // 🛡️ SUTURE DE SOUVERAINETÉ ABSOLUE : Protection anti-undefined et anti-plantage
-    let rateLimitResult: { allowed?: boolean } = { allowed: true };
-    try {
-      const res = await checkRateLimit(`upload-kontakt:${clientIp}`, 10, 60);
-      if (res && typeof res === 'object') {
-        rateLimitResult = res;
-      }
-    } catch {
-      rateLimitResult = { allowed: true };
-    }
-    
-    if (rateLimitResult.allowed === false) {
-      return NextResponse.json({ error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
-    }
-
     const resolvedParams = await context.params;
     const rawSlug = (resolvedParams as any)?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
@@ -136,7 +119,7 @@ export const POST = withAura(async (req: NextRequest | Request, context: ApiCont
     const status = error instanceof IlotError ? error.status : 500;
     return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
   }
-});
+}));
 
 // ==========================================
 // 🗑️ DELETE : Désintégrer un artefact du Nexus R2 (Strictement Privé / Aura)
@@ -173,7 +156,6 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
     }
 
     // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que l'URL appartient bien à ce template !
-    // Si le template possède un champ previewUrl ou un tableau d'artefacts, on valide la correspondance
     if (template.previewUrl && template.previewUrl !== fileUrl) {
       return NextResponse.json({ error: "Souveraineté brisée : cet artefact n'appartient pas à ce template." }, { status: 403 });
     }

@@ -4,7 +4,7 @@ import { TaskModel, WalletModel, BankReserve } from '@ilot/infrastructure';
 import { KomptaLedgerOrchestrator } from '../komptaLedger.orchestrator';
 import { IlotError } from '../../errors/ilot.errors';
 
-// 🛡️ 1. Mock de l'infrastructure
+// 🛡️ 1. Mock de l'infrastructure sous l'alias centralisé
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
@@ -23,7 +23,7 @@ vi.mock('../komptaLedger.orchestrator', () => ({
 // 🛡️ 3. Mock unifié du TransactionManager
 vi.mock('../transactionManager', () => ({
   TransactionManager: { 
-    execute: vi.fn(async (name, cb) => {
+    execute: vi.fn(async (_name, cb) => {
       const fakeMongoSession = {};
       const fakeNeo4jTx = {
         run: vi.fn().mockResolvedValue({

@@ -3,12 +3,21 @@ import { POST, DELETE } from '@/app/api/users/[slug]/upload/route';
 import { NextRequest, NextResponse } from 'next/server';
 import { OiseauModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
+import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { revalidateTag } from 'next/cache';
 
 vi.mock('next/cache', () => ({ revalidateTag: vi.fn() }));
 
 vi.mock('@/lib/api-guards', () => ({
   withAura: (handler: any) => async (req: any, context: any) => {
+    const mockUser = global.__mockUser || { uid: 'bird_123', capabilities: ['*'] };
+    return await handler(req, context, mockUser);
+  },
+  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
+    const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
+    if (rateLimitResult && rateLimitResult.allowed === false) {
+      return NextResponse.json({ success: false, message: "Trop de requêtes." }, { status: 429 });
+    }
     const mockUser = global.__mockUser || { uid: 'bird_123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
   },
@@ -24,7 +33,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       updateOne: vi.fn(),
     },
     getNeo4jSession: vi.fn(),
-    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
     findEntityBySlugOrUid: vi.fn(),
   };
 });

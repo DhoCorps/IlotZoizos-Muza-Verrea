@@ -1,6 +1,5 @@
-// packages/shared-core/src/sync-engine/task.irrigation.orchestrator.ts
 import { SeveEngine, Dependency } from '../utils/seve.engine';
-import { TaskModel } from '@ilot/infrastructure';
+import { TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature, CAPABILITIES } from '@ilot/types';
@@ -34,7 +33,7 @@ export class TaskIrrigationOrchestrator {
 
     /**
      * 💧 TRAITEMENT CONNECTÉ DE L'IRRIGATION D'UNE TÂCHE
-     * Résout l'atome par son uid ou slug dans MongoDB, puis propage l'irrigation dans Neo4j via l'UID canonique.
+     * Résout l'atome par son uid ou slug dans MongoDB via findEntityBySlugOrUid, puis propage l'irrigation dans Neo4j via l'UID canonique.
      */
     public async processTaskIrrigation(taskIdentifier: string, signature: ActionSignature) {
         // 🛡️ Barrière de sécurité : Vérification des capacités de l'Oiseau
@@ -42,10 +41,8 @@ export class TaskIrrigationOrchestrator {
             throw new IlotError("Aura insuffisante pour irriguer cet Atome.", "FORBIDDEN", 403);
         }
 
-        // 1. Résolution universelle (uid ou slug) dans la Silice
-        const task = await TaskModel.findOne({ 
-            $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] 
-        });
+        // 1. Résolution universelle (uid ou slug) dans la Silice via l'utilitaire global
+        const task = await findEntityBySlugOrUid(TaskModel, taskIdentifier) as any;
 
         if (!task) throw new IlotError("Atome introuvable dans la Silice.", "NOT_FOUND", 404);
 

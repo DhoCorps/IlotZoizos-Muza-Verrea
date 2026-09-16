@@ -1,5 +1,3 @@
-// packages/shared-core/src/sync-engine/univershallPantheon.orchestrator.ts
-
 import { OiseauModel, LedgerEntryModel } from '@ilot/infrastructure';
 
 export interface PantheonEntry {

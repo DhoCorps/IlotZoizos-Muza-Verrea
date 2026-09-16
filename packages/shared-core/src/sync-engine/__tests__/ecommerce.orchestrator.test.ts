@@ -1,4 +1,3 @@
-// packages/shared-core/src/sync-engine/__tests__/ecommerce.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EcommerceOrchestrator } from '../ecommerce.orchestrator';
 import { TransactionManager } from '../transactionManager';
@@ -15,7 +14,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 });
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => {
+    execute: vi.fn(async (_name, cb) => {
       const mockMongoSession = {};
       const mockNeo4jTx = {
         // On simule un retour Neo4j dynamique pour extraire ownerUid ou initiatorUid
@@ -65,7 +64,7 @@ describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', (
     });
 
     it('🔴 doit rejeter (404) si l\'Oiseau est introuvable dans le Graphe (zéro record)', async () => {
-      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (name, cb) => {
+      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name, cb) => {
         return await cb({} as any, { run: vi.fn().mockResolvedValue({ records: [] }) } as any);
       });
 

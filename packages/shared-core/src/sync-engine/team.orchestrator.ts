@@ -1,6 +1,6 @@
-// packages/shared-core/src/sync-engine/team.orchestrator.ts
-import { OiseauModel, TeamModel, ProjectModel, TaskModel } from '@ilot/infrastructure';
-import { ITeam, CAPABILITIES, ActionSignature } from '@ilot/types';
+import { OiseauModel, TeamModel, ProjectModel, TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { ITeam } from '@ilot/types';
+import { CAPABILITIES, ActionSignature } from '@ilot/types';
 import { MoralChecker } from '../integrity/moral.checker';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
@@ -34,10 +34,9 @@ export class TeamOrchestrator {
     };
   }
 
+  // 🛡️ Résolution canonique interne encapsulée et sécurisée via findEntityBySlugOrUid
   private async resolveCanonicalUserUid(identifier: string): Promise<string> {
-    const user = await OiseauModel.findOne({ 
-      $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
-    }).lean();
+    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
     if (!user) throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
     return (user as any).uid;
   }
@@ -65,7 +64,7 @@ export class TeamOrchestrator {
     if (!check.isSafe) throw new IlotError(`Nom invalide : ${check.suggestion}`, "BAD_REQUEST", 400);
 
     const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
-    const creator = await OiseauModel.findOne({ uid: actorCanonicalUid });
+    const creator = await findEntityBySlugOrUid(OiseauModel, actorCanonicalUid) as any;
     if (!creator) throw new IlotError("Empreinte créatrice introuvable dans la canopée.", "NOT_FOUND", 404);
 
     const teamUid = `team_${randomUUID()}`;
@@ -153,7 +152,7 @@ export class TeamOrchestrator {
     signature: ActionSignature
   ) {
     const identifier = data.teamIdentifier || data.teamUid;
-    const team = await TeamModel.findOne({ $or: [{ uid: identifier }, { slug: identifier }] });
+    const team = await findEntityBySlugOrUid(TeamModel, identifier!) as any;
     if (!team) {
       throw new IlotError("Ce Nid n'existe pas dans la Silice.", "NOT_FOUND", 404);
     }
@@ -168,10 +167,10 @@ export class TeamOrchestrator {
     }
 
     const targetCanonicalUid = await this.resolveCanonicalUserUid(data.targetUserUid);
-    const target = await OiseauModel.findOne({ uid: targetCanonicalUid });
+    const target = await findEntityBySlugOrUid(OiseauModel, targetCanonicalUid) as any;
     if (!target) throw new IlotError("Oiseau introuvable.", "NOT_FOUND", 404);
 
-    const result = await TransactionManager.execute("Invitation d'Oiseau", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Invitation d'Oiseau", async (_mongoSession, neo4jTx) => {
       const cypher = `
         MATCH (target:User { uid: $targetUserUid })
         MATCH (t:Team { uid: $teamUid })
@@ -201,9 +200,9 @@ export class TeamOrchestrator {
       };
     });
 
-    // 🕸️ Tissage de la toile universelle (Fire & Forget)
+    // 🕸️ Tissage de la toile universelle (Correction Serverless : attente asynchrone)
     if (actorCanonicalUid !== targetCanonicalUid) {
-      syncUniversalInteraction(actorCanonicalUid, targetCanonicalUid, 'TEAM').catch(console.error);
+      await syncUniversalInteraction(actorCanonicalUid, targetCanonicalUid, 'TEAM');
     }
 
     return result;
@@ -224,7 +223,7 @@ export class TeamOrchestrator {
       if (!check.isSafe) throw new IlotError(`Nom invalide : ${check.suggestion}`, "BAD_REQUEST", 400);
     }
 
-    const existingTeam = await TeamModel.findOne({ $or: [{ uid: teamIdentifier }, { slug: teamIdentifier }] });
+    const existingTeam = await findEntityBySlugOrUid(TeamModel, teamIdentifier) as any;
     if (!existingTeam) throw new IlotError("Nid introuvable.", "NOT_FOUND", 404);
 
     return await TransactionManager.execute("Mutation de Nid", async (mongoSession, neo4jTx) => {
@@ -260,7 +259,7 @@ export class TeamOrchestrator {
       throw new IlotError("Aura insuffisante pour dissoudre ce Nid.", "FORBIDDEN", 403);
     }
 
-    const team = await TeamModel.findOne({ $or: [{ uid: teamIdentifier }, { slug: teamIdentifier }] });
+    const team = await findEntityBySlugOrUid(TeamModel, teamIdentifier) as any;
     if (!team) throw new IlotError("Nid introuvable.", "NOT_FOUND", 404);
 
     const teamUid = team.uid;
@@ -319,7 +318,7 @@ export class TeamOrchestrator {
       throw new IlotError("Tu ne peux pas forcer l'envol d'un autre oiseau via cette route.", "FORBIDDEN", 403);
     }
 
-    const team = await TeamModel.findOne({ $or: [{ uid: teamIdentifier }, { slug: teamIdentifier }] });
+    const team = await findEntityBySlugOrUid(TeamModel, teamIdentifier) as any;
     if (!team) throw new IlotError("Nid introuvable dans la Silice.", "NOT_FOUND", 404);
     
     if (team.ownerUid === targetCanonicalUid) {

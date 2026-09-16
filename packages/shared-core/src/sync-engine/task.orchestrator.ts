@@ -1,35 +1,41 @@
-// packages/shared-core/src/sync-engine/task.orchestrator.ts
-import { TaskModel, ProjectModel, OiseauModel } from '../../../infrastructure';
+import { TaskModel, ProjectModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ITask, TaskStatus, CAPABILITIES, ActionSignature } from '@ilot/types'; 
 import { IlotError } from '../errors/ilot.errors'; 
 import { randomUUID } from 'crypto';
-import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
+import { generateSlug } from '../utils/string.engine';
+
+// Interface d'injection pour isoler le shared-core du service de stockage externe de l'application
+interface IStorageManager {
+  deleteFile(key: string): Promise<any>;
+  extractKeyFromUrl(url: string): string;
+}
 
 export interface TaskSyncResult {
   success: boolean;
   status: string;
-  mongo: any;
+  mongo: ITask;
   neo4j: any;
 }
 
-const generateSlug = (text: string) => {
-  return text.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
-}
-
 export class TaskOrchestrator {
+  private storageService: IStorageManager;
 
-  private async resolveUserCanonicalUid(identifier: string): Promise<string> {
-    const user = await OiseauModel.findOne({ 
-       $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
-     }).lean();
-    if (!user) throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
-    return (user as any).uid;
+  constructor(customStorageService?: IStorageManager) {
+    // Par défaut (pour les tests), on injecte un mock silencieux
+    this.storageService = customStorageService || {
+      deleteFile: async () => ({ success: true }),
+      extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
+    };
   }
 
   private async resolveUserCanonicalUserUidSafe(identifier: string): Promise<string> {
     try {
-      return await this.resolveUserCanonicalUid(identifier);
+      const user = await findEntityBySlugOrUid(OiseauModel, identifier);
+      if (user && (user as any).uid) {
+        return (user as any).uid;
+      }
+      return identifier;
     } catch {
       return identifier;
     }
@@ -41,9 +47,9 @@ export class TaskOrchestrator {
   async fosterTask(
     data: any, 
     signature: ActionSignature 
-  ) {
+  ): Promise<ITask> {
     const projectIdentifier = data.projectUid || data.projectSlug;
-    const project = await ProjectModel.findOne({ $or: [{ slug: projectIdentifier }, { uid: projectIdentifier }] });
+    const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier) as any;
     if (!project) throw new IlotError("Chantier parent introuvable.", "NOT_FOUND", 404);
     
     const actorCanonicalUid = await this.resolveUserCanonicalUserUidSafe(signature.actorUid);
@@ -181,11 +187,11 @@ export class TaskOrchestrator {
   /**
    * 🧬 MUTATION INTÉGRALE : FAIRE ÉVOLUER UN ATOME (Avec Maillage Transversal)
    */
-  async updateTask(taskIdentifier: string, updates: any, signature: ActionSignature) {
-    const task = await TaskModel.findOne({ $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] });
+  async updateTask(taskIdentifier: string, updates: any, signature: ActionSignature): Promise<ITask> {
+    const task = await findEntityBySlugOrUid(TaskModel, taskIdentifier);
     if (!task) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
     
-    const taskUid = task.uid;
+    const taskUid = (task as any).uid;
 
     return await TransactionManager.execute("Mutation Atome (Atomique)", async (mongoSession, neo4jTx) => {
              
@@ -287,17 +293,17 @@ export class TaskOrchestrator {
   }
 
   /**
-   * 🌋 DÉSINTÉGRATION EN CASCADE RECURSIVE
+   * 🌋 DÉSINTÉGRATION EN CASCADE RÉCURSIVE
    */
   async disintegrateTask(taskIdentifier: string, signature: ActionSignature) {
     const hasPower = signature.capabilities.includes(CAPABILITIES.TASK.DELETE) || 
-                      signature.capabilities.includes('*');
+                     signature.capabilities.includes('*');
     if (!hasPower) throw new IlotError("Aura insuffisante.", "FORBIDDEN", 403);
 
-    const taskTarget = await TaskModel.findOne({ $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] });
+    const taskTarget = await findEntityBySlugOrUid(TaskModel, taskIdentifier);
     if (!taskTarget) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
     
-    const taskUid = taskTarget.uid;
+    const taskUid = (taskTarget as any).uid;
 
     return await TransactionManager.execute("Désintégration d'Atome", async (mongoSession, neo4jTx) => {
       const hierarchyCheck = await neo4jTx.run(`
@@ -320,8 +326,8 @@ export class TaskOrchestrator {
       if (task && task.documents && task.documents.length > 0) {
         for (const doc of task.documents) {
           try {
-            const key = storageService.extractKeyFromUrl(doc.url);
-            await storageService.deleteFile(key);
+            const key = this.storageService.extractKeyFromUrl(doc.url);
+            await this.storageService.deleteFile(key);
           } catch (err) {
             console.error(`Échec de purge physique pour le document :`, err);
           }
@@ -335,11 +341,11 @@ export class TaskOrchestrator {
   /**
    * 🍅 SÉDIMENTATION TEMPORELLE : VALIDER UN POMODORO
    */
-  async completePomodoro(taskIdentifier: string, signature: ActionSignature) {
-    const task = await TaskModel.findOne({ $or: [{ slug: taskIdentifier }, { uid: taskIdentifier }] });
+  async completePomodoro(taskIdentifier: string, signature: ActionSignature): Promise<ITask> {
+    const task = await findEntityBySlugOrUid(TaskModel, taskIdentifier);
     if (!task) throw new IlotError("Atome introuvable ou évaporé.", "NOT_FOUND", 404);
     
-    const taskUid = task.uid;
+    const taskUid = (task as any).uid;
     const actorCanonicalUid = await this.resolveUserCanonicalUserUidSafe(signature.actorUid);
 
     return await TransactionManager.execute("Validation Pomodoro", async (mongoSession, neo4jTx) => {

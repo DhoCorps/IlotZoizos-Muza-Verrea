@@ -3,13 +3,12 @@
 import { revalidatePath } from 'next/cache';
 import { getServerSession } from "next-auth/next";
 import { TaskModel, getNeo4jSession } from '@ilot/infrastructure'; 
-// ✅ Import de l'Orchestrateur ET de la Signature
 import { TaskOrchestrator, ActionSignature } from '@ilot/shared-core'; 
 import { ITask, TaskStatus, CAPABILITIES } from '@ilot/types';
-import { authOptions } from "../../lib/auth"; // 🪡 SUTURE : Activé pour getServerSession
+import { authOptions } from "../../lib/auth";
 
 /**
- * 🛡️ UTILITAIRE DE DOUANE (Corrigé)
+ * 🛡️ UTILITAIRE DE DOUANE
  * Récupère les droits de l'Oiseau et suture la capacité DELETE si nécessaire.
  */
 async function getTaskActionCapabilities(userUid: string, taskUid?: string, projectUid?: string): Promise<string[]> {
@@ -48,14 +47,12 @@ async function getTaskActionCapabilities(userUid: string, taskUid?: string, proj
 
     let compiledCaps = [...projectCaps];
     
-    // 🪡 SUTURE : Si l'oiseau est impliqué directement (Créateur/Assigné), on lui donne tous les droits
     if (isDirectlyInvolved) {
         if (!compiledCaps.includes(CAPABILITIES.TASK.READ)) compiledCaps.push(CAPABILITIES.TASK.READ);
         if (!compiledCaps.includes(CAPABILITIES.TASK.UPDATE)) compiledCaps.push(CAPABILITIES.TASK.UPDATE);
-        if (!compiledCaps.includes(CAPABILITIES.TASK.DELETE)) compiledCaps.push(CAPABILITIES.TASK.DELETE); // ✅ Ajouté ici
+        if (!compiledCaps.includes(CAPABILITIES.TASK.DELETE)) compiledCaps.push(CAPABILITIES.TASK.DELETE);
     }
     
-    console.log(`🔍 [DOUANE] Aura compilée pour ${userUid} sur ${taskUid || projectUid} :`, compiledCaps);
     return compiledCaps;
   } finally {
     await session.close();
@@ -67,22 +64,18 @@ async function getTaskActionCapabilities(userUid: string, taskUid?: string, proj
  */
 export async function createTaskAction(data: Partial<ITask> & { projectUid: string }) {
   try {
-    // 1. Qui es-tu ? (Douane Absolue sur Server Action)
-    const session = await getServerSession(authOptions); // 🪡 SUTURE : authOptions ajouté
+    const session = await getServerSession(authOptions);
     const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Le Nexus est fermé. Connecte-toi.");
 
-    // 2. Que peux-tu faire ?
     const caps = await getTaskActionCapabilities(userUid, undefined, data.projectUid);
     if (!caps.includes(CAPABILITIES.TASK.CREATE) && !caps.includes('*')) {
       throw new Error("Aura insuffisante pour forger un Atome sur ce Chantier.");
     }
 
-    // 3. 🛡️ Signature
     const signature: ActionSignature = { actorUid: userUid, capabilities: caps };
-    const taskOrch = new TaskOrchestrator(); // ✅ Instanciation
+    const taskOrch = new TaskOrchestrator();
 
-    // L'Orchestrateur reçoit data ET signature (creatorUid est déduit de la signature)
     const result = await taskOrch.fosterTask(data, signature);
 
     revalidatePath('/tom-hat-toes');
@@ -99,7 +92,7 @@ export async function createTaskAction(data: Partial<ITask> & { projectUid: stri
  */
 export async function fetchTasksAction(projectId: string) {
   try {
-    const session = await getServerSession(authOptions); // 🪡 SUTURE : authOptions ajouté
+    const session = await getServerSession(authOptions);
     const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
@@ -122,7 +115,6 @@ export async function updateTaskAction(taskUid: string, formData: FormData) {
     const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
-    // 🪡 SUTURE : Extraction manuelle et robuste des champs du formulaire
     const updates = {
       title: formData.get('title') as string,
       description: formData.get('description') as string,
@@ -130,11 +122,9 @@ export async function updateTaskAction(taskUid: string, formData: FormData) {
       pomoEst: Number(formData.get('pomoEst')),
       complexity: Number(formData.get('complexity')),
       status: formData.get('status') as string,
-      // ⚠️ get("assignees") ne suffit pas pour un select multiple, il faut getAll
       assigneeUids: formData.getAll('assignees') as string[] 
     };
 
-    // Vérification des droits via la Douane
     const caps = await getTaskActionCapabilities(userUid, taskUid);
     if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !caps.includes('*')) {
       throw new Error("Aura insuffisante pour muter cet Atome.");
@@ -143,7 +133,6 @@ export async function updateTaskAction(taskUid: string, formData: FormData) {
     const signature: ActionSignature = { actorUid: userUid, capabilities: caps };
     const taskOrch = new TaskOrchestrator();
 
-    // Appel à l'orchestrateur avec le payload propre
     await taskOrch.updateTask(taskUid, updates, signature);
 
     revalidatePath('/tom-hat-toes');
@@ -160,7 +149,7 @@ export async function updateTaskAction(taskUid: string, formData: FormData) {
  */
 export async function updateTaskStatusAction(taskUid: string, newStatus: string) {
   try {
-    const session = await getServerSession(authOptions); // 🪡 SUTURE : authOptions ajouté
+    const session = await getServerSession(authOptions);
     const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
@@ -183,29 +172,24 @@ export async function updateTaskStatusAction(taskUid: string, newStatus: string)
 }
 
 /**
- * 🍅 POMODORO : Valider un Cycle
+ * 🍅 POMODORO : Valider un Cycle (Harmonisé via TaskOrchestrator)
  */
 export async function completePomodoroAction(taskUid: string) {
   try {
-    const session = await getServerSession(authOptions); // 🪡 SUTURE : authOptions ajouté
+    const session = await getServerSession(authOptions);
     const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
-    // Pour rajouter du temps, il faut le droit d'UPDATE
     const caps = await getTaskActionCapabilities(userUid, taskUid);
     if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !caps.includes('*')) {
       throw new Error("Seul l'artisan lié à cet Atome peut y insuffler du temps.");
     }
 
-    // 🩸 SUTURE : Volatilité dans MongoDB uniquement
-    const updatedTask = await TaskModel.findOneAndUpdate(
-      { uid: taskUid },
-      { 
-        $inc: { "pomodoros.completed": 1 },
-        $set: { "dates.updatedAt": new Date() }
-      },
-      { new: true }
-    );
+    const signature: ActionSignature = { actorUid: userUid, capabilities: caps };
+    const taskOrch = new TaskOrchestrator();
+
+    // 🪡 SUTURE : Appel unifié à l'orchestrateur (Silice + Matrice Neo4j FOCUSED_ON)
+    const updatedTask = await taskOrch.completePomodoro(taskUid, signature);
 
     revalidatePath('/tom-hat-toes');
     return { success: true, newCount: updatedTask?.pomodoros?.completed };
@@ -221,11 +205,8 @@ export async function scheduleTaskAction(taskUid: string, scheduledAt: Date) {
     const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Accès refusé.");
 
-    // Orchestration atomique : 
-    // Pas de cache inutile, on demande au système de marquer le temps.
     const taskOrch = new TaskOrchestrator();
     
-    // Mutation directe via l'Orchestrateur pour garantir la cohérence Graphe/Silice
     await taskOrch.updateTask(taskUid, { 
       "dates.scheduledAt": scheduledAt,
       "dates.updatedAt": new Date() 
@@ -244,7 +225,7 @@ export async function scheduleTaskAction(taskUid: string, scheduledAt: Date) {
  */
 export async function deleteTaskAction(taskUid: string) {
   try {
-    const session = await getServerSession(authOptions); // 🪡 SUTURE : authOptions ajouté
+    const session = await getServerSession(authOptions);
     const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 

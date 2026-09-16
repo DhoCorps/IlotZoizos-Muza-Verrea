@@ -1,5 +1,3 @@
-// packages/shared-core/src/sync-engine/poetrik.orchestrator.ts
-
 import { LexiconEntryModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
@@ -9,7 +7,7 @@ export interface PoetrikSyncResult {
   success: boolean;
   status: string;
   mongo: any;
-  neo4j: any;
+  neo4j: import('neo4j-driver').QueryResult;
 }
 
 export class PoetrikOrchestrator {

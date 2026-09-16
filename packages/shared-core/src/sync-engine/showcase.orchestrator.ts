@@ -1,6 +1,4 @@
-// packages/shared-core/src/sync-engine/showcase.orchestrator.ts
-import { UniversalMediaModel } from '@ilot/infrastructure';
-import { OiseauModel } from '@ilot/infrastructure';
+import { UniversalMediaModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { IUniversalMediaItem, ShowcaseFilterOptions } from '@ilot/types';
 import { UserShowcaseShuffler } from '../utils/userShowcaseShuffler';
 import { IlotError } from '../errors/ilot.errors';
@@ -8,13 +6,11 @@ import { IlotError } from '../errors/ilot.errors';
 export class ShowcaseOrchestrator {
   
   /**
-   * 🛡️ Utilitaire interne pour valider la présence de l'Oiseau dans la Silice.
+   * 🛡️ Utilitaire interne pour valider la présence de l'Oiseau dans la Silice via l'utilitaire global.
    * Empêche la génération de flux pour des entités fantômes.
    */
   private static async resolveCanonicalUserUid(identifier: string): Promise<string> {
-    const user = await OiseauModel.findOne({ 
-      $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
-    }).lean();
+    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
     
     if (!user) {
       throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
@@ -35,7 +31,7 @@ export class ShowcaseOrchestrator {
     }
 
     try {
-      // 1. Résolution stricte de l'identité pour sécuriser la graine de hasard (Seed)
+      // 1. Résolution stricte de l'identité pour sécuriser la graine de hasard (Seed) via findEntityBySlugOrUid
       const canonicalUid = await this.resolveCanonicalUserUid(userIdentifier);
 
       // 2. Récupération optimisée (Projection des champs stricts pour économiser la RAM)

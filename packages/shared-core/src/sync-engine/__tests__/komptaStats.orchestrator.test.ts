@@ -1,11 +1,8 @@
-// packages/shared-core/src/sync-engine/__tests__/komptaStats.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KomptaStatsEngine } from '../komptaStats.orchestrator';
-import { LedgerEntryModel } from '@ilot/infrastructure';
-import { CommentModel } from '@ilot/infrastructure';
-import { ReactionModel } from '@ilot/infrastructure';
+import { LedgerEntryModel, CommentModel, ReactionModel } from '@ilot/infrastructure';
 
-// 🛡️ Mock unifié et sécurisé de l'infrastructure
+// 🛡️ Mock unifié et sécurisé de l'infrastructure sous l'alias centralisé
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
@@ -26,7 +23,7 @@ describe('KomptaStatsEngine - Moteur Statistique Multi-Énergies', () => {
   it('🟢 doit calculer et convertir correctement les volumes avec les taux de change (Universal Energy)', async () => {
     // 1. Raw Sellers: Un oiseau vend en EUR, l'autre en KAOS_ORGANIQUE (Taux 10x)
     vi.mocked(LedgerEntryModel.aggregate).mockResolvedValueOnce([
-      { _id: { ownerUid: 'bird_fiat', currency: 'EUR' }, totalVolume: 1000 },           // 1000 * 1.0 = 1000
+      { _id: { ownerUid: 'bird_fiat', currency: 'EUR' }, totalVolume: 1000 },          // 1000 * 1.0 = 1000
       { _id: { ownerUid: 'bird_kaos', currency: 'KAOS_ORGANIQUE' }, totalVolume: 200 }  // 200 * 10.0 = 2000 (Le vrai gagnant !)
     ]);
 

@@ -1,29 +1,17 @@
-// packages/shared-core/src/sync-engine/univershall.orchestrator.ts
-
-import { UniversHallBeaconModel } from '@ilot/infrastructure';
+import { UniversHallBeaconModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
+import { slugify } from '@/lib/slugify'; // Import de l'utilitaire global de slugification
 
 export interface UniversHallSyncResult {
   success: boolean;
   status: string;
-  mongo: any;
-  neo4j: any;
+  mongo: import('mongoose').Document & Record<string, any>;
+  neo4j: import('neo4j-driver').QueryResult;
+  purgedCount?: number;
 }
-
-const generateSlug = (text: string) => {
-  return text
-    .toString()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/[^\w\-]+/g, '')
-    .replace(/\-\-+/g, '-');
-};
 
 /**
  * UNIVERS'HALL ORCHESTRATOR
@@ -43,7 +31,7 @@ export class UniversHallOrchestrator {
     summary?: string;
     tags?: string[];
     resonanceScore?: number;
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
   }, signature: ActionSignature): Promise<UniversHallSyncResult> {
 
     if (!signature.actorUid) {
@@ -57,8 +45,8 @@ export class UniversHallOrchestrator {
     return await TransactionManager.execute("Plantation de Balise Univers'Hall", async (mongoSession, neo4jTx) => {
       const beaconUid = data.uid || `beacon_${randomUUID()}`;
       
-      // Sécurisation de l'unicité du slug
-      let baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(data.title);
+      // Sécurisation de l'unicité du slug via l'utilitaire global
+      const baseSlug = slugify(data.slug || data.title);
       let finalSlug = baseSlug;
       let slugExists = await UniversHallBeaconModel.findOne({ slug: finalSlug }).session(mongoSession);
       let counter = 1;
@@ -75,7 +63,7 @@ export class UniversHallOrchestrator {
         title: data.title,
         slug: finalSlug,
         authorUid: signature.actorUid,
-        authorSlug: signature.actorUid, // Peut être affiné si le profil possède un slug
+        authorSlug: signature.actorUid,
         summary: data.summary || '',
         tags: data.tags || [],
         resonanceScore: data.resonanceScore || 0,
@@ -125,10 +113,8 @@ export class UniversHallOrchestrator {
   /**
    * DISSOLUTION : RETIRER UNE BALISE DE L'AGORA
    */
-  async dissolveBeacon(beaconIdentifier: string, signature: ActionSignature) {
-    const existing = await UniversHallBeaconModel.findOne({ 
-      $or: [{ uid: beaconIdentifier }, { slug: beaconIdentifier }] 
-    });
+  async dissolveBeacon(beaconIdentifier: string, signature: ActionSignature): Promise<UniversHallSyncResult> {
+    const existing = await findEntityBySlugOrUid(UniversHallBeaconModel, beaconIdentifier) as any;
 
     if (!existing) {
       throw new IlotError("Balise introuvable sur l'Agora.", "NOT_FOUND", 404);
@@ -148,7 +134,13 @@ export class UniversHallOrchestrator {
       // 2. Suppression documentaire dans la Silice
       await UniversHallBeaconModel.deleteOne({ uid: existing.uid }, { session: mongoSession });
 
-      return { success: true, purgedCount: 1 };
+      return { 
+        success: true, 
+        status: 'success', 
+        purgedCount: 1,
+        mongo: existing,
+        neo4j: {} as any
+      };
     });
   }
 }

@@ -1,11 +1,15 @@
-// packages/shared-core/src/sync-engine/user.orchestrator.ts
-import { OiseauModel, TeamModel, ProjectModel, TaskModel } from '@ilot/infrastructure';
+import { OiseauModel, TeamModel, ProjectModel, TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { IOiseau, CAPABILITIES } from '@ilot/types';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
-import { storageService } from '../../../../apps/hub-central/modules/storage/storage.service';
+
+// Interface d'injection pour isoler le shared-core du service de stockage externe de l'application
+interface IStorageManager {
+  deleteFile(key: string): Promise<any>;
+  extractKeyFromUrl(url: string): string;
+}
 
 export interface OiseauSyncResult {
   success: boolean;
@@ -20,14 +24,19 @@ export interface ActionSignature {
 }
 
 export class OiseauOrchestrator {
+  private storageService: IStorageManager;
 
-  /**
-   * 🛡️ Utilitaire interne pour résoudre l'UID canonique strict depuis la Silice (Phase 2)
-   */
-  private async resolveCanonicalUid(identifier: string): Promise<string> {
-    const user = await OiseauModel.findOne({ 
-      $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
-    }).lean();
+  constructor(customStorageService?: IStorageManager) {
+    // Par défaut (pour les tests), on injecte un mock silencieux
+    this.storageService = customStorageService || {
+      deleteFile: async () => ({ success: true }),
+      extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
+    };
+  }
+
+  // 🛡️ Résolution canonique interne via l'utilitaire global unifié
+  private async resolveCanonicalUserUid(identifier: string): Promise<string> {
+    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
     if (!user) throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
     return (user as any).uid;
   }
@@ -35,7 +44,7 @@ export class OiseauOrchestrator {
   /**
    * 🐣 L'ÉCLOSION (Création d'un nouvel Oiseau avec Souveraineté Totale)
    */
-  async fosterOiseau(birdData: any): Promise<OiseauSyncResult> {
+  async fosterOiseau(birdData: Record<string, any>): Promise<OiseauSyncResult> {
     const uid = uuidv4(); 
     const hashedPassword = await bcrypt.hash(birdData.password, 10);
 
@@ -61,7 +70,7 @@ export class OiseauOrchestrator {
       // 1. Persistance Documentaire (Silice)
       const [nouvelOiseau] = await OiseauModel.create([newOiseauData], { session: mongoSession });
 
-      // 2. Propagation Neo4j par ID strict (Nouvel oiseau, l'UID est déjà canonique)
+      // 2. Propagation Neo4j par ID strict
       const cypher = `
         CREATE (u:User {
             uid: $uid,
@@ -97,8 +106,8 @@ export class OiseauOrchestrator {
     signature: ActionSignature 
   ): Promise<OiseauSyncResult> {
     
-    const actorCanonicalUid = await this.resolveCanonicalUid(signature.actorUid);
-    const targetCanonicalUid = await this.resolveCanonicalUid(oiseauData.uid);
+    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
+    const targetCanonicalUid = await this.resolveCanonicalUserUid(oiseauData.uid);
 
     const isSelfEdit = actorCanonicalUid === targetCanonicalUid;
     const hasGlobalPower = signature.capabilities.includes('*');
@@ -108,7 +117,7 @@ export class OiseauOrchestrator {
     }
 
     return await TransactionManager.execute("L'Envol de l'Oiseau", async (mongoSession, neo4jTx) => {
-      const updatePayload: any = {};
+      const updatePayload: Record<string, any> = {};
       if (oiseauData.pseudo) updatePayload.pseudo = oiseauData.pseudo;
       if (oiseauData.frequenceHEX) updatePayload.frequenceHEX = oiseauData.frequenceHEX;
       if (oiseauData.capabilities !== undefined) updatePayload.capabilities = oiseauData.capabilities;
@@ -123,7 +132,7 @@ export class OiseauOrchestrator {
         throw new IlotError("Oiseau introuvable dans la Silice", "NOT_FOUND", 404);
       }
 
-      // MATCH indexé strict sur l'UID canonique (Phase 2)
+      // MATCH indexé strict sur l'UID canonique
       const cypher = `
         MATCH (u:User {uid: $canonicalUid})
         SET u.pseudo = coalesce($pseudo, u.pseudo), 
@@ -157,8 +166,8 @@ export class OiseauOrchestrator {
     signature: ActionSignature 
   ): Promise<{ success: boolean; message: string }> {
     
-    const targetCanonicalUid = await this.resolveCanonicalUid(oiseauIdentifier);
-    const actorCanonicalUid = await this.resolveCanonicalUid(signature.actorUid);
+    const targetCanonicalUid = await this.resolveCanonicalUserUid(oiseauIdentifier);
+    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
 
     const isSelf = actorCanonicalUid === targetCanonicalUid;
     const isRoot = signature.capabilities.includes('*');
@@ -173,16 +182,16 @@ export class OiseauOrchestrator {
       const allProjects = await ProjectModel.find({ creatorUid: targetCanonicalUid }).session(mongoSession).lean();
 
       for (const task of allTasks) {
-        if (task.documents) {
-          for (const doc of task.documents) {
-            try { await storageService.deleteFile(storageService.extractKeyFromUrl(doc.url)); } catch {}
+        if ((task as any).documents) {
+          for (const doc of (task as any).documents) {
+            try { await this.storageService.deleteFile(this.storageService.extractKeyFromUrl(doc.url)); } catch {}
           }
         }
       }
       for (const proj of allProjects) {
-        if (proj.documents) {
-          for (const doc of proj.documents) {
-            try { await storageService.deleteFile(storageService.extractKeyFromUrl(doc.url)); } catch {}
+        if ((proj as any).documents) {
+          for (const doc of (proj as any).documents) {
+            try { await this.storageService.deleteFile(this.storageService.extractKeyFromUrl(doc.url)); } catch {}
           }
         }
       }
@@ -233,8 +242,8 @@ export class OiseauOrchestrator {
     signature: ActionSignature
   ): Promise<{ success: boolean; message: string }> {
     
-    const targetCanonicalUid = await this.resolveCanonicalUid(targetUserIdentifier);
-    const actorCanonicalUid = await this.resolveCanonicalUid(signature.actorUid);
+    const targetCanonicalUid = await this.resolveCanonicalUserUid(targetUserIdentifier);
+    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
 
     const isAuthorized = actorCanonicalUid === targetCanonicalUid || signature.capabilities.includes('*');
     if (!isAuthorized) throw new IlotError("Souveraineté violée.", "FORBIDDEN", 403);
@@ -267,17 +276,17 @@ export class OiseauOrchestrator {
     frequenceHEX?: string
   ): Promise<OiseauSyncResult> {
     
-    const targetCanonicalUid = await this.resolveCanonicalUid(oiseauIdentifier);
-    const actorCanonicalUid = await this.resolveCanonicalUid(signature.actorUid);
+    const targetCanonicalUid = await this.resolveCanonicalUserUid(oiseauIdentifier);
+    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
 
     const isSelf = actorCanonicalUid === targetCanonicalUid;
     if (!isSelf && !signature.capabilities.includes('*')) throw new IlotError("Aura insuffisante.", "FORBIDDEN", 403);
 
-    return await TransactionManager.execute("Fluctuation d'Oiseau", async (mongoSession, neo4jTx) => {
-      const updateData: any = { entropieActive: entropie };
+    return await TransactionManager.execute("Fluctuation d'Oiseau", async (_mongoSession, neo4jTx) => {
+      const updateData: Record<string, any> = { entropieActive: entropie };
       if (frequenceHEX) updateData.frequenceHEX = frequenceHEX;
 
-      const updatedMongo = await OiseauModel.findOneAndUpdate({ uid: targetCanonicalUid }, { $set: updateData }, { new: true, session: mongoSession }).lean();
+      const updatedMongo = await OiseauModel.findOneAndUpdate({ uid: targetCanonicalUid }, { $set: updateData }, { new: true }).lean();
       if (!updatedMongo) throw new IlotError("Oiseau introuvable.", "NOT_FOUND", 404);
 
       if (frequenceHEX) {

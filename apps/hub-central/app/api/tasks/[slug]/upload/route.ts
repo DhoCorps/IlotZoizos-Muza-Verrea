@@ -1,21 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { TaskModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
-import { CAPABILITIES, ITask } from '@ilot/types';
+import { CAPABILITIES } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { storageService } from '@/modules/storage/storage.service';
-import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
 
 export const dynamic = 'force-dynamic';
 
 /**
  * 🛡️ UTILITAIRE DE DOUANE (Spécifique à l'Atome)
- * Compile les droits pour la mutation d'artefacts.
+ * Compile les droits pour la mutation d'artefacts avec fermeture de session Neo4j sécurisée.
  */
 async function canUpdateTaskBySlug(userUid: string, taskUid: string): Promise<boolean> {
-  let session;
+  let session = null;
   try {
     session = getNeo4jSession();
     if (!session) return true; // Suture de secours en mode test isolé sans Neo4j
@@ -31,7 +30,7 @@ async function canUpdateTaskBySlug(userUid: string, taskUid: string): Promise<bo
       `,
       { userUid, taskUid }
     );
-    if (!result || result.records.length === 0) return true; // Tolérance par défaut si le nœud n'a pas encore de lien graphe strict
+    if (!result || result.records.length === 0) return true;
 
     const record = result.records[0];
     const projectCreatorUid = record.get('projectCreatorUid');
@@ -42,24 +41,27 @@ async function canUpdateTaskBySlug(userUid: string, taskUid: string): Promise<bo
     console.error("🔥 [TASK CAPS ERROR]", error);
     return true; // Mode résilient pour éviter de bloquer l'infrastructure en cas de coupure du graphe
   } finally {
-    // 🛡️ SUTURE DE SÉCURITÉ : Optional chaining pour éviter les erreurs de session vide
-    await session?.close?.();
+    try {
+      if (session && typeof session.close === 'function') {
+        await session.close();
+      }
+    } catch (closeErr) {
+      console.error("🔥 [NEO4J SESSION CLOSE ERROR]", closeErr);
+    }
   }
 }
 
 // ==========================================
 // 📤 POST : Greffer un artefact avec Sceau SHA-256
 // ==========================================
-export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
-  const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-  const rateLimitResult = await checkRateLimit(`upload-task-slug:${clientIp}`, 10, 60);
-  const isAllowed = rateLimitResult ? rateLimitResult.allowed : true;
-  
-  if (!isAllowed) {
-    return NextResponse.json({ success: false, message: "Trop de téléversements." }, { status: 429 });
+export const POST = withRateLimit('upload-task-slug', 10, 60, withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
+  let resolvedParams;
+  try {
+    resolvedParams = await context.params;
+  } catch {
+    return NextResponse.json({ success: false, message: "Paramètres de route invalides." }, { status: 400 });
   }
 
-  const resolvedParams = await context.params;
   const rawSlug = resolvedParams?.slug;
   const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
@@ -77,7 +79,13 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     return NextResponse.json({ success: false, message: "Aura insuffisante." }, { status: 403 });
   }
 
-  const formData = await req.formData();
+  let formData;
+  try {
+    formData = await req.formData();
+  } catch {
+    return NextResponse.json({ success: false, message: "Corps de requête Multipart illisible." }, { status: 400 });
+  }
+
   const file = formData.get('file') as File | null;
   if (!file) return NextResponse.json({ success: false, message: "Aucune brindille reçue." }, { status: 400 });
 
@@ -107,7 +115,6 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
   const digitalSignature = generateFileHash(fileBuffer);
   const timestampedAt = new Date();
 
-  // 🪡 Utilisation de la méthode unifiée en mode LEGACY
   const customKey = storageService.generateKey({
     mode: 'LEGACY',
     inceptId: 'ilot-zoizos',
@@ -163,13 +170,19 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     digitalSignature,
     timestampedAt 
   }, { status: 201 });
-});
+}));
 
 // ==========================================
 // 🗑️ DELETE : Désintégration artefact
 // ==========================================
-export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
-  const resolvedParams = await context.params;
+export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
+  let resolvedParams;
+  try {
+    resolvedParams = await context.params;
+  } catch {
+    return NextResponse.json({ success: false, message: "Paramètres de route invalides." }, { status: 400 });
+  }
+
   const rawSlug = resolvedParams?.slug;
   const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
@@ -186,12 +199,19 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
     return NextResponse.json({ success: false, message: "Aura insuffisante." }, { status: 403 });
   }
 
-  const { key } = await req.json();
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ success: false, message: "Corps de requête illisible." }, { status: 400 });
+  }
+
+  const { key } = body || {};
   if (!key) {
     return NextResponse.json({ success: false, message: "Clé ou URL manquante." }, { status: 400 });
   }
 
-  // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que le document appartient bien à cette tâche !
+  // 🛡️ SUTURE DE SECURITE IDOR : Vérification formelle que le document appartient bien à cette tâche !
   const documents = Array.isArray(task.documents) ? task.documents : [];
   const targetDoc = documents.find((doc: any) => doc.url === key || doc.uid === key);
 

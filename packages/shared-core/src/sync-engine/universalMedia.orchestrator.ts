@@ -1,4 +1,4 @@
-import { OiseauModel, UniversalMediaModel } from '@ilot/infrastructure';
+import { UniversalMediaModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
@@ -8,44 +8,28 @@ export interface UniversalMediaSyncResult {
   success: boolean;
   status: string;
   mongo: any;
-  neo4j: any;
+  neo4j: import('neo4j-driver').QueryResult;
 }
 
 /**
  * UNIVERSAL MEDIA ORCHESTRATOR
  * Gère la sédimentation d'un Asset dans la Silice et son tissage dans le Graphe.
- * Phase 2 : Utilisation d'un index strict sur le créateur canonique dans Neo4j.
+ * Utilise directement l'identifiant de l'acteur.
  */
 export class UniversalMediaOrchestrator {
   
   /**
-   * Utilitaire interne pour résoudre strictement l'UID canonique via la Silice (MongoDB)
-   * Permet d'éradiquer les "FULL GRAPH SCANS" dans Neo4j.
-   */
-  private async resolveCanonicalUid(identifier: string): Promise<string> {
-    const user = await OiseauModel.findOne({
-      $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }]
-    }).lean();
-    
-    if (!user) {
-      throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
-    }
-    return (user as any).uid;
-  }
-
-  /**
    * FONDATION : FORGER UN ASSET UNIVERSEL
    */
-  async fosterMedia(data: any, signature: ActionSignature): Promise<UniversalMediaSyncResult> {
+  async fosterMedia(data: Record<string, unknown>, signature: ActionSignature): Promise<UniversalMediaSyncResult> {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour forger un Asset.", "UNAUTHORIZED", 401);
     }
 
-    // Résolution stricte de l'UID (Phase 2)
-    const actorCanonicalUid = await this.resolveCanonicalUid(signature.actorUid);
+    const actorCanonicalUid = signature.actorUid;
 
     return await TransactionManager.execute("Fondation d'Asset Universel", async (mongoSession, neo4jTx) => {
-      const mediaId = data.mediaId || `media_${randomUUID()}`;
+      const mediaId = (data.mediaId as string) || `media_${randomUUID()}`;
 
       const newMediaData = {
         ...data,
@@ -57,7 +41,6 @@ export class UniversalMediaOrchestrator {
       const [newMedia] = await UniversalMediaModel.create([newMediaData], { session: mongoSession });
 
       // 2. Tissage dans le Graphe (Neo4j)
-      // On ne stocke que le squelette relationnel pour des requêtes rapides
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (m:UniversalMedia { 

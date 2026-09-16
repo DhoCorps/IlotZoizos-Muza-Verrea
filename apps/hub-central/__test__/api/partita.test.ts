@@ -51,19 +51,23 @@ describe('API Partita - Collection (GET / POST) avec Sceau SHA-256', () => {
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de PartitaOrchestrator
     vi.spyOn(PartitaOrchestrator.prototype, 'fosterPartita').mockResolvedValue({
-      uid: 'part_new',
-      title: 'Opus 1',
-    } as any);
+      success: true,
+      status: 'success',
+      mongo: {
+        uid: 'part_new',
+        title: 'Opus 1',
+      } as any,
+      neo4j: {}
+    });
   });
 
   it('✅ GET : doit lister les partitions', async () => {
     delete (global as any).__mockUser;
 
-    // Pilotage explicite du retour du cache pour ce test
     vi.mocked(getCachedPartitas).mockResolvedValueOnce([{ uid: 'part_1', title: 'Sonate' }] as any);
 
     const req = new Request('http://localhost:3000/api/partita?instrument=piano');
-    const res = await GET(req);
+    const res = await GET(req, {} as any);
     const data = await res.json();
 
     expect(res.status).toBe(200);
@@ -74,7 +78,7 @@ describe('API Partita - Collection (GET / POST) avec Sceau SHA-256', () => {
   it('❌ POST : doit rejeter si l’oiseau n’est pas identifié (401)', async () => {
     delete (global as any).__mockUser;
     const req = new Request('http://localhost/api/partita', { method: 'POST' });
-    const res = await POST(req);
+    const res = await POST(req, {} as any);
     expect(res.status).toBe(401);
   });
 
@@ -83,7 +87,7 @@ describe('API Partita - Collection (GET / POST) avec Sceau SHA-256', () => {
     const req = new Request('http://localhost/api/partita', {
       method: 'POST', body: JSON.stringify({ title: 'Juste un titre' })
     });
-    const res = await POST(req);
+    const res = await POST(req, {} as any);
     expect(res.status).toBe(400);
   });
 
@@ -93,14 +97,14 @@ describe('API Partita - Collection (GET / POST) avec Sceau SHA-256', () => {
     const req = new Request('http://localhost/api/partita', {
       method: 'POST', body: JSON.stringify({ title: 'Opus 1', content: 'C D E' })
     });
-    const res = await POST(req);
+    const res = await POST(req, {} as any);
     const data = await res.json();
 
     expect(res.status).toBe(201);
     expect(data.uid).toBe('part_new');
     expect(data.digitalSignature).toBeDefined();
     expect(typeof data.digitalSignature).toBe('string');
-    expect(data.digitalSignature.length).toBe(64); // Validation de l'empreinte SHA-256
+    expect(data.digitalSignature.length).toBe(64);
     expect(revalidateTag).toHaveBeenCalledWith('partitas');
   });
 });

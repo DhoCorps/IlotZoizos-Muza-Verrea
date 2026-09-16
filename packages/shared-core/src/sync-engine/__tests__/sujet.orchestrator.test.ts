@@ -1,7 +1,6 @@
-// packages/shared-core/src/sync-engine/__tests__/sujet.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SujetOrchestrator } from '../sujet.orchestrator';
-import { SujetModel } from '@ilot/infrastructure';
+import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
@@ -15,12 +14,13 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       findOneAndUpdate: vi.fn(),
       deleteOne: vi.fn(),
     },
+    findEntityBySlugOrUid: vi.fn(),
   };
 });
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'node_mock' }] }) })),
+    execute: vi.fn(async (_name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'node_mock' }] }) })),
   },
 }));
 
@@ -29,9 +29,14 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
   const adminSignature = { actorUid: 'admin_1', capabilities: ['*'] };
   const userSignature = { actorUid: 'bird_author', capabilities: [] };
 
+  const mockStorageManager = {
+    extractKeyFromUrl: vi.fn((url) => `key_${url}`),
+    deleteFile: vi.fn().mockResolvedValue(true),
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
-    orchestrator = new SujetOrchestrator();
+    orchestrator = new SujetOrchestrator(mockStorageManager);
   });
 
   describe('fosterSujet', () => {
@@ -59,7 +64,7 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
 
   describe('updateSujet', () => {
     it('🔴 doit rejeter (404) si le sujet est introuvable (par uid ou slug)', async () => {
-      vi.mocked(SujetModel.findOne).mockResolvedValueOnce(null);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
       await expect(
         orchestrator.updateSujet('inconnu', {}, adminSignature as any)
       ).rejects.toThrow(IlotError);
@@ -67,7 +72,7 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
 
     it('🟢 doit mettre à jour un sujet par son slug ou son uid avec succès', async () => {
       const mockSujet = { uid: 'sujet_1', slug: 'mon-sujet', authorUid: 'bird_author' };
-      vi.mocked(SujetModel.findOne).mockResolvedValueOnce(mockSujet as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockSujet as any);
              
       vi.mocked(SujetModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce({ ...mockSujet, title: 'Updated' })
@@ -82,7 +87,7 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
   describe('disintegrateSujet', () => {
     it('🔴 doit rejeter (403) si l\'acteur n\'est ni l\'auteur ni admin', async () => {
       const mockSujet = { uid: 'sujet_1', slug: 'mon-sujet', authorUid: 'bird_author' };
-      vi.mocked(SujetModel.findOne).mockResolvedValueOnce(mockSujet as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockSujet as any);
 
       await expect(
         orchestrator.disintegrateSujet('mon-sujet', { actorUid: 'intruder', capabilities: [] } as any)
@@ -91,7 +96,7 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
 
     it('🟢 doit désintégrer le sujet avec succès si l\'acteur est l\'auteur', async () => {
       const mockSujet = { uid: 'sujet_1', slug: 'mon-sujet', authorUid: 'bird_author' };
-      vi.mocked(SujetModel.findOne).mockResolvedValueOnce(mockSujet as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockSujet as any);
       vi.mocked(SujetModel.deleteOne).mockResolvedValueOnce({ deletedCount: 1 } as any);
 
       const res = await orchestrator.disintegrateSujet('mon-sujet', userSignature as any);

@@ -1,4 +1,3 @@
-// packages/shared-core/src/sync-engine/ecommerce.orchestrator.ts
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
@@ -15,7 +14,7 @@ export class EcommerceOrchestrator {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour créer une boutique.", "UNAUTHORIZED", 401);
     }
-    return await TransactionManager.execute("Création de boutique", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Création de boutique", async (_mongoSession, neo4jTx) => {
       // Utilisation d'un MATCH strict : L'utilisateur DOIT exister, on ne crée pas de fantôme avec MERGE
       const query = `
         MATCH (u:User { uid: $ownerUid })
@@ -49,7 +48,7 @@ export class EcommerceOrchestrator {
       throw new IlotError("Oiseau non authentifié pour passer commande.", "UNAUTHORIZED", 401);
     }
 
-    const result = await TransactionManager.execute("Enregistrement de commande", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Enregistrement de commande", async (_mongoSession, neo4jTx) => {
       // On récupère également l'UID du vendeur (owner) via la boutique pour la synchro
       const query = `
         MATCH (buyer:User { uid: $buyerUid })
@@ -76,9 +75,9 @@ export class EcommerceOrchestrator {
       return { success: true, orderUid: data.uid, ownerUid };
     });
 
-    // 🕸️ Tissage de la toile universelle en arrière-plan
+    // 🕸️ Tissage de la toile universelle en arrière-plan avec attente sécurisée (Serverless safe)
     if (result.ownerUid && result.ownerUid !== data.buyerUid) {
-      syncUniversalInteraction(data.buyerUid, result.ownerUid, 'ECOMMERCE').catch(console.error);
+      await syncUniversalInteraction(data.buyerUid, result.ownerUid, 'ECOMMERCE');
     }
 
     return { success: result.success, orderUid: result.orderUid };
@@ -96,7 +95,7 @@ export class EcommerceOrchestrator {
       throw new IlotError("Oiseau non authentifié pour initier un troc.", "UNAUTHORIZED", 401);
     }
     
-    const result = await TransactionManager.execute("Proposition de Troc", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Proposition de Troc", async (_mongoSession, neo4jTx) => {
       const query = `
         MATCH (initiator:User { uid: $initiatorUid })
         CREATE (b:BarterOffer { uid: $uid, status: 'PENDING', createdAt: datetime() })
@@ -117,9 +116,9 @@ export class EcommerceOrchestrator {
       return { success: true, barterUid: data.uid };
     });
 
-    // 🕸️ S'il y a une cible précise, c'est une interaction !
+    // 🕸️ S'il y a une cible précise, c'est une interaction sécurisée par await !
     if (data.receiverUid && data.receiverUid !== data.initiatorUid) {
-      syncUniversalInteraction(data.initiatorUid, data.receiverUid, 'ECOMMERCE').catch(console.error);
+      await syncUniversalInteraction(data.initiatorUid, data.receiverUid, 'ECOMMERCE');
     }
 
     return result;
@@ -137,7 +136,7 @@ export class EcommerceOrchestrator {
       throw new IlotError("Oiseau non authentifié pour répondre au troc.", "UNAUTHORIZED", 401);
     }
     
-    const result = await TransactionManager.execute("Résolution de Troc", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Résolution de Troc", async (_mongoSession, neo4jTx) => {
       // On retourne l'UID de l'initiateur pour pouvoir créer le lien universel
       const query = `
         MATCH (b:BarterOffer { uid: $barterUid })<-[:PROPOSES_BARTER]-(initiator:User)
@@ -162,9 +161,9 @@ export class EcommerceOrchestrator {
       return { success: true, status: data.status, initiatorUid };
     });
 
-    // 🕸️ Tissage de la toile universelle
+    // 🕸️ Tissage de la toile universelle sécurisé
     if (result.initiatorUid && result.initiatorUid !== data.acceptorUid) {
-      syncUniversalInteraction(result.initiatorUid, data.acceptorUid, 'ECOMMERCE').catch(console.error);
+      await syncUniversalInteraction(result.initiatorUid, data.acceptorUid, 'ECOMMERCE');
     }
 
     return { success: result.success, status: result.status };

@@ -1,8 +1,7 @@
-// packages/shared-core/src/sync-engine/__tests__/letrinSprite.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LetrinSpriteOrchestrator } from '../letrinSprite.orchestrator';
 import { TransactionManager } from '../transactionManager';
-import { FontModel, OiseauModel } from '@ilot/infrastructure';
+import { FontModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { IlotError } from '../../errors/ilot.errors';
 
 const mockFindOneAndUpdate = vi.fn();
@@ -12,18 +11,17 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
     ...actual,
-    OiseauModel: {
-      findOne: vi.fn(),
-    },
+    OiseauModel: {},
     FontModel: {
       findOneAndUpdate: (...args: any[]) => mockFindOneAndUpdate(...args),
     },
+    findEntityBySlugOrUid: vi.fn(),
   };
 });
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (name, cb) => cb({} as any, { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'font_1' }] }) })),
+    execute: vi.fn(async (_name, cb) => cb({} as any, { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'font_1' }] }) })),
   },
 }));
 
@@ -35,10 +33,8 @@ describe('LetrinSpriteOrchestrator - Atelier Typographique Letr\'in (Police & Sp
     vi.clearAllMocks();
     orchestrator = new LetrinSpriteOrchestrator();
 
-    // Simulation de la résolution canonique
-    vi.mocked(OiseauModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 'bird_canonical_123' })
-    } as any);
+    // Simulation de la résolution canonique via findEntityBySlugOrUid
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValue({ uid: 'bird_canonical_123' } as any);
   });
 
   describe('publishFontSprite (Police et Glyphs)', () => {
@@ -73,7 +69,7 @@ describe('LetrinSpriteOrchestrator - Atelier Typographique Letr\'in (Police & Sp
 
       mockFindOneAndUpdate.mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce(mockFontData),
-      });
+      } as any);
 
       const res = await orchestrator.publishFontSprite(mockFontData, validSignature as any);
 
@@ -81,15 +77,13 @@ describe('LetrinSpriteOrchestrator - Atelier Typographique Letr\'in (Police & Sp
       expect(res.name).toBe('Canopy Sans Font');
       expect(res.slug).toBe('canopy-sans-font');
       expect(res.glyphsCount).toBe(4); // Les 4 symboles de la police ont bien été traités
-      expect(OiseauModel.findOne).toHaveBeenCalledTimes(1);
+      expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(1);
       expect(mockFindOneAndUpdate).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
 
     it('🔴 doit lever une erreur 404 si l\'Oiseau créateur n\'existe pas dans la Silice', async () => {
-      vi.mocked(OiseauModel.findOne).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce(null) // L'oiseau n'existe pas
-      } as any);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null); // L'oiseau n'existe pas
 
       await expect(
         orchestrator.publishFontSprite({

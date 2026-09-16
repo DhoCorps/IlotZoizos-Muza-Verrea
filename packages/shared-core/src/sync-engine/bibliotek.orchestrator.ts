@@ -1,33 +1,23 @@
-// packages/shared-core/src/sync-engine/bibliotek.orchestrator.ts
-import { LibraryBookModel } from '@ilot/infrastructure';
+import { LibraryBookModel, ILibraryBook } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { randomUUID, createHash } from 'crypto';
+import { randomUUID } from 'crypto';
+import { generateSlug } from '../utils/string.engine';
+import { generateFileHash } from '../utils/crypto.engine';
+import { findEntityBySlugOrUid } from '@ilot/infrastructure';
 
 export interface BibliotekSyncResult {
   success: boolean;
   status: string;
-  mongo: any;
+  mongo: ILibraryBook;
   neo4j: any;
 }
-
-const generateSlug = (text: string) => {
-  return text
-    .toString()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/[^\w\-]+/g, '')
-    .replace(/\-\-+/g, '-');
-};
 
 /**
  * BIBLIOTEK ORCHESTRATOR
  * Gère la sédimentation des ouvrages littéraires, l'application du Sceau SHA-256 d'antériorité
- * et leur tissage dans le Graphe Neo4j (Phase 2 : Résolution stricte par UID canonique).
+ * et leur tissage dans le Graphe Neo4j (via la recherche unifiée).
  */
 export class BibliotekOrchestrator {
   /**
@@ -47,7 +37,7 @@ export class BibliotekOrchestrator {
       const bookUid = data.uid || `book_${randomUUID()}`;
       const title = data.title;
 
-      // Sécurisation de l'unicité du slug dans la Silice
+      // Sécurisation de l'unicité du slug dans la Silice via l'utilitaire partagé
       let baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
       let finalSlug = baseSlug;
       let slugExists = await LibraryBookModel.findOne({ slug: finalSlug }).session(mongoSession);
@@ -58,7 +48,7 @@ export class BibliotekOrchestrator {
         counter++;
       }
 
-      // 🪡 Génération du Sceau Cryptographique (SHA-256) d'Antériorité canonique
+      // 🪡 Génération du Sceau Cryptographique (SHA-256) d'antériorité via l'utilitaire partagé
       const canonicalContent = JSON.stringify({
         title: title,
         authorUid: signature.actorUid,
@@ -66,7 +56,7 @@ export class BibliotekOrchestrator {
         writingType: data.writingType || 'roman',
         style: data.style || 'philosophie'
       });
-      const digitalSignature = createHash('sha256').update(canonicalContent).digest('hex');
+      const digitalSignature = generateFileHash(canonicalContent);
       const timestampedAt = new Date();
 
       const newBookData = {
@@ -134,7 +124,8 @@ export class BibliotekOrchestrator {
    * MUTATION : METTRE À JOUR UN OUVRAGE
    */
   async updateBook(bookIdentifier: string, updates: any, signature: ActionSignature): Promise<BibliotekSyncResult> {
-    const existing = await LibraryBookModel.findOne({ $or: [{ uid: bookIdentifier }, { slug: bookIdentifier }] });
+    // Utilisation de la recherche unifiée par Slug ou UID
+    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier);
     if (!existing) {
       throw new IlotError("Ouvrage introuvable dans la Silice.", "NOT_FOUND", 404);
     }
@@ -149,7 +140,7 @@ export class BibliotekOrchestrator {
         { uid: existing.uid },
         { $set: updates },
         { new: true, session: mongoSession }
-      ).lean();
+      ).lean() as unknown as ILibraryBook;
 
       let neoResult = null;
       if (updates.title || updates.writingType || updates.style || updates.format) {
@@ -183,7 +174,8 @@ export class BibliotekOrchestrator {
    * DÉSINTRÉGRATION : PURGER UN OUVRAGE DU SANCTUAIRE
    */
   async disintegrateBook(bookIdentifier: string, signature: ActionSignature) {
-    const existing = await LibraryBookModel.findOne({ $or: [{ uid: bookIdentifier }, { slug: bookIdentifier }] });
+    // Utilisation de la recherche unifiée par Slug ou UID
+    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier);
     if (!existing) {
       throw new IlotError("Ouvrage introuvable.", "NOT_FOUND", 404);
     }

@@ -1,12 +1,7 @@
-// packages/shared-core/src/sync-engine/komptaPayment.orchestrator.ts
-import mongoose from 'mongoose';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
-import { WalletModel } from '@ilot/infrastructure/';
-import { KomptaLedgerService } from '@ilot/infrastructure/';
-import { SovereignCurrency } from '@ilot/infrastructure/';
-import { syncUniversalInteraction } from '@ilot/infrastructure';
+import { WalletModel, KomptaLedgerService, SovereignCurrency, syncUniversalInteraction } from '@ilot/infrastructure';
 
 export interface DirectTransferPayload {
   transferUid: string;
@@ -31,8 +26,8 @@ export interface DirectStoreTransactionPayload {
 
 export interface ItemExchangeTransactionPayload {
   exchangeUid: string;
-  senderUid: string;       
-  recipientUid: string;    
+  senderUid: string;        
+  recipientUid: string;     
   offeredItemUid: string;  
   targetTitle: string;     
   description?: string;
@@ -168,8 +163,10 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    // 🕸️ Tissage de la toile universelle en arrière-plan
-    syncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE').catch(console.error);
+    // 🕸️ Tissage de la toile universelle sécurisé (anti-faille Serverless)
+    if (payload.senderUid !== payload.recipientUid) {
+      await syncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE');
+    }
 
     return result;
   }
@@ -335,8 +332,8 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    // 🕸️ Tissage de la toile universelle en arrière-plan
-    syncUniversalInteraction(payload.buyerUid, payload.recipientUid, 'ECOMMERCE').catch(console.error);
+    // 🕸️ Tissage de la toile universelle sécurisé
+    await syncUniversalInteraction(payload.buyerUid, payload.recipientUid, 'ECOMMERCE');
 
     return result;
   }
@@ -410,8 +407,8 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    // 🕸️ Tissage de la toile universelle en arrière-plan
-    syncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE').catch(console.error);
+    // 🕸️ Tissage de la toile universelle sécurisé
+    await syncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE');
 
     return result;
   }

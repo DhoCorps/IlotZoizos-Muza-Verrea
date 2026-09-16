@@ -1,8 +1,6 @@
-// packages/shared-core/src/sync-engine/monthlyStats.orchestrator.ts
 import { TransactionManager } from './transactionManager';
 import { KomptaStatsEngine } from './komptaStats.orchestrator';
-import { RewardEntryModel } from '@ilot/infrastructure';
-import { OiseauModel } from '@ilot/infrastructure';
+import { RewardEntryModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature, CAPABILITIES } from '@ilot/types';
 
@@ -135,11 +133,11 @@ export class MonthlyStatsOrchestrator {
         statsSnapshot: stats
       });
 
-      // 6. MESSAGES PRIVÉS : Chuchotements aux Lauréats
+      // 6. MESSAGES PRIVÉS : Chuchotements aux Lauréats (avec résolution unifiée)
       const rewardedUids = Array.from(new Set(awardedRewards.map(r => r.ownerUid)));
 
       for (const uid of rewardedUids) {
-        const oiseau = await OiseauModel.findOne({ uid }).session(mongoSession).lean();
+        const oiseau = await findEntityBySlugOrUid(OiseauModel, uid);
         if (!oiseau) continue;
 
         const userRewards = awardedRewards.filter(r => r.ownerUid === uid);

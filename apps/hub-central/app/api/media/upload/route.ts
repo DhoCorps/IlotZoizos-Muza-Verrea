@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
@@ -6,30 +7,15 @@ import { generateFileHash } from '@/lib/cryptoHelper';
 import { UploadMediaInputSchema } from '@ilot/types'; 
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { v4 as uuidv4 } from 'uuid';
 import { UniversalMediaOrchestrator, IlotError } from '@ilot/shared-core';
 
 // ==========================================
 // POST : Télésversement & Ancrage Cosmique d'un Asset Universel
 // ==========================================
-export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withRateLimit('upload-universal-media', 10, 60, withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-    
-    // 1. Rate Limiting de Souveraineté
-    let rateLimitResult: { allowed?: boolean } = { allowed: true };
-    try {
-      const res = await checkRateLimit(`upload-universal-media:${clientIp}`, 10, 60);
-      if (res && typeof res === 'object') rateLimitResult = res;
-    } catch {
-      rateLimitResult = { allowed: true };
-    }
-
-    if (rateLimitResult.allowed === false) {
-      return NextResponse.json({ error: 'Trop de téléversements. La matrice surcharge.' }, { status: 429 });
-    }
-
     // 2. Extraction Multipart
     const formData = await req.formData().catch(() => null);
     if (!formData) {
@@ -126,7 +112,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     const status = error instanceof IlotError ? error.status : 500;
     return NextResponse.json({ error: error.message || 'Erreur interne de la matrice.' }, { status });
   }
-});
+}));
 
 // ==========================================
 // DELETE : Désintégration de l'Asset (Orchestrateur + S3)

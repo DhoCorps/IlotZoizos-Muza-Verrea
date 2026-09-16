@@ -1,18 +1,14 @@
-// packages/shared-core/src/sync-engine/karma.orchestrator.ts
-import { OiseauModel, ReportModel } from '@ilot/infrastructure';
+import { OiseauModel, ReportModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature, CAPABILITIES } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 
 export class KarmaOrchestrator {
   /**
-   * Utilitaire interne pour résoudre strictement l'UID canonique via la Silice.
+   * Utilitaire interne pour résoudre strictement l'UID canonique via l'utilitaire global.
    */
   private async resolveCanonicalUid(identifier: string): Promise<string> {
-    const user = await OiseauModel.findOne({
-      $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }]
-    }).lean();
-
+    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
     if (!user) throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
     return (user as any).uid;
   }

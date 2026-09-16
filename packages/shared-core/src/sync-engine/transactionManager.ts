@@ -1,14 +1,16 @@
+// packages/shared-core/src/sync-engine/transactionManager.ts
 import type { ClientSession } from 'mongoose';
 import mongoose from 'mongoose';
 import { getNeo4jDriver } from '@ilot/infrastructure'; 
 import { Transaction } from 'neo4j-driver';
+import { IlotError } from '../errors/ilot.errors'; // 👈 Ajout de l'import
 
 export class TransactionManager {
   /**
-   * 🛡️ TRANSACTION MANAGER V3.0 : LE TRIPLE SCELLÉ (AVEC DEAD LETTER QUEUE)
+   * 🛡️ TRANSACTION MANAGER V3.1 : LE TRIPLE SCELLÉ (AVEC DEAD LETTER QUEUE)
    * Orchestre une transaction conjointe entre MongoDB (Silice) et Neo4j (Matrice).
    * Intègre une file d'attente de rattrapage (DLQ) pour garantir l'intégrité finale
-   * en cas de fracture isolée du graphe.
+   * en cas de fracture isolée du graphe, et préserve les codes d'erreurs métiers.
    */
   public static async execute<T>(
     operationName: string,
@@ -54,7 +56,7 @@ export class TransactionManager {
           console.error(`🌑 [ABYSS] Échec total de la DLQ ! La désynchronisation n'a pas pu être sauvegardée.`, dlqError);
         }
 
-        throw new Error(`[TransactionManager] Rupture de la Matrice Neo4j (Consignée en DLQ) : ${neo4jCommitError.message}`);
+        throw new IlotError(`Rupture de la Matrice Neo4j (Consignée en DLQ) : ${neo4jCommitError.message}`, "INTERNAL_ERROR", 500);
       }
       
       console.log(`✅ [NEXUS] Harmonie totale (Mongo + Neo4j) : ${operationName}`);
@@ -83,8 +85,14 @@ export class TransactionManager {
       
       console.error(`❌ [NEXUS] Brèche détectée sur ${operationName} :`, error.message);
       
-      // On propage l'erreur propre pour l'API / le client
-      throw new Error(`[TransactionManager] Échec de la transaction ${operationName} : ${error.message}`); 
+      // 🛡️ CORRECTION CRITIQUE : Préserver les erreurs métiers (IlotError)
+      // Si l'erreur provient de nos vérifications métier (403, 404, etc.), on la propage intacte.
+      if (error instanceof IlotError || error.name === 'IlotError') {
+        throw error;
+      }
+
+      // Sinon, on encapsule les erreurs systèmes non gérées
+      throw new IlotError(`Échec inattendu de la transaction [${operationName}] : ${error.message}`, "INTERNAL_ERROR", 500);
 
     } finally {
       // 5. NETTOYAGE CLINIQUE ET INFAILLIBLE DES RESSOURCES

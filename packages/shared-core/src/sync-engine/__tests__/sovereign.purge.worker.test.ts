@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SovereignPurgeWorker } from '../sovereign.purge.worker';
 import { SystemPurgeJobModel } from '@ilot/infrastructure';
 
-// 1. On mocke l'infrastructure
+// 1. On mocke l'infrastructure sous l'alias centralisé
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {

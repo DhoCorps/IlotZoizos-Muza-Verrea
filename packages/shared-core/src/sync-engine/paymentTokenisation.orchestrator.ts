@@ -1,5 +1,4 @@
-// packages/shared-core/src/sync-engine/payment.tokenization.orchestrator.ts
-import { OiseauModel } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
@@ -14,12 +13,10 @@ export class PaymentTokenizationOrchestrator {
   
   /**
    * Utilitaire de résolution stricte pour prévenir les injections 
-   * et éradiquer les scans complets dans le Graphe (Phase 2).
+   * et éradiquer les scans complets dans le Graphe (via findEntityBySlugOrUid).
    */
   private async resolveCanonicalUid(identifier: string): Promise<string> {
-    const user = await OiseauModel.findOne({ 
-      $or: [{ slug: identifier }, { uid: identifier }, { pseudo: identifier }] 
-    }).lean();
+    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
     
     if (!user) {
       throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
