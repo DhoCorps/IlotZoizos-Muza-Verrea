@@ -31,12 +31,23 @@ export class ResonanceOrchestrator {
    */
   public static async weaveCrossDomainLink(
     sourceUid: string,
-    sourceLabel: EntityLabel,
+    sourceLabel: string, // Casté depuis l'API
     targetUid: string,
-    targetLabel: EntityLabel,
-    relationType: ResonanceType,
+    targetLabel: string,
+    relationType: string,
     signature: ActionSignature
   ) {
+    // 🛡️ CORRECTION CYBERSÉCURITÉ : Whitelist stricte anti-injection Cypher
+    const ALLOWED_LABELS = ['User', 'Project', 'Task', 'Partita', 'Letter', 'Sample', 'Sujet', 'Store', 'Team', 'AgoraBeacon'];
+    const ALLOWED_RELATIONS = ['RELATES_TO', 'ILLUMINATES', 'DETAILS', 'FOLLOWS_GLOBAL', 'ECHOES', 'VIBRATES', 'COMPOSED', 'WROTE'];
+
+    if (!ALLOWED_LABELS.includes(sourceLabel) || !ALLOWED_LABELS.includes(targetLabel)) {
+       throw new IlotError("Tentative d'injection de label Neo4j détectée.", "BAD_REQUEST", 400);
+    }
+    if (!ALLOWED_RELATIONS.includes(relationType)) {
+       throw new IlotError("Tentative d'injection de relation Neo4j détectée.", "BAD_REQUEST", 400);
+    }
+    
     const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
 
     return await TransactionManager.execute("Tissage Transdisciplinaire", async (_mongoSession, neo4jTx) => {

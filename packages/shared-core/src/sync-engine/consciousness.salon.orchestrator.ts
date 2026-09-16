@@ -26,12 +26,13 @@ export class ConsciousnessSalonOrchestrator {
         if (!plainThought || !sharedSecretKey) {
             throw new IlotError("Matière ou clé manquante pour le scellement quantique.", "BAD_REQUEST", 400);
         }
-
         const iv = crypto.randomBytes(12);
-        // Utilisation d'un hash SHA-256 pour garantir une clé de 32 octets requise par l'AES-256
-        const key = crypto.createHash('sha256').update(String(sharedSecretKey)).digest();
+        
+        // 🛡️ CORRECTION CYBERSÉCURITÉ : Dérivation forte scrypt
+        const key = crypto.scryptSync(String(sharedSecretKey), 'ilot-zoizos-salt-E2EE', 32);
         
         const cipher = crypto.createCipheriv(this.ALGORITHM, key, iv);
+
         let ciphertext = cipher.update(plainThought, 'utf8', 'hex');
         ciphertext += cipher.final('hex');
         const tag = cipher.getAuthTag().toString('hex');
@@ -49,7 +50,9 @@ export class ConsciousnessSalonOrchestrator {
      */
     public static unsealThought(enacted: EnactedThought, sharedSecretKey: string): string {
         try {
-            const key = crypto.createHash('sha256').update(String(sharedSecretKey)).digest();
+            // 🛡️ SYNCHRONISATION : Utilisation rigoureuse du même scryptSync pour correspondre à sealThought
+            const key = crypto.scryptSync(String(sharedSecretKey), 'ilot-zoizos-salt-E2EE', 32);
+            
             const decipher = crypto.createDecipheriv(
                 this.ALGORITHM, 
                 key, 
@@ -62,8 +65,7 @@ export class ConsciousnessSalonOrchestrator {
 
             return decrypted;
         } catch (error) {
-            // 🛡️ SUTURE : On intercepte les erreurs cryptographiques brutes (Bad key, tampered data)
-            // pour renvoyer un rejet d'Aura propre plutôt qu'un crash serveur.
+            // 🛡️ SUTURE : On intercepte les erreurs cryptographiques brutes
             throw new IlotError("Échec du dés-enchâssement : Clé invalide ou pensée altérée par l'abîme.", "FORBIDDEN", 403);
         }
     }

@@ -19,6 +19,8 @@ export class KomptaLedgerOrchestrator {
   public static async transfer(params: TransferParams): Promise<void> {
     const { fromUid, toUid, amount, currency, category, referenceUid, description } = params;
 
+    // 🛡️ CORRECTION CYBERSÉCURITÉ : Le montant principal (exprimé en unités) ne doit pas non plus être un nombre flottant corrompu 
+    // ou on s'assure qu'il est strictement positif.
     if (amount <= 0) {
       throw new IlotError("Le montant du transfert souverain doit être supérieur à zéro.", "BAD_REQUEST", 400);
     }

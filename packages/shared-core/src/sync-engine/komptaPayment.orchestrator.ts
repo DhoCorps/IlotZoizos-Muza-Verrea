@@ -63,8 +63,9 @@ export class KomptaPaymentOrchestrator {
       throw new IlotError("Aura financière insuffisante ou usurpation d'identité détectée.", "UNAUTHORIZED", 401);
     }
 
-    if (payload.amountCents <= 0) {
-      throw new IlotError("Le montant du transfert doit être supérieur à zéro.", "BAD_REQUEST", 400);
+    // 🛡️ CORRECTION CYBERSÉCURITÉ : Tolérance zéro sur les centimes flottants et valeurs négatives
+    if (payload.amountCents <= 0 || !Number.isInteger(payload.amountCents)) {
+      throw new IlotError("Le montant du transfert en centimes doit être un entier strict et positif.", "BAD_REQUEST", 400);
     }
 
     if (payload.senderUid === payload.recipientUid) {
@@ -186,8 +187,9 @@ export class KomptaPaymentOrchestrator {
       throw new IlotError("Aura d'authentification insuffisante pour autoriser ce paiement direct.", "UNAUTHORIZED", 401);
     }
 
-    if (payload.amountCents <= 0) {
-      throw new IlotError("Le montant de la transaction doit être supérieur à zéro.", "BAD_REQUEST", 400);
+    // 🛡️ CORRECTION CYBERSÉCURITÉ : Tolérance zéro sur les centimes flottants
+    if (payload.amountCents <= 0 || !Number.isInteger(payload.amountCents)) {
+      throw new IlotError("Le montant de la transaction en centimes doit être un entier strict et positif.", "BAD_REQUEST", 400);
     }
 
     if (payload.buyerUid === payload.recipientUid) {
@@ -426,8 +428,9 @@ export class KomptaPaymentOrchestrator {
       throw new IlotError("Impossible de déterminer l'oiseau destinataire des fonds externes.", "BAD_REQUEST", 400);
     }
 
-    if (payload.amount <= 0) {
-      throw new IlotError("Le montant du dépôt externe doit être supérieur à zéro.", "BAD_REQUEST", 400);
+    // 🛡️ CORRECTION CYBERSÉCURITÉ : Tolérance zéro sur les centimes flottants (amount brut en centimes via webhook)
+    if (payload.amount <= 0 || !Number.isInteger(payload.amount)) {
+      throw new IlotError("Le montant du dépôt externe en centimes doit être un entier strict et positif.", "BAD_REQUEST", 400);
     }
 
     return await TransactionManager.execute("Dépôt Externe (Webhook) & Kompta", async (mongoSession, neo4jTx) => {

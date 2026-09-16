@@ -39,9 +39,11 @@ describe('BettingOrchestrator - Moteur Économique & Pari', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // 🟢 SUTURE GLOBALE : On rend .session() toujours disponible pour éviter les crashs
+    // 🟢 SUTURE GLOBALE : On rend .session() ET .lean() disponibles pour éviter les crashs
     vi.mocked(BankReserve.findOne).mockReturnValue({
-      session: vi.fn().mockResolvedValue({ wealthIndex: 1.0 })
+      session: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ wealthIndex: 1.0 })
+      })
     } as any);
 
     vi.mocked(WalletModel.findOne).mockReturnValue({

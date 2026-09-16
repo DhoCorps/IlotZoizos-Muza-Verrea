@@ -30,7 +30,7 @@ export class BettingOrchestrator {
           ).session(mongoSession).exec();
           if (!task) throw new IlotError(`Atome introuvable ou déjà engagé : ${bet.entityId}`, "FORBIDDEN", 403);
         } else if (['KAOS', 'TOX', 'DHO'].includes(bet.type)) {
-          const wallet = await WalletModel.findOne({ userId }).session(mongoSession);
+          const wallet = await WalletModel.findOne({ userId }).session(mongoSession); // Pas de .lean() ici car on utilise wallet.save()
           if (!wallet || wallet.balance < bet.amount) throw new IlotError("Fonds insuffisants", "FORBIDDEN", 403);
           wallet.balance -= bet.amount;
           await wallet.save({ session: mongoSession });
@@ -82,14 +82,27 @@ export class BettingOrchestrator {
       }
 
       const finalResults: IAssetValue[] = [];
+      const bankCache = new Map<string, number>(); // 🛡️ Cache mémoire éphémère intra-transaction
+
       for (const target of targets) {
         if (['TOX', 'DHO'].includes(target.type)) {
-          const bank = await BankReserve.findOne({ currency: target.type }).session(mongoSession);
-          const I_banque = bank ? bank.wealthIndex : 1.0;
+          let I_banque: number; // 👈 Déclaration stricte
+          
+          if (bankCache.has(target.type)) {
+            // Le '!' rassure TS : on vient de vérifier que la clé existe
+            I_banque = bankCache.get(target.type)!; 
+          } else {
+            const bank = await BankReserve.findOne({ currency: target.type }).session(mongoSession).lean();
+            I_banque = bank ? Number((bank as any).wealthIndex) : 1.0; // Number() garantit le typage
+            bankCache.set(target.type, I_banque);
+          }
+
           const M = target.amount;
           const B = DIFFICULTY_MULTIPLIERS[gameContext.difficulty] || 1.0;
-          const exponent = -1 * (DECAY_CONSTANT_K / Math.max(0.1, I_banque)) * N;
+          // TypeScript accepte maintenant I_banque sans sourciller !
+          const exponent = -1 * (DECAY_CONSTANT_K / Math.max(0.1, I_banque)) * N; 
           const roundedCredit = Math.floor((M + (M * B * Math.exp(exponent))) * 100) / 100;
+          
           await WalletModel.findOneAndUpdate({ userId }, { $inc: { balance: roundedCredit } }, { session: mongoSession, upsert: true });
           finalResults.push({ type: target.type, amount: roundedCredit });
         }
@@ -134,9 +147,9 @@ export class BettingOrchestrator {
         return { creditEarned: wagerAmount };
       }
 
-      // 🟢 Victoire (Mode Multijoueur) : Équation de décroissance et Indexation
-      const bankReserve = await BankReserve.findOne({ currency: wagerCurrency }).session(mongoSession);
-      const I_banque = bankReserve ? bankReserve.wealthIndex : 1.0;
+      // 🟢 Victoire (Mode Multijoueur) : Équation de décroissance et Indexation avec `.lean()`
+      const bankReserve = await BankReserve.findOne({ currency: wagerCurrency }).session(mongoSession).lean();
+      const I_banque = bankReserve ? Number((bankReserve as any).wealthIndex) : 1.0;
       
       const M = wagerAmount;
       const B = DIFFICULTY_MULTIPLIERS[difficulty] || 1.0;

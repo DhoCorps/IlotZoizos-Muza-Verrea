@@ -91,7 +91,7 @@ describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
         customer: 'cus_bird123'
       };
       await expect(orchestrator.processExternalPayment(payload)).rejects.toThrow(
-        "Le montant du dépôt externe doit être supérieur à zéro."
+        "Le montant du dépôt externe en centimes doit être un entier strict et positif."
       );
     });
 

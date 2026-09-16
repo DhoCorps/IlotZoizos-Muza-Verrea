@@ -34,9 +34,15 @@ describe('BibliotekOrchestrator - Sanctuaire des Écrits Libres & Sceau SHA-256'
   const userSignature = { actorUid: 'oiseau-writer', capabilities: [] };
   const strangerSignature = { actorUid: 'oiseau-intruder', capabilities: [] };
 
+  // 🛡️ Injection du mock de stockage
+  const mockStorageManager = {
+    extractKeyFromUrl: vi.fn((url) => `key_${url}`),
+    deleteFile: vi.fn().mockResolvedValue(true),
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
-    orchestrator = new BibliotekOrchestrator();
+    orchestrator = new BibliotekOrchestrator(mockStorageManager);
   });
 
   describe('fosterBook (Création & Sceau d\'antériorité)', () => {
@@ -112,7 +118,7 @@ describe('BibliotekOrchestrator - Sanctuaire des Écrits Libres & Sceau SHA-256'
   });
 
   describe('disintegrateBook (Suppression)', () => {
-    it('devrait retourner les URLs des fichiers à purger au stockage', async () => {
+    it('devrait supprimer les fichiers du stockage physique et retourner un succès', async () => {
       vi.mocked(findEntityBySlugOrUid).mockResolvedValue({ 
         uid: 'book-999', 
         authorUid: 'oiseau-writer',
@@ -123,8 +129,11 @@ describe('BibliotekOrchestrator - Sanctuaire des Écrits Libres & Sceau SHA-256'
       const result = await orchestrator.disintegrateBook('book-999', userSignature as any);
 
       expect(result.success).toBe(true);
-      expect(result.filesToDelete).toHaveLength(2);
-      expect(result.filesToDelete).toContain('https://cdn.ilot/book.epub');
+      expect(result.purgedCount).toBe(1);
+      
+      // Vérification que le stockage a bien été appelé avec les clés extraites
+      expect(mockStorageManager.extractKeyFromUrl).toHaveBeenCalledTimes(2);
+      expect(mockStorageManager.deleteFile).toHaveBeenCalledTimes(2);
       expect(LibraryBookModel.deleteOne).toHaveBeenCalled();
     });
   });

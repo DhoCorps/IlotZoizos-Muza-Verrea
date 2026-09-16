@@ -35,8 +35,9 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+// 👈 Changement du mock pour pointer sur notre string.engine
+vi.mock('../utils/string.engine', () => ({
+  generateSlug: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 describe('SamplotekOrchestrator - Le Moteur du Studio E-Jay', () => {

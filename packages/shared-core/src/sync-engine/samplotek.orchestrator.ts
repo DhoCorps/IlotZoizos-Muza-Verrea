@@ -3,7 +3,7 @@ import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
-import { slugify } from '@/lib/slugify';
+import { generateSlug } from '../utils/string.engine'; // 👈 Utilisation du moteur interne
 
 export interface SamplotekSyncResult {
   success: boolean;
@@ -37,7 +37,7 @@ export class SamplotekOrchestrator {
       const sampleUid = (data.uid as string) || `samp_${randomUUID()}`;
 
       // Sécurisation de l'unicité du slug dans la Silice
-      const baseSlug = slugify((data.slug as string) || (data.title as string));
+      const baseSlug = generateSlug((data.slug as string) || (data.title as string)); // 👈 Changement ici
       let finalSlug = baseSlug;
       let slugExists = await SampleModel.findOne({ slug: finalSlug }).session(mongoSession);
       let counter = 1;
@@ -109,7 +109,7 @@ export class SamplotekOrchestrator {
       const projectUid = (data.uid as string) || `samplotek_${randomUUID()}`;
 
       // Sécurisation de l'unicité du slug
-      const baseSlug = slugify((data.slug as string) || (data.title as string));
+      const baseSlug = generateSlug((data.slug as string) || (data.title as string)); // 👈 Changement ici
       let finalSlug = baseSlug;
       let slugExists = await PartitaModel.findOne({ slug: finalSlug }).session(mongoSession);
       let counter = 1;

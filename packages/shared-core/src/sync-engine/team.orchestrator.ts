@@ -253,8 +253,7 @@ export class TeamOrchestrator {
       };
     });
   }
-
-  async dissolveTeam(teamIdentifier: string, signature: ActionSignature): Promise<boolean> {
+async dissolveTeam(teamIdentifier: string, signature: ActionSignature): Promise<boolean> {
     if (!signature.capabilities.includes(CAPABILITIES.TEAM.DELETE) && !signature.capabilities.includes('*')) {
       throw new IlotError("Aura insuffisante pour dissoudre ce Nid.", "FORBIDDEN", 403);
     }
@@ -265,24 +264,33 @@ export class TeamOrchestrator {
     const teamUid = team.uid;
 
     return await TransactionManager.execute("Dissolution de Nid", async (mongoSession, neo4jTx) => {
-      const projects = await ProjectModel.find({ ownerUid: teamUid }).session(mongoSession);
-      const projectUids = projects.map(p => p.uid);
-      const tasks = await TaskModel.find({ projectUid: { $in: projectUids } }).session(mongoSession);
+      // Ajout de .lean() pour accélérer la lecture des documents
+      const projects = await ProjectModel.find({ ownerUid: teamUid }).session(mongoSession).lean();
+      const projectUids = projects.map((p: any) => p.uid);
+      const tasks = await TaskModel.find({ projectUid: { $in: projectUids } }).session(mongoSession).lean();
 
-      for (const task of tasks) {
-        if (task.documents) {
-          for (const doc of task.documents) {
-            try { await this.storageService.deleteFile(this.storageService.extractKeyFromUrl(doc.url)); } catch {}
-          }
+      // 1. Rassemblement de toutes les clés de fichiers à incinérer
+      const filesToDelete: string[] = [];
+      [...tasks, ...projects].forEach((entity: any) => {
+        if (entity.documents && Array.isArray(entity.documents)) {
+          entity.documents.forEach((doc: any) => {
+            if (doc.url) {
+              filesToDelete.push(this.storageService.extractKeyFromUrl(doc.url));
+            }
+          });
         }
-      }
-      for (const project of projects) {
-        if (project.documents) {
-          for (const doc of project.documents) {
-            try { await this.storageService.deleteFile(this.storageService.extractKeyFromUrl(doc.url)); } catch {}
+      });
+
+      // 2. Parallélisation massive de la purge physique S3/R2
+      await Promise.all(
+        filesToDelete.map(async (key) => {
+          try {
+            await this.storageService.deleteFile(key);
+          } catch (err) {
+            console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
           }
-        }
-      }
+        })
+      );
 
       if (projectUids.length > 0) {
         await TaskModel.deleteMany({ projectUid: { $in: projectUids } }, { session: mongoSession });

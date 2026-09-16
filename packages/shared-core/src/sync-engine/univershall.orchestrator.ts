@@ -3,7 +3,7 @@ import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
-import { slugify } from '@/lib/slugify'; // Import de l'utilitaire global de slugification
+import { generateSlug } from '../utils/string.engine'; // 👈 Utilisation du moteur interne
 
 export interface UniversHallSyncResult {
   success: boolean;
@@ -46,7 +46,7 @@ export class UniversHallOrchestrator {
       const beaconUid = data.uid || `beacon_${randomUUID()}`;
       
       // Sécurisation de l'unicité du slug via l'utilitaire global
-      const baseSlug = slugify(data.slug || data.title);
+      const baseSlug = generateSlug(data.slug || data.title); // 👈 Changement ici
       let finalSlug = baseSlug;
       let slugExists = await UniversHallBeaconModel.findOne({ slug: finalSlug }).session(mongoSession);
       let counter = 1;

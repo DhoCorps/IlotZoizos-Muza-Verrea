@@ -3,14 +3,18 @@ import { SystemGraphDlqModel, getNeo4jDriver } from '@ilot/infrastructure';
 export class DlqRetryOrchestrator {
   /**
    * Tente de rejouer les transactions en échec stockées dans la DLQ.
+   * L'ordre chronologique (FIFO) est strictement respecté.
    */
   static async processDlqBatch(maxRetries: number = 3): Promise<{ processed: number; resolved: number }> {
     console.log(`🌀 [DLQ Worker] Début du balayage des fractures de la Matrice...`);
 
+    // 🛡️ Optimisation Point 6 : Tri chronologique strict (FIFO) pour éviter l'inversion des requêtes
     const pendingEntries = await SystemGraphDlqModel.find({
       status: 'PENDING_RETRY',
       retryCount: { $lt: maxRetries }
-    }).limit(50);
+    })
+    .sort({ timestamp: 1 }) // 👈 On traite toujours les plus anciennes erreurs en premier
+    .limit(50);
 
     let resolvedCount = 0;
     const session = getNeo4jDriver().session();

@@ -206,13 +206,15 @@ export class ProjectOrchestrator {
       `, { allUids });
 
       // 5. Nettoyage asynchrone du stockage S3/R2 (Best effort)
-      for (const key of filesToDelete) {
-        try {
-          await this.storageService.deleteFile(key);
-        } catch (err) {
-          console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
-        }
-      }
+      await Promise.all(
+        filesToDelete.map(async (key) => {
+          try {
+            await this.storageService.deleteFile(key);
+          } catch (err) {
+            console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
+          }
+        })
+      );
       
       return { success: true, status: 'success', purgedCount: allUids.length };
     });

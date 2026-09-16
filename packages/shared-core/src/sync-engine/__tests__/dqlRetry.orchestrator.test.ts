@@ -26,7 +26,9 @@ describe('DlqRetryOrchestrator - Réconciliation de la Matrice', () => {
       save: vi.fn().mockResolvedValue(true)
     };
 
+    // 🛡️ Mise à jour du mock pour inclure le chaînage .sort().limit()
     vi.mocked(SystemGraphDlqModel.find).mockReturnValue({
+      sort: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue([mockEntry])
     } as any);
 
@@ -55,7 +57,9 @@ describe('DlqRetryOrchestrator - Réconciliation de la Matrice', () => {
       save: vi.fn().mockResolvedValue(true)
     };
 
+    // 🛡️ Mise à jour du mock pour inclure le chaînage .sort().limit()
     vi.mocked(SystemGraphDlqModel.find).mockReturnValue({
+      sort: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue([mockEntry])
     } as any);
 

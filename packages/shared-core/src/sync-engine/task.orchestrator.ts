@@ -60,10 +60,13 @@ export class TaskOrchestrator {
     const targetEntityUid = data.connections?.targetEntityUid;
 
     let targetLabel = '';
-    if (targetModule === 'PARTITA') targetLabel = 'Partita';
-    else if (targetModule === 'LETRIN') targetLabel = 'Letter';
-    else if (targetModule === 'SAMPLOTEK') targetLabel = 'Sample';
-    else if (targetModule === 'ABYSS') targetLabel = 'Sujet';
+    if (targetModule) {
+      if (targetModule === 'PARTITA') targetLabel = 'Partita';
+      else if (targetModule === 'LETRIN') targetLabel = 'Letter';
+      else if (targetModule === 'SAMPLOTEK') targetLabel = 'Sample';
+      else if (targetModule === 'ABYSS') targetLabel = 'Sujet';
+      else throw new IlotError("Module cible invalide pour le maillage.", "BAD_REQUEST", 400); // 🛡️ Anti-Injection Cypher
+    }
 
     return await TransactionManager.execute("Fondation d'Atome", async (mongoSession, neo4jTx) => {
              
@@ -204,6 +207,7 @@ export class TaskOrchestrator {
         }
       }
 
+      // 🛡️ Retour au Type Assertion pour bypasser le FlattenMaps de Mongoose
       const updatedTask = await TaskModel.findOneAndUpdate(
         { uid: taskUid },
         mongoUpdate,
@@ -271,10 +275,13 @@ export class TaskOrchestrator {
         const tEntityUid = updates.connections.targetEntityUid;
 
         let tLabel = '';
-        if (tModule === 'PARTITA') tLabel = 'Partita';
-        else if (tModule === 'LETRIN') tLabel = 'Letter';
-        else if (tModule === 'SAMPLOTEK') tLabel = 'Sample';
-        else if (tModule === 'ABYSS') tLabel = 'Sujet';
+        if (tModule) {
+          if (tModule === 'PARTITA') tLabel = 'Partita';
+          else if (tModule === 'LETRIN') tLabel = 'Letter';
+          else if (tModule === 'SAMPLOTEK') tLabel = 'Sample';
+          else if (tModule === 'ABYSS') tLabel = 'Sujet';
+          else throw new IlotError("Module cible invalide pour le maillage.", "BAD_REQUEST", 400); // 🛡️ Anti-Injection Cypher
+        }
 
         // Nettoyage de l'ancien lien
         await neo4jTx.run(`MATCH (t:Task {uid: $taskUid})-[r:RELATES_TO]->() DELETE r`, { taskUid });
@@ -322,17 +329,26 @@ export class TaskOrchestrator {
         DETACH DELETE t
       `, { uidsToPurge });
 
-      const task = await TaskModel.findOne({ uid: taskUid }).session(mongoSession);
-      if (task && task.documents && task.documents.length > 0) {
-        for (const doc of task.documents) {
+      // 🛡️ Optimisation : Ajout de .lean() pour la mémoire
+      const task = await TaskModel.findOne({ uid: taskUid }).session(mongoSession).lean();
+      
+      const filesToDelete: string[] = [];
+      if (task && (task as any).documents && (task as any).documents.length > 0) {
+        (task as any).documents.forEach((doc: any) => {
+          if (doc.url) filesToDelete.push(this.storageService.extractKeyFromUrl(doc.url));
+        });
+      }
+
+      // ⚡ Parallélisation massive de la purge des fichiers (Point 1)
+      await Promise.all(
+        filesToDelete.map(async (key) => {
           try {
-            const key = this.storageService.extractKeyFromUrl(doc.url);
             await this.storageService.deleteFile(key);
           } catch (err) {
-            console.error(`Échec de purge physique pour le document :`, err);
+            console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
           }
-        }
-      }
+        })
+      );
 
       return { success: true, purgedCount: uidsToPurge.length };
     });
@@ -349,6 +365,7 @@ export class TaskOrchestrator {
     const actorCanonicalUid = await this.resolveUserCanonicalUserUidSafe(signature.actorUid);
 
     return await TransactionManager.execute("Validation Pomodoro", async (mongoSession, neo4jTx) => {
+      // 🛡️ Retour au Type Assertion pour bypasser le FlattenMaps de Mongoose
       const updatedTask = await TaskModel.findOneAndUpdate(
         { uid: taskUid },
         { $inc: { "pomodoros.completed": 1 } },

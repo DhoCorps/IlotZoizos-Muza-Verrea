@@ -78,34 +78,29 @@ export class PoetrikOrchestrator {
         throw new IlotError("Échec du tissage du mot dans la Matrice Neo4j.", "INTERNAL_ERROR", 500);
       }
 
-      // 3. Tissage optionnel des relations de rimes et traductions
+      // 3. Tissage optionnel des relations de rimes et traductions (💥 Optimisation UNWIND massive)
       if (data.rhymesWith && data.rhymesWith.length > 0) {
-        for (const rhyme of data.rhymesWith) {
-          await neo4jTx.run(`
-            MATCH (w1:Word { uid: $sourceUid })
-            MATCH (w2:Word { uid: $targetUid })
-            MERGE (w1)-[r:RHYMES_WITH { type: $type, match: $match }]-(w2)
-          `, {
-            sourceUid: savedEntry.uid,
-            targetUid: rhyme.targetUid,
-            type: rhyme.type || 'rich',
-            match: rhyme.match || ''
-          });
-        }
+        await neo4jTx.run(`
+          MATCH (w1:Word { uid: $sourceUid })
+          UNWIND $rhymes AS rhyme
+          MATCH (w2:Word { uid: rhyme.targetUid })
+          MERGE (w1)-[r:RHYMES_WITH { type: coalesce(rhyme.type, 'rich'), match: coalesce(rhyme.match, '') }]-(w2)
+        `, {
+          sourceUid: savedEntry.uid,
+          rhymes: data.rhymesWith
+        });
       }
 
       if (data.translations && data.translations.length > 0) {
-        for (const trans of data.translations) {
-          await neo4jTx.run(`
-            MATCH (w1:Word { uid: $sourceUid })
-            MATCH (w2:Word { uid: $targetUid })
-            MERGE (w1)-[:TRANSLATES_TO { lang: $lang }]-(w2)
-          `, {
-            sourceUid: savedEntry.uid,
-            targetUid: trans.targetUid,
-            lang: trans.lang
-          });
-        }
+        await neo4jTx.run(`
+          MATCH (w1:Word { uid: $sourceUid })
+          UNWIND $translations AS trans
+          MATCH (w2:Word { uid: trans.targetUid })
+          MERGE (w1)-[:TRANSLATES_TO { lang: trans.lang }]-(w2)
+        `, {
+          sourceUid: savedEntry.uid,
+          translations: data.translations
+        });
       }
 
       return {

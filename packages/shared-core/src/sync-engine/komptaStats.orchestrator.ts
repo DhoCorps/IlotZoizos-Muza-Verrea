@@ -87,41 +87,42 @@ export class KomptaStatsEngine {
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1);
 
-    // 1. Top Vendeurs (Agrégation multi-devises)
-    const rawSellers = await LedgerEntryModel.aggregate([
-      { $match: { createdAt: { $gte: startDate, $lt: endDate }, type: 'CREDIT', category: 'STORE_SALE' } },
-      { $group: { _id: { ownerUid: '$ownerUid', currency: '$currency' }, totalVolume: { $sum: '$amountCents' } } }
+    // 🚀 PARALLÉLISATION MASSIVE : On lance toutes les agrégations en même temps
+    const [rawSellers, rawBuyers, mostCommented, mostReactive, rawMacro] = await Promise.all([
+      // 1. Top Vendeurs (Agrégation multi-devises)
+      LedgerEntryModel.aggregate([
+        { $match: { createdAt: { $gte: startDate, $lt: endDate }, type: 'CREDIT', category: 'STORE_SALE' } },
+        { $group: { _id: { ownerUid: '$ownerUid', currency: '$currency' }, totalVolume: { $sum: '$amountCents' } } }
+      ]),
+      // 2. Top Acheteurs / Mécènes (Agrégation multi-devises)
+      LedgerEntryModel.aggregate([
+        { $match: { createdAt: { $gte: startDate, $lt: endDate }, type: 'DEBIT', category: { $in: ['STORE_PURCHASE', 'TIP'] } } },
+        { $group: { _id: { ownerUid: '$ownerUid', currency: '$currency' }, totalVolume: { $sum: '$amountCents' } } }
+      ]),
+      // 3. L'Oiseau Écho (Commentaires)
+      CommentModel.aggregate([
+        { $match: { createdAt: { $gte: startDate, $lt: endDate } } },
+        { $group: { _id: '$targetOwnerUid', commentCount: { $sum: 1 } } },
+        { $sort: { commentCount: -1 } },
+        { $limit: 5 }
+      ]),
+      // 4. L'Oiseau Réactif (Réactions)
+      ReactionModel.aggregate([
+        { $match: { createdAt: { $gte: startDate, $lt: endDate } } },
+        { $group: { _id: '$senderUid', reactionCount: { $sum: 1 } } },
+        { $sort: { reactionCount: -1 } },
+        { $limit: 5 }
+      ]),
+      // 5. Macro Totaux financiers (Sécurisés par devise)
+      LedgerEntryModel.aggregate([
+        { $match: { createdAt: { $gte: startDate, $lt: endDate } } },
+        { $group: { _id: '$currency', totalVolume: { $sum: '$amountCents' }, transactionCount: { $sum: 1 } } }
+      ])
     ]);
+
+    // Résolution des classements universels
     const topSellers = this.rankByUniversalEnergy(rawSellers);
-
-    // 2. Top Acheteurs / Mécènes (Agrégation multi-devises)
-    const rawBuyers = await LedgerEntryModel.aggregate([
-      { $match: { createdAt: { $gte: startDate, $lt: endDate }, type: 'DEBIT', category: { $in: ['STORE_PURCHASE', 'TIP'] } } },
-      { $group: { _id: { ownerUid: '$ownerUid', currency: '$currency' }, totalVolume: { $sum: '$amountCents' } } }
-    ]);
     const topBuyers = this.rankByUniversalEnergy(rawBuyers);
-
-    // 3. L'Oiseau Écho (Commentaires)
-    const mostCommented = await CommentModel.aggregate([
-      { $match: { createdAt: { $gte: startDate, $lt: endDate } } },
-      { $group: { _id: '$targetOwnerUid', commentCount: { $sum: 1 } } },
-      { $sort: { commentCount: -1 } },
-      { $limit: 5 }
-    ]);
-
-    // 4. L'Oiseau Réactif (Réactions)
-    const mostReactive = await ReactionModel.aggregate([
-      { $match: { createdAt: { $gte: startDate, $lt: endDate } } },
-      { $group: { _id: '$senderUid', reactionCount: { $sum: 1 } } },
-      { $sort: { reactionCount: -1 } },
-      { $limit: 5 }
-    ]);
-
-    // 5. Macro Totaux financiers (Sécurisés par devise)
-    const rawMacro = await LedgerEntryModel.aggregate([
-      { $match: { createdAt: { $gte: startDate, $lt: endDate } } },
-      { $group: { _id: '$currency', totalVolume: { $sum: '$amountCents' }, transactionCount: { $sum: 1 } } }
-    ]);
 
     const macroTotals: MacroTotals = rawMacro.reduce((acc, curr) => {
       if (curr._id) {

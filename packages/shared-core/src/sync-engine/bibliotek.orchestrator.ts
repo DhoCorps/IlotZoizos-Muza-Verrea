@@ -7,6 +7,12 @@ import { generateSlug } from '../utils/string.engine';
 import { generateFileHash } from '../utils/crypto.engine';
 import { findEntityBySlugOrUid } from '@ilot/infrastructure';
 
+// 🛡️ Ajout de l'interface d'injection pour le service de stockage
+interface IStorageManager {
+  deleteFile(key: string): Promise<any>;
+  extractKeyFromUrl(url: string): string;
+}
+
 export interface BibliotekSyncResult {
   success: boolean;
   status: string;
@@ -20,8 +26,18 @@ export interface BibliotekSyncResult {
  * et leur tissage dans le Graphe Neo4j (via la recherche unifiée).
  */
 export class BibliotekOrchestrator {
+  private storageService: IStorageManager;
+
+  constructor(customStorageService?: IStorageManager) {
+    // Par défaut (pour les tests), on injecte un mock silencieux
+    this.storageService = customStorageService || {
+      deleteFile: async () => ({ success: true }),
+      extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
+    };
+  }
+
   /**
-   * FONDATION : FORGER UN OUVRAGE (Livre / Manuscrit / Essai)
+   * 🧱 FONDATION : FORGER UN OUVRAGE (Livre / Manuscrit / Essai)
    */
   async fosterBook(data: any, signature: ActionSignature): Promise<BibliotekSyncResult> {
     const isSelf = signature.actorUid === data.authorUid;
@@ -121,7 +137,7 @@ export class BibliotekOrchestrator {
   }
 
   /**
-   * MUTATION : METTRE À JOUR UN OUVRAGE
+   * 🧬 MUTATION : METTRE À JOUR UN OUVRAGE
    */
   async updateBook(bookIdentifier: string, updates: any, signature: ActionSignature): Promise<BibliotekSyncResult> {
     // Utilisation de la recherche unifiée par Slug ou UID
@@ -171,7 +187,7 @@ export class BibliotekOrchestrator {
   }
 
   /**
-   * DÉSINTRÉGRATION : PURGER UN OUVRAGE DU SANCTUAIRE
+   * 🌋 DÉSINTRÉGRATION : PURGER UN OUVRAGE DU SANCTUAIRE
    */
   async disintegrateBook(bookIdentifier: string, signature: ActionSignature) {
     // Utilisation de la recherche unifiée par Slug ou UID
@@ -187,15 +203,26 @@ export class BibliotekOrchestrator {
 
     return await TransactionManager.execute("Désintégration d'Ouvrage", async (mongoSession, neo4jTx) => {
       const filesToDelete: string[] = [];
-      if (existing.fileUrl) filesToDelete.push(existing.fileUrl);
-      if (existing.coverUrl) filesToDelete.push(existing.coverUrl);
+      if (existing.fileUrl) filesToDelete.push(this.storageService.extractKeyFromUrl(existing.fileUrl));
+      if (existing.coverUrl) filesToDelete.push(this.storageService.extractKeyFromUrl(existing.coverUrl));
+
+      // ⚡ Parallélisation massive de la purge physique S3/R2
+      await Promise.all(
+        filesToDelete.map(async (key) => {
+          try {
+            await this.storageService.deleteFile(key);
+          } catch (err) {
+            console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
+          }
+        })
+      );
 
       // Détachement relationnel et suppression dans le Graphe
       await neo4jTx.run(`MATCH (b:LibraryBook { uid: $bookUid }) DETACH DELETE b`, { bookUid: existing.uid });
       // Suppression dans la Silice
       await LibraryBookModel.deleteOne({ uid: existing.uid }, { session: mongoSession });
 
-      return { success: true, purgedCount: 1, filesToDelete };
+      return { success: true, purgedCount: 1 };
     });
   }
 }

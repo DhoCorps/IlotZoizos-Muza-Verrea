@@ -136,21 +136,28 @@ export class MonthlyStatsOrchestrator {
       // 6. MESSAGES PRIVÉS : Chuchotements aux Lauréats (avec résolution unifiée)
       const rewardedUids = Array.from(new Set(awardedRewards.map(r => r.ownerUid)));
 
-      for (const uid of rewardedUids) {
-        const oiseau = await findEntityBySlugOrUid(OiseauModel, uid);
-        if (!oiseau) continue;
+      // ⚡ Parallélisation massive de l'envoi des messages
+      await Promise.all(
+        rewardedUids.map(async (uid) => {
+          try {
+            const oiseau = await findEntityBySlugOrUid(OiseauModel, uid);
+            if (!oiseau) return;
 
-        const userRewards = awardedRewards.filter(r => r.ownerUid === uid);
-        const auras = userRewards.map(r => r.metadata?.aura).join(' et ');
+            const userRewards = awardedRewards.filter(r => r.ownerUid === uid);
+            const auras = userRewards.map(r => r.metadata?.aura).join(' et ');
 
-        await this.messageService.sendMessage({
-          conversationSlug: `private-${uid}`,
-          senderSlug: 'SYSTEM_CANOPY_ROOT',
-          content: `L'Îlot a entendu ton chant. Pour ce cycle de ${yearMonth}, tu as été adoubé(e) et l'aura "${auras}" t'enveloppe désormais. Tes récompenses symbiotiques ont été liées dans ton inventaire de Silice.`,
-          attachments: [],
-          replyToSlug: ''
-        });
-      }
+            await this.messageService.sendMessage({
+              conversationSlug: `private-${uid}`,
+              senderSlug: 'SYSTEM_CANOPY_ROOT',
+              content: `L'Îlot a entendu ton chant. Pour ce cycle de ${yearMonth}, tu as été adoubé(e) et l'aura "${auras}" t'enveloppe désormais. Tes récompenses symbiotiques ont été liées dans ton inventaire de Silice.`,
+              attachments: [],
+              replyToSlug: ''
+            });
+          } catch (err) {
+            console.error(`  [Orchestrator] Échec de l'envoi du message privé au lauréat ${uid} :`, err);
+          }
+        })
+      );
 
       return {
         success: true,

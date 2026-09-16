@@ -120,7 +120,14 @@ export class OiseauOrchestrator {
       const updatePayload: Record<string, any> = {};
       if (oiseauData.pseudo) updatePayload.pseudo = oiseauData.pseudo;
       if (oiseauData.frequenceHEX) updatePayload.frequenceHEX = oiseauData.frequenceHEX;
-      if (oiseauData.capabilities !== undefined) updatePayload.capabilities = oiseauData.capabilities;
+      
+      // 🛡️ CORRECTION CYBERSÉCURITÉ : Prévention d'élévation de privilèges
+      if (oiseauData.capabilities !== undefined) {
+        if (!hasGlobalPower) {
+          throw new IlotError("Tentative d'élévation de privilèges détectée.", "FORBIDDEN", 403);
+        }
+        updatePayload.capabilities = oiseauData.capabilities;
+      }
 
       const updatedMongo = await OiseauModel.findOneAndUpdate(
         { uid: targetCanonicalUid },
@@ -158,7 +165,7 @@ export class OiseauOrchestrator {
     });
   }
 
-  /**
+/**
    * 💀 L'EXIL (Désintégration Totale et Libération)
    */
   async exileOiseau(
@@ -181,20 +188,28 @@ export class OiseauOrchestrator {
       const allTasks = await TaskModel.find({ creatorUid: targetCanonicalUid }).session(mongoSession).lean();
       const allProjects = await ProjectModel.find({ creatorUid: targetCanonicalUid }).session(mongoSession).lean();
 
-      for (const task of allTasks) {
-        if ((task as any).documents) {
-          for (const doc of (task as any).documents) {
-            try { await this.storageService.deleteFile(this.storageService.extractKeyFromUrl(doc.url)); } catch {}
-          }
+      // 1. Rassemblement de toutes les clés de fichiers à incinérer
+      const filesToDelete: string[] = [];
+      [...allTasks, ...allProjects].forEach((entity: any) => {
+        if (entity.documents && Array.isArray(entity.documents)) {
+          entity.documents.forEach((doc: any) => {
+            if (doc.url) {
+              filesToDelete.push(this.storageService.extractKeyFromUrl(doc.url));
+            }
+          });
         }
-      }
-      for (const proj of allProjects) {
-        if ((proj as any).documents) {
-          for (const doc of (proj as any).documents) {
-            try { await this.storageService.deleteFile(this.storageService.extractKeyFromUrl(doc.url)); } catch {}
+      });
+
+      // 2. Parallélisation massive de la purge physique S3/R2
+      await Promise.all(
+        filesToDelete.map(async (key) => {
+          try {
+            await this.storageService.deleteFile(key);
+          } catch (err) {
+            console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
           }
-        }
-      }
+        })
+      );
 
       // Nettoyage relationnel massif via l'index strict sur le canonicalUid
       const cypher = `
