@@ -49,6 +49,8 @@ export class OiseauOrchestrator {
     const hashedPassword = await bcrypt.hash(birdData.password, 10);
 
     return await TransactionManager.execute("Éclosion d'Oiseau", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
       
       const newOiseauData = {
         uid,
@@ -64,20 +66,25 @@ export class OiseauOrchestrator {
           CAPABILITIES.FILE.UPLOAD, CAPABILITIES.FILE.READ, CAPABILITIES.FILE.UPDATE, CAPABILITIES.FILE.DOWNLOAD, CAPABILITIES.FILE.BURN
         ], 
         sanctuaireVerrouille: false,
-        entropieActive: 100 
+        entropieActive: 100,
+        dates: {
+          createdAt: now,
+          updatedAt: now
+        }
       };
 
       // 1. Persistance Documentaire (Silice)
       const [nouvelOiseau] = await OiseauModel.create([newOiseauData], { session: mongoSession });
 
-      // 2. Propagation Neo4j par ID strict
+      // 2. Propagation Neo4j par ID strict avec la date synchronisée
       const cypher = `
         CREATE (u:User {
             uid: $uid,
             pseudo: $pseudo,
             frequenceHEX: $frequenceHEX,
             capabilities: $capabilities,
-            createdAt: datetime()
+            createdAt: datetime($now),
+            updatedAt: datetime($now)
         })
         RETURN u
       `;
@@ -86,7 +93,8 @@ export class OiseauOrchestrator {
         uid: newOiseauData.uid,
         pseudo: newOiseauData.pseudo,
         frequenceHEX: newOiseauData.frequenceHEX,
-        capabilities: newOiseauData.capabilities
+        capabilities: newOiseauData.capabilities,
+        now: now.toISOString()
       });
 
       return { 
@@ -117,6 +125,9 @@ export class OiseauOrchestrator {
     }
 
     return await TransactionManager.execute("L'Envol de l'Oiseau", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const updatePayload: Record<string, any> = {};
       if (oiseauData.pseudo) updatePayload.pseudo = oiseauData.pseudo;
       if (oiseauData.frequenceHEX) updatePayload.frequenceHEX = oiseauData.frequenceHEX;
@@ -129,6 +140,8 @@ export class OiseauOrchestrator {
         updatePayload.capabilities = oiseauData.capabilities;
       }
 
+      updatePayload['dates.updatedAt'] = now;
+
       const updatedMongo = await OiseauModel.findOneAndUpdate(
         { uid: targetCanonicalUid },
         { $set: updatePayload },
@@ -139,13 +152,13 @@ export class OiseauOrchestrator {
         throw new IlotError("Oiseau introuvable dans la Silice", "NOT_FOUND", 404);
       }
 
-      // MATCH indexé strict sur l'UID canonique
+      // MATCH indexé strict sur l'UID canonique avec la date unifiée
       const cypher = `
         MATCH (u:User {uid: $canonicalUid})
         SET u.pseudo = coalesce($pseudo, u.pseudo), 
             u.frequenceHEX = coalesce($frequenceHEX, u.frequenceHEX),
             u.capabilities = coalesce($capabilities, u.capabilities), 
-            u.updatedAt = datetime()
+            u.updatedAt = datetime($now)
         RETURN u
       `;
 
@@ -154,6 +167,7 @@ export class OiseauOrchestrator {
         pseudo: oiseauData.pseudo || null,
         frequenceHEX: oiseauData.frequenceHEX || null,
         capabilities: updatePayload.capabilities !== undefined ? updatePayload.capabilities : null,
+        now: now.toISOString()
       });
 
       return { 
@@ -165,7 +179,7 @@ export class OiseauOrchestrator {
     });
   }
 
-/**
+  /**
    * 💀 L'EXIL (Désintégration Totale et Libération)
    */
   async exileOiseau(
@@ -298,15 +312,21 @@ export class OiseauOrchestrator {
     if (!isSelf && !signature.capabilities.includes('*')) throw new IlotError("Aura insuffisante.", "FORBIDDEN", 403);
 
     return await TransactionManager.execute("Fluctuation d'Oiseau", async (_mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const updateData: Record<string, any> = { entropieActive: entropie };
       if (frequenceHEX) updateData.frequenceHEX = frequenceHEX;
+      updateData['dates.updatedAt'] = now;
 
       const updatedMongo = await OiseauModel.findOneAndUpdate({ uid: targetCanonicalUid }, { $set: updateData }, { new: true }).lean();
       if (!updatedMongo) throw new IlotError("Oiseau introuvable.", "NOT_FOUND", 404);
 
-      if (frequenceHEX) {
-        await neo4jTx.run(`MATCH (u:User {uid: $uid}) SET u.frequenceHEX = $hex, u.updatedAt = datetime()`, { uid: targetCanonicalUid, hex: frequenceHEX });
-      }
+      await neo4jTx.run(`MATCH (u:User {uid: $uid}) SET u.frequenceHEX = coalesce($hex, u.frequenceHEX), u.updatedAt = datetime($now)`, { 
+        uid: targetCanonicalUid, 
+        hex: frequenceHEX || null,
+        now: now.toISOString() 
+      });
 
       return { success: true, status: 'success', mongo: updatedMongo, neo4j: null };
     });

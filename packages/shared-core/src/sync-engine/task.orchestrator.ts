@@ -69,6 +69,8 @@ export class TaskOrchestrator {
     }
 
     return await TransactionManager.execute("Fondation d'Atome", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
              
       const isCreator = project.creatorUid === actorCanonicalUid;
       const isArchitect = signature.capabilities.includes('*');
@@ -121,15 +123,15 @@ export class TaskOrchestrator {
          },
         metrics: { complexity: Number(data.complexity || 1) },
         dates: { 
-           createdAt: new Date(), 
-           updatedAt: new Date(),
-          scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined
+           createdAt: now, 
+           updatedAt: now,
+           scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined
         }
       }], { session: mongoSession });
 
       const newTask = created[0].toObject() as unknown as ITask;
              
-      // 🕸️ Tissage Neo4j sécurisé avec lien transversal éventuel
+      // 🕸️ Tissage Neo4j sécurisé avec lien transversal éventuel et date synchronisée
       const targetCypher = targetLabel && targetEntityUid ? `
         WITH t
         CALL {
@@ -150,7 +152,8 @@ export class TaskOrchestrator {
            slug: $slug,
           name: $name, 
            status: $status, 
-           createdAt: datetime() 
+           createdAt: datetime($now),
+           updatedAt: datetime($now)
          })
                  
         CREATE (t)-[:TASK_OF]->(p)
@@ -180,7 +183,8 @@ export class TaskOrchestrator {
         slug: (newTask as any).slug || taskSlug,
         name: title,
         status: newTask.status,
-        targetEntityUid: targetEntityUid || null
+        targetEntityUid: targetEntityUid || null,
+        now: now.toISOString()
       });
 
       return newTask;
@@ -197,8 +201,10 @@ export class TaskOrchestrator {
     const taskUid = (task as any).uid;
 
     return await TransactionManager.execute("Mutation Atome (Atomique)", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
              
-      const mongoUpdate: any = { $set: { ...updates, "dates.updatedAt": new Date() } };
+      const mongoUpdate: any = { $set: { ...updates, "dates.updatedAt": now } };
              
       if (updates.dates) {
         delete mongoUpdate.$set.dates;
@@ -216,9 +222,9 @@ export class TaskOrchestrator {
 
       if (!updatedTask) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
 
-      // Mutation ciblée Neo4j
-      let cypherQuery = `MATCH (t:Task { uid: $taskUid }) SET t.updatedAt = datetime()`;
-      let cypherParams: any = { taskUid };
+      // Mutation ciblée Neo4j avec date synchronisée
+      let cypherQuery = `MATCH (t:Task { uid: $taskUid }) SET t.updatedAt = datetime($now)`;
+      let cypherParams: any = { taskUid, now: now.toISOString() };
 
       if (updates.status) {
         cypherQuery += `, t.status = $status`;
@@ -264,7 +270,7 @@ export class TaskOrchestrator {
               UNWIND $uids AS birdUid
               MATCH (u:User {uid: birdUid})
               MERGE (u)-[:ASSIGNED_TO]->(t)`,
-             { taskUid, uids }
+            { taskUid, uids }
            );
          }
       }
@@ -365,10 +371,16 @@ export class TaskOrchestrator {
     const actorCanonicalUid = await this.resolveUserCanonicalUserUidSafe(signature.actorUid);
 
     return await TransactionManager.execute("Validation Pomodoro", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       // 🛡️ Retour au Type Assertion pour bypasser le FlattenMaps de Mongoose
       const updatedTask = await TaskModel.findOneAndUpdate(
         { uid: taskUid },
-        { $inc: { "pomodoros.completed": 1 } },
+        { 
+          $inc: { "pomodoros.completed": 1 },
+          $set: { "dates.updatedAt": now } 
+        },
         { new: true, session: mongoSession }
       ).lean() as unknown as ITask;
 
@@ -378,14 +390,15 @@ export class TaskOrchestrator {
         MATCH (u:User {uid: $actorUid})
         MATCH (t:Task {uid: $taskUid})
         MERGE (u)-[r:FOCUSED_ON]->(t)
-        ON CREATE SET r.cycles = 1, r.lastFocus = datetime()
-        ON MATCH SET r.cycles = r.cycles + 1, r.lastFocus = datetime()
+        ON CREATE SET r.cycles = 1, r.lastFocus = datetime($now)
+        ON MATCH SET r.cycles = r.cycles + 1, r.lastFocus = datetime($now)
         RETURN r.cycles AS totalCycles
       `;
              
       await neo4jTx.run(cypher, { 
          actorUid: actorCanonicalUid, 
-         taskUid 
+         taskUid,
+         now: now.toISOString()
        });
 
       return updatedTask;

@@ -29,25 +29,32 @@ export class UniversalMediaOrchestrator {
     const actorCanonicalUid = signature.actorUid;
 
     return await TransactionManager.execute("Fondation d'Asset Universel", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const mediaId = (data.mediaId as string) || `media_${randomUUID()}`;
 
       const newMediaData = {
         ...data,
         mediaId,
         creatorUid: actorCanonicalUid,
+        dates: {
+          createdAt: now,
+          updatedAt: now
+        }
       };
 
       // 1. Sédimentation dans la Silice (MongoDB)
       const [newMedia] = await UniversalMediaModel.create([newMediaData], { session: mongoSession });
 
-      // 2. Tissage dans le Graphe (Neo4j)
+      // 2. Tissage dans le Graphe (Neo4j) avec l'horodatage synchronisé
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (m:UniversalMedia { 
            mediaId: $mediaId, 
            type: $type, 
            sourceApp: $sourceApp, 
-           createdAt: datetime() 
+           createdAt: datetime($now) 
         })
         CREATE (u)-[:CREATED]->(m)
         RETURN m
@@ -57,7 +64,8 @@ export class UniversalMediaOrchestrator {
         actorUid: actorCanonicalUid,
         mediaId: newMedia.mediaId,
         type: newMedia.type,
-        sourceApp: newMedia.sourceApp
+        sourceApp: newMedia.sourceApp,
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) {

@@ -33,6 +33,9 @@ export class MonthlyStatsOrchestrator {
     }
 
     return await TransactionManager.execute("Moisson de la Canopée", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now' pour toute l'exécution de la moisson
+      const now = new Date();
+
       // 1. Extraction des flux énergétiques de la Silice
       const stats = await KomptaStatsEngine.calculateMonthlyStats(yearMonth);
       const awardedRewards: any[] = [];
@@ -46,6 +49,8 @@ export class MonthlyStatsOrchestrator {
           month: yearMonth,
           isTradable: true,
           isConsumed: false,
+          createdAt: now,
+          updatedAt: now,
           metadata: { renewallBonus: 'SILICE_GOLD_BOOST', multiplier: 1.5, aura: 'Lumière Créatrice' }
         });
       }
@@ -58,6 +63,8 @@ export class MonthlyStatsOrchestrator {
           month: yearMonth,
           isTradable: true,
           isConsumed: false,
+          createdAt: now,
+          updatedAt: now,
           metadata: { renewallBonus: 'LUCK_FACTOR_BOOST', rate: 1.3, aura: 'Vent Porteur' }
         });
       }
@@ -70,6 +77,8 @@ export class MonthlyStatsOrchestrator {
           month: yearMonth,
           isTradable: false,
           isConsumed: false,
+          createdAt: now,
+          updatedAt: now,
           metadata: { renewallBonus: 'EXTENDED_CHAT_RANGE', radius: 50, aura: 'Écho Profond' }
         });
       }
@@ -82,6 +91,8 @@ export class MonthlyStatsOrchestrator {
           month: yearMonth,
           isTradable: false,
           isConsumed: false,
+          createdAt: now,
+          updatedAt: now,
           metadata: { renewallBonus: 'KARMA_SHIELD', charges: 3, aura: 'Chaleur Partagée' }
         });
       }
@@ -99,7 +110,7 @@ export class MonthlyStatsOrchestrator {
             type: $type,
             month: $month,
             aura: $aura,
-            awardedAt: datetime()
+            awardedAt: datetime($now)
           })
           CREATE (u)-[:EARNED_REWARD]->(r)
         `;
@@ -107,7 +118,8 @@ export class MonthlyStatsOrchestrator {
           ownerUid: reward.ownerUid,
           type: reward.type,
           month: yearMonth,
-          aura: reward.metadata?.aura || 'Mystère'
+          aura: reward.metadata?.aura || 'Mystère',
+          now: now.toISOString()
         });
       }
 

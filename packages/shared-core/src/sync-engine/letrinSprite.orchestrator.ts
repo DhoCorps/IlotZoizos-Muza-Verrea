@@ -50,6 +50,8 @@ export class LetrinSpriteOrchestrator {
     const authorCanonicalUid = await this.resolveCanonicalUid(fontData.authorUid);
 
     return await TransactionManager.execute("Sédimentation Police Sprite Letr'In", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
       
       // 2. Persistance des matrices et données graphiques dans la Silice (MongoDB)
       const savedFontInMongo = await FontModel.findOneAndUpdate(
@@ -62,22 +64,21 @@ export class LetrinSpriteOrchestrator {
             gridSize: fontData.gridSize,
             glyphs: fontData.glyphs, // MongoDB sauvegarde nativement l'UTF-8
             status: fontStatus,
-            'dates.updatedAt': new Date()
+            'dates.updatedAt': now
           },
           $setOnInsert: {
-            'dates.createdAt': new Date()
+            'dates.createdAt': now
           }
         },
         { upsert: true, new: true, session: mongoSession }
       ).lean();
 
-      // 3. Sédimentation du nœud typographique léger dans le Graphe (Neo4j)
-      // On utilise un MATCH strict sur u:User pour lier la police à son créateur
+      // 3. Sédimentation du nœud typographique léger dans le Graphe (Neo4j) avec l'horodatage synchronisé
       const cypher = `
         MATCH (u:User { uid: $authorUid })
         MERGE (l:Letter { uid: $uid })
-        ON CREATE SET l.createdAt = datetime()
-        SET l.name = $name, l.slug = $slug, l.status = $status, l.updatedAt = datetime()
+        ON CREATE SET l.createdAt = datetime($now)
+        SET l.name = $name, l.slug = $slug, l.status = $status, l.updatedAt = datetime($now)
         MERGE (u)-[:CREATED_FONT]->(l)
         RETURN l.uid AS uid
       `;
@@ -87,7 +88,8 @@ export class LetrinSpriteOrchestrator {
         uid: fontData.uid,
         name: fontData.name,
         slug: fontData.slug,
-        status: fontStatus
+        status: fontStatus,
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) {

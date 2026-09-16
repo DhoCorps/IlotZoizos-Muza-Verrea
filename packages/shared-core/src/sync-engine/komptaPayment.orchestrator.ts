@@ -73,6 +73,9 @@ export class KomptaPaymentOrchestrator {
     }
 
     const result = await TransactionManager.execute("Transfert Direct P2P & Kompta", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const senderWallet = await WalletModel.findOne({ userId: payload.senderUid }).session(mongoSession);
       if (!senderWallet) {
         throw new IlotError("Portefeuille de l'expéditeur introuvable dans la Silice.", "NOT_FOUND", 404);
@@ -95,8 +98,8 @@ export class KomptaPaymentOrchestrator {
       senderWallet.balance -= payload.amountCents;
       recipientWallet.balance += payload.amountCents;
 
-      senderWallet.updatedAt = new Date();
-      recipientWallet.updatedAt = new Date();
+      senderWallet.updatedAt = now;
+      recipientWallet.updatedAt = now;
 
       await senderWallet.save({ session: mongoSession });
       await recipientWallet.save({ session: mongoSession });
@@ -111,6 +114,7 @@ export class KomptaPaymentOrchestrator {
         category: 'SYSTEM_TRANSFER',
         referenceUid: payload.transferUid,
         description: payload.description || 'Transfert P2P sortant',
+        createdAt: now,
         session: mongoSession
       });
 
@@ -124,6 +128,7 @@ export class KomptaPaymentOrchestrator {
         category: 'SYSTEM_TRANSFER',
         referenceUid: payload.transferUid,
         description: payload.description || 'Transfert P2P entrant',
+        createdAt: now,
         session: mongoSession
       });
 
@@ -136,7 +141,7 @@ export class KomptaPaymentOrchestrator {
           currency: $currency,
           sourcePage: $sourcePage,
           description: $description,
-          createdAt: datetime()
+          createdAt: datetime($now)
         })
         CREATE (sender)-[:SENT_PAYMENT]->(t)
         CREATE (t)-[:RECEIVED_PAYMENT]->(recipient)
@@ -150,7 +155,8 @@ export class KomptaPaymentOrchestrator {
         amountCents: payload.amountCents,
         currency: payload.currency,
         sourcePage: payload.sourcePage || 'direct_canopy',
-        description: payload.description || 'Transfert direct 1-clic'
+        description: payload.description || 'Transfert direct 1-clic',
+        now: now.toISOString()
       });
 
       if (!neoResult.records || neoResult.records.length === 0) {
@@ -164,9 +170,13 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    // 🕸️ Tissage de la toile universelle sécurisé (anti-faille Serverless)
+    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle sécurisé par try/catch (anti-faille Serverless)
     if (payload.senderUid !== payload.recipientUid) {
-      await syncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE');
+      try {
+        await syncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE');
+      } catch (err) {
+        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (executeDirectTransfer) :`, err);
+      }
     }
 
     return result;
@@ -197,6 +207,9 @@ export class KomptaPaymentOrchestrator {
     }
 
     const result = await TransactionManager.execute("Transaction Marchande & Redistribution", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const buyerWallet = await WalletModel.findOne({ userId: payload.buyerUid }).session(mongoSession);
       if (!buyerWallet) {
         throw new IlotError("Portefeuille de l'acheteur introuvable dans la Silice.", "NOT_FOUND", 404);
@@ -233,9 +246,9 @@ export class KomptaPaymentOrchestrator {
       recipientWallet.balance += netMerchantAmountCents;
       treasuryWallet.balance += canopyTaxCents;
 
-      buyerWallet.updatedAt = new Date();
-      recipientWallet.updatedAt = new Date();
-      treasuryWallet.updatedAt = new Date();
+      buyerWallet.updatedAt = now;
+      recipientWallet.updatedAt = now;
+      treasuryWallet.updatedAt = now;
 
       await buyerWallet.save({ session: mongoSession });
       await recipientWallet.save({ session: mongoSession });
@@ -251,6 +264,7 @@ export class KomptaPaymentOrchestrator {
         category: 'STORE_PURCHASE',
         referenceUid: payload.transactionUid,
         description: payload.description || 'Achat d\'artefact sur la boutique',
+        createdAt: now,
         session: mongoSession
       });
 
@@ -264,6 +278,7 @@ export class KomptaPaymentOrchestrator {
         category: 'STORE_SALE',
         referenceUid: payload.transactionUid,
         description: `Vente d'artefact (Net après taxe de redistribution)`,
+        createdAt: now,
         session: mongoSession
       });
 
@@ -278,6 +293,7 @@ export class KomptaPaymentOrchestrator {
           category: 'CANOPY_TAX_REVENUE',
           referenceUid: payload.transactionUid,
           description: 'Prélèvement souverain de redistribution (1%)',
+          createdAt: now,
           session: mongoSession
         });
       }
@@ -293,7 +309,7 @@ export class KomptaPaymentOrchestrator {
           currency: $currency,
           sourcePage: $sourcePage,
           description: $description,
-          createdAt: datetime()
+          createdAt: datetime($now)
         })
         CREATE (buyer)-[:PAID_TRANSACTION]->(tx)
         CREATE (tx)-[:CREDITED_TO]->(recipient)
@@ -319,7 +335,8 @@ export class KomptaPaymentOrchestrator {
         currency: payload.currency,
         storeUid: payload.storeUid || null,
         sourcePage: payload.sourcePage || 'canopy_store',
-        description: payload.description || 'Paiement souverain 1-clic'
+        description: payload.description || 'Paiement souverain 1-clic',
+        now: now.toISOString()
       });
 
       if (!neoResult.records || neoResult.records.length === 0) {
@@ -334,8 +351,12 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    // 🕸️ Tissage de la toile universelle sécurisé
-    await syncUniversalInteraction(payload.buyerUid, payload.recipientUid, 'ECOMMERCE');
+    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle sécurisé par try/catch
+    try {
+      await syncUniversalInteraction(payload.buyerUid, payload.recipientUid, 'ECOMMERCE');
+    } catch (err) {
+      console.error(`  [Orchestrator] Échec non bloquant du tissage universel (executeStoreTransaction) :`, err);
+    }
 
     return result;
   }
@@ -360,6 +381,8 @@ export class KomptaPaymentOrchestrator {
     }
 
     const result = await TransactionManager.execute("Troc d'Objet / Création - Chapeau", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
       
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.senderUid,
@@ -371,6 +394,7 @@ export class KomptaPaymentOrchestrator {
         category: 'BARTER',
         referenceUid: payload.exchangeUid,
         description: `Troc de l'artefact [${payload.offeredItemUid}] contre "${payload.targetTitle}"`,
+        createdAt: now,
         session: mongoSession
       });
 
@@ -382,7 +406,7 @@ export class KomptaPaymentOrchestrator {
           offeredItemUid: $offeredItemUid,
           targetTitle: $targetTitle,
           description: $description,
-          createdAt: datetime()
+          createdAt: datetime($now)
         })
         CREATE (sender)-[:OFFERED_CREATION]->(exchange)
         CREATE (exchange)-[:TRANSFERRED_TO]->(recipient)
@@ -395,7 +419,8 @@ export class KomptaPaymentOrchestrator {
         recipientUid: payload.recipientUid,
         offeredItemUid: payload.offeredItemUid,
         targetTitle: payload.targetTitle,
-        description: payload.description || 'Troc universel via le Chapeau'
+        description: payload.description || 'Troc universel via le Chapeau',
+        now: now.toISOString()
       });
 
       if (!neoResult.records || neoResult.records.length === 0) {
@@ -409,8 +434,12 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    // 🕸️ Tissage de la toile universelle sécurisé
-    await syncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE');
+    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle sécurisé par try/catch
+    try {
+      await syncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE');
+    } catch (err) {
+      console.error(`  [Orchestrator] Échec non bloquant du tissage universel (executeItemExchange) :`, err);
+    }
 
     return result;
   }
@@ -434,6 +463,9 @@ export class KomptaPaymentOrchestrator {
     }
 
     return await TransactionManager.execute("Dépôt Externe (Webhook) & Kompta", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       let recipientWallet = await WalletModel.findOne({ userId: recipientUid }).session(mongoSession);
       
       if (!recipientWallet) {
@@ -446,7 +478,7 @@ export class KomptaPaymentOrchestrator {
       }
 
       recipientWallet.balance += payload.amount;
-      recipientWallet.updatedAt = new Date();
+      recipientWallet.updatedAt = now;
       await recipientWallet.save({ session: mongoSession });
 
       await KomptaLedgerService.recordEntry({
@@ -459,6 +491,7 @@ export class KomptaPaymentOrchestrator {
         category: 'EXTERNAL_DEPOSIT',
         referenceUid: payload.id,
         description: `Dépôt externe validé via Webhook (Réf: ${payload.id})`,
+        createdAt: now,
         session: mongoSession
       });
 
@@ -468,7 +501,7 @@ export class KomptaPaymentOrchestrator {
           uid: $depositUid,
           amountCents: $amountCents,
           currency: $currency,
-          createdAt: datetime()
+          createdAt: datetime($now)
         })
         CREATE (d)-[:DEPOSITED_TO]->(recipient)
         RETURN d.uid AS txUid
@@ -478,7 +511,8 @@ export class KomptaPaymentOrchestrator {
         depositUid: payload.id,
         recipientUid: recipientUid,
         amountCents: payload.amount,
-        currency: payload.currency.toUpperCase()
+        currency: payload.currency.toUpperCase(),
+        now: now.toISOString()
       });
 
       if (!neoResult.records || neoResult.records.length === 0) {

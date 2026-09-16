@@ -7,10 +7,10 @@ export interface RecordLedgerParams {
   ownerUid: string;
   counterpartyUid: string;
   amount: number; // Montant brut dans la monnaie souveraine (DHO ou TOX)
-  amountCents?: number; // 👈 AJOUTE CETTE LIGNE ICI (Pour la gestion des paiements fiat/Stripe)
+  amountCents?: number;
   currency: SovereignCurrency;
   type: 'CREDIT' | 'DEBIT';
-  category: 'TIP' | 'STORE_SALE' | 'STORE_PURCHASE' | 'BARTER' | 'SYSTEM_TRANSFER' | 'CANOPY_TAX_REVENUE' | 'BET_WIN' | 'BET_LOSS' |'SUBSIDY' | 'EXTERNAL_DEPOSIT';
+  category: 'TIP' | 'STORE_SALE' | 'STORE_PURCHASE' | 'BARTER' | 'SYSTEM_TRANSFER' | 'CANOPY_TAX_REVENUE' | 'BET_WIN' | 'BET_LOSS' | 'SUBSIDY' | 'EXTERNAL_DEPOSIT';
   referenceUid: string;
   description: string;
   session?: any;
@@ -22,7 +22,7 @@ export class KomptaLedgerService {
    * Enregistre une écriture de manière cryptographiquement inaltérable dans le grand livre souverain
    */
   public static async recordEntry(params: RecordLedgerParams): Promise<void> {
-    const { ownerUid, counterpartyUid, amount, currency, type, category, referenceUid, description, session } = params;
+    const { ownerUid, counterpartyUid, amount, currency, type, category, referenceUid, description, session, createdAt: customCreatedAt } = params;
 
     // 1. Récupérer la dernière écriture de cet oiseau pour le chaînage SHA-256
     let query = LedgerEntryModel.findOne({ ownerUid, currency });
@@ -37,7 +37,9 @@ export class KomptaLedgerService {
     const previousHash = lastEntry ? (lastEntry as any).entryHash : `ROOT_GENESIS_${currency}_HASH`;
 
     const entryUid = `ledger_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-    const createdAt = new Date();
+    
+    // ⏱️ Utilisation du createdAt passé en paramètre s'il existe, sinon fallback sur l'instant présent
+    const createdAt = customCreatedAt || new Date();
 
     // 2. Calculer le hash d'intégrité inaltérable
     const rawDataToHash = `${entryUid}|${ownerUid}|${counterpartyUid}|${amount}|${currency}|${type}|${category}|${referenceUid}|${previousHash}|${createdAt.getTime()}`;

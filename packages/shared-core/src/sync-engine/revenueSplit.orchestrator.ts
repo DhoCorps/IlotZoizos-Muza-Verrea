@@ -58,12 +58,15 @@ export class RevenueSplitOrchestrator {
     }
 
     await TransactionManager.execute("Répartition des Bénéfices de Vente", async (mongoSession, _neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       for (const share of calculatedShares) {
         if (share.percentage <= 0) continue;
 
         const shareAmount = (totalAmount * share.percentage) / 100;
 
-        // Inscription immuable dans le Grand Livre pour chaque bénéficiaire
+        // Inscription immuable dans le Grand Livre avec l'horodatage synchronisé
         await KomptaLedgerService.recordEntry({
           ownerUid: share.beneficiaryUid,
           counterpartyUid: sourceBuyerUid,
@@ -73,6 +76,7 @@ export class RevenueSplitOrchestrator {
           category: 'STORE_SALE',
           referenceUid,
           description: `Part de bénéfice (${share.percentage}%) : ${description}`,
+          createdAt: now,
           session: mongoSession
         });
       }

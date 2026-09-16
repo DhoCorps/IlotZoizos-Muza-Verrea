@@ -69,10 +69,12 @@ export class PartitaOrchestrator {
       : null;
 
     return await TransactionManager.execute("Fondation de Partition", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const partitaUid = data.uid || `partita_${randomUUID()}`;
       const title = data.title || "Partition sans nom";
     
-      
       // 🪡 Sécurisation de l'unicité du slug dans la Silice via l'utilitaire partagé
       let baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
       let finalSlug = baseSlug;
@@ -100,14 +102,18 @@ export class PartitaOrchestrator {
         media: data.media || {},
         settings: data.settings || {},
         // On sauvegarde la théorie dans Mongo pour un accès API rapide
-        theory: bestScale ? { root: bestScale.root, scaleKey: bestScale.scaleKey, score: bestScale.score } : null
+        theory: bestScale ? { root: bestScale.root, scaleKey: bestScale.scaleKey, score: bestScale.score } : null,
+        dates: {
+          createdAt: now,
+          updatedAt: now
+        }
       };
 
       // 1. Sédimentation dans la Silice (MongoDB)
       const [newPartitaDoc] = await PartitaModel.create([newPartitaData], { session: mongoSession });
       const newPartita = newPartitaDoc.toObject() as unknown as IPartita;
 
-      // 2. Tissage dans le Graphe (Neo4j)
+      // 2. Tissage dans le Graphe (Neo4j) avec l'horodatage synchronisé
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (p:Partita { 
@@ -116,7 +122,8 @@ export class PartitaOrchestrator {
            slug: $slug,
            instrument: $instrument,
            status: $status,
-           createdAt: datetime() 
+           createdAt: datetime($now),
+           updatedAt: datetime($now)
         })
         CREATE (u)-[:COMPOSED]->(p)
 
@@ -164,7 +171,8 @@ export class PartitaOrchestrator {
         scaleKey: bestScale?.scaleKey || null,
         scaleName: bestScale?.scaleName || null,
         scaleFlavor: bestScale?.flavor || null,
-        scaleScore: bestScale?.score || null
+        scaleScore: bestScale?.score || null,
+        now: now.toISOString()
       });
 
       // 🛡️ VERROU DE SÉCURITÉ : Vérification de la création effective
@@ -194,6 +202,9 @@ export class PartitaOrchestrator {
     }
 
     return await TransactionManager.execute("Mutation de Partition", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       // 🧮 Refaire la détection si le contenu a changé
       let theoryUpdate = {};
       let bestScale = null;
@@ -204,7 +215,11 @@ export class PartitaOrchestrator {
           theoryUpdate = { theory: bestScale ? { root: bestScale.root, scaleKey: bestScale.scaleKey, score: bestScale.score } : null };
       }
 
-      const finalUpdates = { ...updates, ...theoryUpdate };
+      const finalUpdates = { 
+        ...updates, 
+        ...theoryUpdate, 
+        'dates.updatedAt': now 
+      };
 
       const updatedPartita = await PartitaModel.findOneAndUpdate(
         { uid: (existing as any).uid },
@@ -219,7 +234,7 @@ export class PartitaOrchestrator {
           SET p.title = coalesce($title, p.title),
               p.status = coalesce($status, p.status),
               p.instrument = coalesce($instrument, p.instrument),
-              p.updatedAt = datetime()
+              p.updatedAt = datetime($now)
           
           WITH p
           OPTIONAL MATCH (p)-[r:OFFERS_PRODUCT]->(oldProd:Product)
@@ -259,7 +274,8 @@ export class PartitaOrchestrator {
           scaleKey: bestScale?.scaleKey || null,
           scaleName: bestScale?.scaleName || null,
           scaleFlavor: bestScale?.flavor || null,
-          scaleScore: bestScale?.score || null
+          scaleScore: bestScale?.score || null,
+          now: now.toISOString()
         });
 
         if (neoResult.records.length === 0) {

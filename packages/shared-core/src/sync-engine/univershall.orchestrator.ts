@@ -43,10 +43,13 @@ export class UniversHallOrchestrator {
     }
 
     return await TransactionManager.execute("Plantation de Balise Univers'Hall", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const beaconUid = data.uid || `beacon_${randomUUID()}`;
       
       // Sécurisation de l'unicité du slug via l'utilitaire global
-      const baseSlug = generateSlug(data.slug || data.title); // 👈 Changement ici
+      const baseSlug = generateSlug(data.slug || data.title);
       let finalSlug = baseSlug;
       let slugExists = await UniversHallBeaconModel.findOne({ slug: finalSlug }).session(mongoSession);
       let counter = 1;
@@ -67,13 +70,17 @@ export class UniversHallOrchestrator {
         summary: data.summary || '',
         tags: data.tags || [],
         resonanceScore: data.resonanceScore || 0,
-        metadata: data.metadata || {}
+        metadata: data.metadata || {},
+        dates: {
+          createdAt: now,
+          updatedAt: now
+        }
       };
 
       // 1. Sédimentation dans la Silice (MongoDB)
       const [newBeacon] = await UniversHallBeaconModel.create([beaconData], { session: mongoSession });
 
-      // 2. Tissage dans le Graphe (Neo4j) en reliant l'Auteur à la Balise et au Module
+      // 2. Tissage dans le Graphe (Neo4j) en reliant l'Auteur à la Balise et au Module avec date unifiée
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (b:AgoraBeacon {
@@ -82,7 +89,8 @@ export class UniversHallOrchestrator {
           title: $title,
           slug: $slug,
           resonanceScore: $resonanceScore,
-          createdAt: datetime()
+          createdAt: datetime($now),
+          updatedAt: datetime($now)
         })
         CREATE (u)-[:PLANTED_BEACON]->(b)
         RETURN b
@@ -94,7 +102,8 @@ export class UniversHallOrchestrator {
         sourceModule: newBeacon.sourceModule,
         title: newBeacon.title,
         slug: newBeacon.slug,
-        resonanceScore: newBeacon.resonanceScore
+        resonanceScore: newBeacon.resonanceScore,
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) {

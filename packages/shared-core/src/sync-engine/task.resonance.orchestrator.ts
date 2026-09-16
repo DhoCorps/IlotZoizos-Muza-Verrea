@@ -64,29 +64,33 @@ export class TaskResonanceOrchestrator {
         const totalResonance = TaskResonanceOrchestrator.calculateBatchResonance(taskInputs);
 
         return await TransactionManager.execute("Résonance d'Atomes", async (mongoSession, neo4jTx) => {
-            // 2. Mise à jour dans MongoDB
+            // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+            const now = new Date();
+
+            // 2. Mise à jour dans MongoDB avec date synchronisée
             const updatedUser = await OiseauModel.findOneAndUpdate(
                 { uid: canonicalUid },
                 { 
                     $set: { 
                         'metrics.totalResonance': totalResonance,
-                        'dates.updatedAt': new Date()
+                        'dates.updatedAt': now
                     } 
                 },
                 { new: true, session: mongoSession }
             ).lean();
 
-            // 3. Propagation dans Neo4j via l'index strict sur le canonicalUid (Phase 2)
+            // 3. Propagation dans Neo4j via l'index strict sur le canonicalUid et la date unifiée
             const cypher = `
                 MATCH (u:User {uid: $canonicalUid})
                 SET u.totalResonance = $totalResonance,
-                    u.updatedAt = datetime()
+                    u.updatedAt = datetime($now)
                 RETURN u
             `;
 
             const neoResult = await neo4jTx.run(cypher, {
                 canonicalUid,
-                totalResonance
+                totalResonance,
+                now: now.toISOString()
             });
 
             if (neoResult.records.length === 0) {

@@ -32,15 +32,15 @@ export class KomptaStatsEngine {
    * Définit la valeur de chaque énergie de l'Îlot par rapport à un indice universel (ex: 1.0 = 1 centime d'Euro).
    */
   private static readonly EXCHANGE_RATES: Record<string, number> = {
-    'EUR': 1.0,               // Monnaie fiduciaire (Base 1)
-    'TOTAMTOE': 0.1,          // Monnaie de jeu standard
-    'PLUME_SILEX': 0.5,       // Artefact Letr'in
-    'SILLON_VINYLE': 0.5,     // Artefact Partita
-    'ESSENCE_VENT': 2.0,      // Énergie élémentaire rare
+    'EUR': 1.0,                 // Monnaie fiduciaire (Base 1)
+    'TOTAMTOE': 0.1,            // Monnaie de jeu standard
+    'PLUME_SILEX': 0.5,         // Artefact Letr'in
+    'SILLON_VINYLE': 0.5,       // Artefact Partita
+    'ESSENCE_VENT': 2.0,        // Énergie élémentaire rare
     'ATOME_AIR': 1.5,
     'GLUON_FEU': 3.0,
-    'KAOS_ORGANIQUE': 10.0,   // Énergie chaotique de très haute valeur
-    'BARTER': 0.0             // Le troc pur n'a pas de valeur financière spéculative
+    'KAOS_ORGANIQUE': 10.0,     // Énergie chaotique de très haute valeur
+    'BARTER': 0.0               // Le troc pur n'a pas de valeur financière spéculative
   };
 
   /**
@@ -83,6 +83,9 @@ export class KomptaStatsEngine {
    * 🌙 Calcule et agrège toutes les métriques de la canopée pour un mois donné ("YYYY-MM")
    */
   public static async calculateMonthlyStats(yearMonth: string): Promise<MonthlyCanopyStats> {
+    // ⏱️ SYNCHRONISATION DES HORODATAGES : Figer l'instant du calcul des statistiques
+    const now = new Date();
+
     const startDate = new Date(`${yearMonth}-01T00:00:00Z`);
     const endDate = new Date(startDate);
     endDate.setMonth(endDate.getMonth() + 1);

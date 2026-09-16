@@ -37,6 +37,9 @@ export class PoetrikOrchestrator {
     }
 
     return await TransactionManager.execute("Fondation Lexicale Poetrik", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const entryUid = data.uid || `lex_${data.languageCode}_${data.word.toLowerCase()}`;
 
       const lexiconData = {
@@ -46,22 +49,26 @@ export class PoetrikOrchestrator {
         phoneticIpa: data.phoneticIpa,
         syllableCount: data.syllableCount || 1,
         definitions: data.definitions || {},
-        partOfSpeech: data.partOfSpeech || 'noun'
+        partOfSpeech: data.partOfSpeech || 'noun',
+        dates: {
+          createdAt: now,
+          updatedAt: now
+        }
       };
 
       // 1. Sédimentation dans la Silice (MongoDB)
       const [savedEntry] = await LexiconEntryModel.create([lexiconData], { session: mongoSession });
 
-      // 2. Tissage dans le Graphe (Neo4j)
+      // 2. Tissage dans le Graphe (Neo4j) avec l'horodatage synchronisé
       const cypher = `
         MERGE (w:Word { uid: $uid })
-        ON CREATE SET w.createdAt = datetime()
+        ON CREATE SET w.createdAt = datetime($now)
         SET w.word = $word,
             w.languageCode = $languageCode,
             w.phoneticIpa = $phoneticIpa,
             w.syllableCount = $syllableCount,
             w.partOfSpeech = $partOfSpeech,
-            w.updatedAt = datetime()
+            w.updatedAt = datetime($now)
         RETURN w
       `;
 
@@ -71,7 +78,8 @@ export class PoetrikOrchestrator {
         languageCode: savedEntry.languageCode,
         phoneticIpa: savedEntry.phoneticIpa,
         syllableCount: savedEntry.syllableCount,
-        partOfSpeech: savedEntry.partOfSpeech
+        partOfSpeech: savedEntry.partOfSpeech,
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) {

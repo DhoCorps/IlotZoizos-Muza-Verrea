@@ -34,10 +34,13 @@ export class SamplotekOrchestrator {
     const actorCanonicalUid = signature.actorUid;
 
     return await TransactionManager.execute("Fondation Sample", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+      
       const sampleUid = (data.uid as string) || `samp_${randomUUID()}`;
 
       // Sécurisation de l'unicité du slug dans la Silice
-      const baseSlug = generateSlug((data.slug as string) || (data.title as string)); // 👈 Changement ici
+      const baseSlug = generateSlug((data.slug as string) || (data.title as string));
       let finalSlug = baseSlug;
       let slugExists = await SampleModel.findOne({ slug: finalSlug }).session(mongoSession);
       let counter = 1;
@@ -51,13 +54,17 @@ export class SamplotekOrchestrator {
         ...data,
         uid: sampleUid,
         slug: finalSlug,
-        creatorUid: actorCanonicalUid
+        creatorUid: actorCanonicalUid,
+        dates: {
+          createdAt: now,
+          updatedAt: now
+        }
       };
 
       // 1. Sédimentation dans la Silice (MongoDB)
       const [newSample] = await SampleModel.create([newSampleData], { session: mongoSession });
 
-      // 2. Tissage dans le Graphe (Neo4j) avec MATCH strict
+      // 2. Tissage dans le Graphe (Neo4j) avec MATCH strict et la date synchronisée
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (s:Sample {
@@ -67,7 +74,7 @@ export class SamplotekOrchestrator {
            tempoBpm: $tempoBpm,
            style: $style,
            digitalSignature: $digitalSignature,
-           createdAt: datetime()
+           createdAt: datetime($now)
         })
         CREATE (u)-[:GRAVED]->(s)
         RETURN s
@@ -80,7 +87,8 @@ export class SamplotekOrchestrator {
         slug: newSample.slug,
         tempoBpm: (newSample as any).tempoBpm || 120,
         style: (newSample as any).style || 'Ambient',
-        digitalSignature: newSample.digitalSignature
+        digitalSignature: newSample.digitalSignature,
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) {
@@ -106,10 +114,13 @@ export class SamplotekOrchestrator {
     const actorCanonicalUid = signature.actorUid;
 
     return await TransactionManager.execute("Exportation Studio", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const projectUid = (data.uid as string) || `samplotek_${randomUUID()}`;
 
       // Sécurisation de l'unicité du slug
-      const baseSlug = generateSlug((data.slug as string) || (data.title as string)); // 👈 Changement ici
+      const baseSlug = generateSlug((data.slug as string) || (data.title as string));
       let finalSlug = baseSlug;
       let slugExists = await PartitaModel.findOne({ slug: finalSlug }).session(mongoSession);
       let counter = 1;
@@ -119,7 +130,7 @@ export class SamplotekOrchestrator {
         counter++;
       }
 
-      // 1. Sédimentation comme "Partition" dans MongoDB
+      // 1. Sédimentation comme "Partition" dans MongoDB avec dates synchronisées
       const [newProject] = await PartitaModel.create([{
         uid: projectUid,
         slug: finalSlug,
@@ -129,7 +140,11 @@ export class SamplotekOrchestrator {
         type: 'SAMPLOTEK_PROJECT',
         content: JSON.stringify({ bpm: data.bpm, tracks: data.tracks }),
         instrument: 'SAMPLOTEK',
-        metadata: data.metadata
+        metadata: data.metadata,
+        dates: {
+          createdAt: now,
+          updatedAt: now
+        }
       }], { session: mongoSession });
 
       // 2. Tissage dans Neo4j avec liens vers les samples utilisés (Héritage)
@@ -143,7 +158,7 @@ export class SamplotekOrchestrator {
            title: $title,
            slug: $slug,
            type: 'SAMPLOTEK_PROJECT',
-           createdAt: datetime()
+           createdAt: datetime($now)
         })
         CREATE (u)-[:COMPOSED]->(p)
         WITH p
@@ -160,7 +175,8 @@ export class SamplotekOrchestrator {
         projectUid: newProject.uid,
         title: newProject.title,
         slug: newProject.slug,
-        sampleUids: usedSampleUids
+        sampleUids: usedSampleUids,
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) {
@@ -179,7 +195,7 @@ export class SamplotekOrchestrator {
           mediaUrl: '',
           consentForShowcase: true,
           consentForMusicSync: permissions.allowRadio,
-          createdAt: new Date(),
+          createdAt: now,
           metadata: { isStudioProject: true }
         });
       }

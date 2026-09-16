@@ -16,9 +16,12 @@ export class UniversHallPantheonOrchestrator {
    * pour extraire le Panthéon d'élite des Oiseaux de la Canopée.
    */
   public static async calculatePantheon(yearMonth?: string): Promise<PantheonEntry[]> {
+    // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now' pour ancrer la période d'analyse
+    const now = new Date();
+
     // 1. Récupération des profils d'Oiseaux avec leur compteur d'éloges
     const birds = await OiseauModel.find({ isBanned: { $ne: true } })
-      .select('uid pseudo avatarUrl praisesCount')
+      .select('uid pseudo avatarUrl praisesCount totalResonance demopraxyExScore')
       .lean();
 
     if (!birds || birds.length === 0) return [];
@@ -45,7 +48,7 @@ export class UniversHallPantheonOrchestrator {
         }
       });
     } catch (err) {
-      console.warn("  [Pantheon] Impossible d'agréger le grand livre, repli à 0 pour le score financier.", err);
+      console.warn(`  [Pantheon] (${now.toISOString()}) Impossible d'agréger le grand livre, repli à 0 pour le score financier.`, err);
     }
 
     // 3. Fusion pondérée des signaux hétérogènes en un Indice de Résonance Unique

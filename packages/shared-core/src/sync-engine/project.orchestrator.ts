@@ -54,6 +54,8 @@ export class ProjectOrchestrator {
     const uid = projectData.uid || uuidv4();
 
     return await TransactionManager.execute("Fondation Chantier", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
       
       const finalProjectData = {
         ...projectData,
@@ -61,7 +63,11 @@ export class ProjectOrchestrator {
         ownerUid: teamUid,
         creatorUid: actorUid,
         documents: projectData.documents || [],
-        slug: projectData.slug || uid
+        slug: projectData.slug || uid,
+        dates: {
+          createdAt: now,
+          updatedAt: now
+        }
       };
 
       const [newProject] = await ProjectModel.create([finalProjectData], { session: mongoSession });
@@ -73,10 +79,11 @@ export class ProjectOrchestrator {
           uid: $uid,
           name: $name,
           slug: $slug,
-          createdAt: datetime(),
+          createdAt: datetime($now),
+          updatedAt: datetime($now),
           status: $status
         })
-        CREATE (u)-[:CREATED { at: datetime() }]->(p)
+        CREATE (u)-[:CREATED { at: datetime($now) }]->(p)
         CREATE (t)-[:HAS_PROJECT]->(p)
         RETURN p
       `;
@@ -87,7 +94,8 @@ export class ProjectOrchestrator {
         uid: uid,
         name: newProject.name,
         slug: newProject.slug,
-        status: newProject.status || 'CONCEPT'
+        status: newProject.status || 'CONCEPT',
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) {
@@ -112,6 +120,8 @@ export class ProjectOrchestrator {
     const projectUid = (project as any).uid;
 
     return await TransactionManager.execute("Mutation Chantier", async (_mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
       
       const isCreator = (project as any).creatorUid === signature.actorUid;
       const isArchitect = signature.capabilities.includes('*');
@@ -135,16 +145,23 @@ export class ProjectOrchestrator {
       }
 
       const updatedProject = await ProjectModel.findOneAndUpdate(
-        { uid: projectUid }, { $set: updates }, { new: true }
+        { uid: projectUid }, 
+        { $set: { ...updates, "dates.updatedAt": now } }, 
+        { new: true }
       ).lean();
 
-      // Mutation légère Neo4j
+      // Mutation légère Neo4j avec la date synchronisée
       await neo4jTx.run(`
         MATCH (p:Project {uid: $projectUid})
         SET p.name = coalesce($name, p.name),
             p.status = coalesce($status, p.status),
-            p.updatedAt = datetime()
-      `, { projectUid, name: updates.name || null, status: updates.status || null });
+            p.updatedAt = datetime($now)
+      `, { 
+        projectUid, 
+        name: updates.name || null, 
+        status: updates.status || null, 
+        now: now.toISOString() 
+      });
 
       return { success: true, status: 'success', mongo: updatedProject, neo4j: null };
     });
@@ -233,9 +250,11 @@ export class ProjectOrchestrator {
     const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier);
     if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
 
+    const now = new Date();
+
     const updated = await ProjectModel.findOneAndUpdate(
       { uid: (project as any).uid },
-      { $push: { fileUploads: { $each: fileUrls } }, $set: { "dates.lastActivity": new Date() } },
+      { $push: { fileUploads: { $each: fileUrls } }, $set: { "dates.lastActivity": now, "dates.updatedAt": now } },
       { new: true }
     );
     

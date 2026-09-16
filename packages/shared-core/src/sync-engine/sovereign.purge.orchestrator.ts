@@ -19,7 +19,7 @@ export class SovereignPurgeOrchestrator {
     /**
      * Prépare le plan d'effacement total des traces dans la matrice hybride (Mongo + Neo4j)
      */
-    public static buildPurgePayload(context: PurgeContext) {
+    public static buildPurgePayload(context: PurgeContext, timestamp: Date = new Date()) {
         console.log(`🌀 [Évanescence] Déclenchement de la procédure de dissolution pour l'entité : ${context.entityId} (${context.reason})`);
                  
         return {
@@ -27,7 +27,7 @@ export class SovereignPurgeOrchestrator {
             action: 'PURGE_COMPLETE',
             sanitizedCollections: ['users', 'tasks', 'profiles', 'echos'],
             graphNodePattern: `(:User {uid: "${context.entityId}"})-[r]-()`,
-            timestamp: new Date().toISOString()
+            timestamp: timestamp.toISOString()
         };
     }
 
@@ -43,9 +43,11 @@ export class SovereignPurgeOrchestrator {
             throw new IlotError("Aura insuffisante pour ordonner la dissolution de cette entité.", "FORBIDDEN", 403);
         }
 
-        const payload = SovereignPurgeOrchestrator.buildPurgePayload(context);
-
         return await TransactionManager.execute("Dissolution Souveraine", async (mongoSession, neo4jTx) => {
+            // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+            const now = new Date();
+            const payload = SovereignPurgeOrchestrator.buildPurgePayload(context, now);
+
             // 1. Résolution préalable stricte dans la Silice (MongoDB) via l'utilitaire global unifié
             const targetUser = await findEntityBySlugOrUid(OiseauModel, context.entityId);
 

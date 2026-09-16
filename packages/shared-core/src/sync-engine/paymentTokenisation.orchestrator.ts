@@ -50,8 +50,10 @@ export class PaymentTokenizationOrchestrator {
     const canonicalUid = await this.resolveCanonicalUid(payload.userUid);
 
     return await TransactionManager.execute("Tokenisation de Paiement Externe", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
       
-      // 3. Sédimentation Documentaire : Mise à jour sécurisée avec uniquement les tokens
+      // 3. Sédimentation Documentaire : Mise à jour sécurisée avec uniquement les tokens et l'horodatage synchronisé
       const updatedUser = await OiseauModel.findOneAndUpdate(
         { uid: canonicalUid },
         {
@@ -60,25 +62,27 @@ export class PaymentTokenizationOrchestrator {
               externalCustomerId: payload.externalCustomerId,
               defaultPaymentMethodId: payload.defaultPaymentMethodId,
               hasActiveWallet: true,
-              updatedAt: new Date()
-            }
+              updatedAt: now
+            },
+            'dates.updatedAt': now
           }
         },
         { new: true, session: mongoSession }
       ).lean();
 
-      // 4. Propagation dans le Graphe Neo4j via l'index strict
+      // 4. Propagation dans le Graphe Neo4j via l'index strict et la date unifiée
       const cypher = `
         MATCH (u:User {uid: $canonicalUid})
         SET u.hasActiveWallet = true,
             u.externalCustomerId = $externalCustomerId,
-            u.updatedAt = datetime()
+            u.updatedAt = datetime($now)
         RETURN u.uid AS uid
       `;
 
       const neoResult = await neo4jTx.run(cypher, {
         canonicalUid,
-        externalCustomerId: payload.externalCustomerId
+        externalCustomerId: payload.externalCustomerId,
+        now: now.toISOString()
       });
 
       // 🛡️ VERROU DE SÉCURITÉ : Vérification de l'existence dans la Matrice

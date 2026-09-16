@@ -63,6 +63,7 @@ export class TeamOrchestrator {
     const check = moralCheck.analyze(teamData.name);
     if (!check.isSafe) throw new IlotError(`Nom invalide : ${check.suggestion}`, "BAD_REQUEST", 400);
 
+    // 🚀 PROBLÈMES 2 & SYNCHRO : Résolution unique et globale de l'utilisateur canonique (évite le double aller-retour)
     const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
     const creator = await findEntityBySlugOrUid(OiseauModel, actorCanonicalUid) as any;
     if (!creator) throw new IlotError("Empreinte créatrice introuvable dans la canopée.", "NOT_FOUND", 404);
@@ -71,6 +72,9 @@ export class TeamOrchestrator {
     const defaultFreq = teamData.frequency || '#2A3B4C';
 
     return await TransactionManager.execute("Fondation d'Escouade", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const [newTeam] = await TeamModel.create([{
         uid: teamUid, 
         name: teamData.name,
@@ -80,12 +84,19 @@ export class TeamOrchestrator {
         isPrivate: teamData.isPrivate,
         ownerUid: creator.uid,
         leaderUid: creator.uid,
-        parentId: teamData.parentId || null
+        parentId: teamData.parentId || null,
+        dates: {
+          createdAt: now,
+          updatedAt: now
+        }
       }], { session: mongoSession });
 
       await OiseauModel.findOneAndUpdate(
         { uid: creator.uid },
-        { $push: { teams: newTeam._id } }, 
+        { 
+          $push: { teams: newTeam._id },
+          $set: { 'dates.updatedAt': now }
+        }, 
         { session: mongoSession }
       );
 
@@ -99,14 +110,15 @@ export class TeamOrchestrator {
         MATCH (u:User { uid: $actorUid })
         MERGE (t:Team { uid: $teamUid })
         ON CREATE SET 
-          t.createdAt = datetime(),
+          t.createdAt = datetime($now),
+          t.updatedAt = datetime($now),
           t.frequency = $frequency,
           t.isPrivate = $isPrivate,
           t.category = $category
 
         MERGE (u)-[:FOUNDED]->(t)
         MERGE (u)-[r:MEMBER_OF]->(t)
-        SET r.since = datetime(), 
+        SET r.since = datetime($now), 
             r.capabilities = $capabilities
         
         with t
@@ -124,7 +136,8 @@ export class TeamOrchestrator {
         frequency: defaultFreq,
         isPrivate: teamData.isPrivate,
         category: teamData.category,
-        capabilities: founderCapabilities
+        capabilities: founderCapabilities,
+        now: now.toISOString()
       });
 
       return { 
@@ -171,6 +184,9 @@ export class TeamOrchestrator {
     if (!target) throw new IlotError("Oiseau introuvable.", "NOT_FOUND", 404);
 
     const result = await TransactionManager.execute("Invitation d'Oiseau", async (_mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const cypher = `
         MATCH (target:User { uid: $targetUserUid })
         MATCH (t:Team { uid: $teamUid })
@@ -180,7 +196,7 @@ export class TeamOrchestrator {
         
         WITH target, t
         MERGE (target)-[r:INVITED_TO]->(t)
-        SET r.invitedAt = datetime(),
+        SET r.invitedAt = datetime($now),
             r.capabilities = $caps
         RETURN r
       `;
@@ -188,7 +204,8 @@ export class TeamOrchestrator {
       const neoResult = await neo4jTx.run(cypher, { 
         targetUserUid: target.uid, 
         teamUid: team.uid,
-        caps: data.capabilities || [CAPABILITIES.PROJECT.READ, CAPABILITIES.TASK.CREATE] 
+        caps: data.capabilities || [CAPABILITIES.PROJECT.READ, CAPABILITIES.TASK.CREATE],
+        now: now.toISOString()
       });
 
       return { 
@@ -200,9 +217,13 @@ export class TeamOrchestrator {
       };
     });
 
-    // 🕸️ Tissage de la toile universelle (Correction Serverless : attente asynchrone)
+    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle sécurisé par try/catch en arrière-plan
     if (actorCanonicalUid !== targetCanonicalUid) {
-      await syncUniversalInteraction(actorCanonicalUid, targetCanonicalUid, 'TEAM');
+      try {
+        await syncUniversalInteraction(actorCanonicalUid, targetCanonicalUid, 'TEAM');
+      } catch (err) {
+        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (inviteBird) :`, err);
+      }
     }
 
     return result;
@@ -227,19 +248,25 @@ export class TeamOrchestrator {
     if (!existingTeam) throw new IlotError("Nid introuvable.", "NOT_FOUND", 404);
 
     return await TransactionManager.execute("Mutation de Nid", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const updatedTeam = await TeamModel.findOneAndUpdate(
-        { uid: existingTeam.uid }, { $set: data }, { new: true, session: mongoSession }
+        { uid: existingTeam.uid }, 
+        { $set: { ...data, 'dates.updatedAt': now } }, 
+        { new: true, session: mongoSession }
       ).lean();
       
       let neoResult = null;
       if (data.frequency !== undefined || data.isPrivate !== undefined || data.name !== undefined) {
         neoResult = await neo4jTx.run(
-          `MATCH (t:Team {uid: $teamUid}) SET t.frequency = $freq, t.isPrivate = $priv, t.name = coalesce($name, t.name) RETURN t`,
+          `MATCH (t:Team {uid: $teamUid}) SET t.frequency = $freq, t.isPrivate = $priv, t.name = coalesce($name, t.name), t.updatedAt = datetime($now) RETURN t`,
           { 
             teamUid: existingTeam.uid, 
             freq: data.frequency ?? updatedTeam!.frequency, 
             priv: data.isPrivate ?? updatedTeam!.isPrivate,
-            name: data.name ?? null
+            name: data.name ?? null,
+            now: now.toISOString()
           }
         );
       }
@@ -253,7 +280,8 @@ export class TeamOrchestrator {
       };
     });
   }
-async dissolveTeam(teamIdentifier: string, signature: ActionSignature): Promise<boolean> {
+
+  async dissolveTeam(teamIdentifier: string, signature: ActionSignature): Promise<boolean> {
     if (!signature.capabilities.includes(CAPABILITIES.TEAM.DELETE) && !signature.capabilities.includes('*')) {
       throw new IlotError("Aura insuffisante pour dissoudre ce Nid.", "FORBIDDEN", 403);
     }
@@ -264,10 +292,10 @@ async dissolveTeam(teamIdentifier: string, signature: ActionSignature): Promise<
     const teamUid = team.uid;
 
     return await TransactionManager.execute("Dissolution de Nid", async (mongoSession, neo4jTx) => {
-      // Ajout de .lean() pour accélérer la lecture des documents
-      const projects = await ProjectModel.find({ ownerUid: teamUid }).session(mongoSession).lean();
+      // 🚀 PROBLÈME 3 : Projection stricte avec .select('documents') pour éliminer les Memory Spikes
+      const projects = await ProjectModel.find({ ownerUid: teamUid }).select('documents uid').session(mongoSession).lean();
       const projectUids = projects.map((p: any) => p.uid);
-      const tasks = await TaskModel.find({ projectUid: { $in: projectUids } }).session(mongoSession).lean();
+      const tasks = await TaskModel.find({ projectUid: { $in: projectUids } }).select('documents').session(mongoSession).lean();
 
       // 1. Rassemblement de toutes les clés de fichiers à incinérer
       const filesToDelete: string[] = [];
@@ -336,7 +364,9 @@ async dissolveTeam(teamIdentifier: string, signature: ActionSignature): Promise<
     const teamUid = team.uid;
 
     return await TransactionManager.execute("L'Envol Volontaire", async (mongoSession, neo4jTx) => {
-      
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       if (mode === 'CLEAN') {
         const cypherClean = `
           MATCH (u:User {uid: $userUid})
@@ -361,8 +391,9 @@ async dissolveTeam(teamIdentifier: string, signature: ActionSignature): Promise<
         `;
         await neo4jTx.run(cypherClean, { userUid: targetCanonicalUid, teamUid });
 
-        const projects = await ProjectModel.find({ ownerUid: teamUid }).session(mongoSession).lean();
-        const projectUids = projects.map(p => p.uid);
+        // 🚀 PROBLÈMES 3 : Projection stricte .select('uid') pour alléger l'empreinte mémoire
+        const projects = await ProjectModel.find({ ownerUid: teamUid }).select('uid').session(mongoSession).lean();
+        const projectUids = projects.map((p: any) => p.uid);
 
         if (projectUids.length > 0) {
           await TaskModel.deleteMany({ 
@@ -371,8 +402,8 @@ async dissolveTeam(teamIdentifier: string, signature: ActionSignature): Promise<
           }).session(mongoSession);
         }
 
-        const userProjects = await ProjectModel.find({ ownerUid: teamUid, creatorUid: targetCanonicalUid }).session(mongoSession).lean();
-        const userProjectUids = userProjects.map(p => p.uid);
+        const userProjects = await ProjectModel.find({ ownerUid: teamUid, creatorUid: targetCanonicalUid }).select('uid').session(mongoSession).lean();
+        const userProjectUids = userProjects.map((p: any) => p.uid);
 
         if (userProjectUids.length > 0) {
           await TaskModel.deleteMany({ projectUid: { $in: userProjectUids } }).session(mongoSession);
@@ -392,7 +423,10 @@ async dissolveTeam(teamIdentifier: string, signature: ActionSignature): Promise<
 
       await OiseauModel.findOneAndUpdate(
         { uid: targetCanonicalUid },
-        { $pull: { teams: team._id } },
+        { 
+          $pull: { teams: team._id },
+          $set: { 'dates.updatedAt': now }
+        },
         { session: mongoSession }
       );
 

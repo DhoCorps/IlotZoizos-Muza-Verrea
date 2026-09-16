@@ -57,31 +57,35 @@ export class TaskIrrigationOrchestrator {
         const evaluated = TaskIrrigationOrchestrator.evaluateAndSanitize(payload);
 
         return await TransactionManager.execute("Irrigation d'Atome", async (mongoSession, neo4jTx) => {
+            // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+            const now = new Date();
+
             const updatedTask = await TaskModel.findOneAndUpdate(
                 { uid: canonicalUid },
                 { 
                     $set: { 
                         status: evaluated.status,
                         isIrrigated: evaluated.isIrrigated,
-                        'dates.updatedAt': new Date()
+                        'dates.updatedAt': now
                     } 
                 },
                 { new: true, session: mongoSession }
             ).lean();
 
-            // Propagation rapide et indexée dans Neo4j par l'UID canonique strict
+            // Propagation rapide et indexée dans Neo4j par l'UID canonique strict et la date unifiée
             const cypher = `
                 MATCH (t:Task { uid: $canonicalUid })
                 SET t.status = $status,
                     t.isIrrigated = $isIrrigated,
-                    t.updatedAt = datetime()
+                    t.updatedAt = datetime($now)
                 RETURN t
             `;
 
             const neoResult = await neo4jTx.run(cypher, {
                 canonicalUid,
                 status: evaluated.status,
-                isIrrigated: evaluated.isIrrigated
+                isIrrigated: evaluated.isIrrigated,
+                now: now.toISOString()
             });
 
             if (neoResult.records.length === 0) {

@@ -44,9 +44,14 @@ describe('SovereignPurgeWorker - L\'Exécuteur de l\'Ombre', () => {
 
     await SovereignPurgeWorker.processPendingJobs();
 
+    // 🛡️ Ajustement de l'assertion pour valider la structure incluant la synchronisation des dates
     expect(SystemPurgeJobModel.findOneAndUpdate).toHaveBeenCalledWith(
       { status: 'PENDING' },
-      { status: 'PROCESSING' },
+      expect.objectContaining({ 
+        status: 'PROCESSING',
+        'dates.processingAt': expect.any(Date),
+        updatedAt: expect.any(Date)
+      }),
       expect.any(Object)
     );
     expect(mockJob.status).toBe('COMPLETED');

@@ -47,6 +47,8 @@ export class SujetOrchestrator {
     }
 
     return await TransactionManager.execute("Fondation de Sujet", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
       
       const sujetUid = data.uid || `sujet_${randomUUID()}`;
       const title = data.title || "Monologue sans nom";
@@ -77,12 +79,16 @@ export class SujetOrchestrator {
         merchLink: data.merchLink || null,
         media: data.media || {},
         settings: data.settings || {},
+        dates: {
+          createdAt: now,
+          updatedAt: now
+        }
       };
 
       // 1. SILICE (MongoDB)
       const [newSujet] = await SujetModel.create([newSujetData], { session: mongoSession });
 
-      // 2. GRAPHE (Neo4j) - MATCH indexé strict sur l'auteur canonique
+      // 2. GRAPHE (Neo4j) - MATCH indexé strict sur l'auteur canonique et horodatage synchronisé
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (s:Sujet { 
@@ -91,7 +97,8 @@ export class SujetOrchestrator {
           slug: $slug,
           category: $category,
           status: $status,
-          createdAt: datetime() 
+          createdAt: datetime($now),
+          updatedAt: datetime($now)
         })
         CREATE (u)-[:WROTE]->(s)
 
@@ -130,7 +137,8 @@ export class SujetOrchestrator {
         status: newSujet.status,
         relatedProjects: newSujet.connections?.relatedProjects || [],
         relatedTasks: newSujet.connections?.relatedTasks || [],
-        productId: newSujet.merchLink?.productId || null
+        productId: newSujet.merchLink?.productId || null,
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) {
@@ -159,9 +167,17 @@ export class SujetOrchestrator {
     }
 
     return await TransactionManager.execute("Mutation de Sujet", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
+      const finalUpdates = {
+        ...updates,
+        'dates.updatedAt': now
+      };
+
       const updatedSujet = await SujetModel.findOneAndUpdate(
         { uid: (existing as any).uid },
-        { $set: updates },
+        { $set: finalUpdates },
         { new: true, session: mongoSession }
       ).lean();
 
@@ -172,7 +188,7 @@ export class SujetOrchestrator {
           SET s.title = coalesce($title, s.title),
               s.status = coalesce($status, s.status),
               s.category = coalesce($category, s.category),
-              s.updatedAt = datetime()
+              s.updatedAt = datetime($now)
           
           WITH s
           OPTIONAL MATCH (s)-[r:OFFERS_PRODUCT]->(oldProd:Product)
@@ -193,7 +209,8 @@ export class SujetOrchestrator {
           title: updates.title || null,
           status: updates.status || null, 
           category: updates.category || null,
-          productId: updates.merchLink?.productId || null
+          productId: updates.merchLink?.productId || null,
+          now: now.toISOString()
         });
       }
 

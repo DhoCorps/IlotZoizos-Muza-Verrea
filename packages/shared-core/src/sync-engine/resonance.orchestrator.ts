@@ -51,6 +51,8 @@ export class ResonanceOrchestrator {
     const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
 
     return await TransactionManager.execute("Tissage Transdisciplinaire", async (_mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
       const isRoot = signature.capabilities.includes('*') || signature.capabilities.includes(CAPABILITIES.SYSTEM.ALL);
 
       const cypher = `
@@ -64,20 +66,21 @@ export class ResonanceOrchestrator {
         ` : 'WITH source, target'}
 
         MERGE (source)-[rel:${relationType}]->(target)
-        ON CREATE SET rel.createdAt = datetime(), rel.actorUid = $actorUid
+        ON CREATE SET rel.createdAt = datetime($now), rel.actorUid = $actorUid
         RETURN rel
       `;
 
       const neoResult = await neo4jTx.run(cypher, {
         sourceUid,
         targetUid,
-        actorUid: actorCanonicalUid
+        actorUid: actorCanonicalUid,
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) { 
          throw new IlotError("Échec du tissage : Entités introuvables ou Aura insuffisante pour lier cette source.", "FORBIDDEN", 403);
       }
-              
+            
       return { success: true, neo4j: neoResult };
     });
   }
@@ -96,7 +99,8 @@ export class ResonanceOrchestrator {
     const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
 
     const result = await TransactionManager.execute("Sédimentation d'Écho", async (_mongoSession, neo4jTx) => {
-            
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();    
       const echoUid = `echo_${randomUUID()}`;
       const relation = echoType === 'TEXT' ? 'ECHOES' : 'VIBRATES';
 
@@ -107,7 +111,7 @@ export class ResonanceOrchestrator {
         CREATE (u)-[r:${relation} { 
            uid: $echoUid,
           content: $content,
-          createdAt: datetime() 
+          createdAt: datetime($now) 
          }]->(target)
         WITH r, target
         OPTIONAL MATCH (target)<-[:CREATED|COMPOSED|WROTE|OWNS_STORE|FOUNDED|TASK_OF]-(owner:User)
@@ -118,7 +122,8 @@ export class ResonanceOrchestrator {
         actorUid: actorCanonicalUid,
         targetUid,
         echoUid,
-        content
+        content,
+        now: now.toISOString()
       });
 
       if (res.records.length === 0) {
@@ -126,13 +131,17 @@ export class ResonanceOrchestrator {
       }
 
       const ownerUid = res.records[0].get('ownerUid');
-              
+            
       return { success: true, echoUid, content, type: echoType, ownerUid };
     });
 
-    // 🕸️ Tissage universel sécurisé : L'acteur interagit avec le propriétaire de l'entité
+    // 🛡️ PROBLÈME 1 : Tissage universel sécurisé par try/catch en arrière-plan
     if (result.ownerUid && result.ownerUid !== actorCanonicalUid) {
-      await syncUniversalInteraction(actorCanonicalUid, result.ownerUid, 'PRAISE');
+      try {
+        await syncUniversalInteraction(actorCanonicalUid, result.ownerUid, 'PRAISE');
+      } catch (err) {
+        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (addSocialEcho) :`, err);
+      }
     }
 
     return { success: result.success, echoUid: result.echoUid, content: result.content, type: result.type };
@@ -153,9 +162,9 @@ export class ResonanceOrchestrator {
            neighbor.title AS neighborTitle,
            neighbor.name AS neighborName
       `;
-              
+            
       const result = await session.run(cypher, { canonicalUid });
-              
+            
       return result.records.map(rec => ({
         relation: rec.get('relationType'),
         type: rec.get('neighborType'),
@@ -199,15 +208,17 @@ export class ResonanceOrchestrator {
     const targetCanonicalUid = await this.resolveCanonicalUserUid(payload.targetUid);
 
     const isHarmonic = await TransactionManager.execute("Tissage de Résonance", async (_mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
       const { type, entityId } = payload;
       
       await neo4jTx.run(
         `MATCH (source:User {uid: $sourceUid})
          MATCH (target:User {uid: $targetUid})
          MERGE (source)-[r:RESONATES_WITH { entityId: $entityId, type: $type }]->(target)
-         ON CREATE SET r.createdAt = datetime()
-         ON MATCH SET r.updatedAt = datetime()`,
-        { sourceUid: sourceCanonicalUid, targetUid: targetCanonicalUid, type, entityId: entityId || 'ALL' }
+         ON CREATE SET r.createdAt = datetime($now)
+         ON MATCH SET r.updatedAt = datetime($now)`,
+        { sourceUid: sourceCanonicalUid, targetUid: targetCanonicalUid, type, entityId: entityId || 'ALL', now: now.toISOString() }
       );
 
       let harmonicStatus = false;
@@ -218,18 +229,22 @@ export class ResonanceOrchestrator {
             MATCH (a)-[r1:RESONATES_WITH {type: 'FOLLOWS_GLOBAL'}]->(b)
             MATCH (b)-[r2:RESONATES_WITH {type: 'FOLLOWS_GLOBAL'}]->(a)
             MERGE (a)-[h:HARMONY]-(b)
-            ON CREATE SET h.establishedAt = datetime()
+            ON CREATE SET h.establishedAt = datetime($now)
             RETURN h`,
-          { sourceUid: sourceCanonicalUid, targetUid: targetCanonicalUid }
+          { sourceUid: sourceCanonicalUid, targetUid: targetCanonicalUid, now: now.toISOString() }
         );
         harmonicStatus = harmonyCheck.records.length > 0;
       }
       return harmonicStatus;
     });
 
-    // 🕸️ Tissage universel sécurisé en arrière-plan
+    // 🛡️ PROBLÈME 1 : Tissage universel sécurisé par try/catch en arrière-plan
     if (sourceCanonicalUid !== targetCanonicalUid) {
-      await syncUniversalInteraction(sourceCanonicalUid, targetCanonicalUid, 'PRAISE');
+      try {
+        await syncUniversalInteraction(sourceCanonicalUid, targetCanonicalUid, 'PRAISE');
+      } catch (err) {
+        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (weaveResonance) :`, err);
+      }
     }
 
     return isHarmonic;

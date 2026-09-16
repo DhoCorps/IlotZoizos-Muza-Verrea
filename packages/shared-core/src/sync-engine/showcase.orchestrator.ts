@@ -31,6 +31,9 @@ export class ShowcaseOrchestrator {
     }
 
     try {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now' pour figer la requête du diaporama
+      const now = new Date();
+
       // 1. Résolution stricte de l'identité pour sécuriser la graine de hasard (Seed) via findEntityBySlugOrUid
       const canonicalUid = await this.resolveCanonicalUserUid(userIdentifier);
 
@@ -76,7 +79,8 @@ export class ShowcaseOrchestrator {
               ambientTrackInfo: {
                 title: ambientTrack.title,
                 author: ambientTrack.ownerSlug,
-                mediaUrl: ambientTrack.mediaUrl
+                mediaUrl: ambientTrack.mediaUrl,
+                synchronizedAt: now.toISOString()
               }
             };
           }

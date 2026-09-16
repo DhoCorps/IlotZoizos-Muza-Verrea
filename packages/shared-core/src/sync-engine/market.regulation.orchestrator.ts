@@ -96,26 +96,30 @@ export class MarketRegulationOrchestrator {
         const evaluation = MarketRegulationOrchestrator.evaluateMarketAccess(context, minJustTakeThreshold);
 
         return await TransactionManager.execute("Régulation de Marché", async (_mongoSession, neo4jTx) => {
+            // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+            const now = new Date();
+
             const updatedUser = await OiseauModel.findOneAndUpdate(
                 { uid: targetUid },
                 {
                     $set: {
                         'marketRegulationState': {
                             ...evaluation,
-                            evaluatedAt: new Date()
-                        }
+                            evaluatedAt: now
+                        },
+                        'dates.updatedAt': now
                     }
                 },
                 { new: true }
             ).lean();
 
-            // Sédimentation dans le Graphe pour impacter la vitesse des futures requêtes Neo4j
+            // Sédimentation dans le Graphe avec horodatage synchronisé
             const cypher = `
                 MATCH (u:User {uid: $targetUid})
                 SET u.marketAuthorized = $isAuthorized,
                     u.vitalBalance = $vitalBalance,
                     u.marketLatencyMs = $latencyMs,
-                    u.updatedAt = datetime()
+                    u.updatedAt = datetime($now)
                 RETURN u
             `;
 
@@ -123,7 +127,8 @@ export class MarketRegulationOrchestrator {
                 targetUid,
                 isAuthorized: evaluation.isAuthorized,
                 vitalBalance: evaluation.vitalBalance,
-                latencyMs: evaluation.latencyMs
+                latencyMs: evaluation.latencyMs,
+                now: now.toISOString()
             });
 
             return {
@@ -152,6 +157,8 @@ export class MarketRegulationOrchestrator {
         }
 
         return await TransactionManager.execute("Forge de Contrat Marchand", async (_mongoSession, neo4jTx) => {
+            // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+            const now = new Date();
             
             const cypher = `
                 MATCH (initiator:User {uid: $initiatorUid})
@@ -165,7 +172,7 @@ export class MarketRegulationOrchestrator {
                     durationDays: $durationDays,
                     description: $description,
                     status: 'PENDING',
-                    createdAt: datetime()
+                    createdAt: datetime($now)
                 })
                 CREATE (initiator)-[:PROPOSED_CONTRACT]->(c)
                 CREATE (c)-[:TARGETS_USER]->(target)
@@ -181,7 +188,8 @@ export class MarketRegulationOrchestrator {
                 currency: payload.currency,
                 interestRate: payload.interestRate || 0,
                 durationDays: payload.durationDays || 0,
-                description: payload.description || `Proposition de ${payload.contractType}`
+                description: payload.description || `Proposition de ${payload.contractType}`,
+                now: now.toISOString()
             });
 
             if (neoResult.records.length === 0) {

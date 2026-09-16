@@ -36,6 +36,8 @@ export class KontaktOrchestrator {
     const targetCanonicalUid = await this.resolveCanonicalUid(data.targetUid);
 
     const result = await TransactionManager.execute("Enregistrement de Swipe Kontakt", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
       let isMatch = false;
 
       if (data.action === 'LIKE') {
@@ -55,8 +57,8 @@ export class KontaktOrchestrator {
         const swipeQuery = `
           MATCH (u1:User {uid: $swiperUid})
           MATCH (u2:User {uid: $targetUid})
-          CREATE (u1)-[s:SWIPED { action: $action, createdAt: datetime() }]->(u2)
-          ${isMatch ? 'CREATE (u1)-[:MATCHED_WITH { createdAt: datetime() }]->(u2) CREATE (u2)-[:MATCHED_WITH { createdAt: datetime() }]->(u1)' : ''}
+          CREATE (u1)-[s:SWIPED { action: $action, createdAt: datetime($now) }]->(u2)
+          ${isMatch ? 'CREATE (u1)-[:MATCHED_WITH { createdAt: datetime($now) }]->(u2) CREATE (u2)-[:MATCHED_WITH { createdAt: datetime($now) }]->(u1)' : ''}
           RETURN $isMatch AS match
         `;
 
@@ -64,28 +66,34 @@ export class KontaktOrchestrator {
           swiperUid: swiperCanonicalUid,
           targetUid: targetCanonicalUid,
           action: data.action,
-          isMatch
+          isMatch,
+          now: now.toISOString()
         });
       } else if (data.action === 'PASS') {
         const passQuery = `
           MATCH (u1:User {uid: $swiperUid})
           MATCH (u2:User {uid: $targetUid})
-          CREATE (u1)-[s:SWIPED { action: $action, createdAt: datetime() }]->(u2)
+          CREATE (u1)-[s:SWIPED { action: $action, createdAt: datetime($now) }]->(u2)
           RETURN s
         `;
         await neo4jTx.run(passQuery, {
           swiperUid: swiperCanonicalUid,
           targetUid: targetCanonicalUid,
-          action: data.action
+          action: data.action,
+          now: now.toISOString()
         });
       }
 
       return { success: true, action: data.action, match: isMatch };
     });
 
-    // 🕸️ Tissage de la toile universelle en arrière-plan avec attente sécurisée (Serverless safe)
+    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle en arrière-plan avec try/catch (Serverless safe)
     if (swiperCanonicalUid !== targetCanonicalUid) {
-      await syncUniversalInteraction(swiperCanonicalUid, targetCanonicalUid, 'KONTAKT');
+      try {
+        await syncUniversalInteraction(swiperCanonicalUid, targetCanonicalUid, 'KONTAKT');
+      } catch (err) {
+        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (registerSwipe) :`, err);
+      }
     }
 
     return result;
@@ -109,11 +117,14 @@ export class KontaktOrchestrator {
     const endorserCanonicalUid = await this.resolveCanonicalUid(signature.actorUid);
 
     const result = await TransactionManager.execute("Apposition du Sceau de Confiance", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const cypher = `
         MATCH (endorser:User {uid: $endorserUid})
         MATCH (target:User {uid: $targetUid})
         MERGE (target)-[:HAS_SKILL]->(sk:Skill {name: $skillName})
-        MERGE (endorser)-[r:ENDORSED { createdAt: datetime(), comment: $comment }]->(sk)
+        MERGE (endorser)-[r:ENDORSED { createdAt: datetime($now), comment: $comment }]->(sk)
         RETURN r
       `;
 
@@ -121,7 +132,8 @@ export class KontaktOrchestrator {
         endorserUid: endorserCanonicalUid,
         targetUid: targetCanonicalUid,
         skillName: data.skillName.toUpperCase(),
-        comment: data.comment || ""
+        comment: data.comment || "",
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) {
@@ -131,8 +143,12 @@ export class KontaktOrchestrator {
       return { success: true, targetUid: targetCanonicalUid, skill: data.skillName };
     });
 
-    // 🕸️ Tissage de la toile universelle sécurisé
-    await syncUniversalInteraction(endorserCanonicalUid, targetCanonicalUid, 'KONTAKT');
+    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle sécurisé par try/catch
+    try {
+      await syncUniversalInteraction(endorserCanonicalUid, targetCanonicalUid, 'KONTAKT');
+    } catch (err) {
+      console.error(`  [Orchestrator] Échec non bloquant du tissage universel (endorseSkill) :`, err);
+    }
 
     return result;
   }
@@ -152,12 +168,15 @@ export class KontaktOrchestrator {
     const targetCanonicalUid = await this.resolveCanonicalUid(data.targetUid);
 
     const result = await TransactionManager.execute("Demande de Passerelle", async (mongoSession, neo4jTx) => {
+      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+      const now = new Date();
+
       const cypher = `
         MATCH (requester:User {uid: $requesterUid})
         MATCH (intermediary:User {uid: $intermediaryUid})
         MATCH (target:User {uid: $targetUid})
         CREATE (requester)-[r:REQUESTED_INTRO { 
-          createdAt: datetime(), 
+          createdAt: datetime($now), 
           message: $message, 
           status: 'PENDING',
           targetUid: $targetUid 
@@ -169,7 +188,8 @@ export class KontaktOrchestrator {
         requesterUid: requesterCanonicalUid,
         intermediaryUid: intermediaryCanonicalUid,
         targetUid: targetCanonicalUid,
-        message: data.message
+        message: data.message,
+        now: now.toISOString()
       });
 
       if (neoResult.records.length === 0) {
@@ -179,8 +199,12 @@ export class KontaktOrchestrator {
       return { success: true, status: 'PENDING' };
     });
 
-    // 🕸️ Tissage de la toile universelle sécurisé (Demandeur <-> Intermédiaire)
-    await syncUniversalInteraction(requesterCanonicalUid, intermediaryCanonicalUid, 'KONTAKT');
+    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle sécurisé par try/catch (Demandeur <-> Intermédiaire)
+    try {
+      await syncUniversalInteraction(requesterCanonicalUid, intermediaryCanonicalUid, 'KONTAKT');
+    } catch (err) {
+      console.error(`  [Orchestrator] Échec non bloquant du tissage universel (requestIntroduction) :`, err);
+    }
 
     return result;
   }
