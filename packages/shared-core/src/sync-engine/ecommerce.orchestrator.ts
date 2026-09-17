@@ -1,7 +1,7 @@
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { syncUniversalInteraction } from '@ilot/infrastructure';
+import { syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure';
 
 export class EcommerceOrchestrator {
   /**
@@ -16,10 +16,8 @@ export class EcommerceOrchestrator {
     }
 
     return await TransactionManager.execute("Création de boutique", async (_mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
-      // Utilisation d'un MATCH strict : L'utilisateur DOIT exister, on ne crée pas de fantôme avec MERGE
       const query = `
         MATCH (u:User { uid: $ownerUid })
         CREATE (s:Store { uid: $uid, storeName: $storeName, slug: $slug, createdAt: datetime($now) })
@@ -54,10 +52,8 @@ export class EcommerceOrchestrator {
     }
 
     const result = await TransactionManager.execute("Enregistrement de commande", async (_mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
-      // On récupère également l'UID du vendeur (owner) via la boutique pour la synchro
       const query = `
         MATCH (buyer:User { uid: $buyerUid })
         MATCH (store:Store { uid: $storeUid })<-[:OWNS_STORE]-(owner:User)
@@ -84,12 +80,24 @@ export class EcommerceOrchestrator {
       return { success: true, orderUid: data.uid, ownerUid };
     });
 
-    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle en arrière-plan avec protection try/catch (Serverless safe)
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL : Fallback DLQ en cas de panne Neo4j
     if (result.ownerUid && result.ownerUid !== data.buyerUid) {
       try {
         await syncUniversalInteraction(data.buyerUid, result.ownerUid, 'ECOMMERCE');
-      } catch (err) {
-        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (recordOrder) :`, err);
+      } catch (err: any) {
+        console.error(`  [Orchestrator] Échec du tissage universel (recordOrder), basculement DLQ :`, err);
+        try {
+          await SystemGraphDlqModel.create({
+            operationName: 'syncUniversalInteraction_recordOrder',
+            payload: { sourceUid: data.buyerUid, targetUid: result.ownerUid, type: 'ECOMMERCE' },
+            error: err.message,
+            status: 'PENDING_RETRY',
+            retryCount: 0,
+            timestamp: new Date()
+          });
+        } catch (dlqErr) {
+          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
+        }
       }
     }
 
@@ -98,7 +106,6 @@ export class EcommerceOrchestrator {
 
   /**
    * 🤝 PROPOSITION DE TROC
-   * Enregistre une offre d'échange et crée un lien indexé dans le Graphe Neo4j.
    */
   async proposeBarter(
     data: { uid: string; initiatorUid: string; receiverUid?: string; offeredUids: string[]; requestedUids: string[] },
@@ -109,7 +116,6 @@ export class EcommerceOrchestrator {
     }
     
     const result = await TransactionManager.execute("Proposition de Troc", async (_mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       const query = `
@@ -133,12 +139,23 @@ export class EcommerceOrchestrator {
       return { success: true, barterUid: data.uid };
     });
 
-    // 🛡️ PROBLÈME 1 : S'il y a une cible précise, interaction sécurisée par try/catch
     if (data.receiverUid && data.receiverUid !== data.initiatorUid) {
       try {
         await syncUniversalInteraction(data.initiatorUid, data.receiverUid, 'ECOMMERCE');
-      } catch (err) {
-        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (proposeBarter) :`, err);
+      } catch (err: any) {
+        console.error(`  [Orchestrator] Échec du tissage universel (proposeBarter), basculement DLQ :`, err);
+        try {
+          await SystemGraphDlqModel.create({
+            operationName: 'syncUniversalInteraction_proposeBarter',
+            payload: { sourceUid: data.initiatorUid, targetUid: data.receiverUid, type: 'ECOMMERCE' },
+            error: err.message,
+            status: 'PENDING_RETRY',
+            retryCount: 0,
+            timestamp: new Date()
+          });
+        } catch (dlqErr) {
+          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
+        }
       }
     }
 
@@ -147,7 +164,6 @@ export class EcommerceOrchestrator {
 
   /**
    * ⚖️ ACCEPTATION / RÉSOLUTION D'UN TROC
-   * Clôture l'échange et tisse la relation de troc direct entre les deux Oiseaux dans le Graphe.
    */
   async resolveBarter(
     data: { barterUid: string; acceptorUid: string; status: 'ACCEPTED' | 'REJECTED' },
@@ -158,7 +174,6 @@ export class EcommerceOrchestrator {
     }
     
     const result = await TransactionManager.execute("Résolution de Troc", async (_mongoSession, neo4jTx) => {
-      // On retourne l'UID de l'initiateur pour pouvoir créer le lien universel
       const query = `
         MATCH (b:BarterOffer { uid: $barterUid })<-[:PROPOSES_BARTER]-(initiator:User)
         MATCH (acceptor:User { uid: $acceptorUid })
@@ -182,12 +197,23 @@ export class EcommerceOrchestrator {
       return { success: true, status: data.status, initiatorUid };
     });
 
-    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle sécurisé par try/catch
     if (result.initiatorUid && result.initiatorUid !== data.acceptorUid) {
       try {
         await syncUniversalInteraction(result.initiatorUid, data.acceptorUid, 'ECOMMERCE');
-      } catch (err) {
-        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (resolveBarter) :`, err);
+      } catch (err: any) {
+        console.error(`  [Orchestrator] Échec du tissage universel (resolveBarter), basculement DLQ :`, err);
+        try {
+          await SystemGraphDlqModel.create({
+            operationName: 'syncUniversalInteraction_resolveBarter',
+            payload: { sourceUid: result.initiatorUid, targetUid: data.acceptorUid, type: 'ECOMMERCE' },
+            error: err.message,
+            status: 'PENDING_RETRY',
+            retryCount: 0,
+            timestamp: new Date()
+          });
+        } catch (dlqErr) {
+          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
+        }
       }
     }
 

@@ -29,7 +29,6 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-// 👈 Changement du mock pour pointer sur notre string.engine
 vi.mock('../utils/string.engine', () => ({
   generateSlug: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
@@ -78,8 +77,11 @@ describe('UniversHallOrchestrator - L\'Agora Centrale', () => {
         tags: ['poesie', 'ciel']
       };
 
+      // 🛠️ Support du chaînage .session(...).lean() pour les tests d'unicité
       vi.mocked(UniversHallBeaconModel.findOne).mockReturnValue({
-        session: vi.fn().mockResolvedValue(null)
+        session: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue(null)
+        })
       } as any);
 
       vi.mocked(UniversHallBeaconModel.create).mockResolvedValueOnce([

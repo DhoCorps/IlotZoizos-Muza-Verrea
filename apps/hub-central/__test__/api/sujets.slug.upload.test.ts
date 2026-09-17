@@ -80,14 +80,21 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
       }),
     } as any);
 
-    // 🛡️ Espions actifs sur le StorageService mis à jour
+    // 🛡️ Espions actifs sur le StorageService mis à jour avec normalisation des clés
     vi.spyOn(storageService, 'generateKey').mockReturnValue('hub-central/fr/projects/s-1/sujet_media/test.jpg');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
       publicUrl: 'https://cdn.ilot/media.jpg',
       key: 'mock-key',
     } as any);
-    vi.spyOn(storageService, 'extractKeyFromUrl').mockReturnValue('mock-key');
+
+    vi.spyOn(storageService, 'extractKeyFromUrl').mockImplementation((url: string) => {
+      if (url.includes('etrangere') || url.includes('foreign')) {
+        return 'foreign-key';
+      }
+      return 'mock-key';
+    });
+
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue(true as any);
   });
 
@@ -118,7 +125,7 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
     expect(revalidateTag).toHaveBeenCalledWith('sujet-s-1');
   });
 
-  it('DELETE - doit rejeter (403) en cas de tentative IDOR sur une URL étrangère', async () => {
+  it('DELETE - doit rejeter (403) en cas de tentative IDOR sur une URL étrangère normalisée', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
     const req = new Request('http://localhost/api/sujets/mon-sujet/upload?url=https://cdn.ilot/url-etrangere.jpg', {

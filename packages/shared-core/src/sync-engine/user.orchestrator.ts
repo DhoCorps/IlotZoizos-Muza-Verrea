@@ -5,7 +5,6 @@ import { IOiseau, CAPABILITIES } from '@ilot/types';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 
-// Interface d'injection pour isoler le shared-core du service de stockage externe de l'application
 interface IStorageManager {
   deleteFile(key: string): Promise<any>;
   extractKeyFromUrl(url: string): string;
@@ -27,7 +26,6 @@ export class OiseauOrchestrator {
   private storageService: IStorageManager;
 
   constructor(customStorageService?: IStorageManager) {
-    // Par défaut (pour les tests), on injecte un mock silencieux
     this.storageService = customStorageService || {
       deleteFile: async () => ({ success: true }),
       extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
@@ -49,7 +47,6 @@ export class OiseauOrchestrator {
     const hashedPassword = await bcrypt.hash(birdData.password, 10);
 
     return await TransactionManager.execute("Éclosion d'Oiseau", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
       
       const newOiseauData = {
@@ -73,10 +70,8 @@ export class OiseauOrchestrator {
         }
       };
 
-      // 1. Persistance Documentaire (Silice)
       const [nouvelOiseau] = await OiseauModel.create([newOiseauData], { session: mongoSession });
 
-      // 2. Propagation Neo4j par ID strict avec la date synchronisée
       const cypher = `
         CREATE (u:User {
             uid: $uid,
@@ -125,14 +120,12 @@ export class OiseauOrchestrator {
     }
 
     return await TransactionManager.execute("L'Envol de l'Oiseau", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       const updatePayload: Record<string, any> = {};
       if (oiseauData.pseudo) updatePayload.pseudo = oiseauData.pseudo;
       if (oiseauData.frequenceHEX) updatePayload.frequenceHEX = oiseauData.frequenceHEX;
       
-      // 🛡️ CORRECTION CYBERSÉCURITÉ : Prévention d'élévation de privilèges
       if (oiseauData.capabilities !== undefined) {
         if (!hasGlobalPower) {
           throw new IlotError("Tentative d'élévation de privilèges détectée.", "FORBIDDEN", 403);
@@ -152,7 +145,6 @@ export class OiseauOrchestrator {
         throw new IlotError("Oiseau introuvable dans la Silice", "NOT_FOUND", 404);
       }
 
-      // MATCH indexé strict sur l'UID canonique avec la date unifiée
       const cypher = `
         MATCH (u:User {uid: $canonicalUid})
         SET u.pseudo = coalesce($pseudo, u.pseudo), 
@@ -180,7 +172,7 @@ export class OiseauOrchestrator {
   }
 
   /**
-   * 💀 L'EXIL (Désintégration Totale et Libération)
+   * 💀 L'EXIL (Désintégration Totale et Libération - Phase 4 : Curseurs Mongoose anti Memory Spikes)
    */
   async exileOiseau(
     oiseauIdentifier: string, 
@@ -199,31 +191,57 @@ export class OiseauOrchestrator {
 
     return await TransactionManager.execute("L'Exil de l'Oiseau", async (mongoSession, neo4jTx) => {
       
-      const allTasks = await TaskModel.find({ creatorUid: targetCanonicalUid }).session(mongoSession).lean();
-      const allProjects = await ProjectModel.find({ creatorUid: targetCanonicalUid }).session(mongoSession).lean();
+      const batchSize = 50;
+      let filesBatch: string[] = [];
 
-      // 1. Rassemblement de toutes les clés de fichiers à incinérer
-      const filesToDelete: string[] = [];
-      [...allTasks, ...allProjects].forEach((entity: any) => {
-        if (entity.documents && Array.isArray(entity.documents)) {
-          entity.documents.forEach((doc: any) => {
-            if (doc.url) {
-              filesToDelete.push(this.storageService.extractKeyFromUrl(doc.url));
+      const processBatch = async (files: string[]) => {
+        if (files.length === 0) return;
+        await Promise.all(
+          files.map(async (key) => {
+            try {
+              await this.storageService.deleteFile(key);
+            } catch (err) {
+              console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
             }
-          });
-        }
-      });
+          })
+        );
+      };
 
-      // 2. Parallélisation massive de la purge physique S3/R2
-      await Promise.all(
-        filesToDelete.map(async (key) => {
-          try {
-            await this.storageService.deleteFile(key);
-          } catch (err) {
-            console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
+      // 1. Purge S3/R2 incrémentielle par lots via curseur Mongoose pour les Tâches
+      const taskCursor = TaskModel.find({ creatorUid: targetCanonicalUid }).select('documents').session(mongoSession).cursor();
+      for await (const task of taskCursor) {
+        if ((task as any).documents && Array.isArray((task as any).documents)) {
+          for (const doc of (task as any).documents) {
+            if (doc.url) {
+              filesBatch.push(this.storageService.extractKeyFromUrl(doc.url));
+              if (filesBatch.length >= batchSize) {
+                await processBatch(filesBatch);
+                filesBatch = [];
+              }
+            }
           }
-        })
-      );
+        }
+      }
+
+      // 2. Purge S3/R2 incrémentielle par lots via curseur Mongoose pour les Projets
+      const projCursor = ProjectModel.find({ creatorUid: targetCanonicalUid }).select('documents').session(mongoSession).cursor();
+      for await (const proj of projCursor) {
+        if ((proj as any).documents && Array.isArray((proj as any).documents)) {
+          for (const doc of (proj as any).documents) {
+            if (doc.url) {
+              filesBatch.push(this.storageService.extractKeyFromUrl(doc.url));
+              if (filesBatch.length >= batchSize) {
+                await processBatch(filesBatch);
+                filesBatch = [];
+              }
+            }
+          }
+        }
+      }
+
+      if (filesBatch.length > 0) {
+        await processBatch(filesBatch);
+      }
 
       // Nettoyage relationnel massif via l'index strict sur le canonicalUid
       const cypher = `
@@ -312,7 +330,6 @@ export class OiseauOrchestrator {
     if (!isSelf && !signature.capabilities.includes('*')) throw new IlotError("Aura insuffisante.", "FORBIDDEN", 403);
 
     return await TransactionManager.execute("Fluctuation d'Oiseau", async (_mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       const updateData: Record<string, any> = { entropieActive: entropie };

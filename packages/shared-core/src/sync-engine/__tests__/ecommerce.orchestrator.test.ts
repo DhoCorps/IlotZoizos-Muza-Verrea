@@ -2,22 +2,24 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EcommerceOrchestrator } from '../ecommerce.orchestrator';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
-import { syncUniversalInteraction } from '@ilot/infrastructure';
+import { syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure';
 
-// 👈 MOCK ASYNCHRONE SÉCURISÉ (Empêche l'erreur 'catch')
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
     ...actual,
     syncUniversalInteraction: vi.fn(async () => true),
+    SystemGraphDlqModel: {
+      create: vi.fn().mockResolvedValue([{}])
+    }
   };
 });
+
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
     execute: vi.fn(async (_name, cb) => {
       const mockMongoSession = {};
       const mockNeo4jTx = {
-        // On simule un retour Neo4j dynamique pour extraire ownerUid ou initiatorUid
         run: vi.fn().mockResolvedValue({ 
           records: [{ 
             get: (field: string) => {
@@ -87,9 +89,20 @@ describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', (
       expect(result.success).toBe(true);
       expect(result.orderUid).toBe('ord-1');
 
-      // Tissage universel !
       expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
       expect(syncUniversalInteraction).toHaveBeenCalledWith(mockActorUid, 'store_owner_123', 'ECOMMERCE');
+    });
+
+    it('🟡 doit basculer l\'interaction en DLQ si syncUniversalInteraction échoue', async () => {
+      vi.mocked(syncUniversalInteraction).mockRejectedValueOnce(new Error('Neo4j timeout'));
+
+      const result = await orchestrator.recordOrder(
+        { uid: 'ord-1', buyerUid: mockActorUid, storeUid: 'store-1', totalAmountCents: 1500, stripePaymentIntentId: 'pi_123' },
+        { actorUid: mockActorUid, capabilities: ['*'] }
+      );
+
+      expect(result.success).toBe(true);
+      expect(SystemGraphDlqModel.create).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -103,7 +116,6 @@ describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', (
       expect(result.success).toBe(true);
       expect(result.barterUid).toBe('barter-1');
 
-      // Tissage universel au moment de la proposition ciblée !
       expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
       expect(syncUniversalInteraction).toHaveBeenCalledWith(mockActorUid, 'bird-beta', 'ECOMMERCE');
     });
@@ -117,7 +129,6 @@ describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', (
       expect(result.success).toBe(true);
       expect(result.status).toBe('ACCEPTED');
 
-      // Tissage universel au moment de la résolution ! (initiator_123 est la valeur renvoyée par le mock)
       expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
       expect(syncUniversalInteraction).toHaveBeenCalledWith('initiator_123', 'bird-beta', 'ECOMMERCE');
     });

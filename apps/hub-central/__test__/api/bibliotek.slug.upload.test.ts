@@ -68,7 +68,15 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
       publicUrl: 'https://cdn.ilot/books/essai.epub',
       key: 'mock-book-key.epub',
     } as any);
-    vi.spyOn(storageService, 'extractKeyFromUrl').mockReturnValue('mock-book-key.epub');
+
+    // 🛡️ Simulation réaliste d'extraction de clé normalisée avec filtrage des URL étrangères
+    vi.spyOn(storageService, 'extractKeyFromUrl').mockImplementation((url: string) => {
+      if (url.includes('volée') || url.includes('etrangere')) {
+        return 'foreign-key';
+      }
+      return 'mock-book-key.epub';
+    });
+
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
   });
 
@@ -139,7 +147,7 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
   });
 
-  it('🔴 DELETE : doit rejeter (403) si l’URL fournie n’appartient pas à l’ouvrage (Protection IDOR)', async () => {
+  it('🔴 DELETE : doit rejeter (403) en cas de tentative IDOR sur une URL étrangère normalisée', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({

@@ -10,6 +10,19 @@ import { v4 as uuidv4 } from 'uuid';
 import { generateFileHash } from '@/lib/cryptoHelper';
 import { SamplotekOrchestrator } from '@ilot/shared-core';
 
+// 🛡️ Fonction centralisée d'invalidation en cascade pour SamploTek
+function revalidateSamplotekCascades(userUid?: string, sampleUid?: string) {
+  revalidateTag('samples');
+  revalidateTag('samplotek');
+  if (userUid) {
+    revalidateTag(`samples-user-${userUid}`);
+    revalidateTag(`samplotek-user-${userUid}`);
+  }
+  if (sampleUid) {
+    revalidateTag(`sample-${sampleUid}`);
+  }
+}
+
 // ==========================================
 // 🎵 POST : Ingestion et scellement d'un sample audio
 // ==========================================
@@ -95,9 +108,8 @@ export const POST = withRateLimit('upload-sample', 10, 60, withAura(async (req: 
       digitalSignature
     }, { actorUid: currentUser.uid, capabilities: currentUser.capabilities || [] });
 
-    // 7. Invalidation chirurgicale du cache
-    revalidateTag('samples');
-    revalidateTag(`samples-user-${currentUser.uid}`);
+    // 7. Invalidation globale et centralisée en cascade
+    revalidateSamplotekCascades(currentUser.uid, sampleUid);
 
     return NextResponse.json({
       success: true,

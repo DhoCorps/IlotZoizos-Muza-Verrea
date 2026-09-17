@@ -62,9 +62,9 @@ async function getTaskCapabilities(userUid: string, taskUid: string): Promise<st
       OPTIONAL MATCH (u2)-[rTeam:MEMBER_OF|OWNER_OF|INVITED_TO]->(tTeam:Team)-[:HAS_PROJECT]->(p)
       RETURN 
          rDirect IS NOT NULL AS isDirectlyInvolved,
-        rProj.capabilities AS projectCaps,
-        rTeam.defaultProjectCapabilities AS teamDefaultCaps,
-        type(rTeam) AS teamRel
+         rProj.capabilities AS projectCaps,
+         rTeam.defaultProjectCapabilities AS teamDefaultCaps,
+         type(rTeam) AS teamRel
     `;
          
     const result = await session.run(cypher, { userUid, taskUid });
@@ -89,7 +89,14 @@ async function getTaskCapabilities(userUid: string, taskUid: string): Promise<st
     console.error("  Fracture lors de la compilation d'Aura sur l'Atome :", error);
     return [];
   } finally {
-    await session?.close?.();
+    // 🛡️ GARANTIE STRICTE ANTI-FUITE DE CONNEXION NEO4J (Pool Leak Prevention)
+    if (session) {
+      try {
+        await session.close();
+      } catch (closeErr) {
+        console.error("  Neo4j Session Close Error:", closeErr);
+      }
+    }
   }
 }
 
@@ -137,7 +144,6 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
     return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
   }
 
-  // 🔍 Résolution de l'entité par slug ou UID pour obtenir l'UID canonique
   const taskEntity: any = await findEntityBySlugOrUid(TaskModel, identifier);
   const targetUid = taskEntity?.uid || identifier;
 
@@ -196,7 +202,6 @@ export const PATCH = withAura(async (req: Request, context: ApiContext, currentU
     return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
   }
 
-  // 🔍 Résolution unifiée pour cibler la tâche
   const taskEntity: any = await findEntityBySlugOrUid(TaskModel, identifier);
   const targetUid = taskEntity?.uid || identifier;
 
@@ -253,7 +258,6 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
     return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
   }
 
-  // 🔍 Résolution unifiée pour cibler la désintégration
   const taskEntity: any = await findEntityBySlugOrUid(TaskModel, identifier);
   const targetUid = taskEntity?.uid || identifier;
 

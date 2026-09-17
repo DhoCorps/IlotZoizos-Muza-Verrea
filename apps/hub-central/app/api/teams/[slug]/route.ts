@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { Record } from 'neo4j-driver';
 import { TeamModel, findEntityBySlugOrUid, getNeo4jSession } from "@ilot/infrastructure"; 
 import { TeamOrchestrator } from "@ilot/shared-core";
 import { CAPABILITIES, ActionSignature } from "@ilot/types";
@@ -28,21 +29,23 @@ const UpdateTeamSchema = z.object({
  * Interroge le Graphe pour récupérer TOUTES les capacités de cet Oiseau sur ce Nid.
  */
 async function getCapabilities(userUid: string, teamUid: string): Promise<string[]> {
-  let session;
+  let session: any = null;
   try {
     session = getNeo4jSession();
+    if (!session) return [];
+
     const result = await session.run(
       `MATCH (u:User {uid: $userUid})-[r:MEMBER_OF|FOUNDED|INVITED_TO]->(t:Team {uid: $teamUid})
        RETURN r.capabilities AS caps, type(r) AS relType`,
       { userUid, teamUid }
     );
     
-    if (result.records.length === 0) return []; 
+    if (!result || result.records.length === 0) return []; 
     
     let compiledCaps: string[] = [];
     let isInvited = false;
-    
-    result.records.forEach(record => {
+
+    result.records.forEach((record: Record) => {
       const caps = record.get('caps') || [];
       compiledCaps = [...compiledCaps, ...caps];
       if (record.get('relType') === 'INVITED_TO') {
@@ -63,6 +66,7 @@ async function getCapabilities(userUid: string, teamUid: string): Promise<string
     console.error("🔥 [CAPABILITIES ERROR] Erreur lors de l'auscultation de l'Aura :", error);
     return [];
   } finally {
+    // 🛡️ GARANTIE STRICTE ANTI-FUITE DE CONNEXION NEO4J (Pool Leak Prevention)
     if (session) {
       try {
         await session.close();
@@ -87,24 +91,31 @@ const getCachedTeamDetails = (teamIdentifier: string, userUid: string) => {
 
       const caps = await getCapabilities(userUid, teamUid);
 
-      const neoSession = getNeo4jSession();
+      let neoSession: any = null;
       let invitations: any[] = [];
       try {
-        const inviteCypher = `
-          MATCH (target:User)-[r:INVITED_TO|REFUSED_INVITATION]->(t:Team {uid: $teamUid})
-          RETURN target.uid AS uid, target.pseudo AS pseudo, type(r) AS relType
-        `;
-        const inviteResult = await neoSession.run(inviteCypher, { teamUid });
-        invitations = inviteResult.records.map((record: any) => ({
-          uid: record.get('uid'),
-          pseudo: record.get('pseudo'),
-          status: record.get('relType') === 'INVITED_TO' ? 'PENDING' : 'REFUSED'
-        }));
+        neoSession = getNeo4jSession();
+        if (neoSession) {
+          const inviteCypher = `
+            MATCH (target:User)-[r:INVITED_TO|REFUSED_INVITATION]->(t:Team {uid: $teamUid})
+            RETURN target.uid AS uid, target.pseudo AS pseudo, type(r) AS relType
+          `;
+          const inviteResult = await neoSession.run(inviteCypher, { teamUid });
+          invitations = inviteResult.records.map((record: any) => ({
+            uid: record.get('uid'),
+            pseudo: record.get('pseudo'),
+            status: record.get('relType') === 'INVITED_TO' ? 'PENDING' : 'REFUSED'
+          }));
+        }
       } catch (inviteErr) {
         console.error("🔥 [INVITATIONS QUERY ERROR]", inviteErr);
       } finally {
         if (neoSession) {
-          try { await neoSession.close(); } catch (e) {}
+          try { 
+            await neoSession.close(); 
+          } catch (e) {
+            console.error("⚠️ Erreur fermeture session Neo4j (Invitations) :", e);
+          }
         }
       }
 

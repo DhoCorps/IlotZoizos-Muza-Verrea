@@ -10,13 +10,26 @@ import { IlotError } from '@ilot/shared-core';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
 import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 
+// 🛡️ Fonction centralisée d'invalidation en cascade pour les Sujets (Abyss)
+function revalidateSujetCascades(sujet: { slug?: string; uid?: string }) {
+  revalidateTag('sujets');
+  revalidateTag('abyss');
+  if (sujet.uid) {
+    revalidateTag(`sujet-${sujet.uid}`);
+  }
+  if (sujet.slug) {
+    revalidateTag(`sujet-${sujet.slug}`);
+    revalidateTag(`sujet-slug-${sujet.slug}`);
+  }
+}
+
 // ==========================================
 // 📤 POST : Téléversement de média pour un Sujet avec Sceau SHA-256
 // ==========================================
 export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 2. Résolution stricte et typée de l'identifiant
-    const resolvedParams = await context.params;
+    // 🛡️ 1. Résolution asynchrone sécurisée des paramètres de route
+    const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
@@ -124,11 +137,8 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
       { $set: { mediaUrl: publicUrl } }
     );
 
-    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade pour ce sujet
-    revalidateTag('sujets');
-    revalidateTag(`sujet-${identifier}`);
-    if (targetSujet.uid) revalidateTag(`sujet-${targetSujet.uid}`);
-    if (targetSujet.slug) revalidateTag(`sujet-${targetSujet.slug}`);
+    // 💥 Invalidation globale et centralisée en cascade
+    revalidateSujetCascades(targetSujet);
 
     console.log(`📜 [Abyss] Média ancré pour le sujet [uid: ${targetSujet.uid}] : ${publicUrl}`);
 
@@ -155,8 +165,8 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
 // ==========================================
 export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 1. Résolution de l'identifiant
-    const resolvedParams = await context.params;
+    // 🛡️ 1. Résolution asynchrone sécurisée des paramètres de route
+    const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
@@ -197,22 +207,27 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       return NextResponse.json({ error: "URL de l'artefact à purger manquante." }, { status: 400 });
     }
 
-    // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que l'URL appartient bien à ce sujet !
-    if (targetSujet.mediaUrl && targetSujet.mediaUrl !== fileUrl) {
+    // 🛡️ SUTURE DE SÉCURITÉ IDOR : Normalisation et validation stricte par extraction de clés de stockage
+    if (!targetSujet.mediaUrl) {
+      return NextResponse.json({ error: "Souveraineté brisée : aucun média enregistré pour ce sujet." }, { status: 403 });
+    }
+
+    let expectedKey: string;
+    let providedKey: string;
+    try {
+      expectedKey = storageService.extractKeyFromUrl(targetSujet.mediaUrl);
+      providedKey = storageService.extractKeyFromUrl(fileUrl);
+    } catch {
+      return NextResponse.json({ error: "Format d'URL d'artefact invalide." }, { status: 400 });
+    }
+
+    if (!expectedKey || !providedKey || expectedKey !== providedKey) {
       return NextResponse.json({ error: "Souveraineté brisée : cet artefact n'appartient pas à ce sujet." }, { status: 403 });
     }
 
-    // 4. Extraction de la clé et désintégration du fichier
-    let key;
+    // 4. Désintégration du fichier via la clé normalisée
     try {
-      key = storageService.extractKeyFromUrl(fileUrl);
-    } catch (extractErr) {
-      console.error("🔥 [EXTRACT KEY ERROR]", extractErr);
-      return NextResponse.json({ error: "Échec de l'extraction de la clé d'artefact." }, { status: 400 });
-    }
-
-    try {
-      await storageService.deleteFile(key);
+      await storageService.deleteFile(expectedKey);
     } catch (deleteErr) {
       console.error("🔥 [STORAGE DELETE ERROR]", deleteErr);
       return NextResponse.json({ error: "Échec de la désintégration de l'artefact dans le Nexus." }, { status: 500 });
@@ -224,11 +239,8 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       { $set: { mediaUrl: null } }
     );
 
-    // 💥 BOOM ! Invalidation chirurgicale du cache
-    revalidateTag('sujets');
-    revalidateTag(`sujet-${identifier}`);
-    if (targetSujet.uid) revalidateTag(`sujet-${targetSujet.uid}`);
-    if (targetSujet.slug) revalidateTag(`sujet-${targetSujet.slug}`);
+    // 💥 Invalidation globale et centralisée en cascade
+    revalidateSujetCascades(targetSujet);
 
     console.log(`🗑️ [Abyss] Média purgé pour le sujet [uid: ${targetSujet.uid}]`);
 

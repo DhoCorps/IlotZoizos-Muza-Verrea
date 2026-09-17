@@ -12,7 +12,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
             findOne: vi.fn(),
         },
         getNeo4jSession: vi.fn(),
-        // 🛡️ Mock du helper unifié centralisé
         findEntityBySlugOrUid: vi.fn(),
     };
 });
@@ -64,8 +63,7 @@ describe('Route API : Atome Individuel ([slug])', () => {
         vi.mocked(getNeo4jSession).mockReturnValue(mockNeoSession as any);
     });
 
-    it('🟢 GET : doit ausculter l\'atome si autorisé', async () => {
-        // Simulation du cache ou du repli par le helper unifié
+    it('🟢 GET : doit ausculter l\'atome via le cache avec succès', async () => {
         vi.mocked(getCachedTaskDetails).mockResolvedValueOnce({
             task: { uid: 'task_123', title: 'Atome Silice' },
             caps: ['*']
@@ -79,9 +77,10 @@ describe('Route API : Atome Individuel ([slug])', () => {
 
         expect(res.status).toBe(200);
         expect(data.uid).toBe('task_123');
+        // Le GET résout par le cache, donc la session Neo4j locale n'est pas ouverte inutilement ici.
     });
 
-    it('🟢 PATCH : doit faire muter l\'atome et renvoyer les données mises à jour', async () => {
+    it('🟢 PATCH : doit faire muter l\'atome, renvoyer les données et fermer la session Neo4j', async () => {
         vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
             uid: 'task_123',
             slug: 'task_123',
@@ -100,9 +99,10 @@ describe('Route API : Atome Individuel ([slug])', () => {
         expect(res.status).toBe(200);
         expect(data.name).toBe('Atome Muté');
         expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TaskModel, 'task_123');
+        expect(mockNeoSession.close).toHaveBeenCalledTimes(1); // 🛡️ Vérification de la fermeture de session
     });
 
-    it('🟢 DELETE : doit désintégrer l\'atome avec succès', async () => {
+    it('🟢 DELETE : doit désintégrer l\'atome avec succès et fermer la session Neo4j', async () => {
         vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
             uid: 'task_123',
             slug: 'task_123',
@@ -119,5 +119,6 @@ describe('Route API : Atome Individuel ([slug])', () => {
         expect(res.status).toBe(200);
         expect(data.message).toContain('poussière du Nexus');
         expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TaskModel, 'task_123');
+        expect(mockNeoSession.close).toHaveBeenCalledTimes(1); // 🛡️ Vérification de la fermeture de session
     });
 });

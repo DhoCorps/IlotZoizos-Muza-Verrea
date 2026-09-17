@@ -6,15 +6,30 @@ import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { IlotError } from '@ilot/shared-core';
 import { CVTemplateModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
+import { revalidateTag } from 'next/cache';
 import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
+
+// 🛡️ Fonction centralisée d'invalidation en cascade pour les templates Kontakt / CV
+function revalidateKontaktCascades(template: { slug?: string; uid?: string }) {
+  revalidateTag('kontakt');
+  revalidateTag('cv-templates');
+  if (template.uid) {
+    revalidateTag(`kontakt-template-${template.uid}`);
+  }
+  if (template.slug) {
+    revalidateTag(`kontakt-template-${template.slug}`);
+    revalidateTag(`kontakt-template-slug-${template.slug}`);
+  }
+}
 
 // ==========================================
 // 🚀 POST : Téléverser un aperçu graphique sur R2 avec Sceau SHA-256
 // ==========================================
 export const POST = withRateLimit('upload-kontakt', 10, 60, withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    // 🛡️ Résolution asynchrone sécurisée des paramètres de route
+    const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = (resolvedParams as any)?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
@@ -95,11 +110,14 @@ export const POST = withRateLimit('upload-kontakt', 10, 60, withAura(async (req:
 
     const storageKey = uploadResult?.key || customKey;
 
-    // 🔄 Optionnel mais recommandé : Mise à jour de l'URL d'aperçu dans le template MongoDB
+    // Mise à jour de l'URL d'aperçu dans le template MongoDB
     await CVTemplateModel.updateOne(
       { uid: template.uid },
       { $set: { previewUrl: publicUrl } }
     );
+
+    // 💥 Invalidation globale et centralisée en cascade
+    revalidateKontaktCascades(template);
 
     return NextResponse.json({
       success: true,
@@ -116,7 +134,7 @@ export const POST = withRateLimit('upload-kontakt', 10, 60, withAura(async (req:
 
   } catch (error: any) {
     console.error('🔥 [KONTAKT UPLOAD FATAL ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : 500;
+    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
     return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
   }
 }));
@@ -126,7 +144,7 @@ export const POST = withRateLimit('upload-kontakt', 10, 60, withAura(async (req:
 // ==========================================
 export const DELETE = withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = (resolvedParams as any)?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
@@ -155,19 +173,34 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
       return NextResponse.json({ error: 'URL de l\'artefact à purger manquante.' }, { status: 400 });
     }
 
-    // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que l'URL appartient bien à ce template !
-    if (template.previewUrl && template.previewUrl !== fileUrl) {
+    // 🛡️ SUTURE DE SÉCURITÉ IDOR : Normalisation et validation stricte par extraction de clés de stockage
+    if (!template.previewUrl) {
+      return NextResponse.json({ error: "Souveraineté brisée : aucun artefact enregistré pour ce template." }, { status: 403 });
+    }
+
+    let expectedKey: string;
+    let providedKey: string;
+    try {
+      expectedKey = storageService.extractKeyFromUrl(template.previewUrl);
+      providedKey = storageService.extractKeyFromUrl(fileUrl);
+    } catch {
+      return NextResponse.json({ error: "Format d'URL d'artefact invalide." }, { status: 400 });
+    }
+
+    if (!expectedKey || !providedKey || expectedKey !== providedKey) {
       return NextResponse.json({ error: "Souveraineté brisée : cet artefact n'appartient pas à ce template." }, { status: 403 });
     }
 
-    const key = storageService.extractKeyFromUrl(fileUrl);
-    await storageService.deleteFile(key);
+    await storageService.deleteFile(expectedKey);
 
     // Nettoyage de la base de données
     await CVTemplateModel.updateOne(
       { uid: template.uid },
       { $set: { previewUrl: null } }
     );
+
+    // 💥 Invalidation globale et centralisée en cascade
+    revalidateKontaktCascades(template);
 
     return NextResponse.json({ 
       success: true, 
@@ -176,7 +209,7 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
 
   } catch (error: any) {
     console.error('🔥 [KONTAKT DELETE FATAL ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : 500;
+    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
     return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
   }
 });

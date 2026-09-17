@@ -2,23 +2,40 @@ import { SampleModel, PartitaModel, UniversalMediaRegistry } from '@ilot/infrast
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { randomUUID } from 'crypto';
-import { generateSlug } from '../utils/string.engine'; // 👈 Utilisation du moteur interne
+import { randomUUID, randomBytes } from 'crypto';
+import { generateSlug } from '../utils/string.engine';
 
 export interface SamplotekSyncResult {
   success: boolean;
   status: string;
-  mongo: any; // Type souple et compatible avec les documents Mongoose
+  mongo: any;
   neo4j: import('neo4j-driver').QueryResult;
 }
 
 /**
  * SAMPLOTEK ORCHESTRATOR
  * Gère la sédimentation des samples (E-Jay) et le mixage final.
- * Applique le tissage Neo4j avec un typage strict.
+ * Applique le tissage Neo4j avec un typage strict et une unicité atomique anti-concurrence.
  */
 export class SamplotekOrchestrator {
-  
+
+  /**
+   * Utilitaire interne pour générer un slug instantanément garanti sans boucle de lecture séquentielle,
+   * éliminant ainsi les conditions de course (Race Conditions E11000).
+   */
+  private async ensureUniqueSlug(Model: any, baseSlug: string, session: any): Promise<string> {
+    let finalSlug = baseSlug;
+    let exists = await Model.findOne({ slug: finalSlug }).session(session).lean();
+    
+    if (exists) {
+      // Injection d'un suffixe aléatoire cryptographique court (4 caractères hex = 16^4 possibilités)
+      // pour éviter les boucles while bloquantes sous forte charge concurrente.
+      const randomSuffix = randomBytes(2).toString('hex');
+      finalSlug = `${baseSlug}-${randomSuffix}`;
+    }
+    return finalSlug;
+  }
+
   /**
    * 💽 GRAVER UN NOUVEAU SAMPLE
    */
@@ -34,21 +51,12 @@ export class SamplotekOrchestrator {
     const actorCanonicalUid = signature.actorUid;
 
     return await TransactionManager.execute("Fondation Sample", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
-      
       const sampleUid = (data.uid as string) || `samp_${randomUUID()}`;
 
-      // Sécurisation de l'unicité du slug dans la Silice
+      // Sécurisation atomique de l'unicité du slug sans boucle séquentielle
       const baseSlug = generateSlug((data.slug as string) || (data.title as string));
-      let finalSlug = baseSlug;
-      let slugExists = await SampleModel.findOne({ slug: finalSlug }).session(mongoSession);
-      let counter = 1;
-      while (slugExists) {
-        finalSlug = `${baseSlug}-${counter}`;
-        slugExists = await SampleModel.findOne({ slug: finalSlug }).session(mongoSession);
-        counter++;
-      }
+      const finalSlug = await this.ensureUniqueSlug(SampleModel, baseSlug, mongoSession);
 
       const newSampleData = {
         ...data,
@@ -61,10 +69,19 @@ export class SamplotekOrchestrator {
         }
       };
 
-      // 1. Sédimentation dans la Silice (MongoDB)
-      const [newSample] = await SampleModel.create([newSampleData], { session: mongoSession });
+      // 1. Sédimentation dans la Silice (MongoDB) avec gestion gracieuse de l'unicité (Retry pattern minimaliste)
+      let newSample;
+      try {
+        const created = await SampleModel.create([newSampleData], { session: mongoSession });
+        newSample = created[0];
+      } catch (err: any) {
+        if (err.code === 11000) {
+          throw new IlotError("Collision critique de slug sur le sample. Veuillez réitérer.", "CONFLICT", 409);
+        }
+        throw err;
+      }
 
-      // 2. Tissage dans le Graphe (Neo4j) avec MATCH strict et la date synchronisée
+      // 2. Tissage dans le Graphe (Neo4j)
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (s:Sample {
@@ -114,40 +131,40 @@ export class SamplotekOrchestrator {
     const actorCanonicalUid = signature.actorUid;
 
     return await TransactionManager.execute("Exportation Studio", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
-
       const projectUid = (data.uid as string) || `samplotek_${randomUUID()}`;
 
-      // Sécurisation de l'unicité du slug
+      // Sécurisation atomique de l'unicité du slug de projet
       const baseSlug = generateSlug((data.slug as string) || (data.title as string));
-      let finalSlug = baseSlug;
-      let slugExists = await PartitaModel.findOne({ slug: finalSlug }).session(mongoSession);
-      let counter = 1;
-      while (slugExists) {
-        finalSlug = `${baseSlug}-${counter}`;
-        slugExists = await PartitaModel.findOne({ slug: finalSlug }).session(mongoSession);
-        counter++;
+      const finalSlug = await this.ensureUniqueSlug(PartitaModel, baseSlug, mongoSession);
+
+      // 1. Sédimentation comme "Partition" dans MongoDB
+      let newProject;
+      try {
+        const createdProject = await PartitaModel.create([{
+          uid: projectUid,
+          slug: finalSlug,
+          title: data.title,
+          authorUid: actorCanonicalUid,
+          status: 'PUBLISHED',
+          type: 'SAMPLOTEK_PROJECT',
+          content: JSON.stringify({ bpm: data.bpm, tracks: data.tracks }),
+          instrument: 'SAMPLOTEK',
+          metadata: data.metadata,
+          dates: {
+            createdAt: now,
+            updatedAt: now
+          }
+        }], { session: mongoSession });
+        newProject = createdProject[0];
+      } catch (err: any) {
+        if (err.code === 11000) {
+          throw new IlotError("Collision de slug détectée sur le projet studio.", "CONFLICT", 409);
+        }
+        throw err;
       }
 
-      // 1. Sédimentation comme "Partition" dans MongoDB avec dates synchronisées
-      const [newProject] = await PartitaModel.create([{
-        uid: projectUid,
-        slug: finalSlug,
-        title: data.title,
-        authorUid: actorCanonicalUid,
-        status: 'PUBLISHED',
-        type: 'SAMPLOTEK_PROJECT',
-        content: JSON.stringify({ bpm: data.bpm, tracks: data.tracks }),
-        instrument: 'SAMPLOTEK',
-        metadata: data.metadata,
-        dates: {
-          createdAt: now,
-          updatedAt: now
-        }
-      }], { session: mongoSession });
-
-      // 2. Tissage dans Neo4j avec liens vers les samples utilisés (Héritage)
+      // 2. Tissage dans Neo4j
       const metadataObj = data.metadata as Record<string, unknown> | undefined;
       const usedSampleUids = (metadataObj?.usedSampleUids as string[]) || [];
       
@@ -183,7 +200,7 @@ export class SamplotekOrchestrator {
         throw new IlotError("Échec du tissage du projet dans Neo4j.", "INTERNAL_ERROR", 500);
       }
 
-      // 3. Indexation Universelle si autorisé (Intègre le composant au Diaporama Agora)
+      // 3. Indexation Universelle si autorisé
       const permissions = metadataObj?.permissions as Record<string, boolean> | undefined;
       if (permissions?.allowShowcase) {
         await UniversalMediaRegistry.indexItem({

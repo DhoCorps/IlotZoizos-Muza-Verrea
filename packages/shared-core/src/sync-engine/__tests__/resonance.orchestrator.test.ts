@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ResonanceOrchestrator } from '../resonance.orchestrator';
-import { OiseauModel, findEntityBySlugOrUid, syncUniversalInteraction } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid, syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
-// 🛡️ Mock unifié et sécurisé de l'infrastructure et de Neo4j
+// 🛡️ Mock unifié et sécurisé de l'infrastructure incluant la DLQ
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
@@ -12,6 +12,9 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     OiseauModel: {},
     findEntityBySlugOrUid: vi.fn(),
     syncUniversalInteraction: vi.fn(async () => true),
+    SystemGraphDlqModel: {
+      create: vi.fn().mockResolvedValue([{}])
+    },
     getNeo4jSession: vi.fn(() => ({
       run: vi.fn().mockResolvedValue({ records: [] }),
       close: vi.fn().mockResolvedValue(true)
@@ -40,7 +43,6 @@ vi.mock('../transactionManager', () => ({
 describe('ResonanceOrchestrator - Tissage du Graphe & Scans Stricts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Simule la résolution canonique interne via findEntityBySlugOrUid
     vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model, identifier: any) => {
       const clean = identifier || 'unknown';
       return { uid: `resolved_${clean}` } as any;
@@ -51,7 +53,6 @@ describe('ResonanceOrchestrator - Tissage du Graphe & Scans Stricts', () => {
     it('🔴 doit rejeter (403) si la requête Neo4j échoue à prouver la souveraineté de l\'acteur (0 records retournés)', async () => {
       const restrictedSignature = { actorUid: 'b1', capabilities: [] };
       
-      // On simule un refus du graphe
       vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name, cb) => {
         return await cb({} as any, { run: vi.fn().mockResolvedValue({ records: [] }) } as any);
       });
@@ -92,15 +93,25 @@ describe('ResonanceOrchestrator - Tissage du Graphe & Scans Stricts', () => {
       expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
-      // Vérification du tissage universel (acteur <-> créateur de la Partita)
       expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
       expect(syncUniversalInteraction).toHaveBeenCalledWith('resolved_bird_slug', 'target_owner_123', 'PRAISE');
+    });
+
+    it('🟡 doit basculer l\'interaction en DLQ si syncUniversalInteraction échoue sur addSocialEcho', async () => {
+      vi.mocked(syncUniversalInteraction).mockRejectedValueOnce(new Error('Neo4j failure'));
+
+      const validSignature = { actorUid: 'bird_slug', capabilities: [] };
+      const res = await ResonanceOrchestrator.addSocialEcho(
+        'partita-slug', 'Partita', 'TEXT', 'Belle composition !', validSignature as any
+      );
+      
+      expect(res.success).toBe(true);
+      expect(SystemGraphDlqModel.create).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('weaveResonance & severResonance', () => {
     it('🟢 doit résoudre les oiseaux, tisser une résonance, valider l\'harmonie et propager l\'interaction', async () => {
-      // Pour ce test spécifique, on mocke la méthode execute pour simuler un isHarmonic = true
       vi.mocked(TransactionManager.execute).mockResolvedValueOnce(true as any);
       
       const isHarmonic = await ResonanceOrchestrator.weaveResonance({
@@ -113,7 +124,6 @@ describe('ResonanceOrchestrator - Tissage du Graphe & Scans Stricts', () => {
       expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(2);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
-      // Tissage universel !
       expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
       expect(syncUniversalInteraction).toHaveBeenCalledWith('resolved_bird_slug_a', 'resolved_bird_slug_b', 'PRAISE');
     });

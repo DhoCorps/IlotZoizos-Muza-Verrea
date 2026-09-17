@@ -4,7 +4,6 @@ import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { v4 as uuidv4 } from 'uuid';
 
-// Interface d'injection pour isoler le shared-core du service cloud de l'application
 interface IStorageManager {
   deleteFile(key: string): Promise<any>;
   extractKeyFromUrl(url: string): string;
@@ -27,7 +26,6 @@ export class ProjectOrchestrator {
   private storageService: IStorageManager;
 
   constructor(customStorageService?: IStorageManager) {
-    // Par défaut (pour les tests), on injecte un mock silencieux
     this.storageService = customStorageService || {
       deleteFile: async () => ({ success: true }),
       extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
@@ -54,7 +52,6 @@ export class ProjectOrchestrator {
     const uid = projectData.uid || uuidv4();
 
     return await TransactionManager.execute("Fondation Chantier", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
       
       const finalProjectData = {
@@ -113,20 +110,17 @@ export class ProjectOrchestrator {
 
   // --- 🧬 MUTATION (Update) ---
   async mutateProject(projectIdentifier: string, updates: any, signature: ActionSignature): Promise<ProjectSyncResult> {
-    // 1. Résolution universelle vers UID canonique strict via findEntityBySlugOrUid
     const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier);
     if (!project) throw new IlotError("Chantier introuvable dans la Silice.", "NOT_FOUND", 404);
 
     const projectUid = (project as any).uid;
 
     return await TransactionManager.execute("Mutation Chantier", async (_mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
       
       const isCreator = (project as any).creatorUid === signature.actorUid;
       const isArchitect = signature.capabilities.includes('*');
 
-      // Vérification des droits via le graphe en cascade
       if (!isCreator && !isArchitect) {
         const check = await neo4jTx.run(`
           MATCH (u:User {uid: $actorUid})-[r:MEMBER_OF|OWNER_OF]->(t:Team)-[:HAS_PROJECT]->(p:Project {uid: $pUid})
@@ -150,7 +144,6 @@ export class ProjectOrchestrator {
         { new: true }
       ).lean();
 
-      // Mutation légère Neo4j avec la date synchronisée
       await neo4jTx.run(`
         MATCH (p:Project {uid: $projectUid})
         SET p.name = coalesce($name, p.name),
@@ -168,9 +161,8 @@ export class ProjectOrchestrator {
   }
 
   /**
-   * 🌋 DISSOLUTION GLOBALE DU CHANTIER (Phase 3 : Éradication des verrous longs)
-   * Supprime l'intégralité de l'arbre (Sous-projets, Tâches) en une seule transaction massive 
-   * plutôt que de boucler individuellement.
+   * 🌋 DISSOLUTION GLOBALE DU CHANTIER (Phase 3 : Éradication des verrous longs & Memory Spikes)
+   * Utilise des curseurs Mongoose et un traitement par lots incrémentiels pour préserver la RAM.
    */
   async dissolveProject(projectIdentifier: string, _signature: ActionSignature) {
     const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier);
@@ -195,18 +187,60 @@ export class ProjectOrchestrator {
       const allUids = [...projUids, ...taskUids];
       if (allUids.length === 0) return { success: true, purgedCount: 0 };
 
-      // 2. Récupération des documents pour purge du stockage physique
-      const tasksWithDocs = await TaskModel.find({ uid: { $in: taskUids } }).select('documents').session(mongoSession).lean();
-      const projsWithDocs = await ProjectModel.find({ uid: { $in: projUids } }).select('documents').session(mongoSession).lean();
-      
-      const filesToDelete: string[] = [];
-      [...tasksWithDocs, ...projsWithDocs].forEach((entity: any) => {
-        if (entity.documents && Array.isArray(entity.documents)) {
-          entity.documents.forEach((doc: any) => {
-            if (doc.url) filesToDelete.push(this.storageService.extractKeyFromUrl(doc.url));
-          });
+      // 2. Traitement par lots incrémentiels via curseurs Mongoose (anti Memory Spikes)
+      const batchSize = 50;
+      let filesBatch: string[] = [];
+
+      const processBatch = async (files: string[]) => {
+        if (files.length === 0) return;
+        await Promise.all(
+          files.map(async (key) => {
+            try {
+              await this.storageService.deleteFile(key);
+            } catch (err) {
+              console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
+            }
+          })
+        );
+      };
+
+      if (taskUids.length > 0) {
+        const taskCursor = TaskModel.find({ uid: { $in: taskUids } }).select('documents').session(mongoSession).cursor();
+        for await (const task of taskCursor) {
+          if ((task as any).documents && Array.isArray((task as any).documents)) {
+            for (const doc of (task as any).documents) {
+              if (doc.url) {
+                filesBatch.push(this.storageService.extractKeyFromUrl(doc.url));
+                if (filesBatch.length >= batchSize) {
+                  await processBatch(filesBatch);
+                  filesBatch = [];
+                }
+              }
+            }
+          }
         }
-      });
+      }
+
+      if (projUids.length > 0) {
+        const projCursor = ProjectModel.find({ uid: { $in: projUids } }).select('documents').session(mongoSession).cursor();
+        for await (const proj of projCursor) {
+          if ((proj as any).documents && Array.isArray((proj as any).documents)) {
+            for (const doc of (proj as any).documents) {
+              if (doc.url) {
+                filesBatch.push(this.storageService.extractKeyFromUrl(doc.url));
+                if (filesBatch.length >= batchSize) {
+                  await processBatch(filesBatch);
+                  filesBatch = [];
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (filesBatch.length > 0) {
+        await processBatch(filesBatch);
+      }
 
       // 3. Purge Documentaire Massive (Silice)
       if (taskUids.length > 0) {
@@ -221,17 +255,6 @@ export class ProjectOrchestrator {
         MATCH (n) WHERE n.uid IN $allUids
         DETACH DELETE n
       `, { allUids });
-
-      // 5. Nettoyage asynchrone du stockage S3/R2 (Best effort)
-      await Promise.all(
-        filesToDelete.map(async (key) => {
-          try {
-            await this.storageService.deleteFile(key);
-          } catch (err) {
-            console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
-          }
-        })
-      );
       
       return { success: true, status: 'success', purgedCount: allUids.length };
     });

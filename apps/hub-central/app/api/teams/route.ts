@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import { TeamOrchestrator } from "@ilot/shared-core";
 import { TeamSchema, CAPABILITIES, ActionSignature } from "@ilot/types";
@@ -5,7 +7,18 @@ import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { getCachedUserTeams } from '@/lib/cache/teams.cache';
 
-export const dynamic = 'force-dynamic';
+// 🛡️ Fonction centralisée d'invalidation en cascade pour les listes et Nids
+function revalidateTeamListCascades(userUid?: string, teamUid?: string) {
+  revalidateTag('teams');
+  revalidateTag('users');
+  if (userUid) {
+    revalidateTag(`teams-${userUid}`);
+    revalidateTag(`user-teams-${userUid}`);
+  }
+  if (teamUid) {
+    revalidateTag(`team-${teamUid}`);
+  }
+}
 
 // ==========================================
 // 🔍 GET : Recensement des Nids de l'Oiseau
@@ -52,14 +65,15 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     const signature: ActionSignature = { actorUid: currentUser.uid, capabilities: currentUser.capabilities };
 
     const teamEngine = new TeamOrchestrator();
-    const result = await teamEngine.fosterTeam({
+    const result: any = await teamEngine.fosterTeam({
       ...validated.data,
       ownerUid: currentUser.uid,
       leaderUid: currentUser.uid
     }, signature); 
 
-    revalidateTag(`teams-${currentUser.uid}`);
-    revalidateTag('teams');
+    // 💥 Invalidation globale et centralisée en cascade
+    const createdTeamUid = result?.uid || result?.team?.uid;
+    revalidateTeamListCascades(currentUser.uid, createdTeamUid);
 
     return NextResponse.json(result, { status: 201 });
 

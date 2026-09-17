@@ -5,7 +5,7 @@ import { MoralChecker } from '../integrity/moral.checker';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
-import { syncUniversalInteraction } from '@ilot/infrastructure';
+import { syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure';
 
 interface IStorageManager {
   deleteFile(key: string): Promise<any>;
@@ -63,7 +63,6 @@ export class TeamOrchestrator {
     const check = moralCheck.analyze(teamData.name);
     if (!check.isSafe) throw new IlotError(`Nom invalide : ${check.suggestion}`, "BAD_REQUEST", 400);
 
-    // 🚀 PROBLÈMES 2 & SYNCHRO : Résolution unique et globale de l'utilisateur canonique (évite le double aller-retour)
     const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
     const creator = await findEntityBySlugOrUid(OiseauModel, actorCanonicalUid) as any;
     if (!creator) throw new IlotError("Empreinte créatrice introuvable dans la canopée.", "NOT_FOUND", 404);
@@ -72,7 +71,6 @@ export class TeamOrchestrator {
     const defaultFreq = teamData.frequency || '#2A3B4C';
 
     return await TransactionManager.execute("Fondation d'Escouade", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       const [newTeam] = await TeamModel.create([{
@@ -184,7 +182,6 @@ export class TeamOrchestrator {
     if (!target) throw new IlotError("Oiseau introuvable.", "NOT_FOUND", 404);
 
     const result = await TransactionManager.execute("Invitation d'Oiseau", async (_mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       const cypher = `
@@ -217,12 +214,23 @@ export class TeamOrchestrator {
       };
     });
 
-    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle sécurisé par try/catch en arrière-plan
     if (actorCanonicalUid !== targetCanonicalUid) {
       try {
         await syncUniversalInteraction(actorCanonicalUid, targetCanonicalUid, 'TEAM');
-      } catch (err) {
-        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (inviteBird) :`, err);
+      } catch (err: any) {
+        console.error(`  [Orchestrator] Échec du tissage universel (inviteBird), basculement DLQ :`, err);
+        try {
+          await SystemGraphDlqModel.create({
+            operationName: 'syncUniversalInteraction_inviteBird',
+            payload: { sourceUid: actorCanonicalUid, targetUid: targetCanonicalUid, type: 'TEAM' },
+            error: err.message,
+            status: 'PENDING_RETRY',
+            retryCount: 0,
+            timestamp: new Date()
+          });
+        } catch (dlqErr) {
+          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
+        }
       }
     }
 
@@ -248,7 +256,6 @@ export class TeamOrchestrator {
     if (!existingTeam) throw new IlotError("Nid introuvable.", "NOT_FOUND", 404);
 
     return await TransactionManager.execute("Mutation de Nid", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       const updatedTeam = await TeamModel.findOneAndUpdate(
@@ -281,6 +288,9 @@ export class TeamOrchestrator {
     });
   }
 
+  /**
+   * 🌋 DISSOLUTION DU NID (Phase 4 : Curseurs Mongoose et lots incrémentiels anti Memory Spikes)
+   */
   async dissolveTeam(teamIdentifier: string, signature: ActionSignature): Promise<boolean> {
     if (!signature.capabilities.includes(CAPABILITIES.TEAM.DELETE) && !signature.capabilities.includes('*')) {
       throw new IlotError("Aura insuffisante pour dissoudre ce Nid.", "FORBIDDEN", 403);
@@ -292,33 +302,60 @@ export class TeamOrchestrator {
     const teamUid = team.uid;
 
     return await TransactionManager.execute("Dissolution de Nid", async (mongoSession, neo4jTx) => {
-      // 🚀 PROBLÈME 3 : Projection stricte avec .select('documents') pour éliminer les Memory Spikes
-      const projects = await ProjectModel.find({ ownerUid: teamUid }).select('documents uid').session(mongoSession).lean();
+      const projects = await ProjectModel.find({ ownerUid: teamUid }).select('uid').session(mongoSession).lean();
       const projectUids = projects.map((p: any) => p.uid);
-      const tasks = await TaskModel.find({ projectUid: { $in: projectUids } }).select('documents').session(mongoSession).lean();
 
-      // 1. Rassemblement de toutes les clés de fichiers à incinérer
-      const filesToDelete: string[] = [];
-      [...tasks, ...projects].forEach((entity: any) => {
-        if (entity.documents && Array.isArray(entity.documents)) {
-          entity.documents.forEach((doc: any) => {
-            if (doc.url) {
-              filesToDelete.push(this.storageService.extractKeyFromUrl(doc.url));
+      const batchSize = 50;
+      let filesBatch: string[] = [];
+
+      const processBatch = async (files: string[]) => {
+        if (files.length === 0) return;
+        await Promise.all(
+          files.map(async (key) => {
+            try {
+              await this.storageService.deleteFile(key);
+            } catch (err) {
+              console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
             }
-          });
-        }
-      });
+          })
+        );
+      };
 
-      // 2. Parallélisation massive de la purge physique S3/R2
-      await Promise.all(
-        filesToDelete.map(async (key) => {
-          try {
-            await this.storageService.deleteFile(key);
-          } catch (err) {
-            console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
+      if (projectUids.length > 0) {
+        const taskCursor = TaskModel.find({ projectUid: { $in: projectUids } }).select('documents').session(mongoSession).cursor();
+        for await (const task of taskCursor) {
+          if ((task as any).documents && Array.isArray((task as any).documents)) {
+            for (const doc of (task as any).documents) {
+              if (doc.url) {
+                filesBatch.push(this.storageService.extractKeyFromUrl(doc.url));
+                if (filesBatch.length >= batchSize) {
+                  await processBatch(filesBatch);
+                  filesBatch = [];
+                }
+              }
+            }
           }
-        })
-      );
+        }
+      }
+
+      const projCursor = ProjectModel.find({ ownerUid: teamUid }).select('documents').session(mongoSession).cursor();
+      for await (const proj of projCursor) {
+        if ((proj as any).documents && Array.isArray((proj as any).documents)) {
+          for (const doc of (proj as any).documents) {
+            if (doc.url) {
+              filesBatch.push(this.storageService.extractKeyFromUrl(doc.url));
+              if (filesBatch.length >= batchSize) {
+                await processBatch(filesBatch);
+                filesBatch = [];
+              }
+            }
+          }
+        }
+      }
+
+      if (filesBatch.length > 0) {
+        await processBatch(filesBatch);
+      }
 
       if (projectUids.length > 0) {
         await TaskModel.deleteMany({ projectUid: { $in: projectUids } }, { session: mongoSession });
@@ -364,7 +401,6 @@ export class TeamOrchestrator {
     const teamUid = team.uid;
 
     return await TransactionManager.execute("L'Envol Volontaire", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       if (mode === 'CLEAN') {
@@ -391,7 +427,6 @@ export class TeamOrchestrator {
         `;
         await neo4jTx.run(cypherClean, { userUid: targetCanonicalUid, teamUid });
 
-        // 🚀 PROBLÈMES 3 : Projection stricte .select('uid') pour alléger l'empreinte mémoire
         const projects = await ProjectModel.find({ ownerUid: teamUid }).select('uid').session(mongoSession).lean();
         const projectUids = projects.map((p: any) => p.uid);
 

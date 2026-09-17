@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { TeamModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure'; 
 import { CAPABILITIES } from '@ilot/types'; 
@@ -6,8 +8,6 @@ import { revalidateTag } from 'next/cache';
 import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { storageService } from '@/modules/storage/storage.service';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
-
-export const dynamic = 'force-dynamic';
 
 /**
  * 🛡️ INTERROGE LE GRAPHE (Neo4j)
@@ -50,14 +50,30 @@ async function hasCapability(userUid: string, teamUid: string, requiredCapabilit
   }
 }
 
+// 🛡️ Fonction centralisée d'invalidation en cascade pour les Nids (Teams)
+function revalidateTeamCascades(team: { slug?: string; uid?: string }, teamIdentifier?: string) {
+  revalidateTag('teams');
+  revalidateTag('users');
+  if (teamIdentifier) {
+    revalidateTag(`team-${teamIdentifier}`);
+  }
+  if (team?.uid) {
+    revalidateTag(`team-${team.uid}`);
+  }
+  if (team?.slug) {
+    revalidateTag(`team-${team.slug}`);
+    revalidateTag(`team-slug-${team.slug}`);
+  }
+}
+
 // ==========================================
 // 📤 POST : Téléversement avec Sceau d'Antériorité SHA-256
 // ==========================================
-export const POST = withRateLimit('upload-team-slug', 10, 60, withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
-  // 1. Résolution slug / identifier
+export const POST = withRateLimit('upload-team-slug', 10, 60, withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser): Promise<NextResponse> => {
+  // 1. Résolution asynchrone et sécurisée des paramètres de route
   let resolvedParams;
   try {
-    resolvedParams = await context.params;
+    resolvedParams = await Promise.resolve(context.params);
   } catch {
     return NextResponse.json({ success: false, message: "Paramètres de route invalides." }, { status: 400 });
   }
@@ -171,11 +187,8 @@ export const POST = withRateLimit('upload-team-slug', 10, 60, withAura(async (re
     { new: true }
   ).lean();
 
-  // 💥 Invalidation cache en cascade
-  revalidateTag('teams');
-  revalidateTag(`team-${teamIdentifier}`);
-  if (team.slug) revalidateTag(`team-${team.slug}`);
-  if (team.uid) revalidateTag(`team-${team.uid}`);
+  // 💥 Invalidation globale et centralisée en cascade
+  revalidateTeamCascades(team, teamIdentifier);
 
   return NextResponse.json({ 
     success: true, 
@@ -188,7 +201,7 @@ export const POST = withRateLimit('upload-team-slug', 10, 60, withAura(async (re
 // ==========================================
 // 🧨 DELETE : Suppression d'artefact
 // ==========================================
-export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
+export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser): Promise<NextResponse> => {
   let resolvedParams;
   try {
     resolvedParams = await context.params;
@@ -222,31 +235,43 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
   const { key } = body || {};
   if (!key) return NextResponse.json({ success: false, message: "Clé manquante." }, { status: 400 });
 
-  // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que le document appartient bien à cette équipe !
+  // 🛡️ SUTURE DE SÉCURITÉ IDOR : Normalisation et validation stricte par extraction de clés de stockage
   const documents = Array.isArray(team.documents) ? team.documents : [];
-  const targetDoc = documents.find((doc: any) => doc.url === key || doc.uid === key);
+  let targetDoc: any = null;
+  let normalizedProvidedKey = '';
+
+  try {
+    normalizedProvidedKey = storageService.extractKeyFromUrl(key);
+  } catch {
+    normalizedProvidedKey = key;
+  }
+
+  targetDoc = documents.find((doc: any) => {
+    try {
+      const docKey = storageService.extractKeyFromUrl(doc.url || doc.uid);
+      return docKey === normalizedProvidedKey || doc.uid === key || doc.url === key;
+    } catch {
+      return doc.uid === key || doc.url === key;
+    }
+  });
 
   if (!targetDoc) {
     return NextResponse.json({ success: false, message: "Souveraineté brisée : cet artefact n'appartient pas à ce nid." }, { status: 403 });
   }
 
   try {
-    const storageKey = storageService.extractKeyFromUrl(key);
-    await storageService.deleteFile(storageKey);
+    await storageService.deleteFile(normalizedProvidedKey);
   } catch (s3Err) {
     console.error("🔥 [Storage DELETE ERROR]", s3Err);
   }
 
   await TeamModel.updateOne(
     { uid: team.uid }, 
-    { $pull: { documents: {$or: [{ url: key }, { uid: key }] } } }
+    { $pull: { documents: { $or: [{ url: targetDoc.url }, { uid: targetDoc.uid }] } } }
   );
 
-  // 💥 Invalidation en cascade
-  revalidateTag('teams');
-  revalidateTag(`team-${teamIdentifier}`);
-  if (team.slug) revalidateTag(`team-${team.slug}`);
-  if (team.uid) revalidateTag(`team-${team.uid}`);
+  // 💥 Invalidation globale et centralisée en cascade
+  revalidateTeamCascades(team, teamIdentifier);
 
   return NextResponse.json({ success: true }, { status: 200 });
 });

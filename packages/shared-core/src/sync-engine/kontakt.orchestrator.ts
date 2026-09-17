@@ -2,7 +2,7 @@ import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { syncUniversalInteraction } from '@ilot/infrastructure'; // 👈 Import du maillage universel
+import { syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure'; // 👈 Import de la DLQ
 
 export class KontaktOrchestrator {
 
@@ -31,12 +31,10 @@ export class KontaktOrchestrator {
       throw new IlotError("Oiseau non authentifié pour effectuer un swipe.", "UNAUTHORIZED", 401);
     }
 
-    // Résolution stricte des identités AVANT la transaction pour alléger Neo4j
     const swiperCanonicalUid = await this.resolveCanonicalUid(data.swiperUid);
     const targetCanonicalUid = await this.resolveCanonicalUid(data.targetUid);
 
     const result = await TransactionManager.execute("Enregistrement de Swipe Kontakt", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
       let isMatch = false;
 
@@ -87,12 +85,24 @@ export class KontaktOrchestrator {
       return { success: true, action: data.action, match: isMatch };
     });
 
-    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle en arrière-plan avec try/catch (Serverless safe)
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL : Fallback DLQ en cas d'échec
     if (swiperCanonicalUid !== targetCanonicalUid) {
       try {
         await syncUniversalInteraction(swiperCanonicalUid, targetCanonicalUid, 'KONTAKT');
-      } catch (err) {
-        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (registerSwipe) :`, err);
+      } catch (err: any) {
+        console.error(`  [Orchestrator] Échec du tissage universel (registerSwipe), basculement DLQ :`, err);
+        try {
+          await SystemGraphDlqModel.create({
+            operationName: 'syncUniversalInteraction_registerSwipe',
+            payload: { sourceUid: swiperCanonicalUid, targetUid: targetCanonicalUid, type: 'KONTAKT' },
+            error: err.message,
+            status: 'PENDING_RETRY',
+            retryCount: 0,
+            timestamp: new Date()
+          });
+        } catch (dlqErr) {
+          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
+        }
       }
     }
 
@@ -101,7 +111,6 @@ export class KontaktOrchestrator {
 
   /**
    * 🏅 LE SCEAU DE CONFIANCE (Endorsement Professionnel)
-   * Approuve publiquement la compétence technique ou artistique d'un autre oiseau.
    */
   async endorseSkill(
     data: { targetUid: string; skillName: string; comment?: string },
@@ -117,7 +126,6 @@ export class KontaktOrchestrator {
     const endorserCanonicalUid = await this.resolveCanonicalUid(signature.actorUid);
 
     const result = await TransactionManager.execute("Apposition du Sceau de Confiance", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       const cypher = `
@@ -143,11 +151,22 @@ export class KontaktOrchestrator {
       return { success: true, targetUid: targetCanonicalUid, skill: data.skillName };
     });
 
-    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle sécurisé par try/catch
     try {
       await syncUniversalInteraction(endorserCanonicalUid, targetCanonicalUid, 'KONTAKT');
-    } catch (err) {
-      console.error(`  [Orchestrator] Échec non bloquant du tissage universel (endorseSkill) :`, err);
+    } catch (err: any) {
+      console.error(`  [Orchestrator] Échec du tissage universel (endorseSkill), basculement DLQ :`, err);
+      try {
+        await SystemGraphDlqModel.create({
+          operationName: 'syncUniversalInteraction_endorseSkill',
+          payload: { sourceUid: endorserCanonicalUid, targetUid: targetCanonicalUid, type: 'KONTAKT' },
+          error: err.message,
+          status: 'PENDING_RETRY',
+          retryCount: 0,
+          timestamp: new Date()
+        });
+      } catch (dlqErr) {
+        console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
+      }
     }
 
     return result;
@@ -155,7 +174,6 @@ export class KontaktOrchestrator {
 
   /**
    * 🌉 LA PASSERELLE (Mise en relation)
-   * Demande à un oiseau intermédiaire d'introduire l'auteur de la requête à une cible.
    */
   async requestIntroduction(
     data: { intermediaryUid: string; targetUid: string; message: string },
@@ -168,7 +186,6 @@ export class KontaktOrchestrator {
     const targetCanonicalUid = await this.resolveCanonicalUid(data.targetUid);
 
     const result = await TransactionManager.execute("Demande de Passerelle", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       const cypher = `
@@ -199,11 +216,22 @@ export class KontaktOrchestrator {
       return { success: true, status: 'PENDING' };
     });
 
-    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle sécurisé par try/catch (Demandeur <-> Intermédiaire)
     try {
       await syncUniversalInteraction(requesterCanonicalUid, intermediaryCanonicalUid, 'KONTAKT');
-    } catch (err) {
-      console.error(`  [Orchestrator] Échec non bloquant du tissage universel (requestIntroduction) :`, err);
+    } catch (err: any) {
+      console.error(`  [Orchestrator] Échec du tissage universel (requestIntroduction), basculement DLQ :`, err);
+      try {
+        await SystemGraphDlqModel.create({
+          operationName: 'syncUniversalInteraction_requestIntroduction',
+          payload: { sourceUid: requesterCanonicalUid, targetUid: intermediaryCanonicalUid, type: 'KONTAKT' },
+          error: err.message,
+          status: 'PENDING_RETRY',
+          retryCount: 0,
+          timestamp: new Date()
+        });
+      } catch (dlqErr) {
+        console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
+      }
     }
 
     return result;

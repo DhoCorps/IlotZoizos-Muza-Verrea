@@ -8,6 +8,12 @@ import { CVTemplateModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 // -------------------------------------------------------------------------
 // 🎭 MOCKS MINIMAUX ET PRÉCIS
 // -------------------------------------------------------------------------
+// 🛡️ Mock crucial pour éviter l'erreur "static generation store missing in revalidateTag"
+vi.mock('next/cache', () => ({
+  revalidateTag: vi.fn(),
+  revalidatePath: vi.fn(),
+}));
+
 vi.mock('@/lib/api-guards', () => ({
   withAura: (handler: any) => async (req: any, context: any) => {
     const mockUser = global.__mockUser;
@@ -33,7 +39,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       findOne: vi.fn(),
       updateOne: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
     },
-    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
     findEntityBySlugOrUid: vi.fn(),
   };
 });
@@ -53,14 +58,20 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
 
-    // 🛡️ Espionnage du Service de Stockage
     vi.spyOn(storageService, 'generateKey').mockReturnValue('mock-key');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
       publicUrl: 'https://cdn.ilot/doc.pdf',
       key: 'mock-key',
     } as any);
-    vi.spyOn(storageService, 'extractKeyFromUrl').mockReturnValue('mock-key');
+
+    // 🛡️ Simulation réaliste d'extraction de clé normalisée avec filtrage des URL étrangères
+    vi.spyOn(storageService, 'extractKeyFromUrl').mockImplementation((url: string) => {
+      if (url.includes('etrangere') || url.includes('foreign')) {
+        return 'foreign-key';
+      }
+      return 'mock-key';
+    });
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
   });
 
@@ -90,6 +101,7 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 'tmpl_123',
+      slug: 'mon-template',
       authorUid: 'u-123'
     } as any);
 
@@ -111,9 +123,16 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
     expect(typeof json.data.digitalSignature).toBe('string');
     expect(json.data.digitalSignature.length).toBe(64); // Validation de l'empreinte SHA-256
     expect(findEntityBySlugOrUid).toHaveBeenCalledWith(CVTemplateModel, 'mon-template');
+    
+    // Vérification de la cascade d'invalidation (importée depuis `next/cache`)
+    const { revalidateTag } = await import('next/cache');
+    expect(revalidateTag).toHaveBeenCalledWith('kontakt');
+    expect(revalidateTag).toHaveBeenCalledWith('cv-templates');
+    expect(revalidateTag).toHaveBeenCalledWith('kontakt-template-tmpl_123');
+    expect(revalidateTag).toHaveBeenCalledWith('kontakt-template-mon-template');
   });
 
-  it('DELETE - doit échouer (403) en cas de tentative IDOR sur une URL étrangère', async () => {
+  it('DELETE - doit échouer (403) en cas de tentative IDOR sur une URL étrangère normalisée', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
@@ -136,6 +155,7 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 'tmpl_123',
+      slug: 'mon-template',
       authorUid: 'u-123',
       previewUrl: 'https://cdn.ilot/doc.pdf'
     } as any);
@@ -154,5 +174,10 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
       { $set: { previewUrl: null } }
     );
     expect(findEntityBySlugOrUid).toHaveBeenCalledWith(CVTemplateModel, 'mon-template');
+
+    // Vérification de la cascade d'invalidation
+    const { revalidateTag } = await import('next/cache');
+    expect(revalidateTag).toHaveBeenCalledWith('kontakt');
+    expect(revalidateTag).toHaveBeenCalledWith('cv-templates');
   });
 });

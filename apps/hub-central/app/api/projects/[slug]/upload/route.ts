@@ -2,7 +2,6 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
-import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { ProjectModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { CAPABILITIES } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
@@ -33,12 +32,25 @@ async function canUpdateProject(userUid: string, projectUid: string): Promise<bo
   }
 }
 
+// 🛡️ Fonction centralisée d'invalidation en cascade pour les chantiers/projets
+function revalidateProjectCascades(project: { slug?: string; uid?: string }) {
+  revalidateTag('projects');
+  revalidateTag('teams');
+  if (project.uid) {
+    revalidateTag(`project-${project.uid}`);
+  }
+  if (project.slug) {
+    revalidateTag(`project-${project.slug}`);
+    revalidateTag(`project-slug-${project.slug}`);
+  }
+}
+
 // ==========================================
 // 📤 POST : Téléversement d'un artefact/document sur un Chantier avec Sceau SHA-256
 // ==========================================
 export const POST = withRateLimit('upload-project-attachment', 10, 60, withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
@@ -46,7 +58,6 @@ export const POST = withRateLimit('upload-project-attachment', 10, 60, withAura(
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    // Recherche unifiée du projet par son slug ou son UID dans la Silice
     let project: any;
     try {
       project = await findEntityBySlugOrUid(ProjectModel, identifier);
@@ -84,7 +95,6 @@ export const POST = withRateLimit('upload-project-attachment', 10, 60, withAura(
     if (!allowedTypes.includes(file.type)) return NextResponse.json({ success: false, message: "Format refusé." }, { status: 400 });
     if (file.size > 25 * 1024 * 1024) return NextResponse.json({ success: false, message: "Max 25 Mo." }, { status: 400 });
 
-    // 🪡 Génération du Sceau Cryptographique (SHA-256) d'Antériorité de manière blindée
     let fileBuffer: Buffer;
     try {
       if (typeof file.arrayBuffer === 'function') {
@@ -107,7 +117,6 @@ export const POST = withRateLimit('upload-project-attachment', 10, 60, withAura(
     const digitalSignature = generateFileHash(fileBuffer);
     const timestampedAt = new Date();
 
-    // 🪡 Alignement sur la méthode unifiée generateKey
     const customKey = storageService.generateKey({
       mode: 'LEGACY',
       inceptId: 'ilot-zoizos',
@@ -126,7 +135,6 @@ export const POST = withRateLimit('upload-project-attachment', 10, 60, withAura(
       return NextResponse.json({ error: "Échec de téléversement vers le Nexus." }, { status: 500 });
     }
 
-    // Résilience de l'URL publique
     let publicUrl = '';
     if (typeof uploadResult === 'string') {
       publicUrl = uploadResult;
@@ -162,13 +170,8 @@ export const POST = withRateLimit('upload-project-attachment', 10, 60, withAura(
 
     if (!updatedProject) return NextResponse.json({ success: false, message: "Chantier introuvable." }, { status: 404 });
 
-    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
-    revalidateTag('projects');
-    revalidateTag(`project-${project.uid}`);
-    if (project.slug) {
-      revalidateTag(`project-${project.slug}`);
-      revalidateTag(`project-slug-${project.slug}`);
-    }
+    // 💥 Invalidation globale et centralisée en cascade
+    revalidateProjectCascades(project);
 
     return NextResponse.json({ 
       success: true, 
@@ -190,7 +193,7 @@ export const POST = withRateLimit('upload-project-attachment', 10, 60, withAura(
 // ==========================================
 export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
@@ -223,34 +226,46 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
     
     if (!body.key) return NextResponse.json({ message: "Clé manquante" }, { status: 400 });
 
-    // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que le document appartient bien à ce projet !
     const documents = Array.isArray(project.documents) ? project.documents : [];
-    const targetDoc = documents.find((doc: any) => doc.url === body.key || doc.uid === body.key);
+    let targetDoc: any = null;
+    let normalizedProvidedKey = '';
+
+    try {
+      normalizedProvidedKey = storageService.extractKeyFromUrl(body.key);
+    } catch {
+      normalizedProvidedKey = body.key;
+    }
+
+    targetDoc = documents.find((doc: any) => {
+      try {
+        const docKey = storageService.extractKeyFromUrl(doc.url || doc.uid);
+        return docKey === normalizedProvidedKey || doc.uid === body.key || doc.url === body.key;
+      } catch {
+        return doc.uid === body.key || doc.url === body.key;
+      }
+    });
 
     if (!targetDoc) {
       return NextResponse.json({ message: "Souveraineté brisée : cet artefact n'appartient pas à ce chantier." }, { status: 403 });
     }
 
     try {
-      const storageKey = storageService.extractKeyFromUrl(body.key);
-      await storageService.deleteFile(storageKey);
+      await storageService.deleteFile(normalizedProvidedKey);
     } catch (s3Err) {
       console.error("🔥 [Storage DELETE ERROR]", s3Err);
     }
 
     try {
-      await ProjectModel.updateOne({ uid: project.uid }, { $pull: { documents: { $or: [{ url: body.key }, { uid: body.key }] } } });
+      await ProjectModel.updateOne(
+        { uid: project.uid }, 
+        { $pull: { documents: { $or: [{ url: targetDoc.url }, { uid: targetDoc.uid }] } } }
+      );
     } catch (dbErr) { 
       return NextResponse.json({ error: "Échec nettoyage Silice." }, { status: 500 }); 
     }
 
-    // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
-    revalidateTag('projects');
-    revalidateTag(`project-${project.uid}`);
-    if (project.slug) {
-      revalidateTag(`project-${project.slug}`);
-      revalidateTag(`project-slug-${project.slug}`);
-    }
+    // 💥 Invalidation globale et centralisée en cascade
+    revalidateProjectCascades(project);
 
     return NextResponse.json({ success: true, message: "Artefact désintégré." }, { status: 200 });
 

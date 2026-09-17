@@ -2,7 +2,7 @@ import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 
 // Interface d'injection pour isoler le shared-core du service de stockage externe de l'application
 interface IStorageManager {
@@ -24,17 +24,30 @@ const generateSlug = (text: string) => {
 /**
  * ✍️ SUJET ORCHESTRATOR
  * Gère la sédimentation d'une pensée dans la Silice et son tissage dans le Graphe.
- * Phase 2 : Utilisation d'un index strict sur l'auteur canonique dans Neo4j.
+ * Phase 2 : Utilisation d'un index strict sur l'auteur canonique dans Neo4j et unicité atomique anti-concurrence.
  */
 export class SujetOrchestrator {
   private storageService: IStorageManager;
 
   constructor(customStorageService?: IStorageManager) {
-    // Par défaut (pour les tests), on injecte un mock silencieux
     this.storageService = customStorageService || {
       deleteFile: async () => ({ success: true }),
       extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
     };
+  }
+
+  /**
+   * Utilitaire interne pour garantir l'unicité du slug sans boucle séquentielle bloquante (Race Conditions E11000).
+   */
+  private async ensureUniqueSlug(Model: any, baseSlug: string, session: any): Promise<string> {
+    let finalSlug = baseSlug;
+    let exists = await Model.findOne({ slug: finalSlug }).session(session).lean();
+    
+    if (exists) {
+      const randomSuffix = randomBytes(2).toString('hex');
+      finalSlug = `${baseSlug}-${randomSuffix}`;
+    }
+    return finalSlug;
   }
   
   /**
@@ -47,22 +60,14 @@ export class SujetOrchestrator {
     }
 
     return await TransactionManager.execute("Fondation de Sujet", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
       
       const sujetUid = data.uid || `sujet_${randomUUID()}`;
       const title = data.title || "Monologue sans nom";
       
-      // Sécurisation de l'unicité du slug
+      // Sécurisation atomique de l'unicité du slug
       let baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
-      let finalSlug = baseSlug;
-      let slugExists = await SujetModel.findOne({ slug: finalSlug }).session(mongoSession);
-      let counter = 1;
-      while (slugExists) {
-        finalSlug = `${baseSlug}-${counter}`;
-        slugExists = await SujetModel.findOne({ slug: finalSlug }).session(mongoSession);
-        counter++;
-      }
+      let finalSlug = await this.ensureUniqueSlug(SujetModel, baseSlug, mongoSession);
 
       const newSujetData = {
         uid: sujetUid,
@@ -85,20 +90,29 @@ export class SujetOrchestrator {
         }
       };
 
-      // 1. SILICE (MongoDB)
-      const [newSujet] = await SujetModel.create([newSujetData], { session: mongoSession });
+      // 1. SILICE (MongoDB) avec gestion de secours E11000
+      let newSujet;
+      try {
+        const created = await SujetModel.create([newSujetData], { session: mongoSession });
+        newSujet = created[0];
+      } catch (err: any) {
+        if (err.code === 11000) {
+          throw new IlotError("Collision critique de slug sur le sujet. Veuillez réitérer.", "CONFLICT", 409);
+        }
+        throw err;
+      }
 
       // 2. GRAPHE (Neo4j) - MATCH indexé strict sur l'auteur canonique et horodatage synchronisé
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (s:Sujet { 
-          uid: $sujetUid, 
-          title: $title, 
-          slug: $slug,
-          category: $category,
-          status: $status,
-          createdAt: datetime($now),
-          updatedAt: datetime($now)
+           uid: $sujetUid, 
+           title: $title, 
+           slug: $slug,
+           category: $category,
+           status: $status,
+           createdAt: datetime($now),
+           updatedAt: datetime($now)
         })
         CREATE (u)-[:WROTE]->(s)
 
@@ -167,7 +181,6 @@ export class SujetOrchestrator {
     }
 
     return await TransactionManager.execute("Mutation de Sujet", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       const finalUpdates = {

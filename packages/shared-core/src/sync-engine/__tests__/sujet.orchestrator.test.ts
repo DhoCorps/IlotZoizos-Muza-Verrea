@@ -47,8 +47,11 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
     });
 
     it('🟢 doit forger un sujet dans MongoDB et Neo4j avec succès', async () => {
+      // 🛠️ Correction du mock pour supporter le chaînage .session(...).lean()
       vi.mocked(SujetModel.findOne).mockReturnValue({
-        session: vi.fn().mockResolvedValueOnce(null)
+        session: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValueOnce(null)
+        })
       } as any);
 
       vi.mocked(SujetModel.create).mockResolvedValueOnce([
@@ -73,7 +76,7 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
     it('🟢 doit mettre à jour un sujet par son slug ou son uid avec succès', async () => {
       const mockSujet = { uid: 'sujet_1', slug: 'mon-sujet', authorUid: 'bird_author' };
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockSujet as any);
-             
+           
       vi.mocked(SujetModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce({ ...mockSujet, title: 'Updated' })
       } as any);

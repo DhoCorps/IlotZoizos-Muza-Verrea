@@ -3,7 +3,7 @@ import { TransactionManager } from './transactionManager';
 import { ActionSignature, CAPABILITIES, EntityLabel, ResonanceType } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
-import { syncUniversalInteraction } from '@ilot/infrastructure';
+import { syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure'; // 👈 Import de la DLQ
 
 export interface IResonancePayload {
   sourceUid: string;
@@ -51,7 +51,6 @@ export class ResonanceOrchestrator {
     const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
 
     return await TransactionManager.execute("Tissage Transdisciplinaire", async (_mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
       const isRoot = signature.capabilities.includes('*') || signature.capabilities.includes(CAPABILITIES.SYSTEM.ALL);
 
@@ -99,12 +98,10 @@ export class ResonanceOrchestrator {
     const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
 
     const result = await TransactionManager.execute("Sédimentation d'Écho", async (_mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();    
       const echoUid = `echo_${randomUUID()}`;
       const relation = echoType === 'TEXT' ? 'ECHOES' : 'VIBRATES';
 
-      // On récupère l'UID du créateur de l'entité ciblée pour le Karma
       const cypher = `
         MATCH (u:User {uid: $actorUid})
         MATCH (target:${targetLabel} {uid: $targetUid})
@@ -135,12 +132,24 @@ export class ResonanceOrchestrator {
       return { success: true, echoUid, content, type: echoType, ownerUid };
     });
 
-    // 🛡️ PROBLÈME 1 : Tissage universel sécurisé par try/catch en arrière-plan
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL : Fallback DLQ en cas d'échec
     if (result.ownerUid && result.ownerUid !== actorCanonicalUid) {
       try {
         await syncUniversalInteraction(actorCanonicalUid, result.ownerUid, 'PRAISE');
-      } catch (err) {
-        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (addSocialEcho) :`, err);
+      } catch (err: any) {
+        console.error(`  [Orchestrator] Échec du tissage universel (addSocialEcho), basculement DLQ :`, err);
+        try {
+          await SystemGraphDlqModel.create({
+            operationName: 'syncUniversalInteraction_addSocialEcho',
+            payload: { sourceUid: actorCanonicalUid, targetUid: result.ownerUid, type: 'PRAISE' },
+            error: err.message,
+            status: 'PENDING_RETRY',
+            retryCount: 0,
+            timestamp: new Date()
+          });
+        } catch (dlqErr) {
+          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
+        }
       }
     }
 
@@ -208,7 +217,6 @@ export class ResonanceOrchestrator {
     const targetCanonicalUid = await this.resolveCanonicalUserUid(payload.targetUid);
 
     const isHarmonic = await TransactionManager.execute("Tissage de Résonance", async (_mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
       const { type, entityId } = payload;
       
@@ -238,12 +246,24 @@ export class ResonanceOrchestrator {
       return harmonicStatus;
     });
 
-    // 🛡️ PROBLÈME 1 : Tissage universel sécurisé par try/catch en arrière-plan
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL : Fallback DLQ en cas d'échec
     if (sourceCanonicalUid !== targetCanonicalUid) {
       try {
         await syncUniversalInteraction(sourceCanonicalUid, targetCanonicalUid, 'PRAISE');
-      } catch (err) {
-        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (weaveResonance) :`, err);
+      } catch (err: any) {
+        console.error(`  [Orchestrator] Échec du tissage universel (weaveResonance), basculement DLQ :`, err);
+        try {
+          await SystemGraphDlqModel.create({
+            operationName: 'syncUniversalInteraction_weaveResonance',
+            payload: { sourceUid: sourceCanonicalUid, targetUid: targetCanonicalUid, type: 'PRAISE' },
+            error: err.message,
+            status: 'PENDING_RETRY',
+            retryCount: 0,
+            timestamp: new Date()
+          });
+        } catch (dlqErr) {
+          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
+        }
       }
     }
 

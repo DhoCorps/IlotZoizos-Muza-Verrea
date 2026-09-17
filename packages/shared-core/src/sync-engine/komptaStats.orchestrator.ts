@@ -32,15 +32,15 @@ export class KomptaStatsEngine {
    * Définit la valeur de chaque énergie de l'Îlot par rapport à un indice universel (ex: 1.0 = 1 centime d'Euro).
    */
   private static readonly EXCHANGE_RATES: Record<string, number> = {
-    'EUR': 1.0,                 // Monnaie fiduciaire (Base 1)
-    'TOTAMTOE': 0.1,            // Monnaie de jeu standard
+    'EUR': 1.0,                   // Monnaie fiduciaire (Base 1)
+    'TOTAMTOE': 0.1,              // Monnaie de jeu standard
     'PLUME_SILEX': 0.5,         // Artefact Letr'in
     'SILLON_VINYLE': 0.5,       // Artefact Partita
     'ESSENCE_VENT': 2.0,        // Énergie élémentaire rare
     'ATOME_AIR': 1.5,
     'GLUON_FEU': 3.0,
     'KAOS_ORGANIQUE': 10.0,     // Énergie chaotique de très haute valeur
-    'BARTER': 0.0               // Le troc pur n'a pas de valeur financière spéculative
+    'BARTER': 0.0                 // Le troc pur n'a pas de valeur financière spéculative
   };
 
   /**
@@ -81,14 +81,29 @@ export class KomptaStatsEngine {
 
   /**
    * 🌙 Calcule et agrège toutes les métriques de la canopée pour un mois donné ("YYYY-MM")
+   * 🛡️ Sécurisé par des bornes temporelles strictes normalisées en UTC anti-dérive d'horloge.
    */
   public static async calculateMonthlyStats(yearMonth: string): Promise<MonthlyCanopyStats> {
-    // ⏱️ SYNCHRONISATION DES HORODATAGES : Figer l'instant du calcul des statistiques
-    const now = new Date();
+    // Validation du format YYYY-MM
+    if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
+      throw new Error(`Format de mois invalide : "${yearMonth}". Attendu : "YYYY-MM".`);
+    }
 
-    const startDate = new Date(`${yearMonth}-01T00:00:00Z`);
-    const endDate = new Date(startDate);
-    endDate.setMonth(endDate.getMonth() + 1);
+    // ⏱️ SYNCHRONISATION ET NORMALISATION DES BORNES TEMPORELLES UTC STRICTES
+    const startDate = new Date(`${yearMonth}-01T00:00:00.000Z`);
+    
+    // Calcul sécurisé du mois suivant pour éviter les décalages de fuseau horaire
+    const [yearStr, monthStr] = yearMonth.split('-');
+    let year = parseInt(yearStr, 10);
+    let month = parseInt(monthStr, 10); // 1-12
+    
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+    const nextYearMonth = `${year}-${String(month).padStart(2, '0')}`;
+    const endDate = new Date(`${nextYearMonth}-01T00:00:00.000Z`);
 
     // 🚀 PARALLÉLISATION MASSIVE : On lance toutes les agrégations en même temps
     const [rawSellers, rawBuyers, mostCommented, mostReactive, rawMacro] = await Promise.all([

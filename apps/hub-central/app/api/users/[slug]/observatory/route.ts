@@ -21,8 +21,8 @@ const ObservatoryReportSchema = z.object({
 // -------------------------------------------------------------------------
 export const GET = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 1. Résolution stricte et sécurisée des paramètres de route
-    const resolvedParams = await context.params;
+    // 1. Résolution stricte, asynchrone et sécurisée des paramètres de route (Next.js App Router compatible)
+    const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 

@@ -7,7 +7,8 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   return {
     ...actual,
     SystemGraphDlqModel: {
-      find: vi.fn()
+      find: vi.fn(),
+      deleteMany: vi.fn()
     },
     getNeo4jDriver: vi.fn()
   };
@@ -18,7 +19,7 @@ describe('DlqRetryOrchestrator - Réconciliation de la Matrice', () => {
     vi.clearAllMocks();
   });
 
-  it('🟢 doit résoudre avec succès les tâches en attente si Neo4j répond via session mutualisée et executeWrite', async () => {
+  it('🟢 doit résoudre avec succès les tâches en attente en isolant chaque session Neo4j par item', async () => {
     const mockEntry = {
       operationName: 'Test_Op',
       retryCount: 0,
@@ -26,7 +27,6 @@ describe('DlqRetryOrchestrator - Réconciliation de la Matrice', () => {
       save: vi.fn().mockResolvedValue(true)
     };
 
-    // 🛡️ Mise à jour du mock pour inclure le chaînage .sort().limit()
     vi.mocked(SystemGraphDlqModel.find).mockReturnValue({
       sort: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue([mockEntry])
@@ -46,18 +46,17 @@ describe('DlqRetryOrchestrator - Réconciliation de la Matrice', () => {
     expect(result.resolved).toBe(1);
     expect(mockEntry.status).toBe('RESOLVED');
     expect(mockEntry.save).toHaveBeenCalled();
-    expect(mockSession.close).toHaveBeenCalledTimes(1); // Vérifie la fermeture unique globale
+    expect(mockSession.close).toHaveBeenCalledTimes(1); // 1 session ouverte et fermée pour cet unique item
   });
 
-  it('🔴 doit incrémenter le retryCount et marquer en FAILED_PERMANENTLY si le max d’essais est atteint', async () => {
+  it('🔴 doit incrémenter le retryCount, marquer en FAILED_PERMANENTLY et fermer la session dédiée en cas d’échec', async () => {
     const mockEntry = {
       operationName: 'Fail_Op',
-      retryCount: 2, // Plus qu'un essai avant le max (3)
+      retryCount: 2,
       status: 'PENDING_RETRY',
       save: vi.fn().mockResolvedValue(true)
     };
 
-    // 🛡️ Mise à jour du mock pour inclure le chaînage .sort().limit()
     vi.mocked(SystemGraphDlqModel.find).mockReturnValue({
       sort: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue([mockEntry])

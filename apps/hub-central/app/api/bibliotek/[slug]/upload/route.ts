@@ -10,12 +10,26 @@ import { revalidateTag } from 'next/cache';
 import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 technique
 
+// 🛡️ Fonction centralisée d'invalidation en cascade pour la Bibliotek
+function revalidateBibliotekCascades(book: { slug?: string; uid?: string }) {
+  revalidateTag('bibliotek');
+  revalidateTag('sanctuaire');
+  if (book.uid) {
+    revalidateTag(`bibliotek-${book.uid}`);
+  }
+  if (book.slug) {
+    revalidateTag(`bibliotek-${book.slug}`);
+    revalidateTag(`bibliotek-slug-${book.slug}`);
+  }
+}
+
 // ==========================================
 // POST : Verser un manuscrit ou une couverture sur le Nexus R2
 // ==========================================
 export const POST = withRateLimit('upload-bibliotek', 10, 60, withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    // 🛡️ Résolution asynchrone sécurisée des paramètres de route
+    const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = (resolvedParams as any)?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
@@ -113,11 +127,8 @@ export const POST = withRateLimit('upload-bibliotek', 10, 60, withAura(async (re
       { new: true }
     ).lean();
 
-    // 💥 Invalidation en cascade
-    revalidateTag('bibliotek');
-    revalidateTag(`bibliotek-${identifier}`);
-    if (book.slug) revalidateTag(`bibliotek-${book.slug}`);
-    if (book.uid) revalidateTag(`bibliotek-${book.uid}`);
+    // 💥 Invalidation globale et centralisée en cascade
+    revalidateBibliotekCascades(book);
 
     return NextResponse.json({
       success: true,
@@ -135,7 +146,7 @@ export const POST = withRateLimit('upload-bibliotek', 10, 60, withAura(async (re
 
   } catch (error: any) {
     console.error('🔥 [BIBLIOTEK UPLOAD FATAL ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : 500;
+    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
     return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
   }
 }));
@@ -145,7 +156,8 @@ export const POST = withRateLimit('upload-bibliotek', 10, 60, withAura(async (re
 // ==========================================
 export const DELETE = withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    // 🛡️ Résolution asynchrone sécurisée des paramètres de route
+    const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = (resolvedParams as any)?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
     if (!identifier) {
@@ -171,17 +183,28 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
       return NextResponse.json({ error: 'URL de l\'artefact à purger manquante.' }, { status: 400 });
     }
 
-    // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que l'URL appartient bien à ce livre !
-    const isManuscrit = book.fileUrl === fileUrl;
-    const isCover = book.coverUrl === fileUrl;
+    // 🛡️ SUTURE DE SÉCURITÉ IDOR : Normalisation et comparaison stricte des clés de stockage
+    let expectedManuscritKey = '';
+    let expectedCoverKey = '';
+    let providedKey = '';
+
+    try {
+      providedKey = storageService.extractKeyFromUrl(fileUrl);
+      if (book.fileUrl) expectedManuscritKey = storageService.extractKeyFromUrl(book.fileUrl);
+      if (book.coverUrl) expectedCoverKey = storageService.extractKeyFromUrl(book.coverUrl);
+    } catch {
+      return NextResponse.json({ error: "Format d'URL d'artefact invalide." }, { status: 400 });
+    }
+
+    const isManuscrit = book.fileUrl && expectedManuscritKey === providedKey;
+    const isCover = book.coverUrl && expectedCoverKey === providedKey;
 
     if (!isManuscrit && !isCover) {
       return NextResponse.json({ error: "Souveraineté brisée : cet artefact n'appartient pas à cet ouvrage." }, { status: 403 });
     }
 
-    // 1. Purge physique sur R2 (uniquement après validation formelle)
-    const key = storageService.extractKeyFromUrl(fileUrl);
-    await storageService.deleteFile(key);
+    // 1. Purge physique sur R2 via la clé normalisée
+    await storageService.deleteFile(providedKey);
 
     // 2. Nettoyage conditionnel en base basé strictement sur l'UID
     const updateQuery: any = {};
@@ -190,11 +213,8 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
 
     await LibraryBookModel.updateOne({ uid: book.uid }, { $set: updateQuery });
 
-    // 💥 Invalidation en cascade
-    revalidateTag('bibliotek');
-    revalidateTag(`bibliotek-${identifier}`);
-    if (book.slug) revalidateTag(`bibliotek-${book.slug}`);
-    if (book.uid) revalidateTag(`bibliotek-${book.uid}`);
+    // 💥 Invalidation globale et centralisée en cascade
+    revalidateBibliotekCascades(book);
 
     return NextResponse.json({ 
       success: true, 
@@ -203,7 +223,7 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
 
   } catch (error: any) {
     console.error('🔥 [BIBLIOTEK DELETE UPLOAD FATAL ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : 500;
+    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
     return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
   }
 });

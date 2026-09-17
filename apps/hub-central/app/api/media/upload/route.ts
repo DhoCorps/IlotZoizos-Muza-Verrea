@@ -11,69 +11,83 @@ import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guard
 import { v4 as uuidv4 } from 'uuid';
 import { UniversalMediaOrchestrator, IlotError } from '@ilot/shared-core';
 
+// 🛡️ Fonction centralisée d'invalidation en cascade pour les médias universels
+function revalidateUniversalMediaCascades(mediaData?: { sourceApp?: string }, userUid?: string, mediaId?: string) {
+  revalidateTag('universal-media');
+  revalidateTag('media');
+  if (mediaData?.sourceApp) {
+    revalidateTag(`media-${mediaData.sourceApp}`);
+  }
+  if (userUid) {
+    revalidateTag(`media-oiseau-${userUid}`);
+    revalidateTag(`user-medias-${userUid}`);
+  }
+  if (mediaId) {
+    revalidateTag(`media-item-${mediaId}`);
+  }
+}
+
 // ==========================================
-// POST : Télésversement & Ancrage Cosmique d'un Asset Universel
+// POST : Téléversement & Ancrage Cosmique d'un Asset Universel
 // ==========================================
 export const POST = withRateLimit('upload-universal-media', 10, 60, withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 2. Extraction Multipart
-    const formData = await req.formData().catch(() => null);
-    if (!formData) {
-      return NextResponse.json({ error: 'Corps de requête multiphase illisible.' }, { status: 400 });
+    let formData: FormData;
+    try {
+      formData = await req.formData();
+    } catch {
+      return NextResponse.json({ success: false, error: 'Corps de requête multiphase illisible.' }, { status: 400 });
     }
 
-    const file = formData.get('file') as File;
-    const rawPayload = formData.get('payload') as string; 
+    const file = formData.get('file') as File | null;
+    const rawPayload = formData.get('payload') as string | null; 
 
     if (!file || !rawPayload) {
-      return NextResponse.json({ error: 'Fichier ou métadonnées manquantes.' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'Fichier ou métadonnées manquantes.' }, { status: 400 });
     }
 
-    // 3. Validation Stricte (Zod)
     let parsedPayload;
     try {
       parsedPayload = JSON.parse(rawPayload);
     } catch {
-      return NextResponse.json({ error: 'Métadonnées illisibles.' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'Métadonnées illisibles.' }, { status: 400 });
     }
 
-    // 🪡 On injecte l'UID pour l'alignement avec le "Contrat Ultime"
     parsedPayload.creatorUid = currentUser.uid;
     parsedPayload.creatorSlug = currentUser.slug || slugify(currentUser.uid);
 
     const validation = UploadMediaInputSchema.safeParse(parsedPayload);
     if (!validation.success) {
-      console.log('Erreur Zod :', validation.error.flatten()); 
-      return NextResponse.json({ error: 'Contrat souverain invalide.', details: validation.error.flatten() }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'Contrat souverain invalide.', details: validation.error.flatten() }, { status: 400 });
     }
 
     const mediaData = validation.data;
     const mediaId = `media_${uuidv4()}`;
 
-    // 4. Génération du Sceau SHA-256
     let fileBuffer: Buffer;
     try {
-      if (typeof file.arrayBuffer === 'function') {
-        fileBuffer = Buffer.from(await file.arrayBuffer());
-      } else {
-        fileBuffer = Buffer.from('fallback-buffer-content');
-      }
+      fileBuffer = Buffer.from(await file.arrayBuffer());
     } catch {
       fileBuffer = Buffer.from('ilot-zoizos-mock-universal-media');
     }
     const digitalSignature = generateFileHash(fileBuffer);
     const timestampedAt = new Date();
 
-    // 5. Stockage Cloudflare R2 via la méthode unifiée en mode UNIVERSAL
     const customKey = storageService.generateKey({
       mode: 'UNIVERSAL',
       sourceApp: mediaData.sourceApp,
       mediaType: mediaData.type,
       creatorUid: currentUser.uid, 
-      filename: file.name
+      filename: file.name || 'asset.bin'
     });
 
-    const uploadResult: any = await storageService.uploadFile(file, customKey);
+    let uploadResult: any;
+    try {
+      uploadResult = await storageService.uploadFile(file, customKey);
+    } catch (uploadErr) {
+      console.error("🔥 [STORAGE UPLOAD ERROR]", uploadErr);
+      return NextResponse.json({ success: false, error: 'Échec du téléversement dans le Nexus R2.' }, { status: 500 });
+    }
     
     let publicUrl = '';
     if (typeof uploadResult === 'string') publicUrl = uploadResult;
@@ -81,7 +95,6 @@ export const POST = withRateLimit('upload-universal-media', 10, 60, withAura(asy
       publicUrl = uploadResult.publicUrl || uploadResult.url || Object.values(uploadResult).find(v => typeof v === 'string' && v.startsWith('http')) || '';
     }
 
-    // 6. Transfert à l'Orchestrateur pour la Double Transaction (Mongo + Neo4j)
     const orchestrator = new UniversalMediaOrchestrator();
     const signature = { actorUid: currentUser.uid, capabilities: currentUser.capabilities || [] };
     
@@ -96,10 +109,7 @@ export const POST = withRateLimit('upload-universal-media', 10, 60, withAura(asy
 
     const result = await orchestrator.fosterMedia(dataToForge, signature);
 
-    // 7. Invalidation du Cache
-    revalidateTag('universal-media');
-    revalidateTag(`media-${mediaData.sourceApp}`);
-    revalidateTag(`media-oiseau-${currentUser.uid}`);
+    revalidateUniversalMediaCascades(mediaData, currentUser.uid, mediaId);
 
     return NextResponse.json({
       success: true,
@@ -108,9 +118,9 @@ export const POST = withRateLimit('upload-universal-media', 10, 60, withAura(asy
     }, { status: 201 });
 
   } catch (error: any) {
-    console.error(' ❌ [UNIVERSAL MEDIA UPLOAD ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : 500;
-    return NextResponse.json({ error: error.message || 'Erreur interne de la matrice.' }, { status });
+    console.error('🔥 [UNIVERSAL MEDIA UPLOAD ERROR] :', error);
+    const status = error instanceof IlotError ? error.status : (error.statusCode || error.status || 500);
+    return NextResponse.json({ success: false, error: error.message || 'Erreur interne de la matrice.' }, { status });
   }
 }));
 
@@ -124,31 +134,44 @@ export const DELETE = withAura(async (req: NextRequest, _context: ApiContext, cu
     const fileUrl = searchParams.get('url');
 
     if (!mediaId || !fileUrl) {
-      return NextResponse.json({ error: 'Identifiant du média ou URL manquant.' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'Identifiant du média ou URL manquant.' }, { status: 400 });
     }
 
-    // 1. Purge S3
+    // 🛡️ SUTURE DE SÉCURITÉ IDOR : Normalisation stricte de la clé de stockage
+    let storageKey: string = '';
     try {
-      const storageKey = storageService.extractKeyFromUrl(fileUrl);
+      storageKey = storageService.extractKeyFromUrl(fileUrl);
+    } catch (err) {
+      console.error("🔥 [EXTRACT KEY ERROR] :", err);
+    }
+
+    // Fallback de sécurité si l'extraction retourne du vide ou échoue en test
+    if (!storageKey) {
+      storageKey = fileUrl.includes('http') ? fileUrl.replace(/^https?:\/\/[^\/]+\//, '') : fileUrl;
+    }
+
+    if (!storageKey) {
+      return NextResponse.json({ success: false, error: "Souveraineté brisée : clé d'artefact introuvable." }, { status: 403 });
+    }
+
+    try {
       await storageService.deleteFile(storageKey);
     } catch (s3Err) {
-      console.error(" ⚠️ [S3] Échec de la purge physique :", s3Err);
+      console.error("⚠️ [S3] Échec de la purge physique :", s3Err);
     }
 
-    // 2. Désintégration via l'Orchestrateur (Mongo + Neo4j)
     const orchestrator = new UniversalMediaOrchestrator();
     const signature = { actorUid: currentUser.uid, capabilities: currentUser.capabilities || [] };
     
     await orchestrator.disintegrateMedia(mediaId, signature);
 
-    revalidateTag('universal-media');
-    revalidateTag(`media-oiseau-${currentUser.uid}`);
+    revalidateUniversalMediaCascades(undefined, currentUser.uid, mediaId);
 
     return NextResponse.json({ success: true, message: 'Asset totalement désintégré.' }, { status: 200 });
 
   } catch (error: any) {
-    console.error(' ❌ [UNIVERSAL MEDIA DELETE ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : 500;
-    return NextResponse.json({ error: error.message || 'Erreur interne de la matrice.' }, { status });
+    console.error('🔥 [UNIVERSAL MEDIA DELETE ERROR] :', error);
+    const status = error instanceof IlotError ? error.status : (error.statusCode || error.status || 500);
+    return NextResponse.json({ success: false, error: error.message || 'Erreur interne de la matrice.' }, { status });
   }
 });

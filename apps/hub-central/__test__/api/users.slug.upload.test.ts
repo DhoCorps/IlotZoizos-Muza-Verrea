@@ -37,13 +37,17 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-// Adaptation du mock sur generateKey
+// Adaptation du mock sur generateKey et extraction de clé
 vi.mock('@/modules/storage/storage.service', () => ({
   storageService: {
     generateKey: vi.fn(() => 'users/bird_123/avatar.png'),
     uploadFile: vi.fn().mockResolvedValue({ publicUrl: 'https://cdn.ilot/avatar.png' }),
     deleteFile: vi.fn().mockResolvedValue(true),
-    extractKeyFromUrl: vi.fn(() => 'old-key.png'),
+    extractKeyFromUrl: vi.fn((url: string) => {
+      if (url.includes('etranger')) return 'foreign-key.png';
+      if (url.includes('old-avatar')) return 'old-key.png';
+      return 'users/bird_123/avatar.png';
+    }),
   },
 }));
 
@@ -113,7 +117,7 @@ describe('API Route : Upload Avatar avec Sceau Cryptographique (POST / DELETE /a
     expect(revalidateTag).toHaveBeenCalledWith('profile-bird-test');
   });
 
-  it('🔴 DELETE - doit rejeter (403) en cas de tentative IDOR sur une URL étrangère', async () => {
+  it('🔴 DELETE - doit rejeter (403) en cas de tentative IDOR sur une URL étrangère normalisée', async () => {
     global.__mockUser = { uid: 'bird_123', capabilities: ['*'] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({

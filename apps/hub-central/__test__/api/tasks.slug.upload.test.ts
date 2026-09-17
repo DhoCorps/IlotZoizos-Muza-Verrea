@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '@/app/api/tasks/[slug]/upload/route';
-import { TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { TaskModel, getNeo4jSession, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { revalidateTag } from 'next/cache';
@@ -22,7 +22,6 @@ vi.mock('@/lib/api-guards', () => ({
     return await handler(req, context, mockUser);
   },
   withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
-    // 🪡 On réactive l'appel au rate limiter mocké dans le test
     const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
     if (rateLimitResult && rateLimitResult.allowed === false) {
       return NextResponse.json({ success: false, message: "Trop de requêtes." }, { status: 429 });
@@ -62,9 +61,17 @@ declare global {
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
 describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & Sceau SHA-256)', () => {
+  let mockNeoSession: { run: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> };
+
   beforeEach(() => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
+
+    mockNeoSession = {
+      run: vi.fn().mockResolvedValue({ records: [{ get: () => 'u-123' }] }),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    vi.mocked(getNeo4jSession).mockReturnValue(mockNeoSession as any);
 
     vi.spyOn(storageService, 'generateKey').mockReturnValue('hub-central/fr/tasks/task_123/attachments/test.pdf');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
@@ -111,7 +118,7 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
       expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TaskModel, 'inconnue');
     });
 
-    it('doit téléverser un fichier valide, générer le Sceau SHA-256, l\'ajouter à l\'atome et invalider le cache (201)', async () => {
+    it('doit téléverser un fichier valide, générer le Sceau SHA-256, l\'ajouter à l\'atome, fermer la session Neo4j et valider le cache (201)', async () => {
       global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
@@ -139,6 +146,7 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
       expect(data.digitalSignature.length).toBe(64);
       expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TaskModel, 'ma-tache');
       expect(revalidateTag).toHaveBeenCalledWith('task-ma-tache');
+      expect(mockNeoSession.close).toHaveBeenCalledTimes(1); // 🛡️ Vérification de la fermeture de session Neo4j
     });
   });
 
@@ -165,9 +173,10 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
       expect(data.message).toContain('Souveraineté brisée');
       expect(storageService.deleteFile).not.toHaveBeenCalled();
       expect(TaskModel.updateOne).not.toHaveBeenCalled();
+      expect(mockNeoSession.close).toHaveBeenCalledTimes(1); // 🛡️ Vérification de la fermeture de session
     });
 
-    it('doit supprimer l\'artefact du stockage et de la Silice, puis invalider le cache (200)', async () => {
+    it('doit supprimer l\'artefact du stockage et de la Silice, fermer la session Neo4j, puis invalider le cache (200)', async () => {
       global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
@@ -191,6 +200,7 @@ describe('API Task Artifacts - Greffe et Dissolution de Brindilles (Fichiers & S
       expect(storageService.extractKeyFromUrl).toHaveBeenCalledWith('https://cdn.ilot/doc.pdf');
       expect(storageService.deleteFile).toHaveBeenCalledWith('mock-key');
       expect(revalidateTag).toHaveBeenCalledWith('task-ma-tache');
+      expect(mockNeoSession.close).toHaveBeenCalledTimes(1); // 🛡️ Vérification de la fermeture de session
     });
   });
 });

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { TaskModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { CAPABILITIES } from '@ilot/types';
@@ -6,8 +8,6 @@ import { revalidateTag } from 'next/cache';
 import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { storageService } from '@/modules/storage/storage.service';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
-
-export const dynamic = 'force-dynamic';
 
 /**
  * 🛡️ UTILITAIRE DE DOUANE (Spécifique à l'Atome)
@@ -34,27 +34,45 @@ async function canUpdateTaskBySlug(userUid: string, taskUid: string): Promise<bo
 
     const record = result.records[0];
     const projectCreatorUid = record.get('projectCreatorUid');
-    const caps = record.get('allCaps')?.flat() || [];
+    const rawCaps = record.get('allCaps');
+    const caps = Array.isArray(rawCaps) ? rawCaps.flat() : [];
 
     return projectCreatorUid === userUid || caps.includes(CAPABILITIES.TASK.UPDATE) || caps.includes('*');
   } catch (error) {
     console.error("🔥 [TASK CAPS ERROR]", error);
     return true; // Mode résilient pour éviter de bloquer l'infrastructure en cas de coupure du graphe
   } finally {
-    try {
-      if (session && typeof session.close === 'function') {
+    // 🛡️ GARANTIE STRICTE ANTI-FUITE DE CONNEXION NEO4J (Pool Leak Prevention)
+    if (session) {
+      try {
         await session.close();
+      } catch (closeErr) {
+        console.error("🔥 [NEO4J SESSION CLOSE ERROR]", closeErr);
       }
-    } catch (closeErr) {
-      console.error("🔥 [NEO4J SESSION CLOSE ERROR]", closeErr);
     }
+  }
+}
+
+// 🛡️ Fonction centralisée d'invalidation en cascade pour les Tâches / Atomes
+function revalidateTaskCascades(task: { slug?: string; uid?: string }, identifier?: string) {
+  revalidateTag('tasks');
+  revalidateTag('projects');
+  if (identifier) {
+    revalidateTag(`task-${identifier}`);
+  }
+  if (task?.uid) {
+    revalidateTag(`task-${task.uid}`);
+  }
+  if (task?.slug) {
+    revalidateTag(`task-${task.slug}`);
+    revalidateTag(`task-slug-${task.slug}`);
   }
 }
 
 // ==========================================
 // 📤 POST : Greffer un artefact avec Sceau SHA-256
 // ==========================================
-export const POST = withRateLimit('upload-task-slug', 10, 60, withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withRateLimit('upload-task-slug', 10, 60, withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser): Promise<NextResponse> => {
   let resolvedParams;
   try {
     resolvedParams = await context.params;
@@ -160,9 +178,8 @@ export const POST = withRateLimit('upload-task-slug', 10, 60, withAura(async (re
     }
   );
 
-  revalidateTag(`task-${identifier}`);
-  if (task.slug) revalidateTag(`task-${task.slug}`);
-  if (task.uid) revalidateTag(`task-${task.uid}`);
+  // 💥 Invalidation globale et centralisée en cascade
+  revalidateTaskCascades(task, identifier);
 
   return NextResponse.json({ 
     success: true, 
@@ -173,68 +190,70 @@ export const POST = withRateLimit('upload-task-slug', 10, 60, withAura(async (re
 }));
 
 // ==========================================
-// 🗑️ DELETE : Désintégration artefact
+// 🗑️ DELETE : Désintégration / Purge sécurisée
 // ==========================================
-export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
-  let resolvedParams;
+export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser): Promise<NextResponse> => {
   try {
-    resolvedParams = await context.params;
-  } catch {
-    return NextResponse.json({ success: false, message: "Paramètres de route invalides." }, { status: 400 });
+    let resolvedParams;
+    try {
+      resolvedParams = await context.params;
+    } catch {
+      return NextResponse.json({ success: false, message: "Paramètres de route invalides." }, { status: 400 });
+    }
+
+    const rawSlug = resolvedParams?.slug;
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+    if (!identifier) {
+      return NextResponse.json({ success: false, message: "Identifiant invalide." }, { status: 400 });
+    }
+
+    const task: any = await findEntityBySlugOrUid(TaskModel, identifier);
+    if (!task) return NextResponse.json({ success: false, message: "Atome introuvable." }, { status: 404 });
+
+    const isAuthorized = await canUpdateTaskBySlug(currentUser.uid, task.uid);
+    if (!isAuthorized && !currentUser.capabilities?.includes('*')) {
+      return NextResponse.json({ success: false, message: "Aura insuffisante." }, { status: 403 });
+    }
+
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ success: false, message: "Corps de requête illisible." }, { status: 400 });
+    }
+
+    const { key } = body || {};
+    if (!key) {
+      return NextResponse.json({ success: false, message: "Clé ou URL manquante." }, { status: 400 });
+    }
+
+    const documents = Array.isArray(task.documents) ? task.documents : [];
+    const targetDoc = documents.find((doc: any) => doc.url === key || doc.uid === key);
+
+    if (!targetDoc) {
+      return NextResponse.json({ success: false, message: "Souveraineté brisée : cet artefact n'appartient pas à cet atome." }, { status: 403 });
+    }
+
+    try {
+      const storageKey = storageService.extractKeyFromUrl(key);
+      await storageService.deleteFile(storageKey);
+    } catch (s3Err) {
+      console.error("🔥 [Storage DELETE ERROR]", s3Err);
+    }
+
+    await TaskModel.updateOne(
+      { uid: task.uid }, 
+      { $pull: { documents: { $or: [{ url: key }, { uid: key }] } } }
+    );
+
+    // 💥 Invalidation globale et centralisée en cascade
+    revalidateTaskCascades(task, identifier);
+
+    return NextResponse.json({ success: true }, { status: 200 });
+
+  } catch (error: any) { 
+    console.error("❌ [DELETE ERROR]", error);
+    return NextResponse.json({ success: false, message: error.message || "Erreur interne." }, { status: error.status || 500 }); 
   }
-
-  const rawSlug = resolvedParams?.slug;
-  const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-
-  if (!identifier) {
-    return NextResponse.json({ success: false, message: "Identifiant invalide." }, { status: 400 });
-  }
-
-  // 🔍 Résolution unifiée pour cibler l'atome
-  const task: any = await findEntityBySlugOrUid(TaskModel, identifier);
-  if (!task) return NextResponse.json({ success: false, message: "Atome introuvable." }, { status: 404 });
-
-  const isAuthorized = await canUpdateTaskBySlug(currentUser.uid, task.uid);
-  if (!isAuthorized && !currentUser.capabilities?.includes('*')) {
-    return NextResponse.json({ success: false, message: "Aura insuffisante." }, { status: 403 });
-  }
-
-  let body;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ success: false, message: "Corps de requête illisible." }, { status: 400 });
-  }
-
-  const { key } = body || {};
-  if (!key) {
-    return NextResponse.json({ success: false, message: "Clé ou URL manquante." }, { status: 400 });
-  }
-
-  // 🛡️ SUTURE DE SECURITE IDOR : Vérification formelle que le document appartient bien à cette tâche !
-  const documents = Array.isArray(task.documents) ? task.documents : [];
-  const targetDoc = documents.find((doc: any) => doc.url === key || doc.uid === key);
-
-  if (!targetDoc) {
-    return NextResponse.json({ success: false, message: "Souveraineté brisée : cet artefact n'appartient pas à cet atome." }, { status: 403 });
-  }
-
-  try {
-    const storageKey = storageService.extractKeyFromUrl(key);
-    await storageService.deleteFile(storageKey);
-  } catch (s3Err) {
-    console.error("🔥 [Storage DELETE ERROR]", s3Err);
-  }
-
-  await TaskModel.updateOne(
-    { uid: task.uid }, 
-    { $pull: { documents: { $or: [{ url: key }, { uid: key }] } } }
-  );
-
-  // 💥 Invalidation du cache en cascade
-  revalidateTag(`task-${identifier}`);
-  if (task.slug) revalidateTag(`task-${task.slug}`);
-  if (task.uid) revalidateTag(`task-${task.uid}`);
-
-  return NextResponse.json({ success: true }, { status: 200 });
 });

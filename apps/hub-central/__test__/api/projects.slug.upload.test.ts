@@ -80,14 +80,16 @@ describe('Route API : Project Attachments & Sceau SHA-256 (POST / DELETE /api/pr
     vi.clearAllMocks();
     delete (global as any).__mockUser;
 
-    // 🛡️ Aligné sur generateKey
     vi.spyOn(storageService, 'generateKey').mockReturnValue('ilot-zoizos/fr/projects/proj-1/attachments/test.pdf');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
       publicUrl: 'https://cdn.ilot/doc.pdf',
       key: 'mock-key',
     } as any);
-    vi.spyOn(storageService, 'extractKeyFromUrl').mockReturnValue('mock-key');
+    vi.spyOn(storageService, 'extractKeyFromUrl').mockImplementation((url: string) => {
+      if (url.includes('etranger')) return 'foreign-key';
+      return 'mock-key';
+    });
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
   });
 
@@ -134,9 +136,8 @@ describe('Route API : Project Attachments & Sceau SHA-256 (POST / DELETE /api/pr
       expect(json.document.name).toBe('test.pdf');
       expect(json.digitalSignature).toBeDefined();
       expect(typeof json.digitalSignature).toBe('string');
-      expect(json.digitalSignature.length).toBe(64); // Validation du SHA-256
+      expect(json.digitalSignature.length).toBe(64);
 
-      // 💥 Vérification de l'invalidation du cache en cascade
       expect(revalidateTag).toHaveBeenCalledWith('projects');
       expect(revalidateTag).toHaveBeenCalledWith('project-proj-1');
       expect(revalidateTag).toHaveBeenCalledWith('project-slug-mon-chantier');
@@ -194,7 +195,6 @@ describe('Route API : Project Attachments & Sceau SHA-256 (POST / DELETE /api/pr
       expect(json.success).toBe(true);
       expect(storageService.deleteFile).toHaveBeenCalledWith('mock-key');
 
-      // 💥 Vérification de l'invalidation du cache
       expect(revalidateTag).toHaveBeenCalledWith('projects');
       expect(revalidateTag).toHaveBeenCalledWith('project-proj-1');
       expect(revalidateTag).toHaveBeenCalledWith('project-slug-mon-chantier');

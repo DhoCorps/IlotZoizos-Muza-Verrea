@@ -48,7 +48,7 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
   try {
     let resolvedParams;
     try {
-      resolvedParams = await context.params;
+      resolvedParams = await Promise.resolve(context.params);
     } catch (err) {
       return NextResponse.json({ error: "Paramètres de route invalides." }, { status: 400 });
     }
@@ -96,7 +96,7 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     let resolvedParams;
     let rawBody;
     try {
-      resolvedParams = await context.params;
+      resolvedParams = await Promise.resolve(context.params);
       rawBody = await req.json();
     } catch (err) {
       return NextResponse.json({ error: "Corps de requête ou paramètres illisibles." }, { status: 400 });
@@ -137,7 +137,7 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
       const status = orchErr.statusCode || orchErr.status || 500;
       return NextResponse.json({ error: orchErr.message || "Échec de mutation." }, { status });
     }
-          
+         
     // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('partitas');
     revalidateTag(`partita-${identifier}`);
@@ -167,7 +167,7 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
   try {
     let resolvedParams;
     try {
-      resolvedParams = await context.params;
+      resolvedParams = await Promise.resolve(context.params);
     } catch (paramErr) {
       return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
     }
@@ -198,7 +198,7 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
       const status = orchErr.statusCode || orchErr.status || 500;
       return NextResponse.json({ error: orchErr.message || "Échec de dissolution." }, { status });
     }
-          
+         
     // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('partitas');
     revalidateTag(`partita-${identifier}`);

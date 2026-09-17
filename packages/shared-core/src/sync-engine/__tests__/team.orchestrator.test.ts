@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TeamOrchestrator } from '../team.orchestrator';
-import { OiseauModel, TeamModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { OiseauModel, TeamModel, ProjectModel, TaskModel, findEntityBySlugOrUid, syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
-import { syncUniversalInteraction } from '@ilot/infrastructure';
 
-// 🛡️ Mock unifié et sécurisé de l'infrastructure pour l'équipe, les projets, les tâches et le tissage
+// 🛡️ Mock unifié et sécurisé incluant le chaînage Mongoose complet, les curseurs et la DLQ
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
@@ -19,15 +18,36 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       findOneAndDelete: vi.fn(),
     },
     ProjectModel: {
-      find: vi.fn().mockReturnValue({ session: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }) }),
+      find: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        session: vi.fn().mockReturnThis(),
+        lean: vi.fn().mockResolvedValue([{ uid: 'proj_123' }]),
+        cursor: vi.fn().mockReturnValue({
+          [Symbol.asyncIterator]: async function* () {
+            yield { uid: 'proj_123', documents: [{ url: 'http://cdn/proj.png' }] };
+          }
+        })
+      }),
       deleteMany: vi.fn(),
     },
     TaskModel: {
-      find: vi.fn().mockReturnValue({ session: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) }) }),
+      find: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnThis(),
+        session: vi.fn().mockReturnThis(),
+        lean: vi.fn().mockResolvedValue([]),
+        cursor: vi.fn().mockReturnValue({
+          [Symbol.asyncIterator]: async function* () {
+            yield { uid: 'task_1', documents: [{ url: 'http://cdn/task.pdf' }] };
+          }
+        })
+      }),
       deleteMany: vi.fn(),
     },
     findEntityBySlugOrUid: vi.fn(),
     syncUniversalInteraction: vi.fn(async () => true),
+    SystemGraphDlqModel: {
+      create: vi.fn().mockResolvedValue([{}])
+    }
   };
 });
 
@@ -53,13 +73,39 @@ vi.mock('../transactionManager', () => ({
 
 describe('TeamOrchestrator (Synchronisation Mongo/Neo4j pour les Nids - Phase 2)', () => {
     let orchestrator: TeamOrchestrator;
+    const mockStorageManager = {
+        extractKeyFromUrl: vi.fn((url) => `key_${url}`),
+        deleteFile: vi.fn().mockResolvedValue(true),
+    };
 
     beforeEach(() => {
         vi.clearAllMocks();
-        orchestrator = new TeamOrchestrator();
+        orchestrator = new TeamOrchestrator(mockStorageManager);
 
-        // Simulation dynamique pour différencier les UIDs lors de la résolution canonique interne via findEntityBySlugOrUid
-        vi.mocked(findEntityBySlugOrUid).mockImplementation(async (model, identifier: any) => {
+        // Assurez-vous que ProjectModel.find retourne bien l'objet chaînable à chaque appel
+        vi.mocked(ProjectModel.find).mockReturnValue({
+            select: vi.fn().mockReturnThis(),
+            session: vi.fn().mockReturnThis(),
+            lean: vi.fn().mockResolvedValue([{ uid: 'proj_123' }]),
+            cursor: vi.fn().mockReturnValue({
+                [Symbol.asyncIterator]: async function* () {
+                    yield { uid: 'proj_123', documents: [{ url: 'http://cdn/proj.png' }] };
+                }
+            })
+        } as any);
+
+        vi.mocked(TaskModel.find).mockReturnValue({
+            select: vi.fn().mockReturnThis(),
+            session: vi.fn().mockReturnThis(),
+            lean: vi.fn().mockResolvedValue([]),
+            cursor: vi.fn().mockReturnValue({
+                [Symbol.asyncIterator]: async function* () {
+                    yield { uid: 'task_1', documents: [{ url: 'http://cdn/task.pdf' }] };
+                }
+            })
+        } as any);
+
+        vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model, identifier: any) => {
             const clean = identifier || 'unknown';
             return { uid: `resolved_${clean}`, ownerUid: `resolved_${clean}` } as any;
         });
@@ -111,9 +157,27 @@ describe('TeamOrchestrator (Synchronisation Mongo/Neo4j pour les Nids - Phase 2)
         });
     });
 
+    describe('dissolveTeam', () => {
+        it('🟢 doit dissoudre le nid en utilisant des curseurs Mongoose pour purger le stockage sans saturer la RAM', async () => {
+            vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ uid: 'team_123' } as any);
+            vi.mocked(TeamModel.findOneAndDelete).mockResolvedValueOnce({ _id: 'mongo_id_123' } as any);
+
+            const signature = {
+                actorUid: 'bird_creator_1',
+                capabilities: ['*'],
+                issuedAt: new Date(),
+            };
+
+            const success = await orchestrator.dissolveTeam('team_123', signature as any);
+            expect(success).toBe(true);
+            expect(ProjectModel.find).toHaveBeenCalled();
+            expect(TaskModel.find).toHaveBeenCalled();
+            expect(mockStorageManager.deleteFile).toHaveBeenCalled();
+        });
+    });
+
     describe('inviteBird', () => {
         it('🟢 doit inviter un oiseau et propager l\'interaction universelle au niveau de la Team', async () => {
-            // L'acteur et la team
             vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model, identifier: any) => {
                 if (identifier === 'team_123') {
                     return { uid: 'team_123', ownerUid: 'resolved_bird_creator' } as any;
@@ -137,9 +201,35 @@ describe('TeamOrchestrator (Synchronisation Mongo/Neo4j pour les Nids - Phase 2)
             expect(result.success).toBe(true);
             expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
-            // Vérification du tissage universel (actorUid !== targetUid)
             expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
             expect(syncUniversalInteraction).toHaveBeenCalledWith('resolved_bird_creator', 'resolved_bird_target', 'TEAM');
+        });
+
+        it('🟡 doit basculer l\'interaction en DLQ si syncUniversalInteraction échoue sur inviteBird', async () => {
+            vi.mocked(syncUniversalInteraction).mockRejectedValueOnce(new Error('Neo4j failure'));
+
+            vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model, identifier: any) => {
+                if (identifier === 'team_123') {
+                    return { uid: 'team_123', ownerUid: 'resolved_bird_creator' } as any;
+                }
+                return { uid: `resolved_${identifier}` } as any;
+            });
+
+            const signature = {
+                actorUid: 'bird_creator',
+                capabilities: ['*'],
+                issuedAt: new Date(),
+            };
+
+            const data = {
+                teamUid: 'team_123',
+                targetUserUid: 'bird_target',
+            };
+
+            const result = await orchestrator.inviteBird(data, signature as any);
+
+            expect(result.success).toBe(true);
+            expect(SystemGraphDlqModel.create).toHaveBeenCalledTimes(1);
         });
     });
 });

@@ -21,12 +21,20 @@ const UpdateSujetSchema = z.object({
   mediaUrl: z.string().url().nullable().optional(),
 });
 
+// 🛡️ Utilitaire interne de normalisation des erreurs HTTP
+function handleRouteError(error: any, defaultMessage: string) {
+  console.error("🔥 [SUJETS ROUTE ERROR] :", error);
+  const status = error instanceof IlotError ? error.status : (error.statusCode || error.status || 500);
+  const message = error instanceof IlotError || error.message ? error.message : defaultMessage;
+  return NextResponse.json({ error: message }, { status });
+}
+
 // ==========================================
 // GET : Ausculter un sujet spécifique
 // ==========================================
 export const GET = withOptionalAura(async (req: Request, context: ApiContext, currentUser?: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
     
@@ -55,10 +63,7 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
     }
     return NextResponse.json(sujet, { status: 200 });
   } catch (error: any) {
-    console.error("  Erreur globale GET Sujet :", error);
-    const status = error instanceof IlotError ? error.status : 500;
-    const message = error instanceof IlotError ? error.message : "Erreur interne lors de l'auscultation du sujet.";
-    return NextResponse.json({ error: message }, { status });
+    return handleRouteError(error, "Erreur interne lors de l'auscultation du sujet.");
   }
 });
 
@@ -67,7 +72,7 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
 // ==========================================
 export const PUT = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
@@ -108,9 +113,8 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
         { $set: sanitizedData },
         { new: true }
       ).lean();
-    } catch (updateErr) {
-      console.error("  [SUJET UPDATE ERROR]", updateErr);
-      return NextResponse.json({ error: "Échec de la mutation du sujet." }, { status: 500 });
+    } catch (updateErr: any) {
+      throw new IlotError("Échec de la mutation du sujet dans la Silice.", "500");
     }
          
     revalidateTag('sujets');
@@ -120,10 +124,7 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
 
     return NextResponse.json({ success: true, data: updatedSujet }, { status: 200 });
   } catch (error: any) {
-    console.error("  Erreur globale PUT Sujet :", error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
-    const message = error instanceof IlotError ? error.message : "Erreur interne lors de la mutation du sujet.";
-    return NextResponse.json({ error: message }, { status });
+    return handleRouteError(error, "Erreur interne lors de la mutation du sujet.");
   }
 });
 
@@ -132,7 +133,7 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
 // ==========================================
 export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
@@ -165,10 +166,7 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
         await SujetModel.deleteOne({ uid: sujet.uid });
       }
     } catch (orchErr: any) {
-      console.error("  [SUJET ORCHESTRATOR DISINTEGRATE ERROR]", orchErr);
-      const status = orchErr instanceof IlotError ? orchErr.status : (orchErr.statusCode || 500);
-      const message = orchErr instanceof IlotError ? orchErr.message : "Échec de la désintégration du monologue.";
-      return NextResponse.json({ error: message }, { status });
+      throw orchErr;
     }
          
     revalidateTag('sujets');
@@ -181,9 +179,6 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
        message: "Le monologue a été réduit en cendres. Les liens dans le Graphe sont rompus."
     }, { status: 200 });
   } catch (error: any) {
-    console.error("  Erreur globale DELETE Sujet :", error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
-    const message = error instanceof IlotError ? error.message : "Erreur interne lors de la suppression du sujet.";
-    return NextResponse.json({ error: message }, { status });
+    return handleRouteError(error, "Erreur interne lors de la suppression du sujet.");
   }
 });

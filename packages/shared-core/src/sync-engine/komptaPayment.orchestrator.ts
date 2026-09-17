@@ -1,7 +1,7 @@
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
-import { WalletModel, KomptaLedgerService, SovereignCurrency, syncUniversalInteraction } from '@ilot/infrastructure';
+import { WalletModel, KomptaLedgerService, SovereignCurrency, syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure';
 
 export interface DirectTransferPayload {
   transferUid: string;
@@ -63,7 +63,6 @@ export class KomptaPaymentOrchestrator {
       throw new IlotError("Aura financière insuffisante ou usurpation d'identité détectée.", "UNAUTHORIZED", 401);
     }
 
-    // 🛡️ CORRECTION CYBERSÉCURITÉ : Tolérance zéro sur les centimes flottants et valeurs négatives
     if (payload.amountCents <= 0 || !Number.isInteger(payload.amountCents)) {
       throw new IlotError("Le montant du transfert en centimes doit être un entier strict et positif.", "BAD_REQUEST", 400);
     }
@@ -73,7 +72,6 @@ export class KomptaPaymentOrchestrator {
     }
 
     const result = await TransactionManager.execute("Transfert Direct P2P & Kompta", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       const senderWallet = await WalletModel.findOne({ userId: payload.senderUid }).session(mongoSession);
@@ -170,12 +168,24 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle sécurisé par try/catch (anti-faille Serverless)
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL : Fallback DLQ en cas d'échec
     if (payload.senderUid !== payload.recipientUid) {
       try {
         await syncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE');
-      } catch (err) {
-        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (executeDirectTransfer) :`, err);
+      } catch (err: any) {
+        console.error(`  [Orchestrator] Échec du tissage universel (executeDirectTransfer), basculement DLQ :`, err);
+        try {
+          await SystemGraphDlqModel.create({
+            operationName: 'syncUniversalInteraction_executeDirectTransfer',
+            payload: { sourceUid: payload.senderUid, targetUid: payload.recipientUid, type: 'ECOMMERCE' },
+            error: err.message,
+            status: 'PENDING_RETRY',
+            retryCount: 0,
+            timestamp: new Date()
+          });
+        } catch (dlqErr) {
+          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
+        }
       }
     }
 
@@ -197,7 +207,6 @@ export class KomptaPaymentOrchestrator {
       throw new IlotError("Aura d'authentification insuffisante pour autoriser ce paiement direct.", "UNAUTHORIZED", 401);
     }
 
-    // 🛡️ CORRECTION CYBERSÉCURITÉ : Tolérance zéro sur les centimes flottants
     if (payload.amountCents <= 0 || !Number.isInteger(payload.amountCents)) {
       throw new IlotError("Le montant de la transaction en centimes doit être un entier strict et positif.", "BAD_REQUEST", 400);
     }
@@ -207,7 +216,6 @@ export class KomptaPaymentOrchestrator {
     }
 
     const result = await TransactionManager.execute("Transaction Marchande & Redistribution", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       const buyerWallet = await WalletModel.findOne({ userId: payload.buyerUid }).session(mongoSession);
@@ -351,11 +359,22 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle sécurisé par try/catch
     try {
       await syncUniversalInteraction(payload.buyerUid, payload.recipientUid, 'ECOMMERCE');
-    } catch (err) {
-      console.error(`  [Orchestrator] Échec non bloquant du tissage universel (executeStoreTransaction) :`, err);
+    } catch (err: any) {
+      console.error(`  [Orchestrator] Échec du tissage universel (executeStoreTransaction), basculement DLQ :`, err);
+      try {
+        await SystemGraphDlqModel.create({
+          operationName: 'syncUniversalInteraction_executeStoreTransaction',
+          payload: { sourceUid: payload.buyerUid, targetUid: payload.recipientUid, type: 'ECOMMERCE' },
+          error: err.message,
+          status: 'PENDING_RETRY',
+          retryCount: 0,
+          timestamp: new Date()
+        });
+      } catch (dlqErr) {
+        console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
+      }
     }
 
     return result;
@@ -381,7 +400,6 @@ export class KomptaPaymentOrchestrator {
     }
 
     const result = await TransactionManager.execute("Troc d'Objet / Création - Chapeau", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
       
       await KomptaLedgerService.recordEntry({
@@ -434,11 +452,22 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    // 🛡️ PROBLÈME 1 : Tissage de la toile universelle sécurisé par try/catch
     try {
       await syncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE');
-    } catch (err) {
-      console.error(`  [Orchestrator] Échec non bloquant du tissage universel (executeItemExchange) :`, err);
+    } catch (err: any) {
+      console.error(`  [Orchestrator] Échec du tissage universel (executeItemExchange), basculement DLQ :`, err);
+      try {
+        await SystemGraphDlqModel.create({
+          operationName: 'syncUniversalInteraction_executeItemExchange',
+          payload: { sourceUid: payload.senderUid, targetUid: payload.recipientUid, type: 'ECOMMERCE' },
+          error: err.message,
+          status: 'PENDING_RETRY',
+          retryCount: 0,
+          timestamp: new Date()
+        });
+      } catch (dlqErr) {
+        console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
+      }
     }
 
     return result;
@@ -457,13 +486,11 @@ export class KomptaPaymentOrchestrator {
       throw new IlotError("Impossible de déterminer l'oiseau destinataire des fonds externes.", "BAD_REQUEST", 400);
     }
 
-    // 🛡️ CORRECTION CYBERSÉCURITÉ : Tolérance zéro sur les centimes flottants (amount brut en centimes via webhook)
     if (payload.amount <= 0 || !Number.isInteger(payload.amount)) {
       throw new IlotError("Le montant du dépôt externe en centimes doit être un entier strict et positif.", "BAD_REQUEST", 400);
     }
 
     return await TransactionManager.execute("Dépôt Externe (Webhook) & Kompta", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       let recipientWallet = await WalletModel.findOne({ userId: recipientUid }).session(mongoSession);

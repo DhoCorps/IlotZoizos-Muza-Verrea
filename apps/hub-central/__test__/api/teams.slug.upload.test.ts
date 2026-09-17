@@ -55,7 +55,10 @@ describe('Route API : Nid Artefacts & Sceau Cryptographique (POST / DELETE)', ()
 
     vi.spyOn(storageService, 'generateKey').mockReturnValue('mock-key');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({ publicUrl: 'https://cdn.ilot/file.jpg', key: 'mock-key' } as any);
-    vi.spyOn(storageService, 'extractKeyFromUrl').mockReturnValue('mock-key');
+    vi.spyOn(storageService, 'extractKeyFromUrl').mockImplementation((url: string) => {
+      if (url.includes('etranger')) return 'foreign-key';
+      return 'mock-key';
+    });
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue(true as any);
 
     vi.mocked(TeamModel.findOneAndUpdate).mockReturnValue({
@@ -99,7 +102,7 @@ describe('Route API : Nid Artefacts & Sceau Cryptographique (POST / DELETE)', ()
     expect(revalidateTag).toHaveBeenCalledWith('team-t-1');
   });
 
-  it('DELETE - doit refuser (403) en cas de tentative IDOR sur une URL étrangère', async () => {
+  it('DELETE - doit refuser (403) en cas de tentative IDOR sur une URL étrangère normalisée', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({

@@ -1,11 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KontaktOrchestrator } from '../kontakt.orchestrator';
-import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { OiseauModel, findEntityBySlugOrUid, SystemGraphDlqModel, syncUniversalInteraction } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
-import { syncUniversalInteraction } from '@ilot/infrastructure';
 
-// 🛡️ Mock unifié et sécurisé de l'infrastructure
+// 🛡️ Mock unifié et sécurisé de l'infrastructure incluant la DLQ
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
@@ -13,6 +12,9 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     OiseauModel: {},
     findEntityBySlugOrUid: vi.fn(),
     syncUniversalInteraction: vi.fn(async () => true),
+    SystemGraphDlqModel: {
+      create: vi.fn().mockResolvedValue([{}])
+    }
   };
 });
 
@@ -30,7 +32,6 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
     vi.clearAllMocks();
     orchestrator = new KontaktOrchestrator();
     
-    // Simulation dynamique pour différencier les UIDs lors des appels internes de résolution via findEntityBySlugOrUid
     vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model, identifier: any) => {
       const clean = identifier || 'unknown';
       return { uid: `resolved_${clean}` } as any;
@@ -41,8 +42,8 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
     it('🟢 doit enregistrer un swipe LIKE, détecter un match et propager l\'interaction universelle', async () => {
       const mockNeo4jTx = {
         run: vi.fn()
-          .mockResolvedValueOnce({ records: [{ get: () => ({}) }] }) // Simulation check match = true
-          .mockResolvedValueOnce({ records: [] }) // Création
+          .mockResolvedValueOnce({ records: [{ get: () => ({}) }] })
+          .mockResolvedValueOnce({ records: [] })
       };
       vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name, cb) => {
         return await cb({} as any, mockNeo4jTx as any);
@@ -58,9 +59,29 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
       expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(2);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
-      // Vérification du tissage universel !
       expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
       expect(syncUniversalInteraction).toHaveBeenCalledWith('resolved_bird_alpha_slug', 'resolved_bird_beta_slug', 'KONTAKT');
+    });
+
+    it('🟡 doit basculer l\'interaction en DLQ si syncUniversalInteraction échoue sur registerSwipe', async () => {
+      vi.mocked(syncUniversalInteraction).mockRejectedValueOnce(new Error('Neo4j connection lost'));
+
+      const mockNeo4jTx = {
+        run: vi.fn()
+          .mockResolvedValueOnce({ records: [] })
+          .mockResolvedValueOnce({ records: [] })
+      };
+      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name, cb) => {
+        return await cb({} as any, mockNeo4jTx as any);
+      });
+
+      const res = await orchestrator.registerSwipe(
+        { swiperUid: 'bird_alpha_slug', targetUid: 'bird_beta_slug', action: 'PASS' },
+        validSignature as any
+      );
+
+      expect(res.success).toBe(true);
+      expect(SystemGraphDlqModel.create).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -84,7 +105,6 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
       expect(res.skill).toBe('NEO4J');
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
-      // Vérification du tissage universel !
       expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
       expect(syncUniversalInteraction).toHaveBeenCalledWith('resolved_bird_alpha', 'resolved_target_slug', 'KONTAKT');
     });
@@ -102,7 +122,6 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
       expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(3); 
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
-      // Vérification du tissage universel (Demandeur <-> Intermédiaire) !
       expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
       expect(syncUniversalInteraction).toHaveBeenCalledWith('resolved_bird_alpha', 'resolved_inter_slug', 'KONTAKT');
     });

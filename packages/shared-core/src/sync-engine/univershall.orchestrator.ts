@@ -2,8 +2,8 @@ import { UniversHallBeaconModel, findEntityBySlugOrUid } from '@ilot/infrastruct
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { randomUUID } from 'crypto';
-import { generateSlug } from '../utils/string.engine'; // 👈 Utilisation du moteur interne
+import { randomUUID, randomBytes } from 'crypto';
+import { generateSlug } from '../utils/string.engine';
 
 export interface UniversHallSyncResult {
   success: boolean;
@@ -17,8 +17,24 @@ export interface UniversHallSyncResult {
  * UNIVERS'HALL ORCHESTRATOR
  * Gère l'agora centrale : sédimentation des balises (beacons) reliant Poetrik, Bibliothek,
  * Partita et les autres modules, et leur tissage relationnel dans le Graphe Neo4j.
+ * Intègre une unicité atomique anti-concurrence pour les slugs.
  */
 export class UniversHallOrchestrator {
+
+  /**
+   * Utilitaire interne pour garantir l'unicité atomique du slug sans boucle séquentielle bloquante (Race Conditions E11000).
+   */
+  private async ensureUniqueSlug(Model: any, baseSlug: string, session: any): Promise<string> {
+    let finalSlug = baseSlug;
+    let exists = await Model.findOne({ slug: finalSlug }).session(session).lean();
+    
+    if (exists) {
+      const randomSuffix = randomBytes(2).toString('hex');
+      finalSlug = `${baseSlug}-${randomSuffix}`;
+    }
+    return finalSlug;
+  }
+
   /**
    * FONDATION : PLANTER UNE BALISE SUR L'AGORA
    */
@@ -43,21 +59,12 @@ export class UniversHallOrchestrator {
     }
 
     return await TransactionManager.execute("Plantation de Balise Univers'Hall", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
-
       const beaconUid = data.uid || `beacon_${randomUUID()}`;
       
-      // Sécurisation de l'unicité du slug via l'utilitaire global
-      const baseSlug = generateSlug(data.slug || data.title);
-      let finalSlug = baseSlug;
-      let slugExists = await UniversHallBeaconModel.findOne({ slug: finalSlug }).session(mongoSession);
-      let counter = 1;
-      while (slugExists) {
-        finalSlug = `${baseSlug}-${counter}`;
-        slugExists = await UniversHallBeaconModel.findOne({ slug: finalSlug }).session(mongoSession);
-        counter++;
-      }
+      // Sécurisation atomique de l'unicité du slug
+      let baseSlug = generateSlug(data.slug || data.title);
+      let finalSlug = await this.ensureUniqueSlug(UniversHallBeaconModel, baseSlug, mongoSession);
 
       const beaconData = {
         uid: beaconUid,
@@ -77,20 +84,29 @@ export class UniversHallOrchestrator {
         }
       };
 
-      // 1. Sédimentation dans la Silice (MongoDB)
-      const [newBeacon] = await UniversHallBeaconModel.create([beaconData], { session: mongoSession });
+      // 1. Sédimentation dans la Silice (MongoDB) avec gestion gracieuse de secours E11000
+      let newBeacon;
+      try {
+        const created = await UniversHallBeaconModel.create([beaconData], { session: mongoSession });
+        newBeacon = created[0];
+      } catch (err: any) {
+        if (err.code === 11000) {
+          throw new IlotError("Collision critique de slug sur la balise. Veuillez réitérer.", "CONFLICT", 409);
+        }
+        throw err;
+      }
 
-      // 2. Tissage dans le Graphe (Neo4j) en reliant l'Auteur à la Balise et au Module avec date unifiée
+      // 2. Tissage dans le Graphe (Neo4j)
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (b:AgoraBeacon {
-          uid: $beaconUid,
-          sourceModule: $sourceModule,
-          title: $title,
-          slug: $slug,
-          resonanceScore: $resonanceScore,
-          createdAt: datetime($now),
-          updatedAt: datetime($now)
+           uid: $beaconUid,
+           sourceModule: $sourceModule,
+           title: $title,
+           slug: $slug,
+           resonanceScore: $resonanceScore,
+           createdAt: datetime($now),
+           updatedAt: datetime($now)
         })
         CREATE (u)-[:PLANTED_BEACON]->(b)
         RETURN b

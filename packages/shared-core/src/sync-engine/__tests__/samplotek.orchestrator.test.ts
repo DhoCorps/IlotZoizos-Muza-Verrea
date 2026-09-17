@@ -35,7 +35,6 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-// 👈 Changement du mock pour pointer sur notre string.engine
 vi.mock('../utils/string.engine', () => ({
   generateSlug: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
@@ -66,9 +65,11 @@ describe('SamplotekOrchestrator - Le Moteur du Studio E-Jay', () => {
         style: 'LoFi'
       };
 
-      // Mock de la vérification d'unicité (aucun conflit)
+      // 🛠️ Correction du mock pour supporter le chaînage .session(...).lean()
       vi.mocked(SampleModel.findOne).mockReturnValue({
-        session: vi.fn().mockResolvedValue(null)
+        session: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue(null)
+        })
       } as any);
 
       vi.mocked(SampleModel.create).mockResolvedValue([{ ...sampleData, slug: 'snare-lofi' }] as any);
@@ -100,9 +101,11 @@ describe('SamplotekOrchestrator - Le Moteur du Studio E-Jay', () => {
         }
       };
 
-      // Mock de la vérification d'unicité
+      // 🛠️ Correction du mock pour supporter le chaînage .session(...).lean()
       vi.mocked(PartitaModel.findOne).mockReturnValue({
-        session: vi.fn().mockResolvedValue(null)
+        session: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue(null)
+        })
       } as any);
 
       vi.mocked(PartitaModel.create).mockResolvedValue([{ ...projectData, slug: 'mon-mix-lofi' }] as any);

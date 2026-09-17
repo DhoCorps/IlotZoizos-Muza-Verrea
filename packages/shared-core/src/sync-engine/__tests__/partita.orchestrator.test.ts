@@ -49,14 +49,15 @@ describe('PartitaOrchestrator - Sédimentation Musicale', () => {
     });
 
     it('🟢 devrait fonder une partition, détecter la gamme et l\'insérer dans Mongo et Neo4j', async () => {
-      // "E G B C D" sont les notes de Do Majeur / Mi Mineur !
       const data = { title: 'Ma Superbe Basse', authorUid: 'oiseau-A', instrument: 'BASS', content: 'E G B C D' };
       
+      // 🛠️ Support du chaînage .session(...).lean() pour les tests d'unicité
       vi.mocked(PartitaModel.findOne).mockReturnValue({
-        session: vi.fn().mockResolvedValue(null)
+        session: vi.fn().mockReturnValue({
+          lean: vi.fn().mockResolvedValue(null)
+        })
       } as any);
 
-      // Simulation d'un document Mongoose avec la méthode .toObject()
       const mockCreatedDoc = {
         uid: 'partita-123', 
         title: 'Ma Superbe Basse', 

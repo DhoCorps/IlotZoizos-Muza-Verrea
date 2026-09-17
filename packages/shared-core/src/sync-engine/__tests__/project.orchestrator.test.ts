@@ -54,7 +54,6 @@ vi.mock('../transactionManager', () => ({
 describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
   let orchestrator: ProjectOrchestrator;
   
-  // 💉 Injection de notre faux gestionnaire de stockage
   const mockStorageManager = {
     extractKeyFromUrl: vi.fn((url) => `key_${url}`),
     deleteFile: vi.fn().mockResolvedValue(true),
@@ -62,7 +61,6 @@ describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Instanciation propre avec notre dépendance
     orchestrator = new ProjectOrchestrator(mockStorageManager);
   });
 
@@ -88,7 +86,7 @@ describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
 
   describe('mutateProject (Mise à jour)', () => {
     it("🧬 doit valider le Double Verrou territorial via Neo4j et mettre à jour", async () => {
-      const signature: ActionSignature = { actorUid: 'bird-invite', capabilities: [] }; // Pas root, pas creator
+      const signature: ActionSignature = { actorUid: 'bird-invite', capabilities: [] };
       
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ uid: 'proj_123', creatorUid: 'other_bird' } as any);
       vi.mocked(ProjectModel.findOneAndUpdate).mockReturnValue({
@@ -102,23 +100,31 @@ describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
     });
   });
 
-  describe('dissolveProject (Purge Récursive en Masse)', () => {
-    it("🌋 doit désintégrer le chantier entier (Projets + Tâches) sans boucles de sous-transactions", async () => {
+  describe('dissolveProject (Purge Récursive en Masse via Curseurs)', () => {
+    it("🌋 doit désintégrer le chantier entier (Projets + Tâches) en utilisant des curseurs Mongoose pour le stockage", async () => {
       const signature: ActionSignature = { actorUid: 'architect_root', capabilities: ['*'] };
       
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ uid: 'proj_123' } as any);
       
-      // Mocks des documents pour tester la purge S3
+      // 🛠️ Adaptation des mocks TaskModel.find et ProjectModel.find pour retourner un curseur Mongoose asynchrone
       vi.mocked(TaskModel.find).mockReturnValue({
         select: vi.fn().mockReturnThis(),
         session: vi.fn().mockReturnThis(),
-        lean: vi.fn().mockResolvedValue([{ uid: 'task_1', documents: [{ url: 'http://cdn/task.pdf' }] }])
+        cursor: vi.fn().mockReturnValue({
+          [Symbol.asyncIterator]: async function* () {
+            yield { uid: 'task_1', documents: [{ url: 'http://cdn/task.pdf' }] };
+          }
+        })
       } as any);
 
       vi.mocked(ProjectModel.find).mockReturnValue({
         select: vi.fn().mockReturnThis(),
         session: vi.fn().mockReturnThis(),
-        lean: vi.fn().mockResolvedValue([{ uid: 'proj_123', documents: [{ url: 'http://cdn/proj.png' }] }])
+        cursor: vi.fn().mockReturnValue({
+          [Symbol.asyncIterator]: async function* () {
+            yield { uid: 'proj_123', documents: [{ url: 'http://cdn/proj.png' }] };
+          }
+        })
       } as any);
 
       const result = await orchestrator.dissolveProject('proj_123', signature);
@@ -128,7 +134,6 @@ describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
       expect(TaskModel.deleteMany).toHaveBeenCalledWith({ uid: { $in: ['task_1'] } }, expect.any(Object));
       expect(ProjectModel.deleteMany).toHaveBeenCalledWith({ uid: { $in: ['proj_123'] } }, expect.any(Object));
       
-      // Vérification du nettoyage asynchrone du stockage via notre mock injecté
       expect(mockStorageManager.extractKeyFromUrl).toHaveBeenCalledTimes(2);
       expect(mockStorageManager.deleteFile).toHaveBeenCalledTimes(2);
     });

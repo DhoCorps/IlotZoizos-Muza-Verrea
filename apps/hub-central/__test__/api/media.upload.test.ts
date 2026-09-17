@@ -2,9 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '../../app/api/media/upload/route';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 
-// 🪡 Neutralisation de Next.js Cache
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
@@ -13,17 +12,13 @@ vi.mock('@/modules/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true })
 }));
 
-// Mocks unifiés des api-guards incluant withRateLimit et withAura
+// 🛡️ Mock absolu des gardes pour éviter tout passage dans le vrai code de production bloquant
 vi.mock('@/lib/api-guards', () => ({
   withAura: (handler: any) => async (req: any, context: any) => {
     const mockUser = global.__mockUser || { uid: 'oiseau_666', slug: 'amiga-mia', capabilities: [] };
     return await handler(req, context, mockUser);
   },
   withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
-    const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
-    if (rateLimitResult && rateLimitResult.allowed === false) {
-      return NextResponse.json({ error: 'Trop de téléversements. La matrice surcharge.' }, { status: 429 });
-    }
     const mockUser = global.__mockUser || { uid: 'oiseau_666', slug: 'amiga-mia', capabilities: [] };
     return await handler(req, context, mockUser);
   },
@@ -33,12 +28,16 @@ vi.mock('@/modules/storage/storage.service', () => ({
   storageService: {
     generateKey: vi.fn().mockReturnValue('media/DHO/AUDIO_STEM/oiseau_666/123_lead.wav'),
     uploadFile: vi.fn().mockResolvedValue({ publicUrl: 'https://cdn.ilot/lead.wav' }),
-    extractKeyFromUrl: vi.fn().mockReturnValue('mock-key'),
+    extractKeyFromUrl: vi.fn().mockImplementation((url: string) => {
+      if (url && (url.includes('etranger') || url.includes('foreign') || url.includes('intrus'))) {
+        return '';
+      }
+      return 'media/DHO/AUDIO_STEM/oiseau_666/123_lead.wav';
+    }),
     deleteFile: vi.fn().mockResolvedValue({ success: true })
   }
 }));
 
-// 🪡 Mock étanche sous forme de fonction constructeur pure (zéro risque d'undefined)
 vi.mock('@ilot/shared-core', () => ({
   UniversalMediaOrchestrator: function() {
     return {
@@ -78,7 +77,7 @@ describe('API Route: /api/media/upload', () => {
       const formData = new FormData(); 
       const request = {
         headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }),
-        formData: vi.fn().mockResolvedValue(formData)
+        formData: async () => formData,
       } as any;
 
       const response = await POST(request, {} as any);
@@ -96,7 +95,7 @@ describe('API Route: /api/media/upload', () => {
 
       const request = {
         headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }),
-        formData: vi.fn().mockResolvedValue(formData)
+        formData: async () => formData,
       } as any;
 
       const response = await POST(request, {} as any);
@@ -106,7 +105,7 @@ describe('API Route: /api/media/upload', () => {
       expect(json.error).toContain('Contrat souverain invalide');
     });
 
-    it('devrait uploader le fichier, forger le Sceau et appeler l\'Orchestrateur', async () => {
+    it('devrait uploader le fichier, forger le Sceau et appeler l\'Orchestrateur avec invalidation en cascade', async () => {
       const formData = new FormData();
       const mockFile = new File(['audio data'], 'lead.wav', { type: 'audio/wav' });
       formData.append('file', mockFile);
@@ -121,7 +120,7 @@ describe('API Route: /api/media/upload', () => {
 
       const request = {
         headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }),
-        formData: vi.fn().mockResolvedValue(formData)
+        formData: async () => formData,
       } as any;
 
       const response = await POST(request, {} as any);
@@ -131,21 +130,34 @@ describe('API Route: /api/media/upload', () => {
       expect(json.success).toBe(true);
       expect(json.data.mediaId).toBe('media_123');
       expect(storageService.uploadFile).toHaveBeenCalledTimes(1);
+
+      const { revalidateTag } = await import('next/cache');
+      expect(revalidateTag).toHaveBeenCalledWith('universal-media');
+      expect(revalidateTag).toHaveBeenCalledWith('media');
+      expect(revalidateTag).toHaveBeenCalledWith('media-DHO');
+      expect(revalidateTag).toHaveBeenCalledWith('media-oiseau-oiseau_666');
     });
   });
 
   describe('DELETE : Purge', () => {
-    it('devrait purger S3 et appeler l\'Orchestrateur pour le nettoyage', async () => {
-      const request = {
-        url: 'http://localhost/api/media/upload?mediaId=media_1&url=http://cloud.com/media/DHO/AUDIO_STEM/oiseau_666/123_lead.wav'
-      } as any;
+    it('devrait normaliser la clé, purger S3 et appeler l\'Orchestrateur pour le nettoyage avec invalidation', async () => {
+      const request = new NextRequest(
+        'http://localhost/api/media/upload?mediaId=media_1&url=http://cloud.com/media/DHO/AUDIO_STEM/oiseau_666/123_lead.wav',
+        { method: 'DELETE' }
+      );
 
       const response = await DELETE(request, {} as any);
       const json = await response.json();
       
       expect(response.status).toBe(200);
       expect(json.success).toBe(true);
-      expect(storageService.deleteFile).toHaveBeenCalled();
+      expect(storageService.extractKeyFromUrl).toHaveBeenCalledWith('http://cloud.com/media/DHO/AUDIO_STEM/oiseau_666/123_lead.wav');
+      expect(storageService.deleteFile).toHaveBeenCalledWith('media/DHO/AUDIO_STEM/oiseau_666/123_lead.wav');
+
+      const { revalidateTag } = await import('next/cache');
+      expect(revalidateTag).toHaveBeenCalledWith('universal-media');
+      expect(revalidateTag).toHaveBeenCalledWith('media');
+      expect(revalidateTag).toHaveBeenCalledWith('media-oiseau-oiseau_666');
     });
   });
 });

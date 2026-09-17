@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KomptaPaymentOrchestrator } from '../komptaPayment.orchestrator';
 import { TransactionManager } from '../transactionManager';
-import { WalletModel, KomptaLedgerService, syncUniversalInteraction } from '@ilot/infrastructure';
+import { WalletModel, KomptaLedgerService, syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure';
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
@@ -15,7 +15,7 @@ vi.mock('../transactionManager', () => ({
   }
 }));
 
-// 🛡️ Mock unifié et sécurisé de l'infrastructure sous l'alias centralisé
+// 🛡️ Mock unifié et sécurisé incluant la DLQ
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
@@ -27,6 +27,9 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       recordEntry: vi.fn()
     },
     syncUniversalInteraction: vi.fn(async () => true),
+    SystemGraphDlqModel: {
+      create: vi.fn().mockResolvedValue([{}])
+    }
   };
 });
 
@@ -38,7 +41,6 @@ describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
     vi.clearAllMocks();
     orchestrator = new KomptaPaymentOrchestrator();
 
-    // Augmentation de la balance initiale pour ne pas échouer sur "Fonds insuffisants"
     vi.mocked(WalletModel.findOne).mockReturnValue({
       session: vi.fn().mockResolvedValue({
         balance: 10000, 
@@ -65,9 +67,25 @@ describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
       expect(result.success).toBe(true);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
-      // Vérification du tissage universel (attendu via await)
       expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
       expect(syncUniversalInteraction).toHaveBeenCalledWith('bird_investor_1', 'bird_receiver_1', 'ECOMMERCE');
+    });
+
+    it('🟡 doit basculer l\'interaction en DLQ si syncUniversalInteraction échoue sur executeDirectTransfer', async () => {
+      vi.mocked(syncUniversalInteraction).mockRejectedValueOnce(new Error('Neo4j timeout'));
+
+      const payload = {
+        transferUid: 'tx_1',
+        senderUid: 'bird_investor_1',
+        recipientUid: 'bird_receiver_1',
+        amountCents: 500,
+        currency: 'EUR'
+      };
+
+      const result = await orchestrator.executeDirectTransfer(payload, validSignature as any);
+      
+      expect(result.success).toBe(true);
+      expect(SystemGraphDlqModel.create).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -98,7 +116,7 @@ describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
     it('🟢 doit traiter un dépôt externe valide via webhook et retourner un succès', async () => {
       const payload = {
         id: 'evt_stripe_456',
-        amount: 10000, // 100.00 EUR
+        amount: 10000,
         currency: 'eur',
         metadata: {
           recipientUid: 'bird_investor_1'
@@ -110,10 +128,7 @@ describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
       expect(result.depositUid).toBe('evt_stripe_456');
       expect(TransactionManager.execute).toHaveBeenCalled();
       
-      // On s'assure que la requête en base a bien été invoquée avec le bon UID
       expect(WalletModel.findOne).toHaveBeenCalledWith({ userId: 'bird_investor_1' });
-
-      // Aucune interaction universelle ne doit être tissée pour un webhook externe !
       expect(syncUniversalInteraction).not.toHaveBeenCalled();
     });
   });

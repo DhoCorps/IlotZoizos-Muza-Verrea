@@ -29,7 +29,7 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
     }
 
     // 2. Résolution stricte et typée des paramètres de route
-    const resolvedParams = await context.params;
+    const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = resolvedParams?.slug;
     const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
@@ -151,6 +151,7 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
 
   } catch (error: any) {
     console.error("🔥 Fracture globale lors de la signature du pacte d'adhésion :", error);
+    // 🛡️ Respect systématique du statut de l'erreur métier (IlotError ou code custom)
     const status = error.statusCode || error.status || 500;
     return NextResponse.json({ error: error.message || "Erreur interne." }, { status });
   }

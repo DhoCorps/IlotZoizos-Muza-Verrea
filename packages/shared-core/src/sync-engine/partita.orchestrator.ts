@@ -3,7 +3,7 @@ import { IPartita } from '@ilot/types';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 import { MusicTheoryEngine, Note } from '../utils/musicTheory.engine';
 import { generateSlug } from '../utils/string.engine';
 
@@ -19,20 +19,32 @@ export interface PartitaSyncResult {
 /**
  * 🎸 PARTITA ORCHESTRATOR
  * Gère la sédimentation d'une partition et son tissage dans le Graphe (Neo4j).
- * Applique la résolution stricte par UID Canonique (Phase 2).
+ * Applique la résolution stricte par UID Canonique et une unicité atomique anti-concurrence.
  */
 export class PartitaOrchestrator {
   
   /**
+   * Utilitaire interne pour garantir l'unicité du slug sans boucle séquentielle bloquante (Race Conditions E11000).
+   */
+  private async ensureUniqueSlug(Model: any, baseSlug: string, session: any): Promise<string> {
+    let finalSlug = baseSlug;
+    let exists = await Model.findOne({ slug: finalSlug }).session(session).lean();
+    
+    if (exists) {
+      const randomSuffix = randomBytes(2).toString('hex');
+      finalSlug = `${baseSlug}-${randomSuffix}`;
+    }
+    return finalSlug;
+  }
+
+  /**
    * Analyse sommaire du contenu pour en extraire des notes brutes.
-   * (Pour l'instant, on cherche de simples lettres A-G avec des altérations éventuelles).
    */
   private extractNotesFromContent(content: string): Note[] {
     const noteRegex = /\b([CDEFGAB][#b]?)\b/g;
     const notes: Note[] = [];
     let match;
     while ((match = noteRegex.exec(content)) !== null) {
-      // Normalisation très basique (on convertit les bémols en dièses pour le moteur)
       let n = match[1].toUpperCase();
       if (n === 'DB') n = 'C#';
       if (n === 'EB') n = 'D#';
@@ -55,36 +67,24 @@ export class PartitaOrchestrator {
         throw new IlotError("Aura insuffisante pour composer à la place d'un autre.", "FORBIDDEN", 403);
     }
 
-    // 🔥 DÉTECTION THÉORIQUE DES GAMMES
     const playedNotes = this.extractNotesFromContent(data.content || "");
     
-    // Typage strict inféré directement depuis le moteur de théorie musicale (zéro 'any')
     type ScaleMatch = ReturnType<typeof MusicTheoryEngine.detectScale>[number];
-    
     const detectedScales = playedNotes.length >= 3 ? MusicTheoryEngine.detectScale(playedNotes) : [];
     
-    // On garde uniquement la meilleure correspondance si son score est élevé
     const bestScale: ScaleMatch | null = (detectedScales.length > 0 && detectedScales[0].score >= 80) 
       ? detectedScales[0] 
       : null;
 
     return await TransactionManager.execute("Fondation de Partition", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       const partitaUid = data.uid || `partita_${randomUUID()}`;
       const title = data.title || "Partition sans nom";
     
-      // 🪡 Sécurisation de l'unicité du slug dans la Silice via l'utilitaire partagé
+      // Sécurisation atomique de l'unicité du slug
       let baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
-      let finalSlug = baseSlug;
-      let slugExists = await PartitaModel.findOne({ slug: finalSlug }).session(mongoSession);
-      let counter = 1;
-      while (slugExists) {
-        finalSlug = `${baseSlug}-${counter}`;
-        slugExists = await PartitaModel.findOne({ slug: finalSlug }).session(mongoSession);
-        counter++;
-      }
+      let finalSlug = await this.ensureUniqueSlug(PartitaModel, baseSlug, mongoSession);
 
       const newPartitaData = {
         uid: partitaUid,
@@ -101,7 +101,6 @@ export class PartitaOrchestrator {
         merchLink: data.merchLink || null,
         media: data.media || {},
         settings: data.settings || {},
-        // On sauvegarde la théorie dans Mongo pour un accès API rapide
         theory: bestScale ? { root: bestScale.root, scaleKey: bestScale.scaleKey, score: bestScale.score } : null,
         dates: {
           createdAt: now,
@@ -109,11 +108,21 @@ export class PartitaOrchestrator {
         }
       };
 
-      // 1. Sédimentation dans la Silice (MongoDB)
-      const [newPartitaDoc] = await PartitaModel.create([newPartitaData], { session: mongoSession });
-      const newPartita = newPartitaDoc.toObject() as unknown as IPartita;
+      // 1. Sédimentation dans la Silice (MongoDB) avec gestion gracieuse de secours E11000
+      let newPartitaDoc;
+      try {
+        const created = await PartitaModel.create([newPartitaData], { session: mongoSession });
+        newPartitaDoc = created[0];
+      } catch (err: any) {
+        if (err.code === 11000) {
+          throw new IlotError("Collision critique de slug sur la partition. Veuillez réitérer.", "CONFLICT", 409);
+        }
+        throw err;
+      }
+      
+      const newPartita = (typeof newPartitaDoc.toObject === 'function' ? newPartitaDoc.toObject() : newPartitaDoc) as unknown as IPartita;
 
-      // 2. Tissage dans le Graphe (Neo4j) avec l'horodatage synchronisé
+      // 2. Tissage dans le Graphe (Neo4j)
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (p:Partita { 
@@ -143,7 +152,6 @@ export class PartitaOrchestrator {
           RETURN count(*) as relCount
         }
 
-        // TISSAGE DE LA GAMME DÉTECTÉE
         WITH p
         CALL {
             With p
@@ -166,7 +174,6 @@ export class PartitaOrchestrator {
         status: newPartita.status,
         relatedProjects: newPartita.connections?.relatedProjects || [],
         productId: newPartita.merchLink?.productId || null,
-        // Paramètres pour le tissage harmonique
         scaleRoot: bestScale?.root || null,
         scaleKey: bestScale?.scaleKey || null,
         scaleName: bestScale?.scaleName || null,
@@ -175,7 +182,6 @@ export class PartitaOrchestrator {
         now: now.toISOString()
       });
 
-      // 🛡️ VERROU DE SÉCURITÉ : Vérification de la création effective
       if (neoResult.records.length === 0) {
         throw new IlotError("Échec du tissage : Oiseau créateur introuvable dans le Graphe.", "NOT_FOUND", 404);
       }
@@ -202,10 +208,8 @@ export class PartitaOrchestrator {
     }
 
     return await TransactionManager.execute("Mutation de Partition", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
-      // 🧮 Refaire la détection si le contenu a changé
       let theoryUpdate = {};
       let bestScale = null;
       if (updates.content && updates.content !== (existing as any).content) {

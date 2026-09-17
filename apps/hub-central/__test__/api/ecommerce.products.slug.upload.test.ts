@@ -44,7 +44,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     UniversalMediaRegistry: {
       indexItem: vi.fn().mockResolvedValue(true),
     },
-    // Mock direct du helper pour éviter les bugs de `lean()`
     findEntityBySlugOrUid: vi.fn(),
   };
 });
@@ -75,7 +74,14 @@ describe('POST /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
       publicUrl: 'https://cdn.ilot/product.jpg',
       key: 'hub-central/fr/projects/mon-produit/product_image_123.jpg',
     } as any);
-    vi.spyOn(storageService, 'extractKeyFromUrl').mockReturnValue('hub-central/fr/projects/mon-produit/product_image_123.jpg');
+
+    // 🛡️ Simulation réaliste d'extraction de clé normalisée
+    vi.spyOn(storageService, 'extractKeyFromUrl').mockImplementation((url: string) => {
+      if (url.includes('etrangere') || url.includes('foreign')) {
+        return 'hub-central/fr/projects/mon-produit/image-etrangere.jpg';
+      }
+      return 'hub-central/fr/projects/mon-produit/product_image_123.jpg';
+    });
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
   });
 

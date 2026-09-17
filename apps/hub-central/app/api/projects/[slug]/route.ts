@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 
 async function getProjectCapabilities(userUid: string | undefined, projectUid: string) {
   if (!userUid) return { hasAccess: false, capabilities: [] as string[] };
+  
   const session = getNeo4jSession();
   try {
     const result = await session.run(
@@ -22,21 +23,33 @@ async function getProjectCapabilities(userUid: string | undefined, projectUid: s
        RETURN DISTINCT compiledCaps, relTypes`,
       { userUid, projectUid }
     );
+    
     if (result.records.length === 0) return { hasAccess: false, capabilities: [] as string[] };
+    
     const record = result.records[0];
     let caps = record.get('compiledCaps').flat().filter(Boolean) as string[];
     const relTypes = record.get('relTypes') as string[];
+    
     if (caps.length === 0 && relTypes.length === 0) return { hasAccess: false, capabilities: [] as string[] };
+    
     if (relTypes.includes('INVITED_TO')) {
       if (!caps.includes('project:read')) caps.push('project:read');
       if (!caps.includes('task:read')) caps.push('task:read');
     }
+    
     return { hasAccess: true, capabilities: caps };
   } catch (err) {
     console.error("  Neo4j Capability Error:", err);
     return { hasAccess: false, capabilities: [] as string[] };
   } finally {
-    await session.close();
+    // 🛡️ GARANTIE STRICTE ANTI-FUITE DE CONNEXION NEO4J (Pool Leak Prevention)
+    if (session) {
+      try {
+        await session.close();
+      } catch (closeErr) {
+        console.error("  Neo4j Session Close Error:", closeErr);
+      }
+    }
   }
 }
 
@@ -45,7 +58,8 @@ async function getProjectCapabilities(userUid: string | undefined, projectUid: s
 // ==========================================
 export const GET = withOptionalAura(async (req: Request, context: ApiContext, currentUser?: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    // 🛡️ Résolution asynchrone sécurisée des paramètres de route (Next.js App Router compatible)
+    const resolvedParams = await Promise.resolve(context.params);
     const rawParam = resolvedParams?.slug ?? resolvedParams?.projectId;
     const rawProjectId = typeof rawParam === 'string'
        ? rawParam
@@ -90,7 +104,7 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
 // ==========================================
 export const PUT = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    const resolvedParams = await Promise.resolve(context.params);
     const rawParam = resolvedParams?.slug ?? resolvedParams?.projectId;
     const rawProjectId = typeof rawParam === 'string'
        ? rawParam
@@ -161,7 +175,7 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
 // ==========================================
 export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    const resolvedParams = await Promise.resolve(context.params);
     const rawParam = resolvedParams?.slug ?? resolvedParams?.projectId;
     const rawProjectId = typeof rawParam === 'string'
        ? rawParam

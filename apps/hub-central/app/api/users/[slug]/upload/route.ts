@@ -22,7 +22,7 @@ function assertSovereignty(visitorUid: string, visitorCaps: string[], targetSlug
 export const POST = withRateLimit('upload-user-slug', 10, 60, withAura(async (req: NextRequest, context: ApiContext, userFromGuard?: OiseauUser) => {
   const currentUser = userFromGuard || (context as any).user || (req as any).user;
 
-  const resolvedParams = await context.params;
+  const resolvedParams = await Promise.resolve(context.params);
   const rawSlug = resolvedParams?.slug;
   const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
@@ -205,7 +205,7 @@ export const POST = withRateLimit('upload-user-slug', 10, 60, withAura(async (re
 // ==========================================
 export const DELETE = withAura(async (req: NextRequest, context: ApiContext, userFromGuard?: OiseauUser) => {
   const currentUser = userFromGuard || (context as any).user || (req as any).user;
-  const resolvedParams = await context.params;
+  const resolvedParams = await Promise.resolve(context.params);
   const rawSlug = resolvedParams?.slug;
   const rawQuery = rawSlug;
   const identifier = slugify(typeof rawQuery === 'string' ? rawQuery : Array.isArray(rawQuery) ? rawQuery[0] : '');
@@ -238,15 +238,28 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, use
   const allowedTypes = ['avatarUrl', 'coverPicture'];
   if (!allowedTypes.includes(imageType)) return NextResponse.json({ message: "Type invalide" }, { status: 400 });
 
-  // 🛡️ SUTURE DE SÉCURITÉ IDOR : Vérification formelle que l'URL appartient bien à cet Oiseau !
-  if (existingUser[imageType] && existingUser[imageType] !== url) {
+  // 🛡️ SUTURE DE SÉCURITÉ IDOR : Normalisation et validation stricte des clés normalisées issues des URLs
+  const storedUrl = existingUser[imageType];
+  if (!storedUrl) {
+    return NextResponse.json({ message: "Souveraineté brisée : aucun artefact enregistré pour ce type." }, { status: 403 });
+  }
+
+  let expectedKey: string;
+  let providedKey: string;
+  try {
+    expectedKey = storageService.extractKeyFromUrl(storedUrl);
+    providedKey = storageService.extractKeyFromUrl(url);
+  } catch {
+    return NextResponse.json({ message: "Format d'URL d'artefact invalide." }, { status: 400 });
+  }
+
+  if (!expectedKey || !providedKey || expectedKey !== providedKey) {
     return NextResponse.json({ message: "Souveraineté brisée : cet artefact n'appartient pas à cet Oiseau." }, { status: 403 });
   }
 
   // 1. Désintégration Physique Cloudflare R2
   try {
-    const storageKey = storageService.extractKeyFromUrl(url);
-    await storageService.deleteFile(storageKey);
+    await storageService.deleteFile(expectedKey);
   } catch (storageErr) {
     console.error("🔥 [STORAGE DELETE ERROR]", storageErr);
     return NextResponse.json({ message: "Impossible de désintégrer la trace physique." }, { status: 500 });

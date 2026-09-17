@@ -27,7 +27,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       findOne: vi.fn(),
     },
     getNeo4jSession: vi.fn(),
-    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
     findEntityBySlugOrUid: vi.fn(),
   };
 });
@@ -40,11 +39,18 @@ vi.mock('@/lib/slugify', () => ({
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
 describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', () => {
+  let mockNeoSession: { run: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> };
+
   beforeEach(() => {
     vi.clearAllMocks();
     delete (global as any).__mockUser;
 
-    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de TeamOrchestrator
+    mockNeoSession = {
+      run: vi.fn().mockResolvedValue({ records: [] }),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    vi.mocked(getNeo4jSession).mockReturnValue(mockNeoSession as any);
+
     vi.spyOn(TeamOrchestrator.prototype, 'mutateTeam').mockResolvedValue({
       uid: 't-123',
       name: 'Nid Muté',
@@ -65,7 +71,7 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
       expect(json.error).toBe("Le Nexus est invisible aux étrangers.");
     });
 
-    it('doit rejeter (403) si l\'oiseau n\'a pas les capacités de lecture sur le Nid', async () => {
+    it('doit rejeter (403) si l\'oiseau n\'a pas les capacités de lecture sur le Nid et fermer la session Neo4j', async () => {
       vi.mocked(getServerSession).mockResolvedValue({
         user: { uid: 'u-123', capabilities: [] }
       } as any);
@@ -76,11 +82,7 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
         name: 'Mon Nid'
       } as any);
 
-      // Neo4j renvoie des capacités vides
-      vi.mocked(getNeo4jSession).mockReturnValue({
-        run: vi.fn().mockResolvedValue({ records: [] }),
-        close: vi.fn().mockResolvedValue(true),
-      } as any);
+      mockNeoSession.run = vi.fn().mockResolvedValue({ records: [] });
 
       const req = new Request('http://localhost/api/teams/mon-nid');
       const response = await GET(req as any, { params: Promise.resolve({ slug: 'mon-nid' }) });
@@ -89,6 +91,7 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
       expect(response.status).toBe(403);
       expect(json.error).toContain("Accès refusé");
       expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TeamModel, 'mon-nid');
+      expect(mockNeoSession.close).toHaveBeenCalled(); // 🛡️ Vérification de la fermeture de session Neo4j
     });
 
     it('doit réussir (200) et renvoyer le Nid avec les capacités si autorisé', async () => {
@@ -102,17 +105,13 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
         name: 'Mon Nid'
       } as any);
 
-      // Neo4j renvoie le droit TEAM.READ
-      vi.mocked(getNeo4jSession).mockReturnValue({
-        run: vi.fn()
-          .mockResolvedValueOnce({
-            records: [{ get: (k: string) => k === 'caps' ? [CAPABILITIES.TEAM.READ] : 'MEMBER_OF' }]
-          }) // getCapabilities
-          .mockResolvedValueOnce({
-            records: []
-          }), // invitations
-        close: vi.fn().mockResolvedValue(true),
-      } as any);
+      mockNeoSession.run = vi.fn()
+        .mockResolvedValueOnce({
+          records: [{ get: (k: string) => k === 'caps' ? [CAPABILITIES.TEAM.READ] : 'MEMBER_OF' }]
+        })
+        .mockResolvedValueOnce({
+          records: []
+        });
 
       const req = new Request('http://localhost/api/teams/mon-nid');
       const response = await GET(req as any, { params: Promise.resolve({ slug: 'mon-nid' }) });
@@ -122,11 +121,12 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
       expect(json.uid).toBe('t-123');
       expect(json.myCapabilities).toContain(CAPABILITIES.TEAM.READ);
       expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TeamModel, 'mon-nid');
+      expect(mockNeoSession.close).toHaveBeenCalled(); // 🛡️ Vérification de la fermeture de session
     });
   });
 
   describe('PUT - Mutation du Nid', () => {
-    it('doit réussir (200) la mutation si l\'utilisateur a le droit UPDATE et invalider le cache', async () => {
+    it('doit réussir (200) la mutation si l\'utilisateur a le droit UPDATE, invalider le cache et fermer la session Neo4j', async () => {
       vi.mocked(getServerSession).mockResolvedValue({
         user: { uid: 'u-123', capabilities: [] }
       } as any);
@@ -137,12 +137,9 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
         name: 'Mon Nid'
       } as any);
 
-      vi.mocked(getNeo4jSession).mockReturnValue({
-        run: vi.fn().mockResolvedValue({
-          records: [{ get: (k: string) => k === 'caps' ? [CAPABILITIES.TEAM.UPDATE] : 'FOUNDED' }]
-        }),
-        close: vi.fn().mockResolvedValue(true),
-      } as any);
+      mockNeoSession.run = vi.fn().mockResolvedValue({
+        records: [{ get: (k: string) => k === 'caps' ? [CAPABILITIES.TEAM.UPDATE] : 'FOUNDED' }]
+      });
 
       const req = new Request('http://localhost/api/teams/mon-nid', {
         method: 'PUT',
@@ -156,15 +153,15 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
       expect(json.name).toBe('Nid Muté');
       expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TeamModel, 'mon-nid');
 
-      // 💥 Vérification de l'invalidation du cache
       expect(revalidateTag).toHaveBeenCalledWith('teams');
       expect(revalidateTag).toHaveBeenCalledWith('team-mon-nid');
       expect(revalidateTag).toHaveBeenCalledWith('team-t-123');
+      expect(mockNeoSession.close).toHaveBeenCalled(); // 🛡️ Vérification de la fermeture de session
     });
   });
 
   describe('DELETE - Dissolution du Nid', () => {
-    it('doit réussir (200) la dissolution si l\'utilisateur a le droit DELETE et invalider le cache', async () => {
+    it('doit réussir (200) la dissolution si l\'utilisateur a le droit DELETE, invalider le cache et fermer la session', async () => {
       vi.mocked(getServerSession).mockResolvedValue({
         user: { uid: 'u-123', capabilities: [] }
       } as any);
@@ -175,12 +172,9 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
         name: 'Mon Nid'
       } as any);
 
-      vi.mocked(getNeo4jSession).mockReturnValue({
-        run: vi.fn().mockResolvedValue({
-          records: [{ get: (k: string) => k === 'caps' ? [CAPABILITIES.TEAM.DELETE] : 'FOUNDED' }]
-        }),
-        close: vi.fn().mockResolvedValue(true),
-      } as any);
+      mockNeoSession.run = vi.fn().mockResolvedValue({
+        records: [{ get: (k: string) => k === 'caps' ? [CAPABILITIES.TEAM.DELETE] : 'FOUNDED' }]
+      });
 
       const req = new Request('http://localhost/api/teams/mon-nid', {
         method: 'DELETE',
@@ -193,10 +187,10 @@ describe('Route API : Nid Individuel (GET / PUT / DELETE /api/teams/[slug])', ()
       expect(json.message).toContain("dissous");
       expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TeamModel, 'mon-nid');
 
-      // 💥 Vérification de l'invalidation du cache
       expect(revalidateTag).toHaveBeenCalledWith('teams');
       expect(revalidateTag).toHaveBeenCalledWith('team-mon-nid');
       expect(revalidateTag).toHaveBeenCalledWith('team-t-123');
+      expect(mockNeoSession.close).toHaveBeenCalled(); // 🛡️ Vérification de la fermeture de session
     });
   });
 });

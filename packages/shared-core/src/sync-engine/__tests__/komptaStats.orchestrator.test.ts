@@ -21,8 +21,6 @@ describe('KomptaStatsEngine - Moteur Statistique Multi-Énergies', () => {
   });
 
   it('🟢 doit calculer et convertir correctement les volumes avec les taux de change (Universal Energy)', async () => {
-    // Les appels vont s'effectuer dans l'ordre du tableau Promise.all([...])
-    
     // 1. Raw Sellers: Un oiseau vend en EUR, l'autre en KAOS_ORGANIQUE (Taux 10x)
     vi.mocked(LedgerEntryModel.aggregate).mockResolvedValueOnce([
       { _id: { ownerUid: 'bird_fiat', currency: 'EUR' }, totalVolume: 1000 },          // 1000 * 1.0 = 1000
