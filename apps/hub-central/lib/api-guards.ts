@@ -3,13 +3,22 @@ import { getServerSession } from "next-auth/next";
 import { connectToDatabase } from '@ilot/infrastructure';
 import { authOptions } from "@/lib/auth";
 import { checkRateLimit } from '@/modules/security/rateLimiter';
+import { IlotError } from '@ilot/shared-core'; // Ajuste le chemin relatif selon ton arborescence
 
 export interface OiseauUser {
   id: string;
   uid: string;
   slug?: string;
   capabilities: string[];
+  actorUid?: string; // Rendu optionnel pour compatibilité croisée
 }
+
+export type UserSignatureLike = {
+  actorUid?: string;
+  uid?: string;
+  capabilities: string[];
+  [key: string]: unknown;
+};
 
 // 🌿 Typage strict du contexte de route Next.js (Supporte les slugs dynamiques et les routes vides)
 export type ApiContext = { 
@@ -122,4 +131,42 @@ export function withRateLimit<Req extends NextRequest | Request>(
 
     return await handler(req, context, currentUser);
   };
+}
+
+/**
+ * 🛡️ 5. handleRouteError : Centralise la gestion des erreurs HTTP/IlotError pour toutes les routes.
+ */
+export function handleRouteError(error: unknown, defaultMessage: string = "Erreur interne de la Matrice"): NextResponse {
+  if (error instanceof IlotError) {
+    return NextResponse.json(
+      { success: false, error: error.message, code: error.code },
+      { status: error.status } // 👈 Correction : on utilise error.status au lieu de error.statusCode
+    );
+  }
+
+  const errMessage = error instanceof Error ? error.message : String(error);
+  console.error(`🔥 [API Guard Fatal] ${defaultMessage} :`, errMessage);
+
+  return NextResponse.json(
+    { success: false, error: defaultMessage },
+    { status: 500 }
+  );
+}
+
+/**
+ * 🔒 6. assertEntitySovereignty : Valide la souveraineté d'un utilisateur sur une entité (Bouclier Anti-IDOR).
+ * Compatible avec les objets de session (`currentUser.uid`) et les signatures d'action (`actorUid`).
+ */
+export function assertEntitySovereignty(currentUser: UserSignatureLike, entityOwnerUid: string): void {
+  if (!currentUser || (!currentUser.actorUid && !currentUser.uid)) {
+    throw new IlotError("Oiseau non authentifié.", "UNAUTHORIZED", 401);
+  }
+
+  const userIdentifier = currentUser.actorUid || currentUser.uid;
+  const isOwner = userIdentifier === entityOwnerUid;
+  const isArchitect = Array.isArray(currentUser.capabilities) && currentUser.capabilities.includes('*');
+
+  if (!isOwner && !isArchitect) {
+    throw new IlotError("Souveraineté violée : Accès interdit à ce territoire.", "FORBIDDEN", 403);
+  }
 }

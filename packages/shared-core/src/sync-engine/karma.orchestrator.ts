@@ -1,25 +1,18 @@
-import { OiseauModel, ReportModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { OiseauModel, ReportModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature, CAPABILITIES } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
+import { resolveCanonicalUid } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
 
 export class KarmaOrchestrator {
-  /**
-   * Utilitaire interne pour résoudre strictement l'UID canonique via l'utilitaire global.
-   */
-  private async resolveCanonicalUid(identifier: string): Promise<string> {
-    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
-    if (!user) throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
-    return (user as any).uid;
-  }
 
   /**
    * ⚖️ SÉLECTION DES JURÉS (Le Tribunal de la Canopée)
    * Trouve N oiseaux sans aucun lien de 1er ou 2nd degré avec les parties prenantes.
    */
   public async summonImpartialJurors(plaintiffId: string, defendantId: string, count: number = 5) {
-    const plaintiffUid = await this.resolveCanonicalUid(plaintiffId);
-    const defendantUid = await this.resolveCanonicalUid(defendantId);
+    const plaintiffUid = await resolveCanonicalUid(OiseauModel, plaintiffId, "Oiseau plaignant");
+    const defendantUid = await resolveCanonicalUid(OiseauModel, defendantId, "Oiseau accusé");
 
     return await TransactionManager.execute("Convocation du Tribunal", async (_mongoSession, neo4jTx) => {
       const cypher = `
@@ -57,7 +50,7 @@ export class KarmaOrchestrator {
       throw new IlotError("Aura insuffisante pour faire s'abattre le KaÔdZ.", "FORBIDDEN", 403);
     }
 
-    const targetCanonicalUid = await this.resolveCanonicalUid(targetIdentifier);
+    const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, targetIdentifier, "Oiseau cible");
 
     return await TransactionManager.execute("Sentence Karmique", async (mongoSession, neo4jTx) => {
       // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'

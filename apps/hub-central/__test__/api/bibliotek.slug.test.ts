@@ -4,23 +4,30 @@ import { LibraryBookModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { BibliotekOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-vi.mock('@/lib/api-guards', () => ({
-  withOptionalAura: (handler: any) => async (req: any, context: any) => {
-    return await handler(req, context, global.__mockUser);
-  },
-  withAura: (handler: any) => async (req: any, context: any) => {
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
-    }
-    return await handler(req, context, mockUser);
-  },
-}));
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withOptionalAura: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
+      // @ts-ignore
+      return await handler(req, context, global.__mockUser);
+    },
+    withAura: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
+      const mockUser = global.__mockUser;
+      if (!mockUser || !mockUser.uid) {
+        return NextResponse.json({ success: false, error: 'Accès non autorisé.' }, { status: 401 });
+      }
+      // @ts-ignore
+      return await handler(req, context, mockUser);
+    },
+  };
+});
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
@@ -29,32 +36,37 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     LibraryBookModel: {
       findOne: vi.fn(),
     },
-    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
     findEntityBySlugOrUid: vi.fn(),
   };
 });
 
 declare global {
-  var __mockUser: any;
+  // 🛡️ Harmonisation stricte de la signature d'index globale de __mockUser
+  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
+type RouteHandler = (req: NextRequest, ctx: { params: Promise<{ slug?: string | string[] }> }) => Promise<Response>;
+
 describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
+  const getHandler = GET as unknown as RouteHandler;
+  const putHandler = PUT as unknown as RouteHandler;
+  const deleteHandler = DELETE as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     vi.spyOn(BibliotekOrchestrator.prototype, 'updateBook').mockResolvedValue({
       success: true,
       status: 'success',
       mongo: { uid: 'book_999', slug: 'essai-sur-la-silice-mut', title: 'Titre Muté' },
       neo4j: {}
-    } as any);
+    } as unknown as Awaited<ReturnType<BibliotekOrchestrator['updateBook']>>);
 
     vi.spyOn(BibliotekOrchestrator.prototype, 'disintegrateBook').mockResolvedValue({
       success: true,
       purgedCount: 1,
-      filesToDelete: []
-    } as any);
+    } as unknown as Awaited<ReturnType<BibliotekOrchestrator['disintegrateBook']>>);
   });
 
   it('🟢 GET : doit retourner les détails d’un ouvrage par son slug via le résolveur', async () => {
@@ -62,11 +74,12 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
       uid: 'book_999', 
       title: 'Essai sur la Silice', 
       authorUid: 'bird_writer', 
-      copyrightClaimed: true 
-    } as any);
+      copyrightClaimed: true,
+      toObject: () => ({ uid: 'book_999', title: 'Essai sur la Silice', authorUid: 'bird_writer', copyrightClaimed: true })
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/essai-sur-la-silice');
-    const res = await GET(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
+    const res = await getHandler(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -75,14 +88,14 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
   });
 
   it('🔴 PUT : doit rejeter (401) si l’Oiseau n’est pas authentifié', async () => {
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/essai-sur-la-silice', {
       method: 'PUT',
       body: JSON.stringify({ title: 'Nouveau Titre' })
     });
 
-    const res = await PUT(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
+    const res = await putHandler(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
     expect(res.status).toBe(401);
   });
 
@@ -93,14 +106,14 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
       uid: 'book_canonique_123', 
       slug: 'essai-sur-la-silice',
       authorUid: 'bird_writer' 
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/essai-sur-la-silice', {
       method: 'PUT',
       body: JSON.stringify({ title: 'Titre Muté' })
     });
 
-    const res = await PUT(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
+    const res = await putHandler(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -119,13 +132,13 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
       uid: 'book_canonique_123', 
       slug: 'essai-sur-la-silice',
       authorUid: 'bird_writer' 
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/essai-sur-la-silice', {
       method: 'DELETE'
     });
 
-    const res = await DELETE(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
+    const res = await deleteHandler(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
     const json = await res.json();
 
     expect(res.status).toBe(200);

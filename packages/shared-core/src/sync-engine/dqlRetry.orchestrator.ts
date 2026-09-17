@@ -1,20 +1,32 @@
 import { SystemGraphDlqModel, getNeo4jDriver } from '@ilot/infrastructure';
 
+export interface IDlqEntry {
+  operationName: string;
+  retryCount: number;
+  status: 'PENDING_RETRY' | 'RESOLVED' | 'FAILED_PERMANENTLY';
+  lastAttemptAt: Date;
+  timestamp: Date;
+  payload: Record<string, unknown>;
+  error: string;
+  save(): Promise<unknown>;
+  [key: string]: unknown;
+}
+
 export class DlqRetryOrchestrator {
   /**
    * Tente de rejouer les transactions en échec stockées dans la DLQ.
    * L'ordre chronologique (FIFO) est strictement respecté.
    * Chaque item dispose de sa propre session Neo4j isolée pour garantir l'étanchéité des connexions.
    */
-  static async processDlqBatch(maxRetries: number = 3): Promise<{ processed: number; resolved: number }> {
+  public static async processDlqBatch(maxRetries: number = 3): Promise<{ processed: number; resolved: number }> {
     console.log(`🌀 [DLQ Worker] Début du balayage des fractures de la Matrice...`);
 
-    const pendingEntries = await SystemGraphDlqModel.find({
+    const pendingEntries = (await SystemGraphDlqModel.find({
       status: 'PENDING_RETRY',
       retryCount: { $lt: maxRetries }
     })
     .sort({ timestamp: 1 }) // Tri FIFO strict
-    .limit(50);
+    .limit(50)) as unknown as IDlqEntry[];
 
     let resolvedCount = 0;
 
@@ -36,8 +48,10 @@ export class DlqRetryOrchestrator {
 
         resolvedCount++;
         console.log(`✨ [DLQ Worker] Opération ${entry.operationName} réconciliée avec succès.`);
-      } catch (err: any) {
-        console.error(`🔥 [DLQ Worker] Échec du rejeu pour ${entry.operationName} :`, err.message);
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        console.error(`🔥 [DLQ Worker] Échec du rejeu pour ${entry.operationName} :`, errorMessage);
+        
         entry.retryCount += 1;
         entry.lastAttemptAt = now;
         
@@ -63,7 +77,7 @@ export class DlqRetryOrchestrator {
    * 🧹 Purge périodique pour éviter la croissance infinie de la collection DLQ
    * Supprime les échecs définitifs plus anciens que le délai de rétention (par défaut 7 jours).
    */
-  static async purgePermanentFailures(retentionDays: number = 7): Promise<number> {
+  public static async purgePermanentFailures(retentionDays: number = 7): Promise<number> {
     const threshold = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
     const result = await SystemGraphDlqModel.deleteMany({
       status: 'FAILED_PERMANENTLY',

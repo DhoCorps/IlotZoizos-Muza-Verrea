@@ -1,52 +1,62 @@
-// Fichier : __test__/api/demopraxy.evaluate.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/demopraxy/evaluate/route';
 import { DemopraxyOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
 import { NextResponse } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
-vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, ctx: any) => {
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
-    }
-    return await handler(req, ctx, mockUser);
-  },
-}));
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withAura: (handler: unknown) => async (req: Request, ctx: ApiContext) => {
+      const mockUser = global.__mockUser;
+      if (!mockUser || !mockUser.uid) {
+        return NextResponse.json({ success: false, error: "Oiseau non identifié" }, { status: 401 });
+      }
+      // @ts-ignore
+      return await handler(req, ctx, mockUser);
+    },
+  };
+});
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
 declare global {
-  var __mockUser: any;
+  // 🛡️ Signature globale harmonisée avec le reste du projet
+  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
+type RouteHandler = (req: Request, ctx: ApiContext) => Promise<Response>;
+
 describe('API Demopraxy Evaluation POST', () => {
+  const postHandler = POST as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de DemopraxyOrchestrator
     vi.spyOn(DemopraxyOrchestrator.prototype, 'processDemopraxicEvaluation').mockResolvedValue({
       success: true,
       score: 85,
-    } as any);
+    } as unknown as Awaited<ReturnType<DemopraxyOrchestrator['processDemopraxicEvaluation']>>);
   });
 
   it('🔴 [POST] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     const req = new Request('http://localhost/api/demopraxy', {
       method: 'POST',
-      body: JSON.stringify({ userIdentifier: 'bird_1', metrics: { noiseLevel: 10 } })
+      body: JSON.stringify({ userIdentifier: 'bird_1', metrics: { systemicHatredScore: 1, recurrenceCount: 1, recalibrationCapacity: 5, collectiveResonance: 5 } })
     });
 
-    const res = await POST(req as any, {});
+    const res = await postHandler(req, {} as ApiContext);
     expect(res.status).toBe(401);
   });
 
@@ -58,11 +68,11 @@ describe('API Demopraxy Evaluation POST', () => {
       body: JSON.stringify({ userIdentifier: 'bird_1' }) // metrics omis
     });
 
-    const res = await POST(req as any, {});
+    const res = await postHandler(req, {} as ApiContext);
     const json = await res.json();
 
     expect(res.status).toBe(400);
-    expect(json.error).toContain('manquants');
+    expect(json.error).toContain('invalides');
   });
 
   it('🟢 [POST] doit traiter l\'évaluation démopraxique avec succès (200) et invalider le cache', async () => {
@@ -70,11 +80,19 @@ describe('API Demopraxy Evaluation POST', () => {
 
     const req = new Request('http://localhost/api/demopraxy', {
       method: 'POST',
-      body: JSON.stringify({ userIdentifier: 'bird_2', metrics: { noiseLevel: 5 } })
+      body: JSON.stringify({ 
+        userIdentifier: 'bird_2', 
+        metrics: { 
+          systemicHatredScore: 1, 
+          recurrenceCount: 0, 
+          recalibrationCapacity: 8, 
+          collectiveResonance: 9 
+        } 
+      })
     });
 
-    const res = await POST(req as any, {});
-    const json = await res.json();
+    const res = await postHandler(req, {} as ApiContext);
+    const json = await res.json() as { success: boolean; score: number };
 
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);

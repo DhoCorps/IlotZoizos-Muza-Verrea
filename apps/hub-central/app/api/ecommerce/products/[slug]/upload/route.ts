@@ -4,19 +4,28 @@ import { NextResponse, NextRequest } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
 import { IlotError } from '@ilot/shared-core';
 import { UniversalMediaRegistry, ProductModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { IProduct } from '@ilot/types';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withRateLimit, OiseauUser, ApiContext, handleRouteError, assertEntitySovereignty } from '@/lib/api-guards';
 import { generateFileHash } from '@/lib/cryptoHelper';
 
-// 🛡️ Fonction centralisée d'invalidation en cascade pour les produits
+interface StorageUploadResult {
+  success?: boolean;
+  publicUrl?: string;
+  url?: string;
+  key?: string;
+  [key: string]: unknown;
+}
+
+// ==========================================
+// 🛡️ FONCTION CENTRALISÉE D'INVALIDATION EN CASCADE POUR LES PRODUITS
+// ==========================================
 function revalidateProductCascades(product: { slug?: string; uid?: string; ownerUid?: string }) {
-  // Flux globaux et listes de catalogue
   revalidateTag('products');
   revalidateTag('ecommerce');
   
-  // Flux spécifiques à l'entité
   if (product.uid) {
     revalidateTag(`product-${product.uid}`);
   }
@@ -24,7 +33,6 @@ function revalidateProductCascades(product: { slug?: string; uid?: string; owner
     revalidateTag(`product-${product.slug}`);
     revalidateTag(`product-slug-${product.slug}`);
   }
-  // Flux marchands associés si applicable
   if (product.ownerUid) {
     revalidateTag(`merchant-products-${product.ownerUid}`);
   }
@@ -35,31 +43,38 @@ function revalidateProductCascades(product: { slug?: string; uid?: string; owner
 // ==========================================
 export const POST = withRateLimit('upload-product-slug', 10, 60, withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await Promise.resolve(context.params);
-    const rawSlug = (resolvedParams as any)?.slug;
+    let resolvedParams: { slug?: string | string[] } | undefined;
+    try {
+      resolvedParams = await context.params;
+    } catch {
+      return NextResponse.json({ success: false, error: "Paramètres de route invalides." }, { status: 400 });
+    }
+
+    const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
     if (!identifier) {
-      return NextResponse.json({ error: 'Paramètre de slug illisible.' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'Paramètre de slug illisible.' }, { status: 400 });
     }
 
-    const product: any = await findEntityBySlugOrUid(ProductModel, identifier);
+    const product = await findEntityBySlugOrUid(ProductModel, identifier) as IProduct | null;
     if (!product) {
-      return NextResponse.json({ error: "Artefact introuvable dans l'Îlot." }, { status: 404 });
+      return NextResponse.json({ success: false, error: "Artefact introuvable dans l'Îlot." }, { status: 404 });
     }
 
-    const isOwner = product.ownerUid === currentUser.uid || product.sellerUid === currentUser.uid;
-    const isArchitect = currentUser.capabilities?.includes('*');
-    if (!isOwner && !isArchitect) {
-      return NextResponse.json({ error: "Souveraineté violée : tu ne peux altérer cet artefact." }, { status: 403 });
-    }
+    // 🛡️ Passage explicite d'un objet conforme à la signature attendue
+    const ownerFieldUid = product.ownerUid || (product as unknown as { sellerUid?: string }).sellerUid;
+    assertEntitySovereignty({ uid: currentUser.uid, capabilities: currentUser.capabilities }, ownerFieldUid || '');
     
-    const formData = await req.formData().catch(() => null);
-    if (!formData) {
-      return NextResponse.json({ error: 'Corps de requête multiphase illisible.' }, { status: 400 });
+    let formData: FormData;
+    try {
+      formData = await req.formData();
+    } catch {
+      return NextResponse.json({ success: false, error: 'Corps de requête multiphase illisible.' }, { status: 400 });
     }
-    const file = formData.get('file') as File;
+
+    const file = formData.get('file') as File | null;
     if (!file) {
-      return NextResponse.json({ error: 'Aucune brindille (fichier) fournie.' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'Aucune brindille (fichier) fournie.' }, { status: 400 });
     }
 
     let fileBuffer: Buffer;
@@ -67,11 +82,8 @@ export const POST = withRateLimit('upload-product-slug', 10, 60, withAura(async 
       if (typeof file.arrayBuffer === 'function') {
         const arrayBuffer = await file.arrayBuffer();
         fileBuffer = Buffer.from(arrayBuffer);
-      } else if (typeof (file as any).text === 'function') {
-        const text = await (file as any).text();
-        fileBuffer = Buffer.from(text);
       } else {
-        fileBuffer = Buffer.from(await (file as any).arrayBuffer());
+        fileBuffer = Buffer.from(await (file as unknown as { arrayBuffer: () => Promise<ArrayBuffer> }).arrayBuffer());
       }
     } catch {
       fileBuffer = Buffer.from('fallback-buffer-content');
@@ -94,37 +106,40 @@ export const POST = withRateLimit('upload-product-slug', 10, 60, withAura(async 
       filename: file.name,
     });
 
-    const uploadResult: any = await storageService.uploadFile(file, customKey);
+    const rawUploadResult = await storageService.uploadFile(file, customKey);
+    const uploadResult = (rawUploadResult ?? {}) as Record<string, unknown>;
 
     let publicUrl = '';
-    if (typeof uploadResult === 'string') {
-      publicUrl = uploadResult;
+    if (typeof rawUploadResult === 'string') {
+      publicUrl = rawUploadResult;
     } else if (uploadResult && typeof uploadResult === 'object') {
-      publicUrl = uploadResult.publicUrl || uploadResult.url || Object.values(uploadResult).find(v => typeof v === 'string' && v.startsWith('http')) || '';
+      publicUrl = (uploadResult.publicUrl as string) || 
+                  (uploadResult.url as string) || 
+                  (Object.values(uploadResult).find(v => typeof v === 'string' && v.startsWith('http')) as string) || 
+                  '';
     }
     if (!publicUrl) {
       publicUrl = 'https://cdn.ilot/product.jpg';
     }
 
-    const storageKey = uploadResult?.key || customKey;
+    const storageKey = (uploadResult.key as string) || customKey;
 
     await ProductModel.updateOne({ uid: product.uid }, { $set: { imageUrl: publicUrl } });
     
     await UniversalMediaRegistry.indexItem({
       mediaId: product.uid,
       sourceApp: 'DHO',
-      ownerUid: product.ownerUid || product.sellerUid,
-      ownerSlug: product.ownerSlug || 'marchand',
+      ownerUid: product.ownerUid || (product as unknown as { sellerUid?: string }).sellerUid || '',
+      ownerSlug: (product as unknown as { ownerSlug?: string }).ownerSlug || 'marchand',
       title: product.title,
       mediaUrl: publicUrl,
       thumbnailUrl: publicUrl,
       priceCents: product.priceCents,
-      consentForShowcase: !!product.settings?.consentForShowcase,
+      consentForShowcase: !!(product as unknown as { settings?: { consentForShowcase?: boolean } }).settings?.consentForShowcase,
       consentForMusicSync: false,
       createdAt: new Date(),
     });
     
-    // 💥 Invalidation globale et centralisée en cascade
     revalidateProductCascades(product);
     
     return NextResponse.json({
@@ -140,40 +155,49 @@ export const POST = withRateLimit('upload-product-slug', 10, 60, withAura(async 
       timestampedAt
     }, { status: 201 });
 
-  } catch (error: any) {
-    console.error('🔥 [ECOMMERCE SLUG UPLOAD ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : 500;
-    return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'Erreur interne lors du versement de l\'artefact.');
   }
 }));
 
-// ==========================================
-// DELETE : Purger et Désindexer l'image
-// ==========================================
+// DELETE inchangé (penser juste à adapter aussi assertEntitySovereignty si besoin)
 export const DELETE = withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await Promise.resolve(context.params);
-    const rawSlug = (resolvedParams as any)?.slug;
+    let resolvedParams: { slug?: string | string[] } | undefined;
+    try {
+      resolvedParams = await context.params;
+    } catch {
+      return NextResponse.json({ success: false, error: "Paramètres de route invalides." }, { status: 400 });
+    }
+
+    const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-    if (!identifier) return NextResponse.json({ error: 'Slug invalide.' }, { status: 400 });
+    if (!identifier) {
+      return NextResponse.json({ success: false, error: 'Slug invalide.' }, { status: 400 });
+    }
     
-    const product: any = await findEntityBySlugOrUid(ProductModel, identifier);
+    const product = await findEntityBySlugOrUid(ProductModel, identifier) as IProduct | null;
     if (!product) {
-      return NextResponse.json({ error: "Artefact introuvable." }, { status: 404 });
+      return NextResponse.json({ success: false, error: "Artefact introuvable." }, { status: 404 });
     }
 
-    const isOwner = product.ownerUid === currentUser.uid || product.sellerUid === currentUser.uid;
-    const isArchitect = currentUser.capabilities?.includes('*');
-    if (!isOwner && !isArchitect) {
-      return NextResponse.json({ error: "Souveraineté violée : tu ne peux altérer cet artefact." }, { status: 403 });
+    const ownerFieldUid = product.ownerUid || (product as unknown as { sellerUid?: string }).sellerUid;
+    assertEntitySovereignty({ uid: currentUser.uid, capabilities: currentUser.capabilities }, ownerFieldUid || '');
+
+    let urlObj: URL;
+    try {
+      urlObj = new URL(req.url);
+    } catch {
+      return NextResponse.json({ success: false, error: 'URL de requête invalide.' }, { status: 400 });
     }
 
-    const { searchParams } = new URL(req.url);
-    const fileUrl = searchParams.get('url');
-    if (!fileUrl) return NextResponse.json({ error: 'URL manquante.' }, { status: 400 });
+    const fileUrl = urlObj.searchParams.get('url');
+    if (!fileUrl) {
+      return NextResponse.json({ success: false, error: 'URL manquante.' }, { status: 400 });
+    }
 
     if (!product.imageUrl) {
-      return NextResponse.json({ error: "Souveraineté brisée : aucun artefact enregistré pour ce produit." }, { status: 403 });
+      return NextResponse.json({ success: false, error: "Souveraineté brisée : aucun artefact enregistré pour ce produit." }, { status: 403 });
     }
 
     let expectedKey: string;
@@ -182,24 +206,21 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
       expectedKey = storageService.extractKeyFromUrl(product.imageUrl);
       providedKey = storageService.extractKeyFromUrl(fileUrl);
     } catch {
-      return NextResponse.json({ error: "Format d'URL d'artefact invalide." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Format d'URL d'artefact invalide." }, { status: 400 });
     }
 
     if (!expectedKey || !providedKey || expectedKey !== providedKey) {
-      return NextResponse.json({ error: "Souveraineté brisée : cet artefact n'appartient pas à ce produit." }, { status: 403 });
+      return NextResponse.json({ success: false, error: "Souveraineté brisée : cet artefact n'appartient pas à ce produit." }, { status: 403 });
     }
     
     await storageService.deleteFile(expectedKey);
     await ProductModel.updateOne({ uid: product.uid }, { $set: { imageUrl: null } });
 
-    // 💥 Invalidation globale et centralisée en cascade
     revalidateProductCascades(product);
     
     return NextResponse.json({ success: true, message: 'Artefact produit désintégré.' }, { status: 200 });
 
-  } catch (error: any) {
-    console.error('🔥 [ECOMMERCE SLUG DELETE ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : 500;
-    return NextResponse.json({ error: error.message || 'Erreur interne.' }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'Erreur interne lors de la purge de l\'artefact.');
   }
 });

@@ -1,58 +1,130 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, PATCH } from '@/app/api/ecommerce/barter/[slug]/route';
-import { BarterOfferModel } from '@ilot/infrastructure';
+import { POST } from '@/app/api/ecommerce/barter/route';
+import { BarterOfferModel, OiseauModel } from '@ilot/infrastructure';
 import { EcommerceOrchestrator } from '@ilot/shared-core';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
-// On mock api-guards pour éviter les erreurs de getServerSession et headers
-vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
-  withAura: (handler: any) => async (req: any, ctx: any) => {
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    return await handler(req, ctx, mockUser);
-  },
-}));
-
-vi.mock('next/cache', () => ({ revalidateTag: vi.fn(), unstable_cache: vi.fn((cb) => cb) }));
-vi.mock('@/lib/slugify', () => ({ slugify: (s: string) => s }));
-
-// Mock de l'infrastructure incluant notre helper findEntityBySlugOrUid
+// Mock global de l'infrastructure (pleinement chaînable)
 vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  BarterOfferModel: { findOne: vi.fn() },
-  findEntityBySlugOrUid: vi.fn(async (model, identifier) => {
-    return await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] }).lean();
-  }),
+    BarterOfferModel: {
+        create: vi.fn(),
+        findOneAndUpdate: vi.fn(),
+        find: vi.fn().mockReturnValue({
+            sort: vi.fn().mockReturnValue({
+                lean: vi.fn().mockResolvedValue([]),
+            }),
+        }),
+    },
+    OiseauModel: {
+        findOne: vi.fn().mockReturnValue({
+            lean: vi.fn().mockResolvedValue(null)
+        }),
+    },
 }));
 
-describe('API Barter Slug', () => {
-  beforeEach(() => { 
-    vi.clearAllMocks(); 
-    delete (global as any).__mockUser;
+// Mock des gardiens d'API (`withAura`)
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+    return {
+        ...actual,
+        withAura: (handler: unknown) => {
+            return async (req: NextRequest, context: ApiContext) => {
+                const mockUser = global.__mockUser;
+                if (!mockUser || !mockUser.uid) {
+                    return NextResponse.json({ success: false, error: "Oiseau non identifié" }, { status: 401 });
+                }
+                // @ts-ignore
+                return await handler(req, context, mockUser);
+            };
+        },
+        withSilice: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
+            // @ts-ignore
+            return await handler(req, context);
+        },
+    };
+});
 
-    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de EcommerceOrchestrator
-    vi.spyOn(EcommerceOrchestrator.prototype, 'resolveBarter').mockResolvedValue({
-      status: 'ACCEPTED',
-    } as any);
-  });
+vi.mock('next/cache', () => ({
+    revalidateTag: vi.fn(),
+    unstable_cache: vi.fn((cb: Function) => cb),
+}));
 
-  it('🟢 [GET] doit retourner 200', async () => {
-    vi.mocked(BarterOfferModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 'b1', slug: 'b1' })
-    } as any);
+declare global {
+  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
+}
 
-    const res = await GET(new Request('http://h'), { params: Promise.resolve({ slug: 'b1' }) });
-    expect(res.status).toBe(200);
-  });
+type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
 
-  it('🟢 [PATCH] doit résoudre avec succès', async () => {
-    vi.mocked(BarterOfferModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({ uid: 'b1', slug: 'b1' })
-    } as any);
+describe('POST /api/ecommerce/barter (Douane Vibratoire du Troc)', () => {
+    const postHandler = POST as unknown as RouteHandler;
 
-    global.__mockUser = { uid: 'u1', capabilities: [] };
-    const res = await PATCH(new Request('http://h', { method: 'PATCH', body: JSON.stringify({ status: 'ACCEPTED' }) }), { params: Promise.resolve({ slug: 'b1' }) });
-    expect(res.status).toBe(200);
-  });
+    beforeEach(() => {
+        vi.clearAllMocks();
+        global.__mockUser = { uid: 'bird_clean_1', capabilities: ['*'] };
+
+        // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de EcommerceOrchestrator
+        vi.spyOn(EcommerceOrchestrator.prototype, 'proposeBarter').mockResolvedValue({
+            success: true,
+            barterUid: 'barter_123'
+        } as unknown as Awaited<ReturnType<EcommerceOrchestrator['proposeBarter']>>);
+        
+        vi.spyOn(EcommerceOrchestrator.prototype, 'resolveBarter').mockResolvedValue({
+            success: true,
+            status: 'ACCEPTED'
+        } as unknown as Awaited<ReturnType<EcommerceOrchestrator['resolveBarter']>>);
+    });
+
+    it('🔴 doit rejeter avec une erreur 403 si l oiseau est classé INDESIRABLE ou banni', async () => {
+        // Simulation de findOne().lean()
+        vi.mocked(OiseauModel.findOne).mockReturnValueOnce({
+            lean: vi.fn().mockResolvedValueOnce({
+                uid: 'bird_clean_1',
+                profileStatus: 'INDESIRABLE',
+                isBanned: false,
+            })
+        } as unknown as ReturnType<typeof OiseauModel.findOne>);
+
+        const req = new NextRequest('http://localhost/api/ecommerce/barter', {
+            method: 'POST',
+            body: JSON.stringify({ receiverUid: 'bird_target_2', offeredProductUids: ['prod_1'], requestedProductUids: ['prod_2'] }),
+        });
+
+        const response = await postHandler(req, {} as ApiContext);
+        const json = await response.json();
+
+        expect(response.status).toBe(403);
+        expect(json.error).toContain('Souveraineté restreinte');
+        expect(BarterOfferModel.create).not.toHaveBeenCalled();
+    });
+
+    it('🟢 doit autoriser la proposition de troc si l oiseau est respectueux ou neutre', async () => {
+        // Simulation de findOne().lean()
+        vi.mocked(OiseauModel.findOne).mockReturnValueOnce({
+            lean: vi.fn().mockResolvedValueOnce({
+                uid: 'bird_clean_1',
+                profileStatus: 'RESPECTABLE',
+                isBanned: false,
+            })
+        } as unknown as ReturnType<typeof OiseauModel.findOne>);
+
+        vi.mocked(BarterOfferModel.create).mockResolvedValueOnce({
+            uid: 'barter_123',
+            initiatorUid: 'bird_clean_1',
+            status: 'PENDING'
+        } as unknown as Awaited<ReturnType<typeof BarterOfferModel.create>>);
+
+        const req = new NextRequest('http://localhost/api/ecommerce/barter', {
+            method: 'POST',
+            body: JSON.stringify({ receiverUid: 'bird_target_2', offeredProductUids: ['prod_1'], requestedProductUids: ['prod_2'] }),
+        });
+
+        const response = await postHandler(req, {} as ApiContext);
+        const json = await response.json() as { success: boolean; data: { uid: string } };
+
+        expect(response.status).toBe(201);
+        expect(json.success).toBe(true);
+        expect(json.data).toHaveProperty('uid', 'barter_123');
+        expect(BarterOfferModel.create).toHaveBeenCalledTimes(1);
+    });
 });

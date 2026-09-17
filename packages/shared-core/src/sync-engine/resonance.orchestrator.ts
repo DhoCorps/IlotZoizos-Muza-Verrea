@@ -1,43 +1,41 @@
-import { OiseauModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
+import { OiseauModel, getNeo4jSession } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature, CAPABILITIES, EntityLabel, ResonanceType } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
-import { syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure'; // 👈 Import de la DLQ
+import { resolveCanonicalUid, safeSyncUniversalInteraction } from '../utils/orchestrator.engine';
+import type { ClientSession } from 'mongoose';
+import type { Transaction, QueryResult, Record as Neo4jRecord } from 'neo4j-driver';
 
 export interface IResonancePayload {
   sourceUid: string;
   targetUid: string;
   type: ResonanceType;
   entityId?: string;
+  [key: string]: unknown;
+}
+
+export interface ResonanceSyncResult {
+  success: boolean;
+  echoUid?: string;
+  content?: string;
+  type?: string;
+  neo4j?: QueryResult;
 }
 
 export class ResonanceOrchestrator {
-  /**
-   * 🔍 Utilitaire interne pour résoudre l'UID canonique d'un Oiseau via l'utilitaire global.
-   * Prévient l'utilisation de clauses OR et de Full Graph Scans dans Neo4j.
-   */
-  private static async resolveCanonicalUserUid(identifier: string): Promise<string> {
-    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
-        
-    if (!user) {
-      throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
-    }
-    return (user as any).uid;
-  }
 
   /**
    * 🕸️ LE TISSERAND TRANSDISCIPLINAIRE (Mise à jour KaÔdZ)
    */
   public static async weaveCrossDomainLink(
     sourceUid: string,
-    sourceLabel: string, // Casté depuis l'API
+    sourceLabel: string, 
     targetUid: string,
     targetLabel: string,
     relationType: string,
     signature: ActionSignature
-  ) {
-    // 🛡️ CORRECTION CYBERSÉCURITÉ : Whitelist stricte anti-injection Cypher
+  ): Promise<{ success: boolean; neo4j: QueryResult }> {
     const ALLOWED_LABELS = ['User', 'Project', 'Task', 'Partita', 'Letter', 'Sample', 'Sujet', 'Store', 'Team', 'AgoraBeacon'];
     const ALLOWED_RELATIONS = ['RELATES_TO', 'ILLUMINATES', 'DETAILS', 'FOLLOWS_GLOBAL', 'ECHOES', 'VIBRATES', 'COMPOSED', 'WROTE'];
 
@@ -48,9 +46,9 @@ export class ResonanceOrchestrator {
        throw new IlotError("Tentative d'injection de relation Neo4j détectée.", "BAD_REQUEST", 400);
     }
     
-    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
+    const actorCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau acteur");
 
-    return await TransactionManager.execute("Tissage Transdisciplinaire", async (_mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Tissage Transdisciplinaire", async (_mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
       const isRoot = signature.capabilities.includes('*') || signature.capabilities.includes(CAPABILITIES.SYSTEM.ALL);
 
@@ -77,7 +75,7 @@ export class ResonanceOrchestrator {
       });
 
       if (neoResult.records.length === 0) { 
-         throw new IlotError("Échec du tissage : Entités introuvables ou Aura insuffisante pour lier cette source.", "FORBIDDEN", 403);
+         throw new IlotError("Échec du tissage : Entités introuvable ou Aura insuffisante pour lier cette source.", "FORBIDDEN", 403);
       }
             
       return { success: true, neo4j: neoResult };
@@ -93,12 +91,12 @@ export class ResonanceOrchestrator {
     echoType: 'TEXT' | 'EMOJI',
     content: string,
     signature: ActionSignature
-  ) {
+  ): Promise<ResonanceSyncResult> {
     if (!signature.actorUid) throw new IlotError("Oiseau fantôme.", "UNAUTHORIZED", 401);
-    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
+    const actorCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau acteur");
 
-    const result = await TransactionManager.execute("Sédimentation d'Écho", async (_mongoSession, neo4jTx) => {
-      const now = new Date();    
+    const result = await TransactionManager.execute("Sédimentation d'Écho", async (_mongoSession: ClientSession, neo4jTx: Transaction) => {
+      const now = Date.now();    
       const echoUid = `echo_${randomUUID()}`;
       const relation = echoType === 'TEXT' ? 'ECHOES' : 'VIBRATES';
 
@@ -120,37 +118,21 @@ export class ResonanceOrchestrator {
         targetUid,
         echoUid,
         content,
-        now: now.toISOString()
+        now: new Date(now).toISOString()
       });
 
       if (res.records.length === 0) {
         throw new IlotError("Cible ou acteur introuvable pour l'écho dans la Matrice.", "NOT_FOUND", 404);
       }
 
-      const ownerUid = res.records[0].get('ownerUid');
+      const ownerUid = res.records[0].get('ownerUid') as string | null;
             
       return { success: true, echoUid, content, type: echoType, ownerUid };
     });
 
-    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL : Fallback DLQ en cas d'échec
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA L'UTILITAIRE GLOBAL
     if (result.ownerUid && result.ownerUid !== actorCanonicalUid) {
-      try {
-        await syncUniversalInteraction(actorCanonicalUid, result.ownerUid, 'PRAISE');
-      } catch (err: any) {
-        console.error(`  [Orchestrator] Échec du tissage universel (addSocialEcho), basculement DLQ :`, err);
-        try {
-          await SystemGraphDlqModel.create({
-            operationName: 'syncUniversalInteraction_addSocialEcho',
-            payload: { sourceUid: actorCanonicalUid, targetUid: result.ownerUid, type: 'PRAISE' },
-            error: err.message,
-            status: 'PENDING_RETRY',
-            retryCount: 0,
-            timestamp: new Date()
-          });
-        } catch (dlqErr) {
-          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
-        }
-      }
+      await safeSyncUniversalInteraction(actorCanonicalUid, result.ownerUid, 'PRAISE', 'addSocialEcho');
     }
 
     return { success: result.success, echoUid: result.echoUid, content: result.content, type: result.type };
@@ -159,7 +141,7 @@ export class ResonanceOrchestrator {
   /**
    * 📡 LE RADAR DE RÉSONANCE (Lecture seule)
    */
-  public static async getResonances(canonicalUid: string) {
+  public static async getResonances(canonicalUid: string): Promise<Array<{ relation: unknown; type: unknown; uid: unknown; title: unknown }>> {
     const session = getNeo4jSession();
     try {
       const cypher = `
@@ -174,7 +156,7 @@ export class ResonanceOrchestrator {
             
       const result = await session.run(cypher, { canonicalUid });
             
-      return result.records.map(rec => ({
+      return result.records.map((rec: Neo4jRecord) => ({
         relation: rec.get('relationType'),
         type: rec.get('neighborType'),
         uid: rec.get('neighborUid'),
@@ -189,8 +171,8 @@ export class ResonanceOrchestrator {
    * 🌌 Recherche les résonances transversales entre un oiseau et le reste de la volière
    */
   public static async findTransversalResonances(userIdentifier: string): Promise<{ peerUid: string; sharedTags: string[]; score: number }[]> {
-    const canonicalUid = await this.resolveCanonicalUserUid(userIdentifier);
-    return await TransactionManager.execute('findTransversalResonances', async (_mongoSession, neo4jTx) => {
+    const canonicalUid = await resolveCanonicalUid(OiseauModel, userIdentifier, "Oiseau");
+    return await TransactionManager.execute('findTransversalResonances', async (_mongoSession: ClientSession, neo4jTx: Transaction) => {
         const query = `
             MATCH (target:User {uid: $canonicalUid})
             MATCH (target)-[:PARTAGE]->(tag:Tag)<-[:PARTAGE]-(peer:User)
@@ -200,12 +182,19 @@ export class ResonanceOrchestrator {
             LIMIT 10
         `;
         const result = await neo4jTx.run(query, { canonicalUid });
-                
-        return result.records.map((record: any) => ({
-            peerUid: record.get('peerUid'),
-            sharedTags: record.get('sharedTags'),
-            score: record.get('commonCount').toNumber() * 2 
-         }));
+            
+        return result.records.map((record: Neo4jRecord) => {
+            const countNum = record.get('commonCount') as { toNumber?: () => number } | number;
+            const numericValue = typeof countNum === 'object' && countNum !== null && 'toNumber' in countNum && typeof countNum.toNumber === 'function' 
+                ? countNum.toNumber() 
+                : Number(countNum);
+
+            return {
+                peerUid: record.get('peerUid') as string,
+                sharedTags: record.get('sharedTags') as string[],
+                score: numericValue * 2 
+            };
+        });
     });
   }
 
@@ -213,10 +202,10 @@ export class ResonanceOrchestrator {
    * 🤝 TISSER LA RÉSONANCE (Abonnements Granulaires & Harmonie)
    */
   public static async weaveResonance(payload: IResonancePayload): Promise<boolean> {
-    const sourceCanonicalUid = await this.resolveCanonicalUserUid(payload.sourceUid);
-    const targetCanonicalUid = await this.resolveCanonicalUserUid(payload.targetUid);
+    const sourceCanonicalUid = await resolveCanonicalUid(OiseauModel, payload.sourceUid, "Oiseau source");
+    const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, payload.targetUid, "Oiseau cible");
 
-    const isHarmonic = await TransactionManager.execute("Tissage de Résonance", async (_mongoSession, neo4jTx) => {
+    const isHarmonic = await TransactionManager.execute("Tissage de Résonance", async (_mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
       const { type, entityId } = payload;
       
@@ -233,12 +222,12 @@ export class ResonanceOrchestrator {
       if (type === 'FOLLOWS_GLOBAL') {
         const harmonyCheck = await neo4jTx.run(
           `MATCH (a:User {uid: $sourceUid})
-            MATCH (b:User {uid: $targetUid})
-            MATCH (a)-[r1:RESONATES_WITH {type: 'FOLLOWS_GLOBAL'}]->(b)
-            MATCH (b)-[r2:RESONATES_WITH {type: 'FOLLOWS_GLOBAL'}]->(a)
-            MERGE (a)-[h:HARMONY]-(b)
-            ON CREATE SET h.establishedAt = datetime($now)
-            RETURN h`,
+           MATCH (b:User {uid: $targetUid})
+           MATCH (a)-[r1:RESONATES_WITH {type: 'FOLLOWS_GLOBAL'}]->(b)
+           MATCH (b)-[r2:RESONATES_WITH {type: 'FOLLOWS_GLOBAL'}]->(a)
+           MERGE (a)-[h:HARMONY]-(b)
+           ON CREATE SET h.establishedAt = datetime($now)
+           RETURN h`,
           { sourceUid: sourceCanonicalUid, targetUid: targetCanonicalUid, now: now.toISOString() }
         );
         harmonicStatus = harmonyCheck.records.length > 0;
@@ -246,25 +235,9 @@ export class ResonanceOrchestrator {
       return harmonicStatus;
     });
 
-    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL : Fallback DLQ en cas d'échec
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA L'UTILITAIRE GLOBAL
     if (sourceCanonicalUid !== targetCanonicalUid) {
-      try {
-        await syncUniversalInteraction(sourceCanonicalUid, targetCanonicalUid, 'PRAISE');
-      } catch (err: any) {
-        console.error(`  [Orchestrator] Échec du tissage universel (weaveResonance), basculement DLQ :`, err);
-        try {
-          await SystemGraphDlqModel.create({
-            operationName: 'syncUniversalInteraction_weaveResonance',
-            payload: { sourceUid: sourceCanonicalUid, targetUid: targetCanonicalUid, type: 'PRAISE' },
-            error: err.message,
-            status: 'PENDING_RETRY',
-            retryCount: 0,
-            timestamp: new Date()
-          });
-        } catch (dlqErr) {
-          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
-        }
-      }
+      await safeSyncUniversalInteraction(sourceCanonicalUid, targetCanonicalUid, 'PRAISE', 'weaveResonance');
     }
 
     return isHarmonic;
@@ -274,10 +247,10 @@ export class ResonanceOrchestrator {
    * ✂️ COUPER LE FIL (Désabonnement)
    */
   public static async severResonance(payload: IResonancePayload): Promise<void> {
-    const sourceCanonicalUid = await this.resolveCanonicalUserUid(payload.sourceUid);
-    const targetCanonicalUid = await this.resolveCanonicalUserUid(payload.targetUid);
+    const sourceCanonicalUid = await resolveCanonicalUid(OiseauModel, payload.sourceUid, "Oiseau source");
+    const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, payload.targetUid, "Oiseau cible");
 
-    await TransactionManager.execute("Coupure de Résonance", async (_mongoSession, neo4jTx) => {
+    await TransactionManager.execute("Coupure de Résonance", async (_mongoSession: ClientSession, neo4jTx: Transaction) => {
       const { type, entityId } = payload;
       await neo4jTx.run(
         `MATCH (source:User {uid: $sourceUid})

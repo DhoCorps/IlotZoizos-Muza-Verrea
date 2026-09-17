@@ -1,23 +1,27 @@
-import { UniversalMediaModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
-import { IUniversalMediaItem, ShowcaseFilterOptions } from '@ilot/types';
+import { UniversalMediaModel, OiseauModel } from '@ilot/infrastructure';
+import { IUniversalMediaItem, ShowcaseFilterOptions, UniversalMediaType } from '@ilot/types';
 import { UserShowcaseShuffler } from '../utils/userShowcaseShuffler';
 import { IlotError } from '../errors/ilot.errors';
+import { resolveCanonicalUid } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
+
+interface IRawMediaDocument {
+  mediaId: string;
+  sourceApp: string;
+  ownerUid: string;
+  ownerSlug: string;
+  title: string;
+  mediaUrl: string;
+  thumbnailUrl?: string;
+  priceCents?: number;
+  metadata?: Record<string, unknown>;
+  consentForShowcase: boolean;
+  consentForMusicSync: boolean;
+  createdAt: Date;
+  [key: string]: unknown;
+}
 
 export class ShowcaseOrchestrator {
   
-  /**
-   * 🛡️ Utilitaire interne pour valider la présence de l'Oiseau dans la Silice via l'utilitaire global.
-   * Empêche la génération de flux pour des entités fantômes.
-   */
-  private static async resolveCanonicalUserUid(identifier: string): Promise<string> {
-    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
-    
-    if (!user) {
-      throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
-    }
-    return (user as any).uid;
-  }
-
   /**
    * 🎬 Récupère, filtre et ordonne le diaporama personnalisé pour un oiseau donné.
    * 🎵 Injecte dynamiquement des ambiances sonores sur les œuvres visuelles.
@@ -34,22 +38,22 @@ export class ShowcaseOrchestrator {
       // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now' pour figer la requête du diaporama
       const now = new Date();
 
-      // 1. Résolution stricte de l'identité pour sécuriser la graine de hasard (Seed) via findEntityBySlugOrUid
-      const canonicalUid = await this.resolveCanonicalUserUid(userIdentifier);
+      // 1. Résolution stricte de l'identité pour sécuriser la graine de hasard (Seed) via l'utilitaire global
+      const canonicalUid = await resolveCanonicalUid(OiseauModel, userIdentifier, "Oiseau");
 
       // 2. Récupération optimisée (Projection des champs stricts pour économiser la RAM)
-      const rawItems = await UniversalMediaModel.find({ consentForShowcase: true })
+      const rawItems = (await UniversalMediaModel.find({ consentForShowcase: true })
         .select('mediaId sourceApp ownerUid ownerSlug title mediaUrl thumbnailUrl priceCents metadata consentForShowcase consentForMusicSync createdAt')
-        .lean();
+        .lean()) as unknown as IRawMediaDocument[];
 
       if (!rawItems || rawItems.length === 0) {
         return [];
       }
 
-      // Conversion en objets typés propres
-      const mediaItems: IUniversalMediaItem[] = rawItems.map((item: any) => ({
+      // Conversion en objets typés propres avec assertion stricte de sourceApp vers UniversalMediaType
+      const mediaItems: IUniversalMediaItem[] = rawItems.map((item) => ({
         mediaId: item.mediaId,
-        sourceApp: item.sourceApp,
+        sourceApp: item.sourceApp as UniversalMediaType,
         ownerUid: item.ownerUid,
         ownerSlug: item.ownerSlug,
         title: item.title,
@@ -88,9 +92,10 @@ export class ShowcaseOrchestrator {
       }
 
       return personalizedPlaylist;
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (error instanceof IlotError) throw error;
-      throw new IlotError(`Échec de la constitution du diaporama : ${error.message}`, "INTERNAL_ERROR", 500);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new IlotError(`Échec de la constitution du diaporama : ${errorMessage}`, "INTERNAL_ERROR", 500);
     }
   }
 }

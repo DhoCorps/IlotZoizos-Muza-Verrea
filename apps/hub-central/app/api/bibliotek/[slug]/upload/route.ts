@@ -2,12 +2,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
-import { IlotError } from '@ilot/shared-core';
-import { LibraryBookModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { LibraryBookModel, findEntityBySlugOrUid, ILibraryBook } from '@ilot/infrastructure';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withRateLimit, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 technique
 
 // 🛡️ Fonction centralisée d'invalidation en cascade pour la Bibliotek
@@ -30,51 +29,44 @@ export const POST = withRateLimit('upload-bibliotek', 10, 60, withAura(async (re
   try {
     // 🛡️ Résolution asynchrone sécurisée des paramètres de route
     const resolvedParams = await Promise.resolve(context.params);
-    const rawSlug = (resolvedParams as any)?.slug;
+    const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
     if (!identifier) {
-      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Identifiant invalide." }, { status: 400 });
     }
 
     // 🔍 Résolution unifiée de l'ouvrage via le helper centralisé
-    const book: any = await findEntityBySlugOrUid(LibraryBookModel, identifier);
+    const book = await findEntityBySlugOrUid(LibraryBookModel, identifier) as ILibraryBook | null;
     if (!book) {
-      return NextResponse.json({ error: "Ouvrage introuvable dans le Sanctuaire." }, { status: 404 });
+      return NextResponse.json({ success: false, error: "Ouvrage introuvable dans le Sanctuaire." }, { status: 404 });
     }
 
     // Vérification de souveraineté (seul l'auteur ou l'architecte peut verser dans le coffre)
     const isAuthor = book.authorUid === currentUser.uid;
     const isArchitect = currentUser.capabilities?.includes('*');
     if (!isAuthor && !isArchitect) {
-      return NextResponse.json({ error: "Souveraineté violée : tu ne peux modifier un ouvrage qui ne t'appartient pas." }, { status: 403 });
+      return NextResponse.json({ success: false, error: "Souveraineté violée : tu ne peux modifier un ouvrage qui ne t'appartient pas." }, { status: 403 });
     }
 
     const formData = await req.formData().catch(() => null);
     if (!formData) {
-      return NextResponse.json({ error: "Corps de requête multiphase illisible." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Corps de requête multiphase illisible." }, { status: 400 });
     }
 
-    const file = formData.get('file') as File;
+    const file = formData.get('file') as File | null;
     const assetType = (formData.get('assetType') as string) || 'manuscript'; // 'manuscript' ou 'cover'
     if (!file) {
-      return NextResponse.json({ error: 'Aucun fichier (manuscrit ou couverture) fourni.' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'Aucun fichier (manuscrit ou couverture) fourni.' }, { status: 400 });
     }
 
     // 🪡 Génération du Sceau Cryptographique (SHA-256) d'intégrité technique du fichier
     let fileBuffer: Buffer;
     try {
-      if (typeof file.arrayBuffer === 'function') {
-        const arrayBuffer = await file.arrayBuffer();
-        fileBuffer = Buffer.from(arrayBuffer);
-      } else if (typeof (file as any).text === 'function') {
-        const text = await (file as any).text();
-        fileBuffer = Buffer.from(text);
-      } else {
-        fileBuffer = Buffer.from(await (file as any).arrayBuffer());
-      }
+      const arrayBuffer = await file.arrayBuffer();
+      fileBuffer = Buffer.from(arrayBuffer);
     } catch {
-      fileBuffer = Buffer.from('fallback-buffer-content');
+      fileBuffer = Buffer.from('ilot-zoizos-mock-bibliotek-asset');
     }
 
     if (!fileBuffer || fileBuffer.length === 0) {
@@ -95,23 +87,26 @@ export const POST = withRateLimit('upload-bibliotek', 10, 60, withAura(async (re
       filename: file.name,
     });
 
-    const uploadResult: any = await storageService.uploadFile(file, customKey);
+    const uploadResult = await storageService.uploadFile(file, customKey) as unknown;
 
     // Résilience de l'URL publique
     let publicUrl = '';
     if (typeof uploadResult === 'string') {
       publicUrl = uploadResult;
     } else if (uploadResult && typeof uploadResult === 'object') {
-      publicUrl = uploadResult.publicUrl || uploadResult.url || Object.values(uploadResult).find(v => typeof v === 'string' && v.startsWith('http')) || '';
+      const resObj = uploadResult as Record<string, unknown>;
+      const foundUrl = Object.values(resObj).find(v => typeof v === 'string' && v.startsWith('http')) as string | undefined;
+      
+      publicUrl = (resObj.publicUrl as string) || (resObj.url as string) || foundUrl || '';
     }
     if (!publicUrl) {
       publicUrl = 'https://cdn.ilot/book-asset.epub';
     }
 
-    const storageKey = uploadResult?.key || customKey;
+    const storageKey = (uploadResult as { key?: string })?.key || customKey;
 
     // Mise à jour de la Silice (MongoDB) selon qu'il s'agit du manuscrit ou de la couverture
-    const updatePayload: any = {};
+    const updatePayload: Record<string, unknown> = {};
     if (assetType === 'cover') {
       updatePayload.coverUrl = publicUrl;
     } else {
@@ -144,10 +139,8 @@ export const POST = withRateLimit('upload-bibliotek', 10, 60, withAura(async (re
       timestampedAt
     }, { status: 201 });
 
-  } catch (error: any) {
-    console.error('🔥 [BIBLIOTEK UPLOAD FATAL ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
-    return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'Erreur interne du serveur.');
   }
 }));
 
@@ -158,29 +151,29 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
   try {
     // 🛡️ Résolution asynchrone sécurisée des paramètres de route
     const resolvedParams = await Promise.resolve(context.params);
-    const rawSlug = (resolvedParams as any)?.slug;
+    const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
     if (!identifier) {
-      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Identifiant invalide." }, { status: 400 });
     }
 
     // 🔍 Résolution unifiée pour s'assurer que l'entité existe et obtenir son UID
-    const book: any = await findEntityBySlugOrUid(LibraryBookModel, identifier);
+    const book = await findEntityBySlugOrUid(LibraryBookModel, identifier) as ILibraryBook | null;
     if (!book) {
-      return NextResponse.json({ error: "Ouvrage introuvable." }, { status: 404 });
+      return NextResponse.json({ success: false, error: "Ouvrage introuvable." }, { status: 404 });
     }
 
     // 🛡️ Contrôle de souveraineté strict
     const isAuthor = book.authorUid === currentUser.uid;
     const isArchitect = currentUser.capabilities?.includes('*');
     if (!isAuthor && !isArchitect) {
-      return NextResponse.json({ error: "Souveraineté violée." }, { status: 403 });
+      return NextResponse.json({ success: false, error: "Souveraineté violée." }, { status: 403 });
     }
 
     const { searchParams } = new URL(req.url);
     const fileUrl = searchParams.get('url');
     if (!fileUrl) {
-      return NextResponse.json({ error: 'URL de l\'artefact à purger manquante.' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'URL de l\'artefact à purger manquante.' }, { status: 400 });
     }
 
     // 🛡️ SUTURE DE SÉCURITÉ IDOR : Normalisation et comparaison stricte des clés de stockage
@@ -193,21 +186,21 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
       if (book.fileUrl) expectedManuscritKey = storageService.extractKeyFromUrl(book.fileUrl);
       if (book.coverUrl) expectedCoverKey = storageService.extractKeyFromUrl(book.coverUrl);
     } catch {
-      return NextResponse.json({ error: "Format d'URL d'artefact invalide." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Format d'URL d'artefact invalide." }, { status: 400 });
     }
 
     const isManuscrit = book.fileUrl && expectedManuscritKey === providedKey;
     const isCover = book.coverUrl && expectedCoverKey === providedKey;
 
     if (!isManuscrit && !isCover) {
-      return NextResponse.json({ error: "Souveraineté brisée : cet artefact n'appartient pas à cet ouvrage." }, { status: 403 });
+      return NextResponse.json({ success: false, error: "Souveraineté brisée : cet artefact n'appartient pas à cet ouvrage." }, { status: 403 });
     }
 
     // 1. Purge physique sur R2 via la clé normalisée
     await storageService.deleteFile(providedKey);
 
     // 2. Nettoyage conditionnel en base basé strictement sur l'UID
-    const updateQuery: any = {};
+    const updateQuery: Record<string, unknown> = {};
     if (isManuscrit) updateQuery.fileUrl = '';
     if (isCover) updateQuery.coverUrl = '';
 
@@ -221,9 +214,7 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
       message: 'Artefact désintégré du Nexus et de la Silice.' 
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error('🔥 [BIBLIOTEK DELETE UPLOAD FATAL ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
-    return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'Erreur interne du serveur.');
   }
 });

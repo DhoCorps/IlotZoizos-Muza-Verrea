@@ -2,10 +2,34 @@ import { OiseauModel, TaskModel, ProjectModel, findEntityBySlugOrUid } from '@il
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
+import type { ClientSession } from 'mongoose';
+import type { Transaction, QueryResult } from 'neo4j-driver';
 
 export interface PurgeContext {
     entityId: string;
     reason: 'VOLUNTARY_EXILE' | 'VITAL_COLLAPSE';
+    [key: string]: unknown;
+}
+
+export interface PurgePayload {
+    targetUid: string;
+    action: string;
+    sanitizedCollections: string[];
+    graphNodePattern: string;
+    timestamp: string;
+    [key: string]: unknown;
+}
+
+export interface SovereignPurgeResult {
+    success: boolean;
+    payload: PurgePayload;
+    neo4jDeletedCount: number;
+    [key: string]: unknown;
+}
+
+interface IOiseauPurgeEntity {
+    uid: string;
+    [key: string]: unknown;
 }
 
 export class SovereignPurgeOrchestrator {
@@ -19,9 +43,9 @@ export class SovereignPurgeOrchestrator {
     /**
      * Prépare le plan d'effacement total des traces dans la matrice hybride (Mongo + Neo4j)
      */
-    public static buildPurgePayload(context: PurgeContext, timestamp: Date = new Date()) {
+    public static buildPurgePayload(context: PurgeContext, timestamp: Date = new Date()): PurgePayload {
         console.log(`🌀 [Évanescence] Déclenchement de la procédure de dissolution pour l'entité : ${context.entityId} (${context.reason})`);
-                 
+                
         return {
             targetUid: context.entityId,
             action: 'PURGE_COMPLETE',
@@ -35,7 +59,7 @@ export class SovereignPurgeOrchestrator {
      * 💨 EXÉCUTION DE LA PURGE SOUVERAINE
      * Résout l'entité via MongoDB pour obtenir son UID canonique strict, puis nettoie la Silice et la Matrice Neo4j sans Full Graph Scan.
      */
-    public async executeSovereignPurge(context: PurgeContext, signature: ActionSignature) {
+    public async executeSovereignPurge(context: PurgeContext, signature: ActionSignature): Promise<SovereignPurgeResult> {
         const isSelf = signature.actorUid === context.entityId;
         const hasRootPower = signature.capabilities.includes('*');
 
@@ -43,19 +67,19 @@ export class SovereignPurgeOrchestrator {
             throw new IlotError("Aura insuffisante pour ordonner la dissolution de cette entité.", "FORBIDDEN", 403);
         }
 
-        return await TransactionManager.execute("Dissolution Souveraine", async (mongoSession, neo4jTx) => {
+        return await TransactionManager.execute("Dissolution Souveraine", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
             // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
             const now = new Date();
             const payload = SovereignPurgeOrchestrator.buildPurgePayload(context, now);
 
             // 1. Résolution préalable stricte dans la Silice (MongoDB) via l'utilitaire global unifié
-            const targetUser = await findEntityBySlugOrUid(OiseauModel, context.entityId);
+            const targetUser = await findEntityBySlugOrUid(OiseauModel, context.entityId) as unknown as IOiseauPurgeEntity | null;
 
             if (!targetUser && !hasRootPower) {
                 throw new IlotError("Entité introuvable pour la purge souveraine.", "NOT_FOUND", 404);
             }
 
-            const canonicalUid = targetUser ? (targetUser as any).uid : context.entityId;
+            const canonicalUid = targetUser ? targetUser.uid : context.entityId;
 
             // 2. Suppression dans les collections de la Silice (MongoDB)
             await OiseauModel.deleteOne({ uid: canonicalUid }, { session: mongoSession });
@@ -69,11 +93,11 @@ export class SovereignPurgeOrchestrator {
                 RETURN count(u) AS deletedCount
             `;
 
-            const neoResult = await neo4jTx.run(cypher, { canonicalUid });
+            const neoResult = (await neo4jTx.run(cypher, { canonicalUid })) as QueryResult;
 
             const deletedCountRaw = neoResult.records[0]?.get('deletedCount');
-            const neo4jDeletedCount = typeof deletedCountRaw?.toNumber === 'function' 
-                ? deletedCountRaw.toNumber() 
+            const neo4jDeletedCount = typeof deletedCountRaw === 'object' && deletedCountRaw !== null && 'toNumber' in deletedCountRaw && typeof (deletedCountRaw as { toNumber: () => number }).toNumber === 'function'
+                ? (deletedCountRaw as { toNumber: () => number }).toNumber()
                 : (Number(deletedCountRaw) || 1);
 
             return {

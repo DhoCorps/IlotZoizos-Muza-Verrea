@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { UniversalMediaModel } from '../../nosql/universalMedia.model';
 
 describe('UniversalMedia Model (Contrat Ultime)', () => {
-  it('devrait valider un media complet avec les champs e-commerce et la provenance', () => {
+  it('devrait valider un media complet avec les champs e-commerce, métadonnées studio et la provenance', () => {
     const validMedia = new UniversalMediaModel({
       mediaId: 'uuid-1234-5678',
-      creatorUid: 'oiseau_666', // 🪡 Ajusté
+      creatorUid: 'oiseau_666',
       creatorSlug: 'amiga-mia',
       sourceApp: 'DHO', // Le Bordel de DhÖ
       type: 'AUDIO_STEM',
@@ -14,7 +14,12 @@ describe('UniversalMedia Model (Contrat Ultime)', () => {
       mimeType: 'audio/wav',
       sizeBytes: 15420000,
       priceCents: 99, // Prêt pour la monétisation
-      metadata: { bpm: 120, key: 'Cm' },
+      metadata: { 
+        bpm: 120, 
+        key: 'Cm',
+        isStudioProject: true,
+        permissions: { allowShowcase: true, allowRadio: true }
+      },
       rights: {
         allow_radio: true,
         allow_commercial: false,
@@ -28,7 +33,7 @@ describe('UniversalMedia Model (Contrat Ultime)', () => {
 
   it('devrait appliquer les valeurs par défaut (gratuité, source inconnue et droits restrictifs)', () => {
     const media = new UniversalMediaModel({
-      creatorUid: 'oiseau_998', // 🪡 Ajusté
+      creatorUid: 'oiseau_998',
       type: 'IMAGE',
       title: { fr: 'Artefact Inconnu' },
       fileUrl: 'https://s3.ilot-zoizos.com/img/artefact.jpg',
@@ -50,7 +55,7 @@ describe('UniversalMedia Model (Contrat Ultime)', () => {
 
   it('devrait rejeter un media sans la langue racine (fr)', () => {
     const invalidMedia = new UniversalMediaModel({
-      creatorUid: 'oiseau_123', // 🪡 Ajusté
+      creatorUid: 'oiseau_123',
       type: 'TEXT',
       title: { en: 'Only English Title' }, // Erreur ici : le fr est vital
       fileUrl: 'https://s3.ilot-zoizos.com/docs/file.pdf',
@@ -65,7 +70,7 @@ describe('UniversalMedia Model (Contrat Ultime)', () => {
 
   it('devrait rejeter une sourceApp ou un type de media non reconnu', () => {
     const invalidMedia = new UniversalMediaModel({
-      creatorUid: 'oiseau_123', // 🪡 Ajusté
+      creatorUid: 'oiseau_123',
       sourceApp: 'EXTERIEUR', // Invalide selon notre Enum
       type: 'HOLOGRAMME', // Invalide
       title: { fr: 'Test Matrice' },

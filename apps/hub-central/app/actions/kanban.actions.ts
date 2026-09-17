@@ -2,10 +2,18 @@
 
 import { revalidatePath } from 'next/cache';
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth"; // 🪡 SUTURE : On importe les options pour activer la session
+import { authOptions } from "@/lib/auth"; 
 import { TaskOrchestrator, ActionSignature } from '@ilot/shared-core';
 import { TaskModel, getNeo4jSession } from '@ilot/infrastructure'; 
 import { ITask, TaskStatus, CAPABILITIES } from '@ilot/types';
+
+// 🛡️ TYPEDEF UNIFIÉ : Extraction propre via Omit pour tolérer le `null` sur scheduledAt sans `any`
+type BaseFosterPayload = Parameters<TaskOrchestrator['fosterTask']>[0];
+
+export type CreateTaskInput = Omit<BaseFosterPayload, 'scheduledAt'> & {
+  projectUid: string;
+  scheduledAt?: Date | string | null;
+};
 
 /**
  * 🛡️ UTILITAIRE DE DOUANE
@@ -15,12 +23,11 @@ async function getKanbanActionCapabilities(userUid: string, taskUid?: string, pr
   const session = getNeo4jSession();
   try {
     let cypher = `MATCH (u:User {uid: $userUid})`;
-    let params: Record<string, unknown> = { userUid };
+    const params: Record<string, unknown> = { userUid };
 
     if (taskUid) {
       cypher += `
         MATCH (t:Task {uid: $taskUid})
-        // 🪡 SUTURE : On suit la direction Task -> Project (t)-[:TASK_OF]->(p)
         OPTIONAL MATCH (t)-[:TASK_OF]->(p:Project)
         OPTIONAL MATCH (u)-[rDirect:ASSIGNED_TO|CREATED]->(t)
         OPTIONAL MATCH (u)-[rProj:CONTRIBUTES_TO|OWNER_OF]->(p)
@@ -42,10 +49,10 @@ async function getKanbanActionCapabilities(userUid: string, taskUid?: string, pr
     if (result.records.length === 0) return []; 
 
     const record = result.records[0];
-    const isDirectlyInvolved = record.get('isDirectlyInvolved');
-    const projectCaps = record.get('projectCaps') || [];
+    const isDirectlyInvolved = record.get('isDirectlyInvolved') as boolean;
+    const projectCaps = (record.get('projectCaps') as string[]) || [];
 
-    let compiledCaps = [...projectCaps];
+    const compiledCaps = [...projectCaps];
     if (isDirectlyInvolved) {
       if (!compiledCaps.includes(CAPABILITIES.TASK.READ)) compiledCaps.push(CAPABILITIES.TASK.READ);
       if (!compiledCaps.includes(CAPABILITIES.TASK.UPDATE)) compiledCaps.push(CAPABILITIES.TASK.UPDATE);
@@ -59,27 +66,29 @@ async function getKanbanActionCapabilities(userUid: string, taskUid?: string, pr
 /**
  * 🌟 C : CREATE (Fondation d'un nouvel Atome)
  */
-export async function createTaskAction(
-  data: Partial<ITask> & { projectUid: string } 
-) {
+export async function createTaskAction(data: CreateTaskInput) {
   try {
-    // 1. Authentification
-    const session = await getServerSession(authOptions); // 🪡 SUTURE : Ajout authOptions
+    const session = await getServerSession(authOptions); 
     const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Le Nexus est fermé. Connecte-toi.");
 
-    // 2. Autorisation (Douane)
     const caps = await getKanbanActionCapabilities(userUid, undefined, data.projectUid);
     if (!caps.includes(CAPABILITIES.TASK.CREATE) && !caps.includes('*')) {
       throw new Error("Aura insuffisante pour forger un Atome.");
     }
 
-    // 3. 🛡️ Signature & Instanciation
     const signature: ActionSignature = { actorUid: userUid, capabilities: caps };
     const taskOrch = new TaskOrchestrator();
 
-    const result = await taskOrch.fosterTask(data, signature);
-    revalidatePath('/tom-hat-toes'); // 🪡 SUTURE : On revalide le chemin réel du hub
+    const payload = {
+      ...data,
+      scheduledAt: data.scheduledAt === null ? undefined : data.scheduledAt
+    };
+
+    type ExpectedFosterTaskPayload = Parameters<typeof taskOrch.fosterTask>[0];
+
+    const result = await taskOrch.fosterTask(payload as unknown as ExpectedFosterTaskPayload, signature);
+    revalidatePath('/tom-hat-toes'); 
     
     return { success: true, data: JSON.parse(JSON.stringify(result)) };
   } catch (error: unknown) {
@@ -93,7 +102,7 @@ export async function createTaskAction(
  */
 export async function fetchKanbanTasksAction(projectUid: string) {
   try {
-    const session = await getServerSession(authOptions); // 🪡 SUTURE : Ajout authOptions
+    const session = await getServerSession(authOptions); 
     const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
@@ -115,7 +124,7 @@ export async function fetchKanbanTasksAction(projectUid: string) {
  */
 export async function moveTaskAction(taskUid: string, newStatus: TaskStatus) {
   try {
-    const session = await getServerSession(authOptions); // 🪡 SUTURE : Ajout authOptions
+    const session = await getServerSession(authOptions); 
     const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
@@ -129,7 +138,7 @@ export async function moveTaskAction(taskUid: string, newStatus: TaskStatus) {
 
     await taskOrch.updateTask(taskUid, { status: newStatus }, signature);
     
-    revalidatePath('/tom-hat-toes'); // 🪡 SUTURE : Cohérence du chemin
+    revalidatePath('/tom-hat-toes'); 
     return { success: true, message: `L'oiseau a migré vers ${newStatus}` };
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
@@ -143,7 +152,7 @@ export async function moveTaskAction(taskUid: string, newStatus: TaskStatus) {
  */
 export async function deleteTaskAction(taskUid: string) {
   try {
-    const session = await getServerSession(authOptions); // 🪡 SUTURE : Ajout authOptions
+    const session = await getServerSession(authOptions); 
     const userUid = (session?.user as { uid?: string })?.uid;
     if (!userUid) throw new Error("Non autorisé.");
 
@@ -157,7 +166,7 @@ export async function deleteTaskAction(taskUid: string) {
 
     await taskOrch.disintegrateTask(taskUid, signature);
     
-    revalidatePath('/tom-hat-toes'); // 🪡 SUTURE : Cohérence du chemin
+    revalidatePath('/tom-hat-toes'); 
     return { success: true, message: "L'oiseau a été libéré de la matrice." };
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
@@ -168,9 +177,6 @@ export async function deleteTaskAction(taskUid: string) {
 
 /**
  * 🍅 P : POMODORO (Valider un cycle d'effort)
- */
-/**
- * ⚡ ACTION SERVEUR : Valide la fin d'un cycle de Sédimentation (Pomodoro)
  */
 export async function completePomodoroAction(taskUid: string): Promise<{ 
   success: boolean; 
@@ -183,21 +189,19 @@ export async function completePomodoroAction(taskUid: string): Promise<{
     const sessionCaps = (session?.user as { capabilities?: string[] })?.capabilities || [];
 
     if (!userUid) {
-      // 🪡 On retourne false au lieu de faire crasher la requête
       return { success: false, error: "Oiseau non identifié. Le flux temporel est rompu." }; 
     }
 
     const signature: ActionSignature = { actorUid: userUid, capabilities: sessionCaps };
     const taskOrch = new TaskOrchestrator();
     
-    const result = await taskOrch.completePomodoro(taskUid, signature);
+    // 🎯 L'orchestrateur retourne directement l'atome ITask mis à jour
+    const updatedTask = await taskOrch.completePomodoro(taskUid, signature);
 
-    return { success: true, newCount: result.pomodoros.completed };
+    return { success: true, newCount: updatedTask.pomodoros?.completed || 1 };
 
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Erreur inattendue.';
     console.error("🔥 Fracture lors de la sédimentation du temps :", error);
-    // 🪡 On retourne false ici aussi
     return { success: false, error: "Impossible de sceller l'effort dans la Silice." };
   }
 }

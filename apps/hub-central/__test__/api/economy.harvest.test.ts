@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '@/app/api/economy/unlock/route';
+import { POST } from '@/app/api/economy/harvest/route';
 import { EconomyService } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
@@ -17,7 +17,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   return {
     ...actual,
     EconomyService: {
-      unlockFeature: vi.fn(),
+      addResources: vi.fn(),
     },
     IlotError: class extends Error { 
       status: number; 
@@ -35,12 +35,11 @@ vi.mock('@/lib/api-guards', async (importOriginal) => {
   return {
     ...actual,
     withAura: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
-      const mockUser = { uid: 'bird_test_123', capabilities: ['*'] };
       // @ts-ignore
-      return await handler(req, context, mockUser);
+      return await handler(req, context, { uid: 'bird_test_123', capabilities: ['*'] });
     },
     handleRouteError: (error: unknown, defaultMessage: string) => {
-      const status = (error as { status?: number; statusCode?: number }).status || (error as { statusCode?: number }).statusCode || 400;
+      const status = (error as { status?: number; statusCode?: number }).status || (error as { statusCode?: number }).statusCode || 500;
       const message = (error as { message?: string }).message || defaultMessage;
       return NextResponse.json({ success: false, error: message }, { status });
     }
@@ -49,50 +48,52 @@ vi.mock('@/lib/api-guards', async (importOriginal) => {
 
 type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
 
-describe('POST /api/economy/unlock', () => {
+describe('POST /api/economy/harvest', () => {
   const postHandler = POST as unknown as RouteHandler;
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('🟢 doit déverrouiller une capacité, retourner l\'inventaire et invalider le cache', async () => {
-    vi.mocked(EconomyService.unlockFeature).mockResolvedValue({
-      unlockedUnlocks: ['letrin_bucket'],
-      parchemins: 5,
-      plumes: 0,
-      vinyles: 2,
-      totamtoes: 10
-    } as unknown as Awaited<ReturnType<typeof EconomyService.unlockFeature>>);
+  it('doit verser des ressources dans l\'alvéole et invalider le cache', async () => {
+    vi.mocked(EconomyService.addResources).mockResolvedValue({ 
+      parchemins: 10, 
+      plumes: 0, 
+      vinyles: 0, 
+      sampleNotes: 0, 
+      totamtoes: 0 
+    } as unknown as Awaited<ReturnType<typeof EconomyService.addResources>>);
     
-    const req = new NextRequest('http://localhost/api/economy/unlock', {
+    // Test d'un envoi propre
+    const req = new NextRequest('http://localhost/api/economy/harvest', {
       method: 'POST',
-      body: JSON.stringify({ featureId: 'letrin_bucket' })
+      body: JSON.stringify({ parchemins: 5 })
     });
 
     const res = await postHandler(req, {} as ApiContext);
-    const json = await res.json() as { success: boolean; data: { unlockedUnlocks: string[]; remainingBalances: { parchemins: number } } };
+    const json = await res.json() as { success: boolean };
     
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
-    expect(json.data.unlockedUnlocks).toContain('letrin_bucket');
-    expect(json.data.remainingBalances.parchemins).toBe(5);
-    expect(EconomyService.unlockFeature).toHaveBeenCalledWith('bird_test_123', 'letrin_bucket');
+    expect(EconomyService.addResources).toHaveBeenCalledWith(
+      'bird_test_123', 
+      expect.objectContaining({ parchemins: 5, plumes: 0 })
+    );
     expect(revalidateTag).toHaveBeenCalledWith('economy');
     expect(revalidateTag).toHaveBeenCalledWith('alveole-bird_test_123');
   });
 
-  it('🔴 doit rejeter une requête sans featureId', async () => {
-    const req = new NextRequest('http://localhost/api/economy/unlock', {
-      method: 'POST',
-      body: JSON.stringify({}) // Vide
+  it('doit rejeter une requête sans corps', async () => {
+    // Test d'une erreur de parsing
+    const req = new NextRequest('http://localhost/api/economy/harvest', {
+      method: 'POST'
+      // Pas de body
     });
 
     const res = await postHandler(req, {} as ApiContext);
     const json = await res.json() as { success: boolean; error: string };
     
     expect(res.status).toBe(400);
-    expect(json.error).toContain('featureId');
-    expect(EconomyService.unlockFeature).not.toHaveBeenCalled();
+    expect(json.error).toBe('Corps de requête illisible.');
   });
 });

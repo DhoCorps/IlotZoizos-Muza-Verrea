@@ -1,15 +1,46 @@
 import { SampleModel, PartitaModel, UniversalMediaRegistry } from '@ilot/infrastructure';
+import { ISample, IPartita } from '@ilot/types';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { randomUUID, randomBytes } from 'crypto';
+import { randomUUID } from 'crypto';
 import { generateSlug } from '../utils/string.engine';
+import { ensureUniqueSlug } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
 
 export interface SamplotekSyncResult {
   success: boolean;
   status: string;
-  mongo: any;
+  mongo: ISample | IPartita;
   neo4j: import('neo4j-driver').QueryResult;
+}
+
+export interface FosterSamplePayload {
+  uid?: string;
+  title: string;
+  slug?: string;
+  audioUrl: string;
+  digitalSignature: string;
+  tempoBpm?: number;
+  style?: string;
+  [key: string]: unknown;
+}
+
+export interface ExportProjectPayload {
+  uid?: string;
+  title: string;
+  slug?: string;
+  tracks: unknown[];
+  bpm?: number;
+  authorSlug?: string;
+  metadata?: {
+    usedSampleUids?: string[];
+    permissions?: {
+      allowShowcase?: boolean;
+      allowRadio?: boolean;
+    };
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
 }
 
 /**
@@ -20,26 +51,9 @@ export interface SamplotekSyncResult {
 export class SamplotekOrchestrator {
 
   /**
-   * Utilitaire interne pour générer un slug instantanément garanti sans boucle de lecture séquentielle,
-   * éliminant ainsi les conditions de course (Race Conditions E11000).
-   */
-  private async ensureUniqueSlug(Model: any, baseSlug: string, session: any): Promise<string> {
-    let finalSlug = baseSlug;
-    let exists = await Model.findOne({ slug: finalSlug }).session(session).lean();
-    
-    if (exists) {
-      // Injection d'un suffixe aléatoire cryptographique court (4 caractères hex = 16^4 possibilités)
-      // pour éviter les boucles while bloquantes sous forte charge concurrente.
-      const randomSuffix = randomBytes(2).toString('hex');
-      finalSlug = `${baseSlug}-${randomSuffix}`;
-    }
-    return finalSlug;
-  }
-
-  /**
    * 💽 GRAVER UN NOUVEAU SAMPLE
    */
-  async fosterSample(data: Record<string, unknown>, signature: ActionSignature): Promise<SamplotekSyncResult> {
+  async fosterSample(data: FosterSamplePayload, signature: ActionSignature): Promise<SamplotekSyncResult> {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour graver un sample.", "UNAUTHORIZED", 401);
     }
@@ -52,11 +66,11 @@ export class SamplotekOrchestrator {
 
     return await TransactionManager.execute("Fondation Sample", async (mongoSession, neo4jTx) => {
       const now = new Date();
-      const sampleUid = (data.uid as string) || `samp_${randomUUID()}`;
+      const sampleUid = data.uid || `samp_${randomUUID()}`;
 
-      // Sécurisation atomique de l'unicité du slug sans boucle séquentielle
-      const baseSlug = generateSlug((data.slug as string) || (data.title as string));
-      const finalSlug = await this.ensureUniqueSlug(SampleModel, baseSlug, mongoSession);
+      // Sécurisation atomique de l'unicité du slug via l'utilitaire global
+      const baseSlug = generateSlug(data.slug || data.title);
+      const finalSlug = await ensureUniqueSlug(SampleModel, baseSlug, mongoSession);
 
       const newSampleData = {
         ...data,
@@ -70,12 +84,13 @@ export class SamplotekOrchestrator {
       };
 
       // 1. Sédimentation dans la Silice (MongoDB) avec gestion gracieuse de l'unicité (Retry pattern minimaliste)
-      let newSample;
+      let newSample: ISample;
       try {
         const created = await SampleModel.create([newSampleData], { session: mongoSession });
-        newSample = created[0];
-      } catch (err: any) {
-        if (err.code === 11000) {
+        newSample = created[0] as unknown as ISample;
+      } catch (err: unknown) {
+        const error = err as { code?: number };
+        if (error.code === 11000) {
           throw new IlotError("Collision critique de slug sur le sample. Veuillez réitérer.", "CONFLICT", 409);
         }
         throw err;
@@ -102,8 +117,8 @@ export class SamplotekOrchestrator {
         sampleUid: newSample.uid,
         title: newSample.title,
         slug: newSample.slug,
-        tempoBpm: (newSample as any).tempoBpm || 120,
-        style: (newSample as any).style || 'Ambient',
+        tempoBpm: newSample.tempoBpm || 120,
+        style: newSample.style || 'Ambient',
         digitalSignature: newSample.digitalSignature,
         now: now.toISOString()
       });
@@ -119,11 +134,11 @@ export class SamplotekOrchestrator {
   /**
    * 🎛️ EXPORTER UN PROJET STUDIO (MIXAGE)
    */
-  async exportProject(data: Record<string, unknown>, signature: ActionSignature): Promise<SamplotekSyncResult> {
+  async exportProject(data: ExportProjectPayload, signature: ActionSignature): Promise<SamplotekSyncResult> {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour mixer un projet.", "UNAUTHORIZED", 401);
     }
-    const tracks = data.tracks as unknown[];
+    const tracks = data.tracks;
     if (!data.title || !tracks || tracks.length === 0) {
       throw new IlotError("Un projet E-Jay nécessite un titre et au moins une piste active.", "BAD_REQUEST", 400);
     }
@@ -132,14 +147,14 @@ export class SamplotekOrchestrator {
 
     return await TransactionManager.execute("Exportation Studio", async (mongoSession, neo4jTx) => {
       const now = new Date();
-      const projectUid = (data.uid as string) || `samplotek_${randomUUID()}`;
+      const projectUid = data.uid || `samplotek_${randomUUID()}`;
 
-      // Sécurisation atomique de l'unicité du slug de projet
-      const baseSlug = generateSlug((data.slug as string) || (data.title as string));
-      const finalSlug = await this.ensureUniqueSlug(PartitaModel, baseSlug, mongoSession);
+      // Sécurisation atomique de l'unicité du slug de projet via l'utilitaire global
+      const baseSlug = generateSlug(data.slug || data.title);
+      const finalSlug = await ensureUniqueSlug(PartitaModel, baseSlug, mongoSession);
 
       // 1. Sédimentation comme "Partition" dans MongoDB
-      let newProject;
+      let newProject: IPartita;
       try {
         const createdProject = await PartitaModel.create([{
           uid: projectUid,
@@ -156,17 +171,18 @@ export class SamplotekOrchestrator {
             updatedAt: now
           }
         }], { session: mongoSession });
-        newProject = createdProject[0];
-      } catch (err: any) {
-        if (err.code === 11000) {
+        newProject = createdProject[0] as unknown as IPartita;
+      } catch (err: unknown) {
+        const error = err as { code?: number };
+        if (error.code === 11000) {
           throw new IlotError("Collision de slug détectée sur le projet studio.", "CONFLICT", 409);
         }
         throw err;
       }
 
       // 2. Tissage dans Neo4j
-      const metadataObj = data.metadata as Record<string, unknown> | undefined;
-      const usedSampleUids = (metadataObj?.usedSampleUids as string[]) || [];
+      const metadataObj = data.metadata;
+      const usedSampleUids = metadataObj?.usedSampleUids || [];
       
       const cypher = `
         MATCH (u:User { uid: $actorUid })
@@ -201,14 +217,14 @@ export class SamplotekOrchestrator {
       }
 
       // 3. Indexation Universelle si autorisé
-      const permissions = metadataObj?.permissions as Record<string, boolean> | undefined;
+      const permissions = metadataObj?.permissions;
       if (permissions?.allowShowcase) {
         await UniversalMediaRegistry.indexItem({
           mediaId: newProject.uid,
           sourceApp: 'PARTITA',
           ownerUid: actorCanonicalUid,
-          ownerSlug: (data.authorSlug as string) || actorCanonicalUid,
-          title: data.title as string,
+          ownerSlug: data.authorSlug || actorCanonicalUid,
+          title: data.title,
           mediaUrl: '',
           consentForShowcase: true,
           consentForMusicSync: permissions.allowRadio,

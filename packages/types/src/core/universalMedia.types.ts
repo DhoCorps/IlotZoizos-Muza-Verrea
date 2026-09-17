@@ -38,6 +38,23 @@ export const MediaRightsSchema = z.object({
   consentForMusicSync: z.boolean().default(false),
 });
 
+// 🛡️ 3.b Schéma des permissions de studio (Samplotek / Partita)
+export const StudioPermissionsSchema = z.object({
+  allowShowcase: z.boolean().default(false),
+  allowRadio: z.boolean().default(false),
+}).partial();
+
+export type StudioPermissions = z.infer<typeof StudioPermissionsSchema>;
+
+// 🛡️ 3.c Schéma typé pour les métadonnées (Remplace le record z.any() flou)
+export const MediaMetadataSchema = z.object({
+  isStudioProject: z.boolean().optional(),
+  usedSampleUids: z.array(z.string()).optional(),
+  permissions: StudioPermissionsSchema.optional(),
+}).catchall(z.unknown()); // Permet d'accepter d'autres propriétés dynamiques si besoin
+
+export type MediaMetadata = z.infer<typeof MediaMetadataSchema>;
+
 // 4. L'Asset Universel Complet
 export const UniversalMediaSchema = z.object({
   _id: z.string().optional(),
@@ -58,7 +75,7 @@ export const UniversalMediaSchema = z.object({
   sizeBytes: z.number().positive(),
   
   priceCents: z.number().nonnegative().default(0), // E-commerce prêt !
-  metadata: z.record(z.any()).default({}), // Fourre-tout typé pour les surprises
+  metadata: MediaMetadataSchema.default({}), // Typage rigoureux et sécurisé
   
   rights: MediaRightsSchema.default({}),
   

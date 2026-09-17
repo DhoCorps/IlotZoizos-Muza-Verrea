@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/canopy/awards/route';
 import { CanopyAwardModel } from '@ilot/infrastructure';
+import type { ApiContext } from '@/lib/api-guards';
 
 vi.mock('next/cache', () => ({
-  unstable_cache: vi.fn((cb) => cb),
+  unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
@@ -12,14 +13,27 @@ vi.mock('@ilot/infrastructure', () => ({
   }
 }));
 
-vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
-}));
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withSilice: (handler: unknown) => handler,
+  };
+});
+
+declare global {
+  // 🛡️ Harmonisation stricte de la signature globale pour __mockUser
+  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
+}
+
+type RouteHandler = (req: Request, ctx: ApiContext) => Promise<Response>;
 
 describe('GET /api/canopy/awards', () => {
+  const getHandler = GET as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   it('🟢 doit retourner la liste des trophées de la canopée avec succès (200)', async () => {
@@ -31,10 +45,10 @@ describe('GET /api/canopy/awards', () => {
       ])
     };
 
-    vi.mocked(CanopyAwardModel.find).mockReturnValue(mockQuery as any);
+    vi.mocked(CanopyAwardModel.find).mockReturnValue(mockQuery as unknown as ReturnType<typeof CanopyAwardModel.find>);
 
     const req = new Request('http://localhost/api/canopy/awards?yearMonth=2026-08');
-    const res = await GET(req, {} as any);
+    const res = await getHandler(req, {} as ApiContext);
     const json = await res.json();
 
     expect(res.status).toBe(200);

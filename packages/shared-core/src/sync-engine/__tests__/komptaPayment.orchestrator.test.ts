@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KomptaPaymentOrchestrator } from '../komptaPayment.orchestrator';
 import { TransactionManager } from '../transactionManager';
-import { WalletModel, KomptaLedgerService, syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure';
+import { WalletModel, KomptaLedgerService } from '@ilot/infrastructure';
+import * as orchestratorEngine from '../../utils/orchestrator.engine';
 
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
@@ -15,9 +16,13 @@ vi.mock('../transactionManager', () => ({
   }
 }));
 
-// 🛡️ Mock unifié et sécurisé incluant la DLQ
+// Mock de l'utilitaire global safeSyncUniversalInteraction
+vi.mock('../../utils/orchestrator.engine', () => ({
+  safeSyncUniversalInteraction: vi.fn(async () => {})
+}));
+
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
-  const actual: any = await importOriginal();
+  const actual = await importOriginal() as Record<string, unknown>;
   return {
     ...actual,
     WalletModel: {
@@ -25,10 +30,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     },
     KomptaLedgerService: {
       recordEntry: vi.fn()
-    },
-    syncUniversalInteraction: vi.fn(async () => true),
-    SystemGraphDlqModel: {
-      create: vi.fn().mockResolvedValue([{}])
     }
   };
 });
@@ -47,9 +48,9 @@ describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
         currency: 'EUR',
         save: vi.fn().mockResolvedValue(true)
       })
-    } as any);
+    } as never);
 
-    vi.mocked(KomptaLedgerService.recordEntry).mockResolvedValue(true as any);
+    vi.mocked(KomptaLedgerService.recordEntry).mockResolvedValue(true as never);
   });
 
   describe('Transferts et Transactions', () => {
@@ -62,18 +63,16 @@ describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
         currency: 'EUR'
       };
 
-      const result = await orchestrator.executeDirectTransfer(payload, validSignature as any);
+      const result = await orchestrator.executeDirectTransfer(payload, validSignature as never);
       
       expect(result.success).toBe(true);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
-      expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
-      expect(syncUniversalInteraction).toHaveBeenCalledWith('bird_investor_1', 'bird_receiver_1', 'ECOMMERCE');
+      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledTimes(1);
+      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledWith('bird_investor_1', 'bird_receiver_1', 'ECOMMERCE', 'executeDirectTransfer');
     });
 
-    it('🟡 doit basculer l\'interaction en DLQ si syncUniversalInteraction échoue sur executeDirectTransfer', async () => {
-      vi.mocked(syncUniversalInteraction).mockRejectedValueOnce(new Error('Neo4j timeout'));
-
+    it('🟡 doit déléguer la gestion d\'échec à l\'utilitaire global safeSyncUniversalInteraction sur executeDirectTransfer', async () => {
       const payload = {
         transferUid: 'tx_1',
         senderUid: 'bird_investor_1',
@@ -82,10 +81,11 @@ describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
         currency: 'EUR'
       };
 
-      const result = await orchestrator.executeDirectTransfer(payload, validSignature as any);
+      const result = await orchestrator.executeDirectTransfer(payload, validSignature as never);
       
       expect(result.success).toBe(true);
-      expect(SystemGraphDlqModel.create).toHaveBeenCalledTimes(1);
+      // L'appel sécurisé encapsule la gestion d'erreur et DLQ en interne
+      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -129,7 +129,7 @@ describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
       expect(TransactionManager.execute).toHaveBeenCalled();
       
       expect(WalletModel.findOne).toHaveBeenCalledWith({ userId: 'bird_investor_1' });
-      expect(syncUniversalInteraction).not.toHaveBeenCalled();
+      expect(orchestratorEngine.safeSyncUniversalInteraction).not.toHaveBeenCalled();
     });
   });
 });

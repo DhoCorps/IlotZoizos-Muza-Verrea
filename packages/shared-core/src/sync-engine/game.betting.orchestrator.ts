@@ -1,12 +1,19 @@
 import { TransactionManager } from './transactionManager';
-import { TaskModel, WalletModel, BankReserve } from '@ilot/infrastructure';
+import { TaskModel, WalletModel, BankReserve, SovereignCurrency } from '@ilot/infrastructure';
 import { KomptaLedgerOrchestrator } from './komptaLedger.orchestrator';
 import { IlotError } from '../errors/ilot.errors';
 import { IAssetValue, GameMode } from '@ilot/types';
 import crypto from 'crypto';
+import type { ClientSession } from 'mongoose';
+import type { Transaction, Result } from 'neo4j-driver';
 
 const DIFFICULTY_MULTIPLIERS: Record<string, number> = { Initiate: 0.5, Artisan: 1.0, Maestro: 2.0 };
 const DECAY_CONSTANT_K = 0.1;
+
+interface IBankReserveLean {
+  wealthIndex?: number;
+  [key: string]: unknown;
+}
 
 export class BettingOrchestrator {
   
@@ -20,8 +27,7 @@ export class BettingOrchestrator {
     targets: IAssetValue[],
     gameContext: { mode: GameMode | string; difficulty: 'Initiate' | 'Artisan' | 'Maestro' } = { mode: 'MULTIPLAYER' as GameMode, difficulty: 'Artisan' }
   ) {
-    return await TransactionManager.execute("Pari Sécurisé", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+    return await TransactionManager.execute("Pari Sécurisé", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
       
       for (const bet of bets) {
@@ -32,7 +38,7 @@ export class BettingOrchestrator {
           ).session(mongoSession).exec();
           if (!task) throw new IlotError(`Atome introuvable ou déjà engagé : ${bet.entityId}`, "FORBIDDEN", 403);
         } else if (['KAOS', 'TOX', 'DHO'].includes(bet.type)) {
-          const wallet = await WalletModel.findOne({ userId }).session(mongoSession); // Pas de .lean() ici car on utilise wallet.save()
+          const wallet = await WalletModel.findOne({ userId }).session(mongoSession);
           if (!wallet || wallet.balance < bet.amount) throw new IlotError("Fonds insuffisants", "FORBIDDEN", 403);
           wallet.balance -= bet.amount;
           wallet.updatedAt = now;
@@ -43,16 +49,21 @@ export class BettingOrchestrator {
       const rng = crypto.randomInt(0, 10000);
       const isWinner = rng > 5000;
 
-      const neo4jResponse = await neo4jTx.run(`
+      const neo4jResponse = await (await neo4jTx.run(`
         MATCH (u:User {uid: $userId})
         MERGE (g:Game {id: $gameId})
         MERGE (u)-[r:PLAYED_GAME {difficulty: $difficulty}]->(g)
         ON CREATE SET r.count = CASE WHEN $isWinner THEN 1 ELSE 0 END, r.createdAt = datetime($now), r.updatedAt = datetime($now)
         ON MATCH SET r.count = r.count + CASE WHEN $isWinner THEN 1 ELSE 0 END, r.updatedAt = datetime($now)
         RETURN r.count AS winCount
-      `, { userId, gameId, difficulty: gameContext.difficulty, isWinner, now: now.toISOString() });
+      `, { userId, gameId, difficulty: gameContext.difficulty, isWinner, now: now.toISOString() })) as unknown as { records: Array<{ get: (key: string) => unknown }> };
       
-      const N = Math.max(0, (neo4jResponse?.records?.[0]?.get('winCount')?.toNumber() || 1) - 1);
+      const recordGet = neo4jResponse?.records?.[0]?.get('winCount');
+      const winCountNum = typeof recordGet === 'object' && recordGet !== null && 'toNumber' in recordGet && typeof (recordGet as { toNumber: () => number }).toNumber === 'function'
+        ? (recordGet as { toNumber: () => number }).toNumber()
+        : Number(recordGet || 1);
+
+      const N = Math.max(0, winCountNum - 1);
 
       if (!isWinner) {
         for (const bet of bets) {
@@ -61,7 +72,7 @@ export class BettingOrchestrator {
               fromUid: userId, 
               toUid: 'system_canopy_treasury', 
               amount: bet.amount,
-              currency: bet.type as any, 
+              currency: bet.type as SovereignCurrency, 
               category: 'CANOPY_TAX_REVENUE',
               referenceUid: `lost_bet_${gameId}_${now.getTime()}`,
               description: `Alimentation de la Réserve suite à un pari perdu sur ${gameId}`
@@ -78,35 +89,33 @@ export class BettingOrchestrator {
       if (normalizedMode === 'SOLO' || normalizedMode === 'solo') {
         for (const target of targets) {
           if (['TOX', 'DHO', 'KAOS'].includes(target.type)) {
-            await WalletModel.findOneAndUpdate({ userId }, { $inc: { balance: target.amount }, $set: { updatedAt: now } }, { session: mongoSession, upsert: true });
+            await WalletModel.findOneAndUpdate({ userId }, { $inc: { balance: target.amount },$set: { updatedAt: now } }, { session: mongoSession, upsert: true });
           }
         }
         return { isWinner, results: targets };
       }
 
       const finalResults: IAssetValue[] = [];
-      const bankCache = new Map<string, number>(); // 🛡️ Cache mémoire éphémère intra-transaction
+      const bankCache = new Map<string, number>();
 
       for (const target of targets) {
         if (['TOX', 'DHO'].includes(target.type)) {
-          let I_banque: number; // 👈 Déclaration stricte
+          let I_banque: number;
           
           if (bankCache.has(target.type)) {
-            // Le '!' rassure TS : on vient de vérifier que la clé existe
             I_banque = bankCache.get(target.type)!; 
           } else {
-            const bank = await BankReserve.findOne({ currency: target.type }).session(mongoSession).lean();
-            I_banque = bank ? Number((bank as any).wealthIndex) : 1.0; // Number() garantit le typage
+            const bank = await BankReserve.findOne({ currency: target.type }).session(mongoSession).lean() as IBankReserveLean | null;
+            I_banque = bank && typeof bank.wealthIndex === 'number' ? bank.wealthIndex : 1.0;
             bankCache.set(target.type, I_banque);
           }
 
           const M = target.amount;
           const B = DIFFICULTY_MULTIPLIERS[gameContext.difficulty] || 1.0;
-          // TypeScript accepte maintenant I_banque sans sourciller !
           const exponent = -1 * (DECAY_CONSTANT_K / Math.max(0.1, I_banque)) * N; 
           const roundedCredit = Math.floor((M + (M * B * Math.exp(exponent))) * 100) / 100;
           
-          await WalletModel.findOneAndUpdate({ userId }, { $inc: { balance: roundedCredit }, $set: { updatedAt: now } }, { session: mongoSession, upsert: true });
+          await WalletModel.findOneAndUpdate({ userId }, { $inc: { balance: roundedCredit },$set: { updatedAt: now } }, { session: mongoSession, upsert: true });
           finalResults.push({ type: target.type, amount: roundedCredit });
         }
       }
@@ -126,35 +135,36 @@ export class BettingOrchestrator {
     wagerAmount: number,
     isWinner: boolean
   ) {
-    return await TransactionManager.execute("Calcul de Crédit KonTraKt", async (mongoSession, neo4jTx) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+    return await TransactionManager.execute("Calcul de Crédit KonTraKt", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
       
-      const neo4jResponse = await neo4jTx.run(`
+      const neo4jResponse = await (await neo4jTx.run(`
         MATCH (u:User {uid: $userId})
         MERGE (g:Game {id: $gameId})
         MERGE (u)-[r:COMPLETED_GAME {difficulty: $difficulty}]->(g)
         ON CREATE SET r.count = CASE WHEN $isWinner THEN 1 ELSE 0 END, r.createdAt = datetime($now), r.updatedAt = datetime($now)
         ON MATCH SET r.count = r.count + CASE WHEN $isWinner THEN 1 ELSE 0 END, r.updatedAt = datetime($now)
         RETURN r.count AS winCount
-      `, { userId, gameId, difficulty, isWinner, now: now.toISOString() });
+      `, { userId, gameId, difficulty, isWinner, now: now.toISOString() })) as unknown as { records: Array<{ get: (key: string) => unknown }> };
+      
+      const recordGet = neo4jResponse?.records?.[0]?.get('winCount');
+      const winCountNum = typeof recordGet === 'object' && recordGet !== null && 'toNumber' in recordGet && typeof (recordGet as { toNumber: () => number }).toNumber === 'function'
+        ? (recordGet as { toNumber: () => number }).toNumber()
+        : Number(recordGet || 1);
 
-      const currentWinCount = neo4jResponse?.records?.[0]?.get('winCount')?.toNumber() || 1;
+      const currentWinCount = winCountNum;
       const N = Math.max(0, currentWinCount - 1); 
 
-      // 🔴 Défaite : Aucun gain
       if (!isWinner) return { creditEarned: 0 };
 
       const normalizedMode = typeof gameMode === 'string' ? gameMode.toUpperCase() : gameMode;
 
-      // 🟢 Victoire (Mode Solo) : Le joueur récupère sa mise, sans création monétaire
       if (normalizedMode === 'SOLO' || normalizedMode === 'solo') {
         return { creditEarned: wagerAmount };
       }
 
-      // 🟢 Victoire (Mode Multijoueur) : Équation de décroissance et Indexation avec `.lean()`
-      const bankReserve = await BankReserve.findOne({ currency: wagerCurrency }).session(mongoSession).lean();
-      const I_banque = bankReserve ? Number((bankReserve as any).wealthIndex) : 1.0;
+      const bankReserve = await BankReserve.findOne({ currency: wagerCurrency }).session(mongoSession).lean() as IBankReserveLean | null;
+      const I_banque = bankReserve && typeof bankReserve.wealthIndex === 'number' ? bankReserve.wealthIndex : 1.0;
       
       const M = wagerAmount;
       const B = DIFFICULTY_MULTIPLIERS[difficulty] || 1.0;

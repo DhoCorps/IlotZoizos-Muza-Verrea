@@ -1,8 +1,9 @@
-// Fichier : __test__/api/ecommerce.barter.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/ecommerce/barter/route';
 import { BarterOfferModel, OiseauModel } from '@ilot/infrastructure';
 import { EcommerceOrchestrator } from '@ilot/shared-core';
+import { NextResponse, NextRequest } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
 // Mock global de l'infrastructure (pleinement chaînable)
 vi.mock('@ilot/infrastructure', () => ({
@@ -23,31 +24,55 @@ vi.mock('@ilot/infrastructure', () => ({
 }));
 
 // Mock des gardiens d'API (`withAura`)
-let mockCurrentUser = { uid: 'bird_clean_1', capabilities: ['*'] };
-vi.mock('@/lib/api-guards', () => ({
-    withAura: (handler: any) => {
-        return async (req: Request, context: any) => {
-            return await handler(req, context, mockCurrentUser);
-        };
-    },
-    withSilice: (handler: any) => async (req: any, context: any) => {
-        return await handler(req, context);
-    },
-}));
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+    return {
+        ...actual,
+        withAura: (handler: unknown) => {
+            return async (req: NextRequest, context: ApiContext) => {
+                const mockUser = global.__mockUser;
+                if (!mockUser || !mockUser.uid) {
+                    return NextResponse.json({ success: false, error: "Oiseau non identifié" }, { status: 401 });
+                }
+                // @ts-ignore
+                return await handler(req, context, mockUser);
+            };
+        },
+        withSilice: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
+            // @ts-ignore
+            return await handler(req, context);
+        },
+    };
+});
 
 vi.mock('next/cache', () => ({
     revalidateTag: vi.fn(),
-    unstable_cache: vi.fn((cb) => cb),
+    unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
+declare global {
+  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
+}
+
+type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
+
 describe('POST /api/ecommerce/barter (Douane Vibratoire du Troc)', () => {
+    const postHandler = POST as unknown as RouteHandler;
+
     beforeEach(() => {
         vi.clearAllMocks();
-        mockCurrentUser = { uid: 'bird_clean_1', capabilities: ['*'] };
+        global.__mockUser = { uid: 'bird_clean_1', capabilities: ['*'] };
 
         // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de EcommerceOrchestrator
-        vi.spyOn(EcommerceOrchestrator.prototype, 'proposeBarter').mockResolvedValue(true as any);
-        vi.spyOn(EcommerceOrchestrator.prototype, 'resolveBarter').mockResolvedValue(true as any);
+        vi.spyOn(EcommerceOrchestrator.prototype, 'proposeBarter').mockResolvedValue({
+            success: true,
+            barterUid: 'barter_123'
+        } as unknown as Awaited<ReturnType<EcommerceOrchestrator['proposeBarter']>>);
+        
+        vi.spyOn(EcommerceOrchestrator.prototype, 'resolveBarter').mockResolvedValue({
+            success: true,
+            status: 'ACCEPTED'
+        } as unknown as Awaited<ReturnType<EcommerceOrchestrator['resolveBarter']>>);
     });
 
     it('🔴 doit rejeter avec une erreur 403 si l oiseau est classé INDESIRABLE ou banni', async () => {
@@ -58,16 +83,15 @@ describe('POST /api/ecommerce/barter (Douane Vibratoire du Troc)', () => {
                 profileStatus: 'INDESIRABLE',
                 isBanned: false,
             })
-        } as any);
+        } as unknown as ReturnType<typeof OiseauModel.findOne>);
 
-        const req = new Request('http://localhost/api/ecommerce/barter', {
+        const req = new NextRequest('http://localhost/api/ecommerce/barter', {
             method: 'POST',
             body: JSON.stringify({ receiverUid: 'bird_target_2', offeredProductUids: ['prod_1'], requestedProductUids: ['prod_2'] }),
-            headers: { 'Content-Type': 'application/json' }
-        }) as unknown as import('next/server').NextRequest;
+        });
 
-        const response = await POST(req, { params: {} } as any);
-        const json = await response.json();
+        const response = await postHandler(req, {} as ApiContext);
+        const json = await response.json() as { success: boolean; error: string };
 
         expect(response.status).toBe(403);
         expect(json.error).toContain('Souveraineté restreinte');
@@ -82,22 +106,21 @@ describe('POST /api/ecommerce/barter (Douane Vibratoire du Troc)', () => {
                 profileStatus: 'RESPECTABLE',
                 isBanned: false,
             })
-        } as any);
+        } as unknown as ReturnType<typeof OiseauModel.findOne>);
 
         vi.mocked(BarterOfferModel.create).mockResolvedValueOnce({
             uid: 'barter_123',
             initiatorUid: 'bird_clean_1',
             status: 'PENDING'
-        } as any);
+        } as unknown as Awaited<ReturnType<typeof BarterOfferModel.create>>);
 
-        const req = new Request('http://localhost/api/ecommerce/barter', {
+        const req = new NextRequest('http://localhost/api/ecommerce/barter', {
             method: 'POST',
             body: JSON.stringify({ receiverUid: 'bird_target_2', offeredProductUids: ['prod_1'], requestedProductUids: ['prod_2'] }),
-            headers: { 'Content-Type': 'application/json' }
-        }) as unknown as import('next/server').NextRequest;
+        });
 
-        const response = await POST(req, { params: {} } as any);
-        const json = await response.json();
+        const response = await postHandler(req, {} as ApiContext);
+        const json = await response.json() as { success: boolean; data: { uid: string } };
 
         expect(response.status).toBe(201);
         expect(json.success).toBe(true);

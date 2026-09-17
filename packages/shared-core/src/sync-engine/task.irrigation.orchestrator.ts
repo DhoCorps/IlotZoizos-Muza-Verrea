@@ -3,12 +3,35 @@ import { TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature, CAPABILITIES } from '@ilot/types';
+import type { ClientSession } from 'mongoose';
+import type { Transaction } from 'neo4j-driver';
+
+export type TaskStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'ROMPU';
 
 export interface TaskPayload {
     title: string;
-    status: 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'ROMPU';
+    status: TaskStatus;
     dependencies: Dependency[];
     isIrrigated?: number;
+    [key: string]: unknown;
+}
+
+export interface TaskIrrigationResult extends TaskPayload {
+    success: boolean;
+    taskUid: string;
+    updatedTask: unknown;
+    [key: string]: unknown;
+}
+
+interface ITaskSiliceEntity {
+    uid: string;
+    status?: string;
+    dependencies?: Dependency[];
+    content?: {
+        title?: string;
+        [key: string]: unknown;
+    };
+    [key: string]: unknown;
 }
 
 export class TaskIrrigationOrchestrator {
@@ -35,14 +58,14 @@ export class TaskIrrigationOrchestrator {
      * 💧 TRAITEMENT CONNECTÉ DE L'IRRIGATION D'UNE TÂCHE
      * Résout l'atome par son uid ou slug dans MongoDB via findEntityBySlugOrUid, puis propage l'irrigation dans Neo4j via l'UID canonique.
      */
-    public async processTaskIrrigation(taskIdentifier: string, signature: ActionSignature) {
+    public async processTaskIrrigation(taskIdentifier: string, signature: ActionSignature): Promise<TaskIrrigationResult> {
         // 🛡️ Barrière de sécurité : Vérification des capacités de l'Oiseau
         if (!signature.capabilities.includes(CAPABILITIES.TASK.UPDATE) && !signature.capabilities.includes('*')) {
             throw new IlotError("Aura insuffisante pour irriguer cet Atome.", "FORBIDDEN", 403);
         }
 
         // 1. Résolution universelle (uid ou slug) dans la Silice via l'utilitaire global
-        const task = await findEntityBySlugOrUid(TaskModel, taskIdentifier) as any;
+        const task = await findEntityBySlugOrUid(TaskModel, taskIdentifier) as unknown as ITaskSiliceEntity | null;
 
         if (!task) throw new IlotError("Atome introuvable dans la Silice.", "NOT_FOUND", 404);
 
@@ -50,13 +73,13 @@ export class TaskIrrigationOrchestrator {
 
         const payload: TaskPayload = {
             title: task.content?.title || "Tâche sans nom",
-            status: task.status as any,
+            status: (task.status as TaskStatus) || 'PENDING',
             dependencies: task.dependencies || []
         };
 
         const evaluated = TaskIrrigationOrchestrator.evaluateAndSanitize(payload);
 
-        return await TransactionManager.execute("Irrigation d'Atome", async (mongoSession, neo4jTx) => {
+        return await TransactionManager.execute("Irrigation d'Atome", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
             // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
             const now = new Date();
 

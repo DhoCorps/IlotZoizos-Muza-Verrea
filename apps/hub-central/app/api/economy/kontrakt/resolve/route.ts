@@ -1,14 +1,16 @@
-// app/api/economy/kontrakt/resolve/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { KonTraKt, EconomyService } from '@ilot/infrastructure';
+import { IKonTraKt } from '@ilot/types';
 import { BettingOrchestrator } from '@ilot/shared-core';
 import { z } from 'zod';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 
-// 🛡️ SUTURE ZOD : Schéma local pour éviter les conflits de types inter-packages
+// ==========================================
+// 🛡️ SCHÉMA ZOD (Validation stricte de la résolution)
+// ==========================================
 const LocalBasketItemSchema = z.object({
   currency: z.string(),
   quantity: z.number().positive(),
@@ -22,27 +24,46 @@ const ResolveKonTraKtSchema = z.object({
 });
 
 // ==========================================
+// 💥 FONCTION DE CASCADE DES TAGS (CACHE)
+// ==========================================
+function revalidateKontraktCascades(userUid: string): void {
+  revalidateTag('economy');
+  revalidateTag(`alveole-${userUid}`);
+  revalidateTag('kontrakts');
+}
+
+// ==========================================
 // POST : Résoudre le KonTraKt et livrer le Panier de Victoire
 // ==========================================
-export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const body = await req.json().catch(() => null);
-    if (!body) return NextResponse.json({ error: "L'onde est muette : Corps de requête illisible." }, { status: 400 });
+    let rawBody: unknown;
+    try {
+      rawBody = await req.json();
+    } catch {
+      return NextResponse.json({ success: false, error: "L'onde est muette : Corps de requête illisible." }, { status: 400 });
+    }
 
-    const validation = ResolveKonTraKtSchema.safeParse(body);
+    const validation = ResolveKonTraKtSchema.safeParse(rawBody);
     if (!validation.success) {
-      return NextResponse.json({ error: "Données de résolution corrompues.", details: validation.error.flatten() }, { status: 400 });
+      return NextResponse.json({ 
+        success: false, 
+        error: "Données de résolution corrompues.", 
+        details: validation.error.flatten() 
+      }, { status: 400 });
     }
 
     const { kontraktId, isWinner, victoryBasket } = validation.data;
-    
-    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
     const userUid = currentUser.uid;
 
     // 1. Auscultation du Contrat Scellé
-    const contract = await KonTraKt.findById(kontraktId);
-    if (!contract) return NextResponse.json({ error: "KonTraKt introuvable dans la matrice." }, { status: 404 });
-    if (contract.status !== 'accepted') return NextResponse.json({ error: "Ce KonTraKt n'est pas en phase de résolution." }, { status: 400 });
+    const contract = (await KonTraKt.findById(kontraktId)) as unknown as IKonTraKt | null;
+    if (!contract) {
+      return NextResponse.json({ success: false, error: "KonTraKt introuvable dans la matrice." }, { status: 404 });
+    }
+    if (contract.status !== 'accepted') {
+      return NextResponse.json({ success: false, error: "Ce KonTraKt n'est pas en phase de résolution." }, { status: 400 });
+    }
 
     // 2. Vérification de Souveraineté et de la Devise
     let playedCurrency: string;
@@ -55,7 +76,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
       playedCurrency = contract.coverCurrency!;
       playedAmount = contract.coverAmount!;
     } else {
-      return NextResponse.json({ error: "Souveraineté violée : Vous n'êtes pas partie prenante de ce contrat." }, { status: 403 });
+      return NextResponse.json({ success: false, error: "Souveraineté violée : Vous n'êtes pas partie prenante de ce contrat." }, { status: 403 });
     }
 
     // 3. Calcul par l'Orchestrateur (Intègre Neo4j et l'Indice de la Banque)
@@ -72,7 +93,11 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     // 4. Gestion de la Défaite
     if (!isWinner) {
       contract.status = 'resolved';
-      await contract.save();
+      if (typeof contract.save === 'function') {
+        await contract.save();
+      }
+      
+      revalidateKontraktCascades(userUid);
       return NextResponse.json({ 
         success: true, 
         message: "Défaite actée. Vos ressources ont rejoint la Banque de la Canopée." 
@@ -82,19 +107,19 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     // 5. Gestion de la Victoire et du Panier
     const creditEarned = orchestratorResult.creditEarned || 0;
     
-    // 🛡️ SUTURE TYPESCRIPT : Typage explicite du sum et du item
     const totalBasketCost = victoryBasket.reduce((sum: number, item: { quantity: number; unitDhOValue: number }) => {
       return sum + (item.quantity * item.unitDhOValue);
     }, 0);
 
     if (totalBasketCost > creditEarned) {
       return NextResponse.json({ 
+        success: false, 
         error: `Fraude détectée : Le panier coûte ${totalBasketCost} DhÔ, mais votre crédit n'est que de ${creditEarned} DhÔ.` 
       }, { status: 400 });
     }
 
     // 6. Distribution des ressources physiques via EconomyService
-    const resourcesToAdd: any = {};
+    const resourcesToAdd: Record<string, number> = {};
     for (const item of victoryBasket) {
       resourcesToAdd[item.currency] = (resourcesToAdd[item.currency] || 0) + item.quantity;
     }
@@ -108,12 +133,12 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
 
     // 7. Clôture du contrat
     contract.status = 'resolved';
-    await contract.save();
+    if (typeof contract.save === 'function') {
+      await contract.save();
+    }
 
-    // 8. Invalidation chirurgicale
-    revalidateTag('economy');
-    revalidateTag(`alveole-${userUid}`);
-    revalidateTag('kontrakts');
+    // 8. Invalidation chirurgicale via notre helper dédié
+    revalidateKontraktCascades(userUid);
 
     return NextResponse.json({
       success: true,
@@ -126,9 +151,7 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
       }
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("  [KONTRAKT RESOLVE ERROR] :", error);
-    const status = error.status || error.statusCode || 500;
-    return NextResponse.json({ error: error.message || "Erreur lors de la résolution du contrat." }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, "Erreur interne lors de la résolution du contrat.");
   }
 });

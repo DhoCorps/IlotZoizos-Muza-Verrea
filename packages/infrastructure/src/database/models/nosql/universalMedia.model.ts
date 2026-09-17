@@ -3,9 +3,23 @@ import type { Document, Model } from 'mongoose';
 
 const { Schema, model, models } = mongoose;
 
+export interface IStudioPermissions {
+  allowShowcase?: boolean;
+  allowRadio?: boolean;
+}
+
+export interface IUniversalMediaMetadata {
+  bpm?: number;
+  key?: string;
+  isStudioProject?: boolean;
+  usedSampleUids?: string[];
+  permissions?: IStudioPermissions;
+  [key: string]: unknown;
+}
+
 export interface IUniversalMediaDocument extends Document {
   mediaId: string;
-  creatorUid: string; // 🪡 Coup de tournevis ici
+  creatorUid: string;
   creatorSlug: string;
   sourceApp: 'PARTITA' | 'LETRIN' | 'ABYSS' | 'DHO' | 'GALLERY' | 'SPRITE' | 'UNKNOWN';
   type: 'IMAGE' | 'AUDIO_TRACK' | 'AUDIO_STEM' | 'TEXT';
@@ -16,7 +30,7 @@ export interface IUniversalMediaDocument extends Document {
   mimeType: string;
   sizeBytes: number;
   priceCents: number;
-  metadata: Record<string, any>;
+  metadata: IUniversalMediaMetadata;
   rights: {
     allow_radio: boolean;
     allow_lyrika: boolean;
@@ -34,6 +48,19 @@ const MultilingualTextSchema = new Schema({
   en: { type: String },
 }, { _id: false });
 
+const StudioPermissionsSchema = new Schema({
+  allowShowcase: { type: Boolean, default: false },
+  allowRadio: { type: Boolean, default: false },
+}, { _id: false });
+
+const MetadataSchema = new Schema({
+  bpm: { type: Number },
+  key: { type: String },
+  isStudioProject: { type: Boolean, default: false },
+  usedSampleUids: [{ type: String }],
+  permissions: { type: StudioPermissionsSchema, default: () => ({}) },
+}, { _id: false, strict: false }); // strict: false permet d'accueillir d'autres clés dynamiques libres
+
 const RightsSchema = new Schema({
   allow_radio: { type: Boolean, default: false },
   allow_lyrika: { type: Boolean, default: false },
@@ -46,8 +73,8 @@ const RightsSchema = new Schema({
 const UniversalMediaSchema = new Schema<IUniversalMediaDocument>(
   {
     mediaId: { type: String, unique: true, sparse: true, index: true },
-    creatorUid: { type: String, required: true, index: true }, // 🪡 Et ici
-    creatorSlug: { type: String }, // Indexé si on cherche souvent par pseudo
+    creatorUid: { type: String, required: true, index: true },
+    creatorSlug: { type: String },
     sourceApp: { 
       type: String, 
       enum: ['PARTITA', 'LETRIN', 'ABYSS', 'DHO', 'GALLERY', 'SPRITE', 'UNKNOWN'], 
@@ -69,7 +96,7 @@ const UniversalMediaSchema = new Schema<IUniversalMediaDocument>(
     sizeBytes: { type: Number, required: true },
     
     priceCents: { type: Number, default: 0 },
-    metadata: { type: Schema.Types.Mixed, default: {} },
+    metadata: { type: MetadataSchema, default: () => ({}) },
     
     rights: { type: RightsSchema, default: () => ({}) },
   },

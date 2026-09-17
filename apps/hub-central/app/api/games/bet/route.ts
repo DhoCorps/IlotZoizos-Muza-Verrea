@@ -1,55 +1,83 @@
-// Fichier : app/api/games/bet/route.ts
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { BettingOrchestrator } from '@ilot/shared-core';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { revalidateTag } from 'next/cache';
 import { IAssetValue } from '@ilot/types';
+import { z } from 'zod';
+
+// ==========================================
+// 🛡️ SCHÉMA ZOD (Validation stricte du pari)
+// ==========================================
+const AssetValueSchema = z.object({
+  type: z.string(),
+  amount: z.number().positive(),
+  entityId: z.string().optional()
+});
+
+const BetPayloadSchema = z.object({
+  gameId: z.string().min(1, "L'identifiant du jeu est requis."),
+  bets: z.array(AssetValueSchema).min(1, "Au moins une mise est requise."),
+  targets: z.array(AssetValueSchema).optional().default([])
+});
+
+// ==========================================
+// 💥 FONCTION DE CASCADE DES TAGS (CACHE)
+// ==========================================
+function revalidateBetCascades(userUid: string): void {
+  revalidateTag('user-wallet');
+  revalidateTag('game-stats');
+  revalidateTag('user-assets');
+  revalidateTag(`alveole-${userUid}`);
+}
 
 // ==========================================
 // 🎲 POST : Placer un pari sécurisé (Moteur de Jeu & Barter)
 // ==========================================
-export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser | null) => {
+export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser | null) => {
   if (!currentUser) {
-    return NextResponse.json({ error: "Oiseau non identifié" }, { status: 401 });
+    return NextResponse.json({ success: false, error: "Oiseau non identifié" }, { status: 401 });
   }
 
   try {
-    const body = await req.json().catch(() => null);
-    if (!body) {
-      return NextResponse.json({ error: "Corps de requête illisible ou malformé." }, { status: 400 });
+    let rawBody: unknown;
+    try {
+      rawBody = await req.json();
+    } catch {
+      return NextResponse.json({ success: false, error: "Corps de requête illisible ou malformé." }, { status: 400 });
     }
 
-    // On accepte des tableaux d'actifs (bets et targets)
-    const { gameId, bets, targets } = body;
-
-    if (!gameId || !Array.isArray(bets) || bets.length === 0 || !Array.isArray(targets)) {
-      return NextResponse.json({ error: "Paramètres de pari invalides (gameId, bets ou targets requis)." }, { status: 400 });
+    // 🛡️ Blindage strict via Zod
+    const validation = BetPayloadSchema.safeParse(rawBody);
+    if (!validation.success) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "Paramètres de pari invalides (gameId, bets ou targets requis).", 
+        details: validation.error.flatten() 
+      }, { status: 400 });
     }
 
-    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par withAura)
+    const { gameId, bets, targets } = validation.data;
     const userId = currentUser.uid;
 
     // Appel de l'orchestrateur avec le contrat de troc
-    const result = await BettingOrchestrator.placeBet(userId, gameId, bets as IAssetValue[], targets as IAssetValue[]);
+    const result = await BettingOrchestrator.placeBet(
+      userId, 
+      gameId, 
+      bets as IAssetValue[], 
+      targets as IAssetValue[]
+    );
 
-    // Invalidation du cache des actifs et des stats
-    revalidateTag('user-wallet');
-    revalidateTag('game-stats');
-    revalidateTag('user-assets');
+    // 💥 BOOM ! Invalidation chirurgicale du cache
+    revalidateBetCascades(userId);
 
     return NextResponse.json({
       success: true,
       ...result
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 Fracture lors du lancer de dé du pari :", error);
-    const status = error.statusCode || error.status || 500;
-    return NextResponse.json(
-      { error: error.message || "Erreur interne du moteur de jeu." }, 
-      { status }
-    );
+  } catch (error: unknown) {
+    return handleRouteError(error, "Erreur interne du moteur de jeu.");
   }
 });

@@ -8,15 +8,20 @@ import { NextResponse } from 'next/server';
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
-vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, ctx: any) => {
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ message: "Oiseau non identifié. Le vent rejette tes murmures." }, { status: 401 });
-    }
-    return await handler(req, ctx, mockUser);
-  },
-}));
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withAura: (handler: unknown) => async (req: Request, ctx: unknown) => {
+      const mockUser = global.__mockUser;
+      if (!mockUser || !mockUser.uid) {
+        return NextResponse.json({ success: false, message: "Oiseau non identifié. Le vent rejette tes murmures." }, { status: 401 });
+      }
+      // @ts-ignore - Passage sécurisé du mockUser pour le test
+      return await handler(req, ctx, mockUser);
+    },
+  };
+});
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
@@ -30,30 +35,34 @@ vi.mock('@ilot/infrastructure', () => ({
 }));
 
 declare global {
-  var __mockUser: any;
+  var __mockUser: { uid: string; capabilities: string[]; [key: string]: unknown } | undefined;
 }
 
+type RouteHandler = (req: Request, ctx: unknown) => Promise<Response>;
+
 describe('API Oiseau Fluctuation PUT', () => {
+  const putHandler = PUT as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
-    // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de OiseauOrchestrator
+    // 🛡️ Espionnage direct sur le prototype de OiseauOrchestrator
     vi.spyOn(OiseauOrchestrator.prototype, 'appliquerFluctuation').mockResolvedValue({
       energy: 100,
       entropy: 0.5,
-    } as any);
+    } as unknown as Awaited<ReturnType<OiseauOrchestrator['appliquerFluctuation']>>);
   });
 
   it('🔴 [PUT] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     const req = new Request('http://localhost/api/oiseau', {
       method: 'PUT',
       body: JSON.stringify({ frequenceHEX: '#FF0000' })
     });
 
-    const res = await PUT(req as any, {});
+    const res = await putHandler(req, {});
     expect(res.status).toBe(401);
   });
 
@@ -63,14 +72,14 @@ describe('API Oiseau Fluctuation PUT', () => {
     vi.mocked(OiseauModel.findOne).mockResolvedValueOnce({
       uid: 'bird_1',
       sanctuaireVerrouille: true,
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof OiseauModel.findOne>>);
 
     const req = new Request('http://localhost/api/oiseau', {
       method: 'PUT',
       body: JSON.stringify({ frequenceHEX: '#FF0000' })
     });
 
-    const res = await PUT(req as any, {});
+    const res = await putHandler(req, {});
     const json = await res.json();
 
     expect(res.status).toBe(403);
@@ -87,14 +96,14 @@ describe('API Oiseau Fluctuation PUT', () => {
       save: vi.fn().mockResolvedValue(true)
     };
 
-    vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockOiseauDoc as any);
+    vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockOiseauDoc as unknown as Awaited<ReturnType<typeof OiseauModel.findOne>>);
 
     const req = new Request('http://localhost/api/oiseau', {
       method: 'PUT',
       body: JSON.stringify({ frequenceHEX: '#00FF00', sanctuaire: { theme: 'light' } })
     });
 
-    const res = await PUT(req as any, {});
+    const res = await putHandler(req, {});
     const json = await res.json();
 
     expect(res.status).toBe(200);

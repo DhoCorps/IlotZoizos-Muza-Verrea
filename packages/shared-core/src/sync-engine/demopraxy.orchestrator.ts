@@ -2,12 +2,43 @@ import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
+import type { ClientSession } from 'mongoose';
+import type { Transaction } from 'neo4j-driver';
 
 export interface NuisanceMetrics {
     systemicHatredScore: number; // Indice de toxicité textuelle ou comportementale (0 à 10)
     recurrenceCount: number;    // Nombre de récidives documentées dans le graphe
     recalibrationCapacity: number; // Capacité de l'oiseau à évoluer (1 à 10)
     collectiveResonance: number;  // Vibration positive apportée à la volière
+    [key: string]: unknown;
+}
+
+export interface SanctuarySafetyEvaluation {
+    isExcluded: boolean;
+    actionMessage: string;
+    exScore: number;
+}
+
+export interface DemopraxicMetricsResult {
+    uid: string;
+    slug?: string;
+    sanctuaryVerrouille: boolean;
+    demopraxyState: unknown;
+}
+
+export interface DemopraxicEvaluationResult extends SanctuarySafetyEvaluation {
+    success: boolean;
+    targetUid: string;
+    targetSlug: string | null;
+    user: unknown;
+}
+
+interface IOiseauEntity {
+    uid: string;
+    slug?: string;
+    sanctuaryVerrouille?: boolean;
+    demopraxyState?: unknown;
+    [key: string]: unknown;
 }
 
 export class DemopraxyOrchestrator {
@@ -24,7 +55,7 @@ export class DemopraxyOrchestrator {
     /**
      * Détermine si un profil ou un contenu doit être mis en stase d'exclusion (banni par le vortex)
      */
-    public static evaluateSanctuarySafety(metrics: NuisanceMetrics): { isExcluded: boolean; actionMessage: string; exScore: number } {
+    public static evaluateSanctuarySafety(metrics: NuisanceMetrics): SanctuarySafetyEvaluation {
         const exThreshold = this.calculateExclusionThreshold(metrics);
 
         // Seuil critique d'exclusion symétrique fixé à 15.0
@@ -46,8 +77,8 @@ export class DemopraxyOrchestrator {
     /**
      * 🔍 Récupère l'état et les métriques démopraxiques d'un oiseau via la recherche unifiée
      */
-    public async getDemopraxicMetrics(userIdentifier: string) {
-        const user = await findEntityBySlugOrUid(OiseauModel, userIdentifier) as any;
+    public async getDemopraxicMetrics(userIdentifier: string): Promise<DemopraxicMetricsResult> {
+        const user = await findEntityBySlugOrUid(OiseauModel, userIdentifier) as unknown as IOiseauEntity | null;
 
         if (!user) {
             throw new IlotError("Oiseau introuvable dans la Silice pour auscultation démopraxique.", "NOT_FOUND", 404);
@@ -69,21 +100,21 @@ export class DemopraxyOrchestrator {
         userIdentifier: string, 
         metrics: NuisanceMetrics, 
         signature: ActionSignature
-    ) {
+    ): Promise<DemopraxicEvaluationResult> {
         // Seul un Architecte ou un système souverain peut déclencher le vortex démopraxique
         if (!signature.capabilities.includes('*') && !signature.capabilities.includes(CAPABILITIES.MEMBER.EXILE)) {
             throw new IlotError("Aura insuffisante pour invoquer le vortex démopraxique.", "FORBIDDEN", 403);
         }
 
         // 1. Résolution de l'identité via l'utilitaire global unifié
-        const user = await findEntityBySlugOrUid(OiseauModel, userIdentifier) as any;
+        const user = await findEntityBySlugOrUid(OiseauModel, userIdentifier) as unknown as IOiseauEntity | null;
         
         if (!user) throw new IlotError("Oiseau introuvable dans la Silice.", "NOT_FOUND", 404);
 
         const canonicalUid = user.uid; // L'UID strict et indexé à passer au Graphe
         const evaluation = DemopraxyOrchestrator.evaluateSanctuarySafety(metrics);
 
-        return await TransactionManager.execute("Stase Démopraxique", async (mongoSession, neo4jTx) => {
+        return await TransactionManager.execute("Stase Démopraxique", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
             // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
             const now = new Date();
 

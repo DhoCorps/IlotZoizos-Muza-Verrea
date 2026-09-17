@@ -1,16 +1,31 @@
 import { UniversHallBeaconModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import type { Document } from 'mongoose';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { randomUUID, randomBytes } from 'crypto';
+import { randomUUID } from 'crypto';
 import { generateSlug } from '../utils/string.engine';
+import { ensureUniqueSlug } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
 
 export interface UniversHallSyncResult {
   success: boolean;
   status: string;
-  mongo: import('mongoose').Document & Record<string, any>;
+  mongo: Document & Record<string, unknown>;
   neo4j: import('neo4j-driver').QueryResult;
   purgedCount?: number;
+}
+
+export interface PlantBeaconPayload {
+  uid?: string;
+  sourceModule: 'POETRIK' | 'BIBLIOTEK' | 'PARTITA' | 'LETRIN' | 'SAMPLOTEK' | 'ABYSS';
+  entityUid: string;
+  title: string;
+  slug?: string;
+  summary?: string;
+  tags?: string[];
+  resonanceScore?: number;
+  metadata?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 /**
@@ -22,33 +37,9 @@ export interface UniversHallSyncResult {
 export class UniversHallOrchestrator {
 
   /**
-   * Utilitaire interne pour garantir l'unicité atomique du slug sans boucle séquentielle bloquante (Race Conditions E11000).
-   */
-  private async ensureUniqueSlug(Model: any, baseSlug: string, session: any): Promise<string> {
-    let finalSlug = baseSlug;
-    let exists = await Model.findOne({ slug: finalSlug }).session(session).lean();
-    
-    if (exists) {
-      const randomSuffix = randomBytes(2).toString('hex');
-      finalSlug = `${baseSlug}-${randomSuffix}`;
-    }
-    return finalSlug;
-  }
-
-  /**
    * FONDATION : PLANTER UNE BALISE SUR L'AGORA
    */
-  async plantBeacon(data: {
-    uid?: string;
-    sourceModule: 'POETRIK' | 'BIBLIOTEK' | 'PARTITA' | 'LETRIN' | 'SAMPLOTEK' | 'ABYSS';
-    entityUid: string;
-    title: string;
-    slug?: string;
-    summary?: string;
-    tags?: string[];
-    resonanceScore?: number;
-    metadata?: Record<string, unknown>;
-  }, signature: ActionSignature): Promise<UniversHallSyncResult> {
+  async plantBeacon(data: PlantBeaconPayload, signature: ActionSignature): Promise<UniversHallSyncResult> {
 
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour planter une balise sur l'Agora.", "UNAUTHORIZED", 401);
@@ -62,11 +53,12 @@ export class UniversHallOrchestrator {
       const now = new Date();
       const beaconUid = data.uid || `beacon_${randomUUID()}`;
       
-      // Sécurisation atomique de l'unicité du slug
-      let baseSlug = generateSlug(data.slug || data.title);
-      let finalSlug = await this.ensureUniqueSlug(UniversHallBeaconModel, baseSlug, mongoSession);
+      // Sécurisation atomique de l'unicité du slug via l'utilitaire global
+      const baseSlug = generateSlug(data.slug || data.title);
+      const finalSlug = await ensureUniqueSlug(UniversHallBeaconModel, baseSlug, mongoSession);
 
       const beaconData = {
+        ...data,
         uid: beaconUid,
         sourceModule: data.sourceModule,
         entityUid: data.entityUid,
@@ -85,12 +77,13 @@ export class UniversHallOrchestrator {
       };
 
       // 1. Sédimentation dans la Silice (MongoDB) avec gestion gracieuse de secours E11000
-      let newBeacon;
+      let newBeacon: Document & Record<string, unknown>;
       try {
         const created = await UniversHallBeaconModel.create([beaconData], { session: mongoSession });
-        newBeacon = created[0];
-      } catch (err: any) {
-        if (err.code === 11000) {
+        newBeacon = created[0] as unknown as Document & Record<string, unknown>;
+      } catch (err: unknown) {
+        const error = err as { code?: number };
+        if (error.code === 11000) {
           throw new IlotError("Collision critique de slug sur la balise. Veuillez réitérer.", "CONFLICT", 409);
         }
         throw err;
@@ -139,7 +132,7 @@ export class UniversHallOrchestrator {
    * DISSOLUTION : RETIRER UNE BALISE DE L'AGORA
    */
   async dissolveBeacon(beaconIdentifier: string, signature: ActionSignature): Promise<UniversHallSyncResult> {
-    const existing = await findEntityBySlugOrUid(UniversHallBeaconModel, beaconIdentifier) as any;
+    const existing = await findEntityBySlugOrUid(UniversHallBeaconModel, beaconIdentifier) as (Document & Record<string, unknown>) | null;
 
     if (!existing) {
       throw new IlotError("Balise introuvable sur l'Agora.", "NOT_FOUND", 404);
@@ -164,7 +157,7 @@ export class UniversHallOrchestrator {
         status: 'success', 
         purgedCount: 1,
         mongo: existing,
-        neo4j: {} as any
+        neo4j: {} as import('neo4j-driver').QueryResult
       };
     });
   }

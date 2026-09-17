@@ -1,16 +1,59 @@
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure';
+import { safeSyncUniversalInteraction } from '@ilot/shared-core';
+import { ProductModel, StoreModel } from '@ilot/infrastructure';
+
+export interface EcommerceSyncResult {
+  success: boolean;
+  storeUid?: string;
+  orderUid?: string;
+  barterUid?: string;
+  status?: string;
+}
+
+export interface CreateStorePayload {
+  uid: string;
+  ownerUid: string;
+  storeName: string;
+  slug: string;
+  stripeAccountId?: string;
+  [key: string]: unknown;
+}
+
+export interface RecordOrderPayload {
+  uid: string;
+  buyerUid: string;
+  storeUid: string;
+  totalAmountCents: number;
+  stripePaymentIntentId: string;
+  [key: string]: unknown;
+}
+
+export interface ProposeBarterPayload {
+  uid: string;
+  initiatorUid: string;
+  receiverUid?: string;
+  offeredUids: string[];
+  requestedUids: string[];
+  [key: string]: unknown;
+}
+
+export interface ResolveBarterPayload {
+  barterUid: string;
+  acceptorUid: string;
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'COMPLETED';
+  [key: string]: unknown;
+}
 
 export class EcommerceOrchestrator {
   /**
    * Création d'une boutique et liaison de l'Oiseau propriétaire dans le graphe Neo4j
    */
   async createStore(
-    data: { uid: string; ownerUid: string; storeName: string; slug: string; stripeAccountId?: string },
+    data: CreateStorePayload,
     signature: ActionSignature
-  ) {
+  ): Promise<EcommerceSyncResult> {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour créer une boutique.", "UNAUTHORIZED", 401);
     }
@@ -44,9 +87,9 @@ export class EcommerceOrchestrator {
    * 🛍️ Enregistrement d'une commande payée et liaison de l'acheteur à la boutique
    */
   async recordOrder(
-    data: { uid: string; buyerUid: string; storeUid: string; totalAmountCents: number; stripePaymentIntentId: string },
+    data: RecordOrderPayload,
     signature: ActionSignature
-  ) {
+  ): Promise<EcommerceSyncResult> {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour passer commande.", "UNAUTHORIZED", 401);
     }
@@ -75,30 +118,14 @@ export class EcommerceOrchestrator {
         throw new IlotError("Acheteur ou Boutique introuvable dans le Graphe.", "NOT_FOUND", 404);
       }
 
-      const ownerUid = neoResult.records[0].get('ownerUid');
+      const ownerUid = neoResult.records[0].get('ownerUid') as string;
 
       return { success: true, orderUid: data.uid, ownerUid };
     });
 
-    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL : Fallback DLQ en cas de panne Neo4j
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA LA DLQ CENTRALISÉE
     if (result.ownerUid && result.ownerUid !== data.buyerUid) {
-      try {
-        await syncUniversalInteraction(data.buyerUid, result.ownerUid, 'ECOMMERCE');
-      } catch (err: any) {
-        console.error(`  [Orchestrator] Échec du tissage universel (recordOrder), basculement DLQ :`, err);
-        try {
-          await SystemGraphDlqModel.create({
-            operationName: 'syncUniversalInteraction_recordOrder',
-            payload: { sourceUid: data.buyerUid, targetUid: result.ownerUid, type: 'ECOMMERCE' },
-            error: err.message,
-            status: 'PENDING_RETRY',
-            retryCount: 0,
-            timestamp: new Date()
-          });
-        } catch (dlqErr) {
-          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
-        }
-      }
+      await safeSyncUniversalInteraction(data.buyerUid, result.ownerUid, 'ECOMMERCE', 'recordOrder');
     }
 
     return { success: result.success, orderUid: result.orderUid };
@@ -108,9 +135,9 @@ export class EcommerceOrchestrator {
    * 🤝 PROPOSITION DE TROC
    */
   async proposeBarter(
-    data: { uid: string; initiatorUid: string; receiverUid?: string; offeredUids: string[]; requestedUids: string[] },
+    data: ProposeBarterPayload,
     signature: ActionSignature
-  ) {
+  ): Promise<EcommerceSyncResult> {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour initier un troc.", "UNAUTHORIZED", 401);
     }
@@ -139,24 +166,9 @@ export class EcommerceOrchestrator {
       return { success: true, barterUid: data.uid };
     });
 
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA LA DLQ CENTRALISÉE
     if (data.receiverUid && data.receiverUid !== data.initiatorUid) {
-      try {
-        await syncUniversalInteraction(data.initiatorUid, data.receiverUid, 'ECOMMERCE');
-      } catch (err: any) {
-        console.error(`  [Orchestrator] Échec du tissage universel (proposeBarter), basculement DLQ :`, err);
-        try {
-          await SystemGraphDlqModel.create({
-            operationName: 'syncUniversalInteraction_proposeBarter',
-            payload: { sourceUid: data.initiatorUid, targetUid: data.receiverUid, type: 'ECOMMERCE' },
-            error: err.message,
-            status: 'PENDING_RETRY',
-            retryCount: 0,
-            timestamp: new Date()
-          });
-        } catch (dlqErr) {
-          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
-        }
-      }
+      await safeSyncUniversalInteraction(data.initiatorUid, data.receiverUid, 'ECOMMERCE', 'proposeBarter');
     }
 
     return result;
@@ -166,9 +178,9 @@ export class EcommerceOrchestrator {
    * ⚖️ ACCEPTATION / RÉSOLUTION D'UN TROC
    */
   async resolveBarter(
-    data: { barterUid: string; acceptorUid: string; status: 'ACCEPTED' | 'REJECTED' },
+    data: ResolveBarterPayload,
     signature: ActionSignature
-  ) {
+  ): Promise<EcommerceSyncResult> {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour répondre au troc.", "UNAUTHORIZED", 401);
     }
@@ -192,31 +204,64 @@ export class EcommerceOrchestrator {
         throw new IlotError("Offre de troc ou Oiseau cible introuvable dans le Graphe.", "NOT_FOUND", 404);
       }
 
-      const initiatorUid = neoResult.records[0].get('initiatorUid');
+      const initiatorUid = neoResult.records[0].get('initiatorUid') as string;
 
       return { success: true, status: data.status, initiatorUid };
     });
 
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA LA DLQ CENTRALISÉE
     if (result.initiatorUid && result.initiatorUid !== data.acceptorUid) {
-      try {
-        await syncUniversalInteraction(result.initiatorUid, data.acceptorUid, 'ECOMMERCE');
-      } catch (err: any) {
-        console.error(`  [Orchestrator] Échec du tissage universel (resolveBarter), basculement DLQ :`, err);
-        try {
-          await SystemGraphDlqModel.create({
-            operationName: 'syncUniversalInteraction_resolveBarter',
-            payload: { sourceUid: result.initiatorUid, targetUid: data.acceptorUid, type: 'ECOMMERCE' },
-            error: err.message,
-            status: 'PENDING_RETRY',
-            retryCount: 0,
-            timestamp: new Date()
-          });
-        } catch (dlqErr) {
-          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
-        }
-      }
+      await safeSyncUniversalInteraction(result.initiatorUid, data.acceptorUid, 'ECOMMERCE', 'resolveBarter');
     }
 
     return { success: result.success, status: result.status };
+  }
+
+  /**
+   * 🗑️ SUPPRESSION / DISSOLUTION D'UN ARTEFACT (PRODUIT)
+   */
+  async removeProduct(
+    productUid: string,
+    signature: ActionSignature
+  ): Promise<EcommerceSyncResult> {
+    if (!signature.actorUid) {
+      throw new IlotError("Oiseau non authentifié pour supprimer cet artefact.", "UNAUTHORIZED", 401);
+    }
+
+    await TransactionManager.execute("Suppression d'artefact", async (_mongoSession, neo4jTx) => {
+      const query = `
+        MATCH (p:Product { uid: $productUid })
+        DETACH DELETE p
+      `;
+      await neo4jTx.run(query, { productUid });
+    });
+
+    await ProductModel.deleteOne({ uid: productUid });
+
+    return { success: true };
+  }
+
+  /**
+   * 🏛️ DISSOLUTION / FERMETURE D'UNE BOUTIQUE
+   */
+  async dissolveStore(
+    storeUid: string,
+    signature: ActionSignature
+  ): Promise<EcommerceSyncResult> {
+    if (!signature.actorUid) {
+      throw new IlotError("Oiseau non authentifié pour dissoudre cette boutique.", "UNAUTHORIZED", 401);
+    }
+
+    await TransactionManager.execute("Dissolution de boutique", async (_mongoSession, neo4jTx) => {
+      const query = `
+        MATCH (s:Store { uid: $storeUid })
+        DETACH DELETE s
+      `;
+      await neo4jTx.run(query, { storeUid });
+    });
+
+    await StoreModel.deleteOne({ uid: storeUid });
+
+    return { success: true };
   }
 }

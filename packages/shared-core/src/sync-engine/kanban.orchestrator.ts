@@ -2,31 +2,44 @@ import { TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { CAPABILITIES, ActionSignature } from '@ilot/types'; 
-import { syncUniversalInteraction } from '@ilot/infrastructure';
+import { safeSyncUniversalInteraction } from '../utils/orchestrator.engine';
+import type { ClientSession } from 'mongoose';
+import type { Transaction, QueryResult } from 'neo4j-driver';
+
+export interface ITaskUpdatePayload {
+  status?: string;
+  dates?: Record<string, unknown>;
+  [key: string]: unknown;
+}
 
 export interface KanbanSyncResult {
   success: boolean;
-  mongo: any; 
-  neo4j: any;
+  mongo: unknown; 
+  neo4j: QueryResult | null;
+}
+
+interface ITaskEntity {
+  uid: string;
+  [key: string]: unknown;
 }
 
 export class KanbanOrchestrator {
   /**
    * 🧱 MISE À JOUR GÉRIQUE (Atome Kanban)
    */
-  async updateTask(
+  public async updateTask(
     taskIdentifier: string, 
-    updateData: any, 
+    updateData: ITaskUpdatePayload, 
     signature: ActionSignature
   ): Promise<KanbanSyncResult> {
     if (!signature.capabilities.includes(CAPABILITIES.TASK.UPDATE) && !signature.capabilities.includes('*')) {
       throw new IlotError("Aura insuffisante pour muter cet Atome.", "FORBIDDEN", 403);
     }
-    return await TransactionManager.execute("Mutation Atome Kanban", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Mutation Atome Kanban", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
-      const mongoUpdate: any = { 
+      const mongoUpdate: Record<string, unknown> = { 
         ...updateData,
         "dates.updatedAt": now,
         ...(updateData.status === 'DONE' ? { "dates.completedAt": now } : {})
@@ -39,23 +52,23 @@ export class KanbanOrchestrator {
       }
 
       // 1. Résolution stricte dans la Silice (MongoDB) via la recherche unifiée
-      const existingTask = await findEntityBySlugOrUid(TaskModel, taskIdentifier);
+      const existingTask = await findEntityBySlugOrUid(TaskModel, taskIdentifier) as unknown as ITaskEntity | null;
       if (!existingTask) {
         throw new IlotError("Atome introuvable dans la Silice", "NOT_FOUND", 404);
       }
       const updatedTask = await TaskModel.findOneAndUpdate(
-        { uid: (existingTask as any).uid },
+        { uid: existingTask.uid },
         { $set: mongoUpdate },
         { new: true, session: mongoSession }
-      ).lean();
+      ).lean() as unknown as ITaskEntity | null;
 
       if (!updatedTask) {
         throw new IlotError("Atome introuvable dans la Silice", "NOT_FOUND", 404);
       }
-      const canonicalUid = (updatedTask as any).uid;
+      const canonicalUid = updatedTask.uid;
 
       // 2. RÉSONANCE DANS LE GRAPHE (Seulement si le statut change)
-      let neoResult = null;
+      let neoResult: QueryResult | null = null;
       if (updateData.status) {
         const cypher = `
           MATCH (t:Task {uid: $canonicalUid}) 
@@ -63,10 +76,11 @@ export class KanbanOrchestrator {
           RETURN t
         `;
         
+        const completedAtValue = mongoUpdate["dates.completedAt"];
         neoResult = await neo4jTx.run(cypher, { 
           canonicalUid, 
           newStatus: updateData.status,
-          completedAt: mongoUpdate["dates.completedAt"] ? new Date(mongoUpdate["dates.completedAt"]).toISOString() : null,
+          completedAt: completedAtValue instanceof Date ? completedAtValue.toISOString() : null,
           now: now.toISOString()
         });
         if (neoResult.records.length === 0) {
@@ -82,11 +96,11 @@ export class KanbanOrchestrator {
     });
   }
 
-  async reorderTasks(taskUids: string[], signature: ActionSignature) {
+  public async reorderTasks(taskUids: string[], signature: ActionSignature): Promise<{ success: boolean; count: number }> {
     if (!signature.capabilities.includes(CAPABILITIES.TASK.UPDATE) && !signature.capabilities.includes('*')) {
       throw new IlotError("Le vent te repousse. Tu ne peux pas réorganiser ces Atomes.", "FORBIDDEN", 403);
     }
-    return await TransactionManager.execute("Réordonnancement Kanban", async (mongoSession) => {
+    return await TransactionManager.execute("Réordonnancement Kanban", async (mongoSession: ClientSession) => {
       // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
@@ -104,22 +118,22 @@ export class KanbanOrchestrator {
   /**
    * 🧱 ASSIGNATION D'UN MEMBRE À UN ATOME
    */
-  async assignMember(taskIdentifier: string, memberUid: string, signature: ActionSignature) {
+  public async assignMember(taskIdentifier: string, memberUid: string, signature: ActionSignature): Promise<{ success: boolean }> {
     if (!signature.capabilities.includes(CAPABILITIES.TASK.UPDATE) && !signature.capabilities.includes('*')) {
       throw new IlotError("Aura insuffisante pour tisser ce lien.", "FORBIDDEN", 403);
     }
     const actorCanonicalUid = signature.actorUid;
     const memberCanonicalUid = memberUid;
 
-    const result = await TransactionManager.execute("Assignation Kanban", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Assignation Kanban", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
-      const task = await findEntityBySlugOrUid(TaskModel, taskIdentifier);
+      const task = await findEntityBySlugOrUid(TaskModel, taskIdentifier) as unknown as ITaskEntity | null;
       if (!task) {
         throw new IlotError("Atome introuvable dans la Silice", "NOT_FOUND", 404);
       }
-      const taskUid = (task as any).uid;
+      const taskUid = task.uid;
       
       await TaskModel.findOneAndUpdate(
         { uid: taskUid },
@@ -141,13 +155,9 @@ export class KanbanOrchestrator {
       return { success: true };
     });
 
-    // 🕸️ Tissage de la toile universelle (attendu avec await pour s'affranchir du Serverless Vercel)
-    if (actorCanonicalUid !== memberCanonicalUid) {
-      try {
-        await syncUniversalInteraction(actorCanonicalUid, memberCanonicalUid, 'TASK');
-      } catch (err) {
-        console.error(`  [Orchestrator] Échec non bloquant du tissage universel (assignMember) :`, err);
-      }
+    // 🕸️ Tissage de la toile universelle sécurisé via la DLQ centralisée
+    if (actorCanonicalUid && actorCanonicalUid !== memberCanonicalUid) {
+      await safeSyncUniversalInteraction(actorCanonicalUid, memberCanonicalUid, 'TASK', 'assignMember');
     }
 
     return result;

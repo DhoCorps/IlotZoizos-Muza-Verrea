@@ -3,12 +3,30 @@ import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
+import type { ClientSession } from 'mongoose';
+import type { Transaction, QueryResult } from 'neo4j-driver';
 
 export interface UniversalMediaSyncResult {
   success: boolean;
   status: string;
-  mongo: any;
-  neo4j: import('neo4j-driver').QueryResult;
+  mongo: unknown;
+  neo4j: QueryResult;
+  [key: string]: unknown;
+}
+
+export interface FosterMediaPayload {
+  mediaId?: string;
+  type?: string;
+  sourceApp?: string;
+  [key: string]: unknown;
+}
+
+interface IUniversalMediaDocument {
+  mediaId: string;
+  type?: string;
+  sourceApp?: string;
+  creatorUid?: string;
+  [key: string]: unknown;
 }
 
 /**
@@ -21,18 +39,18 @@ export class UniversalMediaOrchestrator {
   /**
    * FONDATION : FORGER UN ASSET UNIVERSEL
    */
-  async fosterMedia(data: Record<string, unknown>, signature: ActionSignature): Promise<UniversalMediaSyncResult> {
+  public async fosterMedia(data: FosterMediaPayload, signature: ActionSignature): Promise<UniversalMediaSyncResult> {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour forger un Asset.", "UNAUTHORIZED", 401);
     }
 
     const actorCanonicalUid = signature.actorUid;
 
-    return await TransactionManager.execute("Fondation d'Asset Universel", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Fondation d'Asset Universel", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
-      const mediaId = (data.mediaId as string) || `media_${randomUUID()}`;
+      const mediaId = data.mediaId || `media_${randomUUID()}`;
 
       const newMediaData = {
         ...data,
@@ -45,7 +63,7 @@ export class UniversalMediaOrchestrator {
       };
 
       // 1. Sédimentation dans la Silice (MongoDB)
-      const [newMedia] = await UniversalMediaModel.create([newMediaData], { session: mongoSession });
+      const [newMedia] = (await UniversalMediaModel.create([newMediaData], { session: mongoSession })) as unknown as IUniversalMediaDocument[];
 
       // 2. Tissage dans le Graphe (Neo4j) avec l'horodatage synchronisé
       const cypher = `
@@ -60,13 +78,13 @@ export class UniversalMediaOrchestrator {
         RETURN m
       `;
 
-      const neoResult = await neo4jTx.run(cypher, {
+      const neoResult = (await neo4jTx.run(cypher, {
         actorUid: actorCanonicalUid,
         mediaId: newMedia.mediaId,
-        type: newMedia.type,
-        sourceApp: newMedia.sourceApp,
+        type: newMedia.type || null,
+        sourceApp: newMedia.sourceApp || null,
         now: now.toISOString()
-      });
+      })) as QueryResult;
 
       if (neoResult.records.length === 0) {
         throw new IlotError("Échec du tissage : Oiseau créateur introuvable dans le Graphe.", "NOT_FOUND", 404);
@@ -85,8 +103,8 @@ export class UniversalMediaOrchestrator {
    * DÉSINTÉGRATION : PURGER UN ASSET
    * Note : La suppression physique du fichier (S3) sera gérée en amont par la Route API.
    */
-  async disintegrateMedia(mediaIdentifier: string, signature: ActionSignature): Promise<{ success: boolean; purgedCount: number }> {
-    const existing = await UniversalMediaModel.findOne({ mediaId: mediaIdentifier });
+  public async disintegrateMedia(mediaIdentifier: string, signature: ActionSignature): Promise<{ success: boolean; purgedCount: number }> {
+    const existing = (await UniversalMediaModel.findOne({ mediaId: mediaIdentifier })) as unknown as IUniversalMediaDocument | null;
     if (!existing) throw new IlotError("Asset introuvable.", "NOT_FOUND", 404);
 
     const isCreator = existing.creatorUid === signature.actorUid;
@@ -94,7 +112,7 @@ export class UniversalMediaOrchestrator {
       throw new IlotError("Seul le créateur ou l'Architecte peut désintégrer cet Asset.", "FORBIDDEN", 403);
     }
 
-    return await TransactionManager.execute("Désintégration d'Asset", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Désintégration d'Asset", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       // 1. Purge du Graphe
       await neo4jTx.run(`MATCH (m:UniversalMedia { mediaId: $mediaId }) DETACH DELETE m`, { mediaId: existing.mediaId });
       

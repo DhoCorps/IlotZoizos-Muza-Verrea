@@ -2,12 +2,52 @@ import { LexiconEntryModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
+import type { ClientSession } from 'mongoose';
+import type { Transaction, QueryResult } from 'neo4j-driver';
+
+export interface RhymeItem {
+  targetUid: string;
+  type: string;
+  match: string;
+  [key: string]: unknown;
+}
+
+export interface TranslationItem {
+  targetUid: string;
+  lang: string;
+  [key: string]: unknown;
+}
+
+export interface LexiconEntryPayload {
+  uid: string;
+  languageCode: string;
+  word: string;
+  phoneticIpa: string;
+  syllableCount: number;
+  definitions: Record<string, string>;
+  partOfSpeech: string;
+  rhymesWith?: RhymeItem[];
+  translations?: TranslationItem[];
+  [key: string]: unknown;
+}
 
 export interface PoetrikSyncResult {
   success: boolean;
   status: string;
-  mongo: any;
-  neo4j: import('neo4j-driver').QueryResult;
+  mongo: unknown;
+  neo4j: QueryResult;
+  [key: string]: unknown;
+}
+
+interface ILexiconEntryDocument {
+  uid: string;
+  languageCode: string;
+  word: string;
+  phoneticIpa: string;
+  syllableCount: number;
+  definitions: Record<string, string>;
+  partOfSpeech: string;
+  [key: string]: unknown;
 }
 
 export class PoetrikOrchestrator {
@@ -15,17 +55,7 @@ export class PoetrikOrchestrator {
    * FONDATION : INGESTION D'UN MOT UNIVERSEL (Lexicon Entry)
    * Enregistre la chair sémantique dans MongoDB et tisse les échos phonétiques et traductions dans Neo4j.
    */
-  async fosterLexiconEntry(data: {
-    uid: string;
-    languageCode: string;
-    word: string;
-    phoneticIpa: string;
-    syllableCount: number;
-    definitions: Record<string, string>;
-    partOfSpeech: string;
-    rhymesWith?: Array<{ targetUid: string; type: string; match: string }>;
-    translations?: Array<{ targetUid: string; lang: string }>;
-  }, signature: ActionSignature): Promise<PoetrikSyncResult> {
+  public async fosterLexiconEntry(data: LexiconEntryPayload, signature: ActionSignature): Promise<PoetrikSyncResult> {
     
     // Seul un Architecte ou le système souverain peut injecter ou enrichir le dictionnaire universel
     if (!signature.capabilities.includes('*') && !signature.capabilities.includes('SYSTEM_ALL')) {
@@ -36,7 +66,7 @@ export class PoetrikOrchestrator {
       throw new IlotError("Un mot nécessite au moins un libellé, une phonétique IPA et un code de langue.", "BAD_REQUEST", 400);
     }
 
-    return await TransactionManager.execute("Fondation Lexicale Poetrik", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Fondation Lexicale Poetrik", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
@@ -57,7 +87,7 @@ export class PoetrikOrchestrator {
       };
 
       // 1. Sédimentation dans la Silice (MongoDB)
-      const [savedEntry] = await LexiconEntryModel.create([lexiconData], { session: mongoSession });
+      const [savedEntry] = (await LexiconEntryModel.create([lexiconData], { session: mongoSession })) as unknown as ILexiconEntryDocument[];
 
       // 2. Tissage dans le Graphe (Neo4j) avec l'horodatage synchronisé
       const cypher = `
@@ -72,7 +102,7 @@ export class PoetrikOrchestrator {
         RETURN w
       `;
 
-      const neoResult = await neo4jTx.run(cypher, {
+      const neoResult = (await neo4jTx.run(cypher, {
         uid: savedEntry.uid,
         word: savedEntry.word,
         languageCode: savedEntry.languageCode,
@@ -80,7 +110,7 @@ export class PoetrikOrchestrator {
         syllableCount: savedEntry.syllableCount,
         partOfSpeech: savedEntry.partOfSpeech,
         now: now.toISOString()
-      });
+      })) as QueryResult;
 
       if (neoResult.records.length === 0) {
         throw new IlotError("Échec du tissage du mot dans la Matrice Neo4j.", "INTERNAL_ERROR", 500);

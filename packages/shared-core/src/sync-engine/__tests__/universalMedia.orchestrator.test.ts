@@ -45,7 +45,7 @@ describe('UniversalMediaOrchestrator - La Forge du Socle Matériel', () => {
       const res = await orchestrator.fosterMedia(mockMediaData, userSignature as any);
       
       expect(res.success).toBe(true);
-      expect(res.mongo.mediaId).toBe('media_123');
+      expect((res.mongo as any).mediaId).toBe('media_123');
       expect(UniversalMediaModel.create).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });

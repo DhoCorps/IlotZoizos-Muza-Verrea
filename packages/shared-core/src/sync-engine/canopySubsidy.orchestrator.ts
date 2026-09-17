@@ -1,12 +1,28 @@
 import { SubsidyModel } from '@ilot/infrastructure';
 import { KomptaLedgerOrchestrator } from './komptaLedger.orchestrator';
+import { SovereignCurrency } from '@ilot/infrastructure';
+
+export interface ISubsidyDocument {
+  _id: unknown;
+  uid: string;
+  requesterUid: string;
+  requestedAmount: number;
+  currency: SovereignCurrency;
+  title: string;
+  status: 'PENDING' | 'PAID' | 'REJECTED';
+  voteCount: number;
+  voterUids: string[];
+  updatedAt: Date;
+  save(): Promise<unknown>;
+  [key: string]: unknown;
+}
 
 export class CanopySubsidyOrchestrator {
   /**
    * Vote pour un dossier de subvention
    */
-  public static async voteForSubsidy(subsidyUid: string, voterUid: string) {
-    const subsidy = await SubsidyModel.findById(subsidyUid);
+  public static async voteForSubsidy(subsidyUid: string, voterUid: string): Promise<void> {
+    const subsidy = (await SubsidyModel.findById(subsidyUid)) as unknown as ISubsidyDocument | null;
     if (!subsidy) return;
 
     if (!subsidy.voterUids.includes(voterUid)) {
@@ -23,8 +39,8 @@ export class CanopySubsidyOrchestrator {
   /**
    * Tirage au sort mensuel (le "Chapeau de la Canopée")
    */
-  public static async executeMonthlyDraw() {
-    const pendingRequests = await SubsidyModel.find({ status: 'PENDING' });
+  public static async executeMonthlyDraw(): Promise<void> {
+    const pendingRequests = (await SubsidyModel.find({ status: 'PENDING' })) as unknown as ISubsidyDocument[];
     if (!pendingRequests || pendingRequests.length === 0) return;
 
     // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now' pour le tirage et le paiement
@@ -41,7 +57,7 @@ export class CanopySubsidyOrchestrator {
         amount: winner.requestedAmount,
         currency: winner.currency,
         category: 'SUBSIDY',
-        referenceUid: `subsidy_${winner._id}_${now.getTime()}`,
+        referenceUid: `subsidy_${String(winner._id)}_${now.getTime()}`,
         description: `Subvention accordée : ${winner.title}`
       });
 
@@ -51,9 +67,10 @@ export class CanopySubsidyOrchestrator {
     }
   }
 
-  private static weightedRandomDraw(top: any[], low: any[]): any {
+  private static weightedRandomDraw(top: ISubsidyDocument[], low: ISubsidyDocument[]): ISubsidyDocument | null {
     // Logique de tirage : on met 3 copies de chaque dossier topTier et 1 de lowTier dans le chapeau
     const pool = [...top, ...top, ...top, ...low];
+    if (pool.length === 0) return null;
     return pool[Math.floor(Math.random() * pool.length)];
   }
 }

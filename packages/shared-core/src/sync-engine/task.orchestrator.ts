@@ -4,10 +4,13 @@ import { ITask, TaskStatus, CAPABILITIES, ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors'; 
 import { randomUUID } from 'crypto';
 import { generateSlug } from '../utils/string.engine';
+import { resolveCanonicalUid } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
+import type { ClientSession } from 'mongoose';
+import type { Transaction, QueryResult } from 'neo4j-driver';
 
 // Interface d'injection pour isoler le shared-core du service de stockage externe de l'application
 interface IStorageManager {
-  deleteFile(key: string): Promise<any>;
+  deleteFile(key: string): Promise<unknown>;
   extractKeyFromUrl(url: string): string;
 }
 
@@ -15,7 +18,57 @@ export interface TaskSyncResult {
   success: boolean;
   status: string;
   mongo: ITask;
-  neo4j: any;
+  neo4j: QueryResult | null;
+  [key: string]: unknown;
+}
+
+export interface FosterTaskPayload {
+  uid?: string;
+  slug?: string;
+  projectUid?: string;
+  projectSlug?: string;
+  parentUid?: string | null;
+  title?: string;
+  description?: string;
+  status?: TaskStatus;
+  priority?: string;
+  documents?: Array<{ url?: string; [key: string]: unknown }>;
+  assigneeUids?: string[];
+  pomoEst?: number;
+  pomodoros?: { estimated?: number; completed?: number };
+  complexity?: number;
+  scheduledAt?: Date | string;
+  dates?: { scheduledAt?: Date | string; [key: string]: unknown };
+  content?: { title?: string; description?: string; tags?: string[]; [key: string]: unknown };
+  connections?: { targetModule?: string; targetEntityUid?: string; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+export interface TaskUpdatePayload {
+  status?: TaskStatus | string;
+  title?: string;
+  parentUid?: string | null;
+  assigneeUids?: string[];
+  connections?: { targetModule?: string; targetEntityUid?: string; [key: string]: unknown };
+  dates?: Record<string, unknown>;
+  content?: { title?: string; description?: string; tags?: string[]; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+interface IProjectEntity {
+  uid: string;
+  creatorUid?: string;
+  [key: string]: unknown;
+}
+
+interface ITaskEntity {
+  uid: string;
+  slug?: string;
+  parentUid?: string | null;
+  assigneeUids?: string[];
+  status?: TaskStatus;
+  documents?: Array<{ url?: string; [key: string]: unknown }>;
+  [key: string]: unknown;
 }
 
 export class TaskOrchestrator {
@@ -31,25 +84,23 @@ export class TaskOrchestrator {
 
   private async resolveUserCanonicalUserUidSafe(identifier: string): Promise<string> {
     try {
-      const user = await findEntityBySlugOrUid(OiseauModel, identifier);
-      if (user && (user as any).uid) {
-        return (user as any).uid;
-      }
-      return identifier;
+      return await resolveCanonicalUid(OiseauModel, identifier, "Oiseau");
     } catch {
-      return identifier;
+      return identifier; // Repli tolérant si l'identifiant brut ne correspond à aucun profil stocké
     }
   }
 
   /**
    * 🧱 FONDATION : FORGER UN ATOME (Avec Maillage Transversal)
    */
-  async fosterTask(
-    data: any, 
+  public async fosterTask(
+    data: FosterTaskPayload, 
     signature: ActionSignature 
   ): Promise<ITask> {
     const projectIdentifier = data.projectUid || data.projectSlug;
-    const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier) as any;
+    if (!projectIdentifier) throw new IlotError("Identifiant de chantier parent requis.", "BAD_REQUEST", 400);
+
+    const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier) as unknown as IProjectEntity | null;
     if (!project) throw new IlotError("Chantier parent introuvable.", "NOT_FOUND", 404);
     
     const actorCanonicalUid = await this.resolveUserCanonicalUserUidSafe(signature.actorUid);
@@ -68,7 +119,7 @@ export class TaskOrchestrator {
       else throw new IlotError("Module cible invalide pour le maillage.", "BAD_REQUEST", 400); // 🛡️ Anti-Injection Cypher
     }
 
-    return await TransactionManager.execute("Fondation d'Atome", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Fondation d'Atome", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
              
@@ -86,7 +137,8 @@ export class TaskOrchestrator {
            actorUid: actorCanonicalUid, 
            pUid: project.uid 
         });
-        const caps = check.records[0]?.get('allCaps').flat() || [];
+        const capsRecord = check.records[0]?.get('allCaps');
+        const caps = Array.isArray(capsRecord) ? (capsRecord.flat() as string[]) : [];
         const isAuthorized = caps.includes(CAPABILITIES.TASK.CREATE) || caps.includes('*');
         if (!isAuthorized) {
           throw new IlotError("Ton Aura ne résonne pas assez fort sur ce territoire.", "FORBIDDEN", 403);
@@ -125,7 +177,7 @@ export class TaskOrchestrator {
         dates: { 
            createdAt: now, 
            updatedAt: now,
-           scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined
+           scheduledAt: scheduledAt && (typeof scheduledAt === 'string' || scheduledAt instanceof Date) ? new Date(scheduledAt) : undefined
         }
       }], { session: mongoSession });
 
@@ -150,11 +202,11 @@ export class TaskOrchestrator {
         CREATE (t:Task { 
            uid: $taskUid, 
            slug: $slug,
-          name: $name, 
+           name: $name, 
            status: $status, 
            createdAt: datetime($now),
            updatedAt: datetime($now)
-         })
+          })
                  
         CREATE (t)-[:TASK_OF]->(p)
         CREATE (creator)-[:CREATED]->(t)
@@ -180,7 +232,7 @@ export class TaskOrchestrator {
         parentUid: newTask.parentUid || null, 
         assigneeUids: newTask.assigneeUids || [], 
         taskUid: newTask.uid, 
-        slug: (newTask as any).slug || taskSlug,
+        slug: taskSlug,
         name: title,
         status: newTask.status,
         targetEntityUid: targetEntityUid || null,
@@ -194,22 +246,23 @@ export class TaskOrchestrator {
   /**
    * 🧬 MUTATION INTÉGRALE : FAIRE ÉVOLUER UN ATOME (Avec Maillage Transversal)
    */
-  async updateTask(taskIdentifier: string, updates: any, signature: ActionSignature): Promise<ITask> {
-    const task = await findEntityBySlugOrUid(TaskModel, taskIdentifier);
+  public async updateTask(taskIdentifier: string, updates: TaskUpdatePayload, signature: ActionSignature): Promise<ITask> {
+    const task = await findEntityBySlugOrUid(TaskModel, taskIdentifier) as unknown as ITaskEntity | null;
     if (!task) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
     
-    const taskUid = (task as any).uid;
+    const taskUid = task.uid;
 
-    return await TransactionManager.execute("Mutation Atome (Atomique)", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Mutation Atome (Atomique)", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
              
-      const mongoUpdate: any = { $set: { ...updates, "dates.updatedAt": now } };
+      const mongoUpdate: Record<string, unknown> = { $set: { ...updates, "dates.updatedAt": now } };
              
       if (updates.dates) {
-        delete mongoUpdate.$set.dates;
+        const setObj = mongoUpdate.$set as Record<string, unknown>;
+        delete setObj.dates;
         for (const [key, value] of Object.entries(updates.dates)) {
-          mongoUpdate.$set[`dates.${key}`] = value;
+          setObj[`dates.${key}`] = value;
         }
       }
 
@@ -224,7 +277,7 @@ export class TaskOrchestrator {
 
       // Mutation ciblée Neo4j avec date synchronisée
       let cypherQuery = `MATCH (t:Task { uid: $taskUid }) SET t.updatedAt = datetime($now)`;
-      let cypherParams: any = { taskUid, now: now.toISOString() };
+      const cypherParams: Record<string, unknown> = { taskUid, now: now.toISOString() };
 
       if (updates.status) {
         cypherQuery += `, t.status = $status`;
@@ -239,7 +292,7 @@ export class TaskOrchestrator {
       }
 
       const scheduledAt = updates.dates?.scheduledAt || updates["dates.scheduledAt"];
-      if (scheduledAt) {
+      if (scheduledAt && (typeof scheduledAt === 'string' || scheduledAt instanceof Date)) {
         cypherQuery += `, t.scheduledAt = datetime($scheduledAt)`;
         cypherParams.scheduledAt = new Date(scheduledAt).toISOString();
       }
@@ -270,8 +323,8 @@ export class TaskOrchestrator {
               UNWIND $uids AS birdUid
               MATCH (u:User {uid: birdUid})
               MERGE (u)-[:ASSIGNED_TO]->(t)`,
-            { taskUid, uids }
-           );
+           { taskUid, uids }
+          );
          }
       }
 
@@ -308,24 +361,25 @@ export class TaskOrchestrator {
   /**
    * 🌋 DÉSINTÉGRATION EN CASCADE RÉCURSIVE
    */
-  async disintegrateTask(taskIdentifier: string, signature: ActionSignature) {
+  public async disintegrateTask(taskIdentifier: string, signature: ActionSignature): Promise<{ success: boolean; purgedCount: number }> {
     const hasPower = signature.capabilities.includes(CAPABILITIES.TASK.DELETE) || 
                      signature.capabilities.includes('*');
     if (!hasPower) throw new IlotError("Aura insuffisante.", "FORBIDDEN", 403);
 
-    const taskTarget = await findEntityBySlugOrUid(TaskModel, taskIdentifier);
+    const taskTarget = await findEntityBySlugOrUid(TaskModel, taskIdentifier) as unknown as ITaskEntity | null;
     if (!taskTarget) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
     
-    const taskUid = (taskTarget as any).uid;
+    const taskUid = taskTarget.uid;
 
-    return await TransactionManager.execute("Désintégration d'Atome", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Désintégration d'Atome", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       const hierarchyCheck = await neo4jTx.run(`
         MATCH (t:Task { uid: $taskUid })
         OPTIONAL MATCH (child:Task)-[:CHILD_OF*]->(t)
         RETURN collect(child.uid) AS childUids
       `, { taskUid });
 
-      const childUids = hierarchyCheck.records[0]?.get('childUids') || [];
+      const childUidsRaw = hierarchyCheck.records[0]?.get('childUids');
+      const childUids = Array.isArray(childUidsRaw) ? (childUidsRaw as string[]) : [];
       const uidsToPurge = [taskUid, ...childUids];
 
       await TaskModel.deleteMany({ uid: { $in: uidsToPurge } }, { session: mongoSession });
@@ -336,22 +390,23 @@ export class TaskOrchestrator {
       `, { uidsToPurge });
 
       // 🛡️ Optimisation : Ajout de .lean() pour la mémoire
-      const task = await TaskModel.findOne({ uid: taskUid }).session(mongoSession).lean();
+      const task = await TaskModel.findOne({ uid: taskUid }).session(mongoSession).lean() as unknown as ITaskEntity | null;
       
       const filesToDelete: string[] = [];
-      if (task && (task as any).documents && (task as any).documents.length > 0) {
-        (task as any).documents.forEach((doc: any) => {
-          if (doc.url) filesToDelete.push(this.storageService.extractKeyFromUrl(doc.url));
+      if (task && task.documents && task.documents.length > 0) {
+        task.documents.forEach((doc) => {
+          if (doc && doc.url) filesToDelete.push(this.storageService.extractKeyFromUrl(doc.url));
         });
       }
 
-      // ⚡ Parallélisation massive de la purge des fichiers (Point 1)
+      // ⚡ Parallélisation massive de la purge des fichiers
       await Promise.all(
         filesToDelete.map(async (key) => {
           try {
             await this.storageService.deleteFile(key);
-          } catch (err) {
-            console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
+          } catch (error: unknown) {
+            const errMessage = error instanceof Error ? error.message : String(error);
+            console.error(`  [Orchestrator] Échec purge fichier ${key} :`, errMessage);
           }
         })
       );
@@ -363,14 +418,14 @@ export class TaskOrchestrator {
   /**
    * 🍅 SÉDIMENTATION TEMPORELLE : VALIDER UN POMODORO
    */
-  async completePomodoro(taskIdentifier: string, signature: ActionSignature): Promise<ITask> {
-    const task = await findEntityBySlugOrUid(TaskModel, taskIdentifier);
+  public async completePomodoro(taskIdentifier: string, signature: ActionSignature): Promise<ITask> {
+    const task = await findEntityBySlugOrUid(TaskModel, taskIdentifier) as unknown as ITaskEntity | null;
     if (!task) throw new IlotError("Atome introuvable ou évaporé.", "NOT_FOUND", 404);
     
-    const taskUid = (task as any).uid;
+    const taskUid = task.uid;
     const actorCanonicalUid = await this.resolveUserCanonicalUserUidSafe(signature.actorUid);
 
-    return await TransactionManager.execute("Validation Pomodoro", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Validation Pomodoro", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 

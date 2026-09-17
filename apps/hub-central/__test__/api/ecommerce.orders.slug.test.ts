@@ -1,26 +1,31 @@
-// Fichier : __test__/api/ecommerce.orders.slug.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PATCH } from '@/app/api/ecommerce/orders/[slug]/route';
 import { OrderModel } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
-vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, ctx: any) => {
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
-    }
-    return await handler(req, ctx, mockUser);
-  },
-}));
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withAura: (handler: unknown) => async (req: NextRequest, ctx: ApiContext) => {
+      const mockUser = global.__mockUser;
+      if (!mockUser || !mockUser.uid) {
+        return NextResponse.json({ success: false, error: "Oiseau non identifié." }, { status: 401 });
+      }
+      // @ts-ignore
+      return await handler(req, ctx, mockUser);
+    },
+  };
+});
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
-  unstable_cache: vi.fn((cb) => cb),
+  unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
 vi.mock('@/lib/cache/ecommerce.cache', () => ({
@@ -28,7 +33,7 @@ vi.mock('@/lib/cache/ecommerce.cache', () => ({
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -40,7 +45,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       findOne: vi.fn(),
     },
     // 🪡 Helper unifié mocké robuste gérant le mode lean et non-lean
-    findEntityBySlugOrUid: vi.fn(async (model, identifier, options = { lean: true }) => {
+    findEntityBySlugOrUid: vi.fn(async (model: { findOne: Function }, identifier: string, options = { lean: true }) => {
       const doc = await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] });
       if (!doc) return null;
       if (options.lean && typeof doc.lean === 'function') {
@@ -52,21 +57,26 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 });
 
 declare global {
-  var __mockUser: any;
+  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
+type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
+
 describe('API Order [slug] (GET & PATCH)', () => {
+  const getHandler = GET as unknown as RouteHandler;
+  const patchHandler = PATCH as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   describe('GET /api/orders/[slug]', () => {
     it('🔴 doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-      delete (global as any).__mockUser;
+      delete global.__mockUser;
 
-      const req = new Request('http://localhost/api/orders/ord_123');
-      const res = await GET(req as any, { params: Promise.resolve({ slug: 'ord_123' }) });
+      const req = new NextRequest('http://localhost/api/orders/ord_123');
+      const res = await getHandler(req, { params: Promise.resolve({ slug: 'ord_123' }) });
 
       expect(res.status).toBe(401);
     });
@@ -76,11 +86,11 @@ describe('API Order [slug] (GET & PATCH)', () => {
 
       vi.mocked(OrderModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'ord_123', buyerUid: 'bird_1', status: 'PAID' })
-      } as any);
+      } as unknown as ReturnType<typeof OrderModel.findOne>);
 
-      const req = new Request('http://localhost/api/orders/ord_123');
-      const res = await GET(req as any, { params: Promise.resolve({ slug: 'ord_123' }) });
-      const json = await res.json();
+      const req = new NextRequest('http://localhost/api/orders/ord_123');
+      const res = await getHandler(req, { params: Promise.resolve({ slug: 'ord_123' }) });
+      const json = await res.json() as { uid: string };
 
       expect(res.status).toBe(200);
       expect(json.uid).toBe('ord_123');
@@ -91,10 +101,10 @@ describe('API Order [slug] (GET & PATCH)', () => {
 
       vi.mocked(OrderModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'ord_123', buyerUid: 'bird_1', status: 'PAID' })
-      } as any);
+      } as unknown as ReturnType<typeof OrderModel.findOne>);
 
-      const req = new Request('http://localhost/api/orders/ord_123');
-      const res = await GET(req as any, { params: Promise.resolve({ slug: 'ord_123' }) });
+      const req = new NextRequest('http://localhost/api/orders/ord_123');
+      const res = await getHandler(req, { params: Promise.resolve({ slug: 'ord_123' }) });
 
       expect(res.status).toBe(403);
     });
@@ -112,15 +122,15 @@ describe('API Order [slug] (GET & PATCH)', () => {
       };
 
       // Pour la route PATCH (lean: false), findOne retourne directement le document Mongoose (mockOrderDoc)
-      vi.mocked(OrderModel.findOne).mockResolvedValueOnce(mockOrderDoc as any);
+      vi.mocked(OrderModel.findOne).mockResolvedValueOnce(mockOrderDoc as unknown as Awaited<ReturnType<typeof OrderModel.findOne>>);
 
-      const req = new Request('http://localhost/api/orders/ord_123', {
+      const req = new NextRequest('http://localhost/api/orders/ord_123', {
         method: 'PATCH',
         body: JSON.stringify({ status: 'COMPLETED' })
       });
 
-      const res = await PATCH(req as any, { params: Promise.resolve({ slug: 'ord_123' }) });
-      const json = await res.json();
+      const res = await patchHandler(req, { params: Promise.resolve({ slug: 'ord_123' }) });
+      const json = await res.json() as { success: boolean };
 
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);

@@ -1,24 +1,28 @@
-// Fichier : app/api/games/leaderboard/route.ts
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
-import { withSilice, ApiContext } from '@/lib/api-guards';
+import { NextResponse, NextRequest } from 'next/server';
+import { withSilice, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedLeaderboard } from '@/lib/cache/games.cache';
 
 // ==========================================
-// GET : Ausculter le classement des jeux (Public / Silice)[cite: 15]
+// GET : Ausculter le classement des jeux (Public / Silice)
 // ==========================================
-export const GET = withSilice(async (req: Request, _context: ApiContext) => {
+export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => {
   try {
     const url = new URL(req.url);
     const searchParams = url.searchParams;
     const gameType = searchParams.get('gameType');
-    const limit = parseInt(searchParams.get('limit') || '10', 10);
+    const limitParam = searchParams.get('limit');
+    const limit = limitParam ? parseInt(limitParam, 10) : 10;
     
-    const topScores = await getCachedLeaderboard(gameType, limit);
-    return NextResponse.json({ success: true, scores: topScores }, { status: 200 });
-  } catch (err: any) {
-    console.error('[Leaderboard API] Erreur lors de la récupération :', err);
-    return NextResponse.json({ success: false, error: err.message || 'Erreur interne de la matrice' }, { status: 500 });
+    const topScores = await getCachedLeaderboard(gameType, isNaN(limit) ? 10 : limit);
+    
+    return NextResponse.json({ 
+      success: true, 
+      scores: topScores 
+    }, { status: 200 });
+
+  } catch (error: unknown) {
+    return handleRouteError(error, 'Erreur interne de la matrice lors de la récupération du classement.');
   }
 });

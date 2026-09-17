@@ -2,10 +2,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { LibraryBookModel } from '@ilot/infrastructure';
-import { BibliotekOrchestrator } from '@ilot/shared-core';
+import { BibliotekOrchestrator, BibliotekSyncResult } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
-import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
 // ==========================================
@@ -20,7 +20,8 @@ const CreateBookSchema = z.object({
   coverUrl: z.string().optional().nullable(),
   format: z.string().optional(),
   settings: z.object({
-    allowReadExchange: z.boolean().optional(),
+    // 🪡 SUTURE : allowReadExchange devient optionnel avec un booléen par défaut (true)
+    allowReadExchange: z.boolean().optional().default(true),
     consentForShowcase: z.boolean().optional()
   }).optional()
 });
@@ -30,18 +31,18 @@ const CreateBookSchema = z.object({
 // ==========================================
 export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContext, _currentUser?: OiseauUser) => {
   try {
-    let url;
+    let url: URL;
     try {
       url = new URL(req.url);
     } catch {
-      return NextResponse.json({ error: "URL de requête invalide." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "URL de requête invalide." }, { status: 400 });
     }
 
     const filterType = url.searchParams.get('writingType');
     const filterStyle = url.searchParams.get('style');
     const authorUid = url.searchParams.get('authorUid');
 
-    const query: any = {};
+    const query: Record<string, unknown> = {};
     if (filterType && filterType !== 'ALL') query.writingType = filterType;
     if (filterStyle && filterStyle !== 'ALL') query.style = filterStyle;
     if (authorUid) query.authorUid = authorUid;
@@ -50,9 +51,8 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
     const safeBooks = JSON.parse(JSON.stringify(books || []));
 
     return NextResponse.json({ success: true, data: safeBooks }, { status: 200 });
-  } catch (error: any) {
-    console.error("🔥 [BIBLIOTEK GET ERROR] :", error);
-    return NextResponse.json({ error: error.message || "Erreur interne du sanctuaire." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "Erreur interne du sanctuaire.");
   }
 });
 
@@ -61,18 +61,18 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
 // ==========================================
 export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let rawBody;
+    let rawBody: unknown;
     try {
       rawBody = await req.json();
     } catch {
-      return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Corps de requête illisible." }, { status: 400 });
     }
 
     // Validation stricte par Zod pour éliminer tout risque de Mass Assignment
     const validationResult = CreateBookSchema.safeParse(rawBody);
     if (!validationResult.success) {
       const errorMessage = validationResult.error.issues.map(e => e.message).join(', ');
-      return NextResponse.json({ error: `Données d'ouvrage invalides : ${errorMessage}` }, { status: 400 });
+      return NextResponse.json({ success: false, error: `Données d'ouvrage invalides : ${errorMessage}` }, { status: 400 });
     }
 
     const validatedData = validationResult.data;
@@ -82,7 +82,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       capabilities: currentUser.capabilities || []
     };
 
-    let result;
+    let result: BibliotekSyncResult;
     try {
       const bibliotekOrch = new BibliotekOrchestrator();
       const dataToForge = { 
@@ -91,10 +91,11 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
         authorSlug: currentUser.slug || currentUser.uid
       };
       result = await bibliotekOrch.fosterBook(dataToForge, signature);
-    } catch (orchErr: any) {
+    } catch (orchErr: unknown) {
       console.error("🔥 [BIBLIOTEK ORCHESTRATOR POST ERROR] :", orchErr);
-      const status = orchErr.statusCode || orchErr.status || 500;
-      return NextResponse.json({ error: orchErr.message || "L'Îlot repousse cet ouvrage." }, { status });
+      const errObj = orchErr as { statusCode?: number; status?: number; message?: string };
+      const status = errObj.statusCode || errObj.status || 500;
+      return NextResponse.json({ success: false, error: errObj.message || "L'Îlot repousse cet ouvrage." }, { status });
     }
 
     revalidateTag('bibliotek');
@@ -109,8 +110,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       timestampedAt: result.mongo.timestampedAt
     }, { status: 201 });
 
-  } catch (error: any) {
-    console.error("🔥 [BIBLIOTEK POST GLOBAL ERROR] :", error);
-    return NextResponse.json({ error: error.message || "Erreur interne du serveur." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "Erreur interne du serveur.");
   }
 });

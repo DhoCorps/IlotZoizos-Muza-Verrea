@@ -1,7 +1,8 @@
-import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
+import { resolveCanonicalUid } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
 
 export interface TokenizePaymentPayload {
   userUid: string;
@@ -11,19 +12,6 @@ export interface TokenizePaymentPayload {
 
 export class PaymentTokenizationOrchestrator {
   
-  /**
-   * Utilitaire de résolution stricte pour prévenir les injections 
-   * et éradiquer les scans complets dans le Graphe (via findEntityBySlugOrUid).
-   */
-  private async resolveCanonicalUid(identifier: string): Promise<string> {
-    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
-    
-    if (!user) {
-      throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
-    }
-    return (user as any).uid;
-  }
-
   /**
    * 🛡️ ENREGISTREMENT SÉCURISÉ DES RÉFÉRENCES DE PAIEMENT (Tokenisation Externe)
    * Associe les identifiants tokenisés de la passerelle de paiement à l'Oiseau, 
@@ -46,8 +34,8 @@ export class PaymentTokenizationOrchestrator {
       throw new IlotError("Tokens de paiement manquants ou corrompus.", "BAD_REQUEST", 400);
     }
 
-    // 2. Résolution Canonique avant ouverture de transaction
-    const canonicalUid = await this.resolveCanonicalUid(payload.userUid);
+    // 2. Résolution Canonique avant ouverture de transaction via l'utilitaire global
+    const canonicalUid = await resolveCanonicalUid(OiseauModel, payload.userUid, "Oiseau");
 
     return await TransactionManager.execute("Tokenisation de Paiement Externe", async (mongoSession, neo4jTx) => {
       // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'

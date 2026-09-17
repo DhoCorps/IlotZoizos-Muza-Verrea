@@ -27,6 +27,8 @@ export const OiseauSeedSchema = z.object({
   
   // L'Aura : L'énergie dégagée par l'Oiseau (ex: ["TypeScript", "Designer", "Balrog"])
   capabilities: z.array(z.string()).default([]),
+  isBanned: z.boolean().default(false),
+  profileStatus: z.enum(['RESPECTABLE', 'NEUTRAL', 'INDESIRABLE']).default('RESPECTABLE'),
 });
 
 // 🌿 II. LE SANCTUAIRE (La Liberté Polymorphe et l'État d'Âme)

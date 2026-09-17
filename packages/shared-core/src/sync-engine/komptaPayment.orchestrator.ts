@@ -1,7 +1,8 @@
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
-import { WalletModel, KomptaLedgerService, SovereignCurrency, syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure';
+import { WalletModel, KomptaLedgerService, SovereignCurrency } from '@ilot/infrastructure';
+import { safeSyncUniversalInteraction } from '../utils/orchestrator.engine';
 
 export interface DirectTransferPayload {
   transferUid: string;
@@ -11,6 +12,7 @@ export interface DirectTransferPayload {
   currency: string;
   sourcePage?: string;
   description?: string;
+  [key: string]: unknown;
 }
 
 export interface DirectStoreTransactionPayload {
@@ -22,6 +24,7 @@ export interface DirectStoreTransactionPayload {
   storeUid?: string;
   sourcePage?: string;
   description?: string;
+  [key: string]: unknown;
 }
 
 export interface ItemExchangeTransactionPayload {
@@ -31,6 +34,7 @@ export interface ItemExchangeTransactionPayload {
   offeredItemUid: string;  
   targetTitle: string;     
   description?: string;
+  [key: string]: unknown;
 }
 
 export interface ExternalPaymentPayload {
@@ -39,8 +43,10 @@ export interface ExternalPaymentPayload {
   currency: string;
   metadata?: {
     recipientUid?: string;
+    [key: string]: unknown;
   };
   customer?: string;
+  [key: string]: unknown;
 }
 
 export class KomptaPaymentOrchestrator {
@@ -168,25 +174,9 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL : Fallback DLQ en cas d'échec
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA L'UTILITAIRE GLOBAL
     if (payload.senderUid !== payload.recipientUid) {
-      try {
-        await syncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE');
-      } catch (err: any) {
-        console.error(`  [Orchestrator] Échec du tissage universel (executeDirectTransfer), basculement DLQ :`, err);
-        try {
-          await SystemGraphDlqModel.create({
-            operationName: 'syncUniversalInteraction_executeDirectTransfer',
-            payload: { sourceUid: payload.senderUid, targetUid: payload.recipientUid, type: 'ECOMMERCE' },
-            error: err.message,
-            status: 'PENDING_RETRY',
-            retryCount: 0,
-            timestamp: new Date()
-          });
-        } catch (dlqErr) {
-          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
-        }
-      }
+      await safeSyncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE', 'executeDirectTransfer');
     }
 
     return result;
@@ -359,22 +349,9 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    try {
-      await syncUniversalInteraction(payload.buyerUid, payload.recipientUid, 'ECOMMERCE');
-    } catch (err: any) {
-      console.error(`  [Orchestrator] Échec du tissage universel (executeStoreTransaction), basculement DLQ :`, err);
-      try {
-        await SystemGraphDlqModel.create({
-          operationName: 'syncUniversalInteraction_executeStoreTransaction',
-          payload: { sourceUid: payload.buyerUid, targetUid: payload.recipientUid, type: 'ECOMMERCE' },
-          error: err.message,
-          status: 'PENDING_RETRY',
-          retryCount: 0,
-          timestamp: new Date()
-        });
-      } catch (dlqErr) {
-        console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
-      }
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA L'UTILITAIRE GLOBAL
+    if (payload.buyerUid !== payload.recipientUid) {
+      await safeSyncUniversalInteraction(payload.buyerUid, payload.recipientUid, 'ECOMMERCE', 'executeStoreTransaction');
     }
 
     return result;
@@ -452,22 +429,9 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    try {
-      await syncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE');
-    } catch (err: any) {
-      console.error(`  [Orchestrator] Échec du tissage universel (executeItemExchange), basculement DLQ :`, err);
-      try {
-        await SystemGraphDlqModel.create({
-          operationName: 'syncUniversalInteraction_executeItemExchange',
-          payload: { sourceUid: payload.senderUid, targetUid: payload.recipientUid, type: 'ECOMMERCE' },
-          error: err.message,
-          status: 'PENDING_RETRY',
-          retryCount: 0,
-          timestamp: new Date()
-        });
-      } catch (dlqErr) {
-        console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
-      }
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA L'UTILITAIRE GLOBAL
+    if (payload.senderUid !== payload.recipientUid) {
+      await safeSyncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE', 'executeItemExchange');
     }
 
     return result;

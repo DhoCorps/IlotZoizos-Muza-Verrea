@@ -1,6 +1,20 @@
 import { SystemPurgeJobModel } from '@ilot/infrastructure';
 import { SovereignPurgeOrchestrator } from './sovereign.purge.orchestrator';
 
+export interface IPurgeJobDocument {
+  entityId: string;
+  reason: 'VOLUNTARY_EXILE' | 'VITAL_COLLAPSE';
+  actorUid: string;
+  capabilities: string[];
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  completedAt?: Date;
+  failedAt?: Date;
+  errorPayload?: string;
+  updatedAt: Date;
+  save(): Promise<unknown>;
+  [key: string]: unknown;
+}
+
 export class SovereignPurgeWorker {
   /**
    * Scanne et exécute les purges en attente une par une pour éviter de surcharger le système.
@@ -12,7 +26,7 @@ export class SovereignPurgeWorker {
     const now = new Date();
 
     // On récupère et verrouille un job en le passant à PROCESSING de manière atomique
-    const job = await SystemPurgeJobModel.findOneAndUpdate(
+    const job = (await SystemPurgeJobModel.findOneAndUpdate(
       { status: 'PENDING' },
       { 
         status: 'PROCESSING',
@@ -20,7 +34,7 @@ export class SovereignPurgeWorker {
         updatedAt: now
       },
       { new: true, sort: { createdAt: 1 } }
-    );
+    )) as unknown as IPurgeJobDocument | null;
 
     if (!job) {
       console.log(`🌑 [Purge Worker] Aucun ordre d'évanescence en attente.`);
@@ -32,7 +46,7 @@ export class SovereignPurgeWorker {
     try {
       const orchestrator = new SovereignPurgeOrchestrator();
       await orchestrator.executeSovereignPurge(
-        { entityId: job.entityId, reason: job.reason as any },
+        { entityId: job.entityId, reason: job.reason },
         { actorUid: job.actorUid, capabilities: job.capabilities }
       );
 
@@ -44,12 +58,13 @@ export class SovereignPurgeWorker {
       
       console.log(`✨ [Purge Worker] Dissolution achevée avec succès pour : ${job.entityId}`);
 
-    } catch (error: any) {
-      console.error(`🔥 [Purge Worker] Échec critique lors de la dissolution de ${job.entityId}:`, error);
+    } catch (error: unknown) {
+      const errMessage = error instanceof Error ? error.message : String(error);
+      console.error(`🔥 [Purge Worker] Échec critique lors de la dissolution de ${job.entityId}:`, errMessage);
       
       const failTime = new Date();
       job.status = 'FAILED';
-      job.errorPayload = error.message || String(error);
+      job.errorPayload = errMessage;
       job.failedAt = failTime;
       job.updatedAt = failTime;
       await job.save();

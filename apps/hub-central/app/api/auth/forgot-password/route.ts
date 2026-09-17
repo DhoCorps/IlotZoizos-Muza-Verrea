@@ -6,7 +6,7 @@ import crypto from "crypto";
 import { OiseauModel } from "@ilot/infrastructure";
 import { ForgotPasswordSchema } from "@ilot/types";
 import { revalidateTag } from "next/cache";
-import { withSilice, ApiContext } from "@/lib/api-guards";
+import { withSilice, ApiContext, handleRouteError } from "@/lib/api-guards";
 
 // ==========================================
 // 🗺️ POST : Envoyer la fusée de détresse / Réinitialisation (Public / Silice)
@@ -16,17 +16,18 @@ export const POST = withSilice(async (req: Request, _context: ApiContext) => {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
       console.error("❌ [RESEND] Erreur : La clé API est absente du fichier .env");
-      return NextResponse.json({ error: "Configuration email défaillante." }, { status: 500 });
+      return NextResponse.json({ success: false, error: "Configuration email défaillante." }, { status: 500 });
     }
 
     const body = await req.json().catch(() => null);
     if (!body) {
-      return NextResponse.json({ error: "Format de requête invalide." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Format de requête invalide." }, { status: 400 });
     }
 
     const validation = ForgotPasswordSchema.safeParse(body);
     if (!validation.success) {
-      return NextResponse.json({ error: "Email invalide." }, { status: 400 });
+      const errorMessages = validation.error.issues.map(issue => issue.message).join(" ");
+      return NextResponse.json({ success: false, error: errorMessages || "Email invalide." }, { status: 400 });
     }
 
     const { email } = validation.data;
@@ -81,14 +82,14 @@ export const POST = withSilice(async (req: Request, _context: ApiContext) => {
 
     if (error) {
       console.error("❌ [RESEND ERROR]", error);
-      return NextResponse.json({ error: "La tempête a empêché l'envoi du message." }, { status: 500 });
+      return NextResponse.json({ success: false, error: "La tempête a empêché l'envoi du message." }, { status: 500 });
     }
 
     console.log(`✉️ [RESEND] Fusée de détresse envoyée à ${email} (ID: ${data?.id})`);
     return NextResponse.json({ success: true }, { status: 200 });
 
   } catch (error: unknown) {
-    console.error("❌ [FORGOT PASSWORD CRITICAL ERROR]", error);
-    return NextResponse.json({ error: "La tempête a empêché l'envoi du message." }, { status: 500 });
+    // 🛡️ Utilisation du gestionnaire d'erreur global (zéro 'any')
+    return handleRouteError(error, "La tempête a empêché l'envoi du message.");
   }
 });

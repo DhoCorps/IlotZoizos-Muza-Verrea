@@ -1,36 +1,58 @@
-// __test__/api/economy.kontrakt.market.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/economy/kontrakt/route';
-import { KonTraKt, EconomyService, getNeo4jSession } from '@ilot/infrastructure';
-import { NextRequest } from 'next/server';
+import { KonTraKt, EconomyService, withNeo4jSession } from '@ilot/infrastructure';
+import { NextRequest, NextResponse } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
-// 🛡️ Mocks de l'infrastructure (avec find, countDocuments et create)
-vi.mock('@ilot/infrastructure', () => ({
-  KonTraKt: {
-    find: vi.fn(),
-    countDocuments: vi.fn(),
-    create: vi.fn(),
-  },
-  EconomyService: {
-    deductResources: vi.fn(),
-  },
-  getNeo4jSession: vi.fn()
-}));
+// 🛡️ Mocks de l'infrastructure
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+  return {
+    ...actual,
+    KonTraKt: {
+      find: vi.fn(),
+      countDocuments: vi.fn(),
+      create: vi.fn(),
+    },
+    EconomyService: {
+      deductResources: vi.fn(),
+    },
+    withNeo4jSession: vi.fn(async (cb) => {
+      const mockSession = { run: vi.fn().mockResolvedValue(true) };
+      return await cb(mockSession);
+    })
+  };
+});
 
-// Mock du guard withAura pour injecter notre currentUser
-vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
-    const mockUser = { uid: 'artisan_bird', capabilities: [] };
-    return handler(req, context, mockUser);
-  }
-}));
+// Mock du guard withAura
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withAura: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
+      const mockUser = { uid: 'artisan_bird', capabilities: [] };
+      // @ts-ignore
+      return await handler(req, context, mockUser);
+    },
+    handleRouteError: (error: unknown, defaultMessage: string) => {
+      const status = (error as { status?: number; statusCode?: number }).status || (error as { statusCode?: number }).statusCode || 500;
+      const message = (error as { message?: string }).message || defaultMessage;
+      return NextResponse.json({ success: false, error: message }, { status });
+    }
+  };
+});
 
 // Mock de la fonction de cache de Next.js
 vi.mock('next/cache', () => ({
-  revalidateTag: vi.fn()
+  revalidateTag: vi.fn(),
+  unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
+type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
+
 describe('GET /api/economy/kontrakt - Test du Marché', () => {
+  const getHandler = GET as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -41,15 +63,14 @@ describe('GET /api/economy/kontrakt - Test du Marché', () => {
       { _id: 'k2', gameId: 'plumes', wagerCurrency: 'plumes', status: 'pending' },
     ];
 
-    // Simulation du chaînage Mongoose (.find().sort().limit().lean())
     const mockLean = vi.fn().mockResolvedValue(mockContracts);
     const mockLimit = vi.fn().mockReturnValue({ lean: mockLean });
     const mockSort = vi.fn().mockReturnValue({ limit: mockLimit });
-    vi.mocked(KonTraKt.find).mockReturnValue({ sort: mockSort } as any);
+    vi.mocked(KonTraKt.find).mockReturnValue({ sort: mockSort } as unknown as ReturnType<typeof KonTraKt.find>);
 
     const req = new NextRequest('http://localhost/api/economy/kontrakt');
-    const response = await GET(req, {} as any);
-    const json = await response.json();
+    const response = await getHandler(req, {} as ApiContext);
+    const json = await response.json() as { success: boolean; count: number; data: Array<unknown> };
 
     expect(response.status).toBe(200);
     expect(json.success).toBe(true);
@@ -62,11 +83,11 @@ describe('GET /api/economy/kontrakt - Test du Marché', () => {
     const mockLean = vi.fn().mockResolvedValue([]);
     const mockLimit = vi.fn().mockReturnValue({ lean: mockLean });
     const mockSort = vi.fn().mockReturnValue({ limit: mockLimit });
-    vi.mocked(KonTraKt.find).mockReturnValue({ sort: mockSort } as any);
+    vi.mocked(KonTraKt.find).mockReturnValue({ sort: mockSort } as unknown as ReturnType<typeof KonTraKt.find>);
 
     const req = new NextRequest('http://localhost/api/economy/kontrakt?status=all&gameId=crazymorpion');
-    const response = await GET(req, {} as any);
-    const json = await response.json();
+    const response = await getHandler(req, {} as ApiContext);
+    const json = await response.json() as { success: boolean };
 
     expect(response.status).toBe(200);
     expect(json.success).toBe(true);
@@ -79,8 +100,8 @@ describe('GET /api/economy/kontrakt - Test du Marché', () => {
     });
 
     const req = new NextRequest('http://localhost/api/economy/kontrakt');
-    const response = await GET(req, {} as any);
-    const json = await response.json();
+    const response = await getHandler(req, {} as ApiContext);
+    const json = await response.json() as { success: boolean; error: string };
 
     expect(response.status).toBe(500);
     expect(json.error).toBeDefined();
@@ -88,16 +109,10 @@ describe('GET /api/economy/kontrakt - Test du Marché', () => {
 });
 
 describe('Route API - Création de KonTraKt', () => {
-  const mockRun = vi.fn().mockResolvedValue(true);
-  const mockClose = vi.fn().mockResolvedValue(true);
+  const postHandler = POST as unknown as RouteHandler;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
-    vi.mocked(getNeo4jSession).mockReturnValue({
-      run: mockRun,
-      close: mockClose
-    } as any);
   });
 
   const validPayload = {
@@ -107,21 +122,22 @@ describe('Route API - Création de KonTraKt', () => {
     wagerAmount: 5,
     wagerCurrency: 'plumes',
     targetDhOValue: 5.5,
-    expiresAt: new Date(Date.now() + 86400000).toISOString() // +24h
+    expiresAt: new Date(Date.now() + 86400000).toISOString()
   };
 
-  const mockRequest = (body: any) => ({
-    json: vi.fn().mockResolvedValue(body)
-  } as any);
+  const mockRequest = (body: unknown) => new NextRequest('http://localhost/api/economy/kontrakt', {
+    method: 'POST',
+    body: JSON.stringify(body)
+  });
 
   it('🔴 doit bloquer la création si le quota de 3 KonTraKts en attente est atteint', async () => {
     vi.mocked(KonTraKt.countDocuments).mockResolvedValueOnce(3);
 
-    const response = await POST(mockRequest(validPayload), {} as any);
-    const data = await response.json();
+    const response = await postHandler(mockRequest(validPayload), {} as ApiContext);
+    const json = await response.json() as { success: boolean; error: string };
 
     expect(response.status).toBe(429);
-    expect(data.error).toContain('Quota atteint');
+    expect(json.error).toContain('Quota atteint');
     expect(EconomyService.deductResources).not.toHaveBeenCalled();
   });
 
@@ -129,26 +145,24 @@ describe('Route API - Création de KonTraKt', () => {
     vi.mocked(KonTraKt.countDocuments).mockResolvedValueOnce(0);
 
     const invalidPayload = { ...validPayload, wagerAmount: -10 };
-    const response = await POST(mockRequest(invalidPayload), {} as any);
-    const data = await response.json();
+    const response = await postHandler(mockRequest(invalidPayload), {} as ApiContext);
+    const json = await response.json() as { success: boolean; error: string };
 
     expect(response.status).toBe(400);
-    expect(data.error).toContain('malformé');
+    expect(json.error).toContain('malformé');
   });
 
-  it('🟢 doit sceller le contrat, déduire les fonds et fermer la session Neo4j', async () => {
-    vi.mocked(KonTraKt.countDocuments).mockResolvedValueOnce(1); // Quota OK
-    vi.mocked(EconomyService.deductResources).mockResolvedValueOnce(true as any);
-    vi.mocked(KonTraKt.create).mockResolvedValueOnce({ _id: 'new_kontrakt_123', ...validPayload } as any);
+  it('🟢 doit sceller le contrat, déduire les fonds et utiliser withNeo4jSession', async () => {
+    vi.mocked(KonTraKt.countDocuments).mockResolvedValueOnce(1);
+    vi.mocked(EconomyService.deductResources).mockResolvedValueOnce(true as unknown as Awaited<ReturnType<typeof EconomyService.deductResources>>);
+    vi.mocked(KonTraKt.create).mockResolvedValueOnce({ _id: 'new_kontrakt_123', ...validPayload } as unknown as Awaited<ReturnType<typeof KonTraKt.create>>);
 
-    const response = await POST(mockRequest(validPayload), {} as any);
-    const data = await response.json();
+    const response = await postHandler(mockRequest(validPayload), {} as ApiContext);
+    const json = await response.json() as { success: boolean };
 
     expect(response.status).toBe(201);
-    expect(data.success).toBe(true);
+    expect(json.success).toBe(true);
     expect(EconomyService.deductResources).toHaveBeenCalledWith('artisan_bird', { plumes: 5 });
-    
-    expect(mockRun).toHaveBeenCalled();
-    expect(mockClose).toHaveBeenCalled();
+    expect(withNeo4jSession).toHaveBeenCalled();
   });
 });

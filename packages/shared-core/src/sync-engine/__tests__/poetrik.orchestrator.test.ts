@@ -94,7 +94,7 @@ describe('PoetrikOrchestrator - Moteur Lexical & Graphe de Rimes', () => {
       const result = await orchestrator.fosterLexiconEntry(data, adminSignature as any);
 
       expect(result.success).toBe(true);
-      expect(result.mongo.uid).toBe('lex_fr_oiseau');
+      expect((result.mongo as any).uid).toBe('lex_fr_oiseau');
       expect(LexiconEntryModel.create).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });

@@ -4,6 +4,7 @@ import { z } from 'zod';
 export const KonTrakTSchema = z.object({
   creatorId: z.string().min(1, "L'UID du créateur est requis"),
   gameId: z.string().min(1, "Le jeu ciblé (ex: PlaJia) est requis"),
+  gameMode: z.string().min(1, "Le mode de jeu est requis"), // 👈 Ajouté pour les modes multijoueur/solo
   difficulty: z.enum(['Initiate', 'Artisan', 'Maestro']),
   
   // La mise initiale de l'Oiseau A (ex: 3 Plumes)
@@ -25,7 +26,8 @@ export const KonTrakTSchema = z.object({
 
 // L'inférence automatique du type TypeScript pour tout le backend
 export type IKonTraKt = z.infer<typeof KonTrakTSchema> & {
-  _id: string | any; // Accepte l'ObjectId Mongoose ou sa conversion string
+  _id: string | unknown; // 🛡️ Remplacement de 'any' par 'unknown' pour un typage strict
   createdAt?: Date;
   updatedAt?: Date;
+  save?: () => Promise<unknown>; // Permet d'appeler .save() sur les documents Mongoose récupérés
 };

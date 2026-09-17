@@ -2,11 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/auth/[...nextauth]/route';
 
 // -------------------------------------------------------------------------
-// 🎭 MOCKS GLOBAUX (Hissés automatiquement par Vitest)
+// 🎭 MOCKS GLOBAUX
 // -------------------------------------------------------------------------
-vi.mock('@/lib/api-guards', () => ({
-    withSilice: (handler: any) => handler,
-}));
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+    return {
+        ...actual,
+        withSilice: (handler: unknown) => handler, // On court-circuite le wrapper pour isoler les tests
+    };
+});
 
 vi.mock('next-auth', () => ({
     __esModule: true,
@@ -26,7 +30,13 @@ vi.mock('next-auth', () => ({
     }),
 }));
 
+// Typage strict du handler pour éviter le cast `any`
+type RouteHandler = (req: Request, ctx: unknown) => Promise<Response>;
+
 describe('API Route: /api/auth/[...nextauth]', () => {
+    const getHandler = GET as unknown as RouteHandler;
+    const postHandler = POST as unknown as RouteHandler;
+
     beforeEach(() => {
         vi.clearAllMocks();
     });
@@ -36,7 +46,7 @@ describe('API Route: /api/auth/[...nextauth]', () => {
             method: 'GET',
         });
 
-        const res = await GET(req as any);
+        const res = await getHandler(req, {});
         const json = await res.json();
 
         expect(res.status).toBe(200);
@@ -49,7 +59,7 @@ describe('API Route: /api/auth/[...nextauth]', () => {
             body: JSON.stringify({ provider: 'google' }),
         });
 
-        const res = await POST(req as any);
+        const res = await postHandler(req, {});
         const text = await res.text();
 
         expect(res.status).toBe(302);

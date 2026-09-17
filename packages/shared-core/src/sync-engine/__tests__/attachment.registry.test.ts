@@ -12,7 +12,7 @@ describe('AttachmentRegistry - Le Registre Universel des Attachements', () => {
   it('🟢 doit enregistrer, vérifier et résoudre un attachement par slug avec succès', async () => {
     const sourceKey = 'LETRIN_TEST';
     
-    attachmentRegistry.register(sourceKey, async (slug) => ({
+    attachmentRegistry.register(sourceKey, async (slug: string) => ({
       sourceType: sourceKey,
       entitySlug: slug,
       title: `Police ${slug}`,
@@ -43,7 +43,8 @@ describe('AttachmentRegistry - Le Registre Universel des Attachements', () => {
 
   it('🔴 doit lever une erreur si l’entité est introuvable par son résolveur (null retourné)', async () => {
     const shopKey = 'SHOP_TEST_NULL';
-    attachmentRegistry.register(shopKey, async () => null as any);
+    // Utilisation de unknown au lieu de any pour un cast rigoureux
+    attachmentRegistry.register(shopKey, async () => null as unknown as { sourceType: string; entitySlug: string; title: string; targetRoute: string });
 
     await expect(
       attachmentRegistry.resolve(shopKey, 'produit-inexistant')

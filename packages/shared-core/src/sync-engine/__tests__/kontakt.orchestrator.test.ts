@@ -1,41 +1,42 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KontaktOrchestrator } from '../kontakt.orchestrator';
-import { OiseauModel, findEntityBySlugOrUid, SystemGraphDlqModel, syncUniversalInteraction } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
+import { ActionSignature } from '@ilot/types';
+import * as orchestratorEngine from '../../utils/orchestrator.engine';
+import type { ClientSession } from 'mongoose';
+import type { Transaction } from 'neo4j-driver';
 
-// 🛡️ Mock unifié et sécurisé de l'infrastructure incluant la DLQ
+// 🛡️ Mock unifié et sécurisé de l'infrastructure
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
-  const actual: any = await importOriginal();
+  const actual = await importOriginal() as Record<string, unknown>;
   return {
     ...actual,
     OiseauModel: {},
-    findEntityBySlugOrUid: vi.fn(),
-    syncUniversalInteraction: vi.fn(async () => true),
-    SystemGraphDlqModel: {
-      create: vi.fn().mockResolvedValue([{}])
-    }
   };
 });
 
+// Mock complet du moteur d'orchestration (incluant resolveCanonicalUid et safeSyncUniversalInteraction)
+vi.mock('../../utils/orchestrator.engine', () => ({
+  safeSyncUniversalInteraction: vi.fn(async () => {}),
+  resolveCanonicalUid: vi.fn(async (_model, identifier: string) => `resolved_${identifier}`)
+}));
+
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (_name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => ({}) }] }) })),
+    execute: vi.fn(async (_name: string, cb: (mongoSession: ClientSession, neo4jTx: Transaction) => Promise<unknown>) => 
+      cb({} as ClientSession, { run: vi.fn().mockResolvedValue({ records: [{ get: () => ({}) }] }) } as unknown as Transaction)
+    ),
   },
 }));
 
 describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
   let orchestrator: KontaktOrchestrator;
-  const validSignature = { actorUid: 'bird_alpha', capabilities: [] };
+  const validSignature: ActionSignature = { actorUid: 'bird_alpha', capabilities: [] };
 
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new KontaktOrchestrator();
-    
-    vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model, identifier: any) => {
-      const clean = identifier || 'unknown';
-      return { uid: `resolved_${clean}` } as any;
-    });
   });
 
   describe('registerSwipe', () => {
@@ -45,43 +46,45 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
           .mockResolvedValueOnce({ records: [{ get: () => ({}) }] })
           .mockResolvedValueOnce({ records: [] })
       };
-      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name, cb) => {
-        return await cb({} as any, mockNeo4jTx as any);
+      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name: string, cb: (mongoSession: ClientSession, neo4jTx: Transaction) => Promise<unknown>) => {
+        return await cb({} as ClientSession, mockNeo4jTx as unknown as Transaction);
       });
 
       const res = await orchestrator.registerSwipe(
         { swiperUid: 'bird_alpha_slug', targetUid: 'bird_beta_slug', action: 'LIKE' },
-        validSignature as any
+        validSignature
       );
 
       expect(res.success).toBe(true);
       expect(res.match).toBe(true);
-      expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(2);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
-      expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
-      expect(syncUniversalInteraction).toHaveBeenCalledWith('resolved_bird_alpha_slug', 'resolved_bird_beta_slug', 'KONTAKT');
+      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledTimes(1);
+      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledWith(
+        'resolved_bird_alpha_slug', 
+        'resolved_bird_beta_slug', 
+        'KONTAKT',
+        'registerSwipe'
+      );
     });
 
-    it('🟡 doit basculer l\'interaction en DLQ si syncUniversalInteraction échoue sur registerSwipe', async () => {
-      vi.mocked(syncUniversalInteraction).mockRejectedValueOnce(new Error('Neo4j connection lost'));
-
+    it('🟡 doit appeler safeSyncUniversalInteraction lors d\'un swipe PASS', async () => {
       const mockNeo4jTx = {
         run: vi.fn()
           .mockResolvedValueOnce({ records: [] })
           .mockResolvedValueOnce({ records: [] })
       };
-      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name, cb) => {
-        return await cb({} as any, mockNeo4jTx as any);
+      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name: string, cb: (mongoSession: ClientSession, neo4jTx: Transaction) => Promise<unknown>) => {
+        return await cb({} as ClientSession, mockNeo4jTx as unknown as Transaction);
       });
 
       const res = await orchestrator.registerSwipe(
         { swiperUid: 'bird_alpha_slug', targetUid: 'bird_beta_slug', action: 'PASS' },
-        validSignature as any
+        validSignature
       );
 
       expect(res.success).toBe(true);
-      expect(SystemGraphDlqModel.create).toHaveBeenCalledTimes(1);
+      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -90,7 +93,7 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
       await expect(
         orchestrator.endorseSkill(
           { targetUid: 'bird_alpha', skillName: 'REACT' },
-          { actorUid: 'bird_alpha', capabilities: [] } as any
+          { actorUid: 'bird_alpha', capabilities: [] }
         )
       ).rejects.toThrow(IlotError);
     });
@@ -98,15 +101,20 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
     it('🟢 doit apposer le Sceau de Confiance et propager l\'interaction universelle', async () => {
       const res = await orchestrator.endorseSkill(
         { targetUid: 'target_slug', skillName: 'NEO4J', comment: 'Excellent modélisateur' },
-        validSignature as any
+        validSignature
       );
 
       expect(res.success).toBe(true);
       expect(res.skill).toBe('NEO4J');
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
-      expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
-      expect(syncUniversalInteraction).toHaveBeenCalledWith('resolved_bird_alpha', 'resolved_target_slug', 'KONTAKT');
+      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledTimes(1);
+      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledWith(
+        'resolved_bird_alpha', 
+        'resolved_target_slug', 
+        'KONTAKT',
+        'endorseSkill'
+      );
     });
   });
 
@@ -114,16 +122,20 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
     it('🟢 doit enregistrer une demande et propager l\'interaction universelle avec l\'intermédiaire', async () => {
       const res = await orchestrator.requestIntroduction(
         { intermediaryUid: 'inter_slug', targetUid: 'target_slug', message: 'Hello!' },
-        validSignature as any
+        validSignature
       );
 
       expect(res.success).toBe(true);
       expect(res.status).toBe('PENDING');
-      expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(3); 
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
-      expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
-      expect(syncUniversalInteraction).toHaveBeenCalledWith('resolved_bird_alpha', 'resolved_inter_slug', 'KONTAKT');
+      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledTimes(1);
+      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledWith(
+        'resolved_bird_alpha', 
+        'resolved_inter_slug', 
+        'KONTAKT',
+        'requestIntroduction'
+      );
     });
   });
 });

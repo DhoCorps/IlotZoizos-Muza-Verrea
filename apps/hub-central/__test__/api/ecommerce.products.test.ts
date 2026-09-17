@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '../../app/api/ecommerce/products/route';
+import { POST } from '@/app/api/ecommerce/products/route';
 import { ProductModel, OiseauModel } from '@ilot/infrastructure';
+import { NextResponse, NextRequest } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
 // Mock global de l'infrastructure
 vi.mock('@ilot/infrastructure', () => ({
@@ -15,25 +17,46 @@ vi.mock('@ilot/infrastructure', () => ({
 }));
 
 // Mock des gardiens d'API (`withAura`)
-let mockCurrentUser = { uid: 'bird_clean_1', capabilities: ['*'] };
-vi.mock('@/lib/api-guards', () => ({
-    withAura: (handler: any) => {
-        return async (req: Request, context: any) => {
-            return handler(req, context, mockCurrentUser);
-        };
-    },
-    withSilice: (handler: any) => handler,
-}));
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+    return {
+        ...actual,
+        withAura: (handler: unknown) => {
+            return async (req: NextRequest, context: ApiContext) => {
+                const mockUser = global.__mockUser;
+                if (!mockUser || !mockUser.uid) {
+                    return NextResponse.json({ success: false, error: "Oiseau non identifié." }, { status: 401 });
+                }
+                // @ts-ignore
+                return await handler(req, context, mockUser);
+            };
+        },
+        withSilice: (handler: unknown) => handler,
+        handleRouteError: (error: unknown, defaultMessage: string) => {
+            const status = (error as { status?: number }).status || 500;
+            const message = (error as { message?: string }).message || defaultMessage;
+            return NextResponse.json({ success: false, error: message }, { status });
+        }
+    };
+});
 
 vi.mock('next/cache', () => ({
     revalidateTag: vi.fn(),
-    unstable_cache: (fn: any) => fn,
+    unstable_cache: (fn: Function) => fn,
 }));
 
+declare global {
+  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
+}
+
+type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
+
 describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => {
+    const postHandler = POST as unknown as RouteHandler;
+
     beforeEach(() => {
         vi.clearAllMocks();
-        mockCurrentUser = { uid: 'bird_clean_1', capabilities: ['*'] };
+        global.__mockUser = { uid: 'bird_clean_1', capabilities: ['*'] };
     });
 
     it('🔴 doit rejeter avec une erreur 403 si l oiseau est classé INDESIRABLE ou banni', async () => {
@@ -44,16 +67,15 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
                 profileStatus: 'INDESIRABLE',
                 isBanned: false,
             })
-        } as any);
+        } as unknown as ReturnType<typeof OiseauModel.findOne>);
 
-        const req = new Request('http://localhost/api/ecommerce/products', {
+        const req = new NextRequest('http://localhost/api/ecommerce/products', {
             method: 'POST',
             body: JSON.stringify({ title: 'Artefact Interdit', priceCents: 1000, category: 'PHYSICAL_ARTIFACT', storeUid: 'store_1', description: 'Test' }),
-            headers: { 'Content-Type': 'application/json' }
-        }) as unknown as import('next/server').NextRequest;
+        });
 
-        const response = await POST(req, { params: {} } as any);
-        const json = await response.json();
+        const response = await postHandler(req, {} as ApiContext);
+        const json = await response.json() as { success: boolean; error: string };
 
         expect(response.status).toBe(403);
         expect(json.error).toContain('Souveraineté restreinte');
@@ -67,17 +89,16 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
                 profileStatus: 'RESPECTABLE',
                 isBanned: false,
             })
-        } as any);
+        } as unknown as ReturnType<typeof OiseauModel.findOne>);
 
         // Payload volontairement invalide (absence de storeUid et de catégorie valide)
-        const req = new Request('http://localhost/api/ecommerce/products', {
+        const req = new NextRequest('http://localhost/api/ecommerce/products', {
             method: 'POST',
             body: JSON.stringify({ title: 'Artefact Invalide', priceCents: -50 }),
-            headers: { 'Content-Type': 'application/json' }
-        }) as unknown as import('next/server').NextRequest;
+        });
 
-        const response = await POST(req, { params: {} } as any);
-        const json = await response.json();
+        const response = await postHandler(req, {} as ApiContext);
+        const json = await response.json() as { success: boolean; error: string };
 
         expect(response.status).toBe(400);
         expect(json.error).toContain('Contrat souverain invalide');
@@ -92,21 +113,21 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
                 profileStatus: 'RESPECTABLE',
                 isBanned: false,
             })
-        } as any);
+        } as unknown as ReturnType<typeof OiseauModel.findOne>);
 
         // 2. Simulation de la vérification de slug unique (renvoie null pour dire qu'il n'existe pas)
         vi.mocked(ProductModel.findOne).mockReturnValue({
             lean: vi.fn().mockResolvedValueOnce(null)
-        } as any);
+        } as unknown as ReturnType<typeof ProductModel.findOne>);
 
         vi.mocked(ProductModel.create).mockResolvedValueOnce({
             uid: 'prod_123',
             title: 'Artefact Lumineux',
             slug: 'artefact-lumineux',
             storeUid: 'store_1'
-        } as any);
+        } as unknown as Awaited<ReturnType<typeof ProductModel.create>>);
 
-        const req = new Request('http://localhost/api/ecommerce/products', {
+        const req = new NextRequest('http://localhost/api/ecommerce/products', {
             method: 'POST',
             body: JSON.stringify({ 
                 uid: 'prod_123',
@@ -117,11 +138,10 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
                 priceCents: 1500, 
                 category: 'DIGITAL_GOOD' 
             }),
-            headers: { 'Content-Type': 'application/json' }
-        }) as unknown as import('next/server').NextRequest;
+        });
 
-        const response = await POST(req, { params: {} } as any);
-        const json = await response.json();
+        const response = await postHandler(req, {} as ApiContext);
+        const json = await response.json() as { success: boolean; data: { uid: string } };
 
         expect(response.status).toBe(201);
         expect(json.success).toBe(true);

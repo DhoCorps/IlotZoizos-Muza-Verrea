@@ -14,6 +14,7 @@ export interface ExternalPaymentProfile {
 
 export type AccountStatus = 'ACTIVE' | 'UNDER_JUDGMENT' | 'EXILED';
 export type KarmaStatus = 'clear' | 'muted' | 'quarantined' | 'banned';
+export type ProfileStatus = 'RESPECTABLE' | 'NEUTRAL' | 'INDESIRABLE';
 
 export interface OiseauDocument extends IOiseau, Document { 
   _id: Types.ObjectId; 
@@ -30,6 +31,10 @@ export interface OiseauDocument extends IOiseau, Document {
   karmaStatus: KarmaStatus;
   strikes: number;
   gracesUsed: number;
+
+  // 🛡️ SUTURE MODÉRATION : Douane Vibratoire & Tribunal de la Canopée
+  isBanned: boolean;
+  profileStatus: ProfileStatus;
 }
 
 const OiseauSchema = new Schema<OiseauDocument>(
@@ -75,6 +80,14 @@ const OiseauSchema = new Schema<OiseauDocument>(
     },
     strikes: { type: Number, default: 0 },
     gracesUsed: { type: Number, default: 0, max: 3 },
+
+    // 🛡️ SUTURE MODÉRATION : Intégration des attributs de la Douane Vibratoire
+    isBanned: { type: Boolean, default: false },
+    profileStatus: { 
+      type: String, 
+      enum: ['RESPECTABLE', 'NEUTRAL', 'INDESIRABLE'], 
+      default: 'RESPECTABLE' 
+    },
 
     documents: [{
       uid: { type: String, required: true },

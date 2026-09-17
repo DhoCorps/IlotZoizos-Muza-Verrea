@@ -3,9 +3,10 @@ import { IPartita } from '@ilot/types';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { randomUUID, randomBytes } from 'crypto';
+import { randomUUID } from 'crypto';
 import { MusicTheoryEngine, Note } from '../utils/musicTheory.engine';
 import { generateSlug } from '../utils/string.engine';
+import { ensureUniqueSlug } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
 
 export interface PartitaSyncResult {
   uid?: string;
@@ -13,7 +14,39 @@ export interface PartitaSyncResult {
   success: boolean;
   status: string;
   mongo: IPartita;
-  neo4j: any;
+  neo4j: unknown;
+}
+
+export interface FosterPartitaPayload {
+  uid?: string;
+  title?: string;
+  slug?: string;
+  content?: string;
+  instrument?: string;
+  format?: string;
+  tuning?: string;
+  authorUid: string;
+  status?: 'DRAFT' | 'RELEASED' | 'ARCHIVED';
+  tags?: string[];
+  connections?: {
+    relatedProjects?: string[];
+  };
+  merchLink?: {
+    productId?: string;
+  };
+  media?: Record<string, unknown>;
+  settings?: Record<string, unknown>;
+}
+
+export interface UpdatePartitaPayload {
+  title?: string;
+  content?: string;
+  status?: 'DRAFT' | 'RELEASED' | 'ARCHIVED';
+  instrument?: string;
+  merchLink?: {
+    productId?: string;
+  };
+  [key: string]: unknown;
 }
 
 /**
@@ -24,26 +57,12 @@ export interface PartitaSyncResult {
 export class PartitaOrchestrator {
   
   /**
-   * Utilitaire interne pour garantir l'unicité du slug sans boucle séquentielle bloquante (Race Conditions E11000).
-   */
-  private async ensureUniqueSlug(Model: any, baseSlug: string, session: any): Promise<string> {
-    let finalSlug = baseSlug;
-    let exists = await Model.findOne({ slug: finalSlug }).session(session).lean();
-    
-    if (exists) {
-      const randomSuffix = randomBytes(2).toString('hex');
-      finalSlug = `${baseSlug}-${randomSuffix}`;
-    }
-    return finalSlug;
-  }
-
-  /**
    * Analyse sommaire du contenu pour en extraire des notes brutes.
    */
   private extractNotesFromContent(content: string): Note[] {
     const noteRegex = /\b([CDEFGAB][#b]?)\b/g;
     const notes: Note[] = [];
-    let match;
+    let match: RegExpExecArray | null;
     while ((match = noteRegex.exec(content)) !== null) {
       let n = match[1].toUpperCase();
       if (n === 'DB') n = 'C#';
@@ -61,7 +80,7 @@ export class PartitaOrchestrator {
   /**
    * 🎼 FONDATION : FORGER UNE PARTITION
    */
-  async fosterPartita(data: any, signature: ActionSignature): Promise<PartitaSyncResult> {
+  async fosterPartita(data: FosterPartitaPayload, signature: ActionSignature): Promise<PartitaSyncResult> {
     const isSelf = signature.actorUid === data.authorUid;
     if (!isSelf && !signature.capabilities.includes('*')) {
         throw new IlotError("Aura insuffisante pour composer à la place d'un autre.", "FORBIDDEN", 403);
@@ -82,9 +101,9 @@ export class PartitaOrchestrator {
       const partitaUid = data.uid || `partita_${randomUUID()}`;
       const title = data.title || "Partition sans nom";
     
-      // Sécurisation atomique de l'unicité du slug
-      let baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
-      let finalSlug = await this.ensureUniqueSlug(PartitaModel, baseSlug, mongoSession);
+      // Sécurisation atomique de l'unicité du slug via l'utilitaire global
+      const baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
+      const finalSlug = await ensureUniqueSlug(PartitaModel, baseSlug, mongoSession);
 
       const newPartitaData = {
         uid: partitaUid,
@@ -113,8 +132,9 @@ export class PartitaOrchestrator {
       try {
         const created = await PartitaModel.create([newPartitaData], { session: mongoSession });
         newPartitaDoc = created[0];
-      } catch (err: any) {
-        if (err.code === 11000) {
+      } catch (err: unknown) {
+        const error = err as { code?: number };
+        if (error.code === 11000) {
           throw new IlotError("Collision critique de slug sur la partition. Veuillez réitérer.", "CONFLICT", 409);
         }
         throw err;
@@ -198,11 +218,11 @@ export class PartitaOrchestrator {
   /**
    * 🔄 MUTATION : MISE À JOUR DE PARTITION
    */
-  async updatePartita(partitaUidOrSlug: string, updates: any, signature: ActionSignature): Promise<PartitaSyncResult> {
-    const existing = await findEntityBySlugOrUid(PartitaModel, partitaUidOrSlug);
+  async updatePartita(partitaUidOrSlug: string, updates: UpdatePartitaPayload, signature: ActionSignature): Promise<PartitaSyncResult> {
+    const existing = await findEntityBySlugOrUid(PartitaModel, partitaUidOrSlug) as IPartita | null;
     if (!existing) throw new IlotError("Partition introuvable dans la Silice.", "NOT_FOUND", 404);
 
-    const isAuthor = (existing as any).authorUid === signature.actorUid;
+    const isAuthor = existing.authorUid === signature.actorUid;
     if (!isAuthor && !signature.capabilities.includes('*')) {
       throw new IlotError("Tu ne peux modifier que tes propres partitions.", "FORBIDDEN", 403);
     }
@@ -212,7 +232,7 @@ export class PartitaOrchestrator {
 
       let theoryUpdate = {};
       let bestScale = null;
-      if (updates.content && updates.content !== (existing as any).content) {
+      if (updates.content && updates.content !== existing.content) {
           const playedNotes = this.extractNotesFromContent(updates.content);
           const detectedScales = playedNotes.length >= 3 ? MusicTheoryEngine.detectScale(playedNotes) : [];
           bestScale = (detectedScales.length > 0 && detectedScales[0].score >= 80) ? detectedScales[0] : null;
@@ -226,7 +246,7 @@ export class PartitaOrchestrator {
       };
 
       const updatedPartita = await PartitaModel.findOneAndUpdate(
-        { uid: (existing as any).uid },
+        { uid: existing.uid },
         { $set: finalUpdates },
         { new: true, session: mongoSession }
       ).lean() as unknown as IPartita;
@@ -259,7 +279,7 @@ export class PartitaOrchestrator {
 
           WITH p
           CALL {
-              WITH p
+              With p
               WITH p WHERE $scaleRoot IS NOT NULL AND $scaleKey IS NOT NULL
               MERGE (scale:Scale { root: $scaleRoot, scaleKey: $scaleKey })
               ON CREATE SET scale.name = $scaleName, scale.flavor = $scaleFlavor
@@ -269,7 +289,7 @@ export class PartitaOrchestrator {
 
           RETURN p
         `, { 
-          partitaUid: (existing as any).uid, 
+          partitaUid: existing.uid, 
           title: updates.title || null,
           status: updates.status || null, 
           instrument: updates.instrument || null,
@@ -299,23 +319,23 @@ export class PartitaOrchestrator {
   /**
    * 🔥 DÉSINTÉGRATION : PURGE D'UNE PARTITION
    */
-  async disintegratePartita(partitaUidOrSlug: string, signature: ActionSignature) {
-    const existing = await findEntityBySlugOrUid(PartitaModel, partitaUidOrSlug);
+  async disintegratePartita(partitaUidOrSlug: string, signature: ActionSignature): Promise<{ success: boolean; purgedCount: number; filesToDelete: string[] }> {
+    const existing = await findEntityBySlugOrUid(PartitaModel, partitaUidOrSlug) as IPartita | null;
     if (!existing) throw new IlotError("Partition introuvable.", "NOT_FOUND", 404);
 
-    const isAuthor = (existing as any).authorUid === signature.actorUid;
+    const isAuthor = existing.authorUid === signature.actorUid;
     if (!isAuthor && !signature.capabilities.includes('*')) {
       throw new IlotError("Seul l'auteur ou le système peut brûler cette partition.", "FORBIDDEN", 403);
     }
 
     return await TransactionManager.execute("Désintégration de Partition", async (mongoSession, neo4jTx) => {
       const filesToDelete: string[] = [];
-      const media = (existing as any).media;
+      const media = existing.media as { coverImageUrl?: string; audioTrackUrl?: string } | undefined;
       if (media?.coverImageUrl) filesToDelete.push(media.coverImageUrl);
       if (media?.audioTrackUrl) filesToDelete.push(media.audioTrackUrl);
 
-      await neo4jTx.run(`MATCH (p:Partita { uid: $partitaUid }) DETACH DELETE p`, { partitaUid: (existing as any).uid });
-      await PartitaModel.deleteOne({ uid: (existing as any).uid }, { session: mongoSession });
+      await neo4jTx.run(`MATCH (p:Partita { uid: $partitaUid }) DETACH DELETE p`, { partitaUid: existing.uid });
+      await PartitaModel.deleteOne({ uid: existing.uid }, { session: mongoSession });
 
       return { success: true, purgedCount: 1, filesToDelete };
     });

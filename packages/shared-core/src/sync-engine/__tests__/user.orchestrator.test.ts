@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OiseauOrchestrator } from '../user.orchestrator';
-import { OiseauModel, TeamModel, ProjectModel, TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { OiseauModel, TeamModel, ProjectModel, TaskModel } from '@ilot/infrastructure';
+import * as orchestratorEngine from '../../utils/orchestrator.engine';
 import { IlotError } from '../../errors/ilot.errors';
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -48,7 +49,15 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       })),
       deleteMany: vi.fn() 
     },
-    findEntityBySlugOrUid: vi.fn(),
+  };
+});
+
+// 🛡️ Mock direct de resolveCanonicalUid pour s'affranchir de la base de données dans les tests unitaires
+vi.mock('../../utils/orchestrator.engine', async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    resolveCanonicalUid: vi.fn(),
   };
 });
 
@@ -71,9 +80,12 @@ describe('OiseauOrchestrator - Souveraineté de l\'Oiseau (Phase 2)', () => {
     vi.clearAllMocks();
     orchestrator = new OiseauOrchestrator(mockStorageManager);
 
-    vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model, identifier: any) => {
-      const clean = identifier || 'unknown';
-      return { uid: `resolved_${clean}` } as any;
+    // Simulation du comportement de l'utilitaire global de résolution
+    vi.mocked(orchestratorEngine.resolveCanonicalUid).mockImplementation(async (_model, identifier: any) => {
+      if (!identifier) {
+        throw new IlotError("Oiseau introuvable dans la Silice", "NOT_FOUND", 404);
+      }
+      return identifier;
     });
 
     vi.mocked(OiseauModel.findOneAndDelete).mockImplementation(() => ({
@@ -115,14 +127,14 @@ describe('OiseauOrchestrator - Souveraineté de l\'Oiseau (Phase 2)', () => {
 
       const res = await orchestrator.fosterOiseau({ email: 'test@ilot.com', pseudo: 'Nouveau', password: '123' });
       expect(res.success).toBe(true);
-      expect(res.mongo.pseudo).toBe('Nouveau');
+      expect((res.mongo as any).pseudo).toBe('Nouveau');
     });
   });
 
   describe('syncOiseau', () => {
     it('🔴 doit rejeter (403) si l\'acteur usurpe un autre profil', async () => {
-      vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model, identifier: any) => {
-        return { uid: identifier } as any;
+      vi.mocked(orchestratorEngine.resolveCanonicalUid).mockImplementation(async (_model, identifier: any) => {
+        return identifier; // Retourne l'identifiant brut pour simuler l'écart entre l'acteur et la cible
       });
 
       await expect(
@@ -130,7 +142,7 @@ describe('OiseauOrchestrator - Souveraineté de l\'Oiseau (Phase 2)', () => {
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit synchroniser l\'oiseau directement par UID canonique via findEntityBySlugOrUid', async () => {
+    it('🟢 doit synchroniser l\'oiseau directement par UID canonique via resolveCanonicalUid', async () => {
       vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce({ uid: 'bird_canonical_1', pseudo: 'Modifié' })
       } as any);
@@ -141,8 +153,8 @@ describe('OiseauOrchestrator - Souveraineté de l\'Oiseau (Phase 2)', () => {
       );
 
       expect(res.success).toBe(true);
-      expect(res.mongo.pseudo).toBe('Modifié');
-      expect(findEntityBySlugOrUid).toHaveBeenCalled();
+      expect((res.mongo as any).pseudo).toBe('Modifié');
+      expect(orchestratorEngine.resolveCanonicalUid).toHaveBeenCalled();
     });
   });
 

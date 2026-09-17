@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { Record } from 'neo4j-driver';
 import { TeamModel, findEntityBySlugOrUid, getNeo4jSession } from "@ilot/infrastructure"; 
 import { TeamOrchestrator } from "@ilot/shared-core";
 import { CAPABILITIES, ActionSignature } from "@ilot/types";
@@ -45,7 +44,7 @@ async function getCapabilities(userUid: string, teamUid: string): Promise<string
     let compiledCaps: string[] = [];
     let isInvited = false;
 
-    result.records.forEach((record: Record) => {
+    result.records.forEach((record: any) => {
       const caps = record.get('caps') || [];
       compiledCaps = [...compiledCaps, ...caps];
       if (record.get('relType') === 'INVITED_TO') {

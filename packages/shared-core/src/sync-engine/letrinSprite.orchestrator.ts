@@ -1,55 +1,59 @@
-import { OiseauModel, FontModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { OiseauModel, FontModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
+import { resolveCanonicalUid } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
+import type { ClientSession } from 'mongoose';
+import type { Transaction, QueryResult } from 'neo4j-driver';
 
 export interface GlyphData {
-  char: string;       // Accepte TOUT : 'A', 'a', '@', 'é', '語', etc. (UTF-8)
-  matrix: any[];      // La matrice 2D du pixel art
-  unicodeHex?: string;// Optionnel, pour stocker le code universel (ex: "U+0041")
+  char: string;         // Accepte TOUT : 'A', 'a', '@', 'é', '語', etc. (UTF-8)
+  matrix: number[][];   // La matrice 2D du pixel art typée strictement
+  unicodeHex?: string;  // Optionnel, pour stocker le code universel (ex: "U+0041")
+  [key: string]: unknown;
+}
+
+export interface FontSpritePayload {
+  uid: string;
+  name: string;
+  slug: string; 
+  authorUid: string;
+  gridSize: { width: number; height: number };
+  glyphs: GlyphData[]; 
+  status?: 'DRAFT' | 'RELEASED' | 'ARCHIVED';
+  [key: string]: unknown;
+}
+
+export interface FontSpriteResult {
+  success: boolean;
+  uid: string;
+  name: string;
+  slug: string;
+  glyphsCount: number;
+  mongoDocument: unknown;
+  [key: string]: unknown;
 }
 
 export class LetrinSpriteOrchestrator {
   
   /**
-   * Utilitaire interne pour résoudre strictement l'UID canonique via l'utilitaire global
-   * Permet d'éradiquer les "FULL GRAPH SCANS" dans Neo4j.
-   */
-  private async resolveCanonicalUid(identifier: string): Promise<string> {
-    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
-    
-    if (!user) {
-      throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
-    }
-    return (user as any).uid;
-  }
-
-  /**
    * 🔠 SÉDIMENTATION D'UNE POLICE DE SPRITES (LETR'IN)
    * Stocke les matrices lourdes dans la Silice (MongoDB) et tisse l'index dans le Graphe (Neo4j).
    */
-  async publishFontSprite(
-    fontData: {
-      uid: string;
-      name: string;
-      slug: string; 
-      authorUid: string;
-      gridSize: { width: number; height: number };
-      glyphs: GlyphData[]; // Typage strict pour rassurer sur les majuscules/minuscules/spéciaux
-      status?: 'DRAFT' | 'RELEASED' | 'ARCHIVED';
-    },
+  public async publishFontSprite(
+    fontData: FontSpritePayload,
     signature: ActionSignature
-  ) {
+  ): Promise<FontSpriteResult> {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour sédimenter une police de sprites.", "UNAUTHORIZED", 401);
     }
 
     const fontStatus = fontData.status || 'DRAFT';
     
-    // 1. Résolution stricte de l'UID via findEntityBySlugOrUid
-    const authorCanonicalUid = await this.resolveCanonicalUid(fontData.authorUid);
+    // 1. Résolution stricte de l'UID via l'utilitaire global
+    const authorCanonicalUid = await resolveCanonicalUid(OiseauModel, fontData.authorUid, "Oiseau auteur");
 
-    return await TransactionManager.execute("Sédimentation Police Sprite Letr'In", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Sédimentation Police Sprite Letr'In", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
       
@@ -83,14 +87,14 @@ export class LetrinSpriteOrchestrator {
         RETURN l.uid AS uid
       `;
 
-      const neoResult = await neo4jTx.run(cypher, {
+      const neoResult = (await neo4jTx.run(cypher, {
         authorUid: authorCanonicalUid,
         uid: fontData.uid,
         name: fontData.name,
         slug: fontData.slug,
         status: fontStatus,
         now: now.toISOString()
-      });
+      })) as QueryResult;
 
       if (neoResult.records.length === 0) {
         throw new IlotError("Échec de la sédimentation du nœud typographique dans le Graphe.", "INTERNAL_ERROR", 500);

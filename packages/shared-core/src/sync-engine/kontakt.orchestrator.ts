@@ -1,40 +1,57 @@
-import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure'; // 👈 Import de la DLQ
+import { resolveCanonicalUid, safeSyncUniversalInteraction } from '../utils/orchestrator.engine'; // 🛡️ Import des utilitaires globaux
+
+export interface RegisterSwipePayload {
+  swiperUid: string;
+  targetUid: string;
+  action: 'LIKE' | 'PASS';
+  [key: string]: unknown;
+}
+
+export interface EndorseSkillPayload {
+  targetUid: string;
+  skillName: string;
+  comment?: string;
+  [key: string]: unknown;
+}
+
+export interface RequestIntroductionPayload {
+  intermediaryUid: string;
+  targetUid: string;
+  message: string;
+  [key: string]: unknown;
+}
+
+export interface KontaktSyncResult {
+  success: boolean;
+  action?: 'LIKE' | 'PASS';
+  match?: boolean;
+  targetUid?: string;
+  skill?: string;
+  status?: string;
+}
 
 export class KontaktOrchestrator {
-
-  /**
-   * Utilitaire interne pour résoudre strictement l'UID canonique via l'utilitaire global
-   * Permet d'éradiquer les "FULL GRAPH SCANS" dans Neo4j.
-   */
-  private async resolveCanonicalUid(identifier: string): Promise<string> {
-    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
-    
-    if (!user) {
-      throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
-    }
-    return (user as any).uid;
-  }
 
   /**
    * 💘 GESTION D'UN SWIPE / MATCH (Le Tinder Pro & JDR)
    * Enregistre l'interaction et crée un lien de résonance dans le Graphe si c'est un Match.
    */
   async registerSwipe(
-    data: { swiperUid: string; targetUid: string; action: 'LIKE' | 'PASS' },
+    data: RegisterSwipePayload,
     signature: ActionSignature
-  ) {
+  ): Promise<KontaktSyncResult> {
     if (!signature.actorUid) {
       throw new IlotError("Oiseau non authentifié pour effectuer un swipe.", "UNAUTHORIZED", 401);
     }
 
-    const swiperCanonicalUid = await this.resolveCanonicalUid(data.swiperUid);
-    const targetCanonicalUid = await this.resolveCanonicalUid(data.targetUid);
+    const swiperCanonicalUid = await resolveCanonicalUid(OiseauModel, data.swiperUid, "Oiseau swiper");
+    const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, data.targetUid, "Oiseau cible");
 
-    const result = await TransactionManager.execute("Enregistrement de Swipe Kontakt", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Enregistrement de Swipe Kontakt", async (_mongoSession, neo4jTx) => {
       const now = new Date();
       let isMatch = false;
 
@@ -85,25 +102,9 @@ export class KontaktOrchestrator {
       return { success: true, action: data.action, match: isMatch };
     });
 
-    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL : Fallback DLQ en cas d'échec
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA LA DLQ CENTRALISÉE
     if (swiperCanonicalUid !== targetCanonicalUid) {
-      try {
-        await syncUniversalInteraction(swiperCanonicalUid, targetCanonicalUid, 'KONTAKT');
-      } catch (err: any) {
-        console.error(`  [Orchestrator] Échec du tissage universel (registerSwipe), basculement DLQ :`, err);
-        try {
-          await SystemGraphDlqModel.create({
-            operationName: 'syncUniversalInteraction_registerSwipe',
-            payload: { sourceUid: swiperCanonicalUid, targetUid: targetCanonicalUid, type: 'KONTAKT' },
-            error: err.message,
-            status: 'PENDING_RETRY',
-            retryCount: 0,
-            timestamp: new Date()
-          });
-        } catch (dlqErr) {
-          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
-        }
-      }
+      await safeSyncUniversalInteraction(swiperCanonicalUid, targetCanonicalUid, 'KONTAKT', 'registerSwipe');
     }
 
     return result;
@@ -113,19 +114,19 @@ export class KontaktOrchestrator {
    * 🏅 LE SCEAU DE CONFIANCE (Endorsement Professionnel)
    */
   async endorseSkill(
-    data: { targetUid: string; skillName: string; comment?: string },
+    data: EndorseSkillPayload,
     signature: ActionSignature
-  ) {
+  ): Promise<KontaktSyncResult> {
     if (!signature.actorUid) throw new IlotError("Identité requise pour apposer un Sceau.", "UNAUTHORIZED", 401);
     
     if (signature.actorUid === data.targetUid) {
       throw new IlotError("On ne peut pas s'auto-attribuer un Sceau de Confiance.", "BAD_REQUEST", 400);
     }
 
-    const targetCanonicalUid = await this.resolveCanonicalUid(data.targetUid);
-    const endorserCanonicalUid = await this.resolveCanonicalUid(signature.actorUid);
+    const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, data.targetUid, "Oiseau cible");
+    const endorserCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau émetteur");
 
-    const result = await TransactionManager.execute("Apposition du Sceau de Confiance", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Apposition du Sceau de Confiance", async (_mongoSession, neo4jTx) => {
       const now = new Date();
 
       const cypher = `
@@ -151,23 +152,7 @@ export class KontaktOrchestrator {
       return { success: true, targetUid: targetCanonicalUid, skill: data.skillName };
     });
 
-    try {
-      await syncUniversalInteraction(endorserCanonicalUid, targetCanonicalUid, 'KONTAKT');
-    } catch (err: any) {
-      console.error(`  [Orchestrator] Échec du tissage universel (endorseSkill), basculement DLQ :`, err);
-      try {
-        await SystemGraphDlqModel.create({
-          operationName: 'syncUniversalInteraction_endorseSkill',
-          payload: { sourceUid: endorserCanonicalUid, targetUid: targetCanonicalUid, type: 'KONTAKT' },
-          error: err.message,
-          status: 'PENDING_RETRY',
-          retryCount: 0,
-          timestamp: new Date()
-        });
-      } catch (dlqErr) {
-        console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
-      }
-    }
+    await safeSyncUniversalInteraction(endorserCanonicalUid, targetCanonicalUid, 'KONTAKT', 'endorseSkill');
 
     return result;
   }
@@ -176,16 +161,16 @@ export class KontaktOrchestrator {
    * 🌉 LA PASSERELLE (Mise en relation)
    */
   async requestIntroduction(
-    data: { intermediaryUid: string; targetUid: string; message: string },
+    data: RequestIntroductionPayload,
     signature: ActionSignature
-  ) {
+  ): Promise<KontaktSyncResult> {
     if (!signature.actorUid) throw new IlotError("Identité requise.", "UNAUTHORIZED", 401);
 
-    const requesterCanonicalUid = await this.resolveCanonicalUid(signature.actorUid);
-    const intermediaryCanonicalUid = await this.resolveCanonicalUid(data.intermediaryUid);
-    const targetCanonicalUid = await this.resolveCanonicalUid(data.targetUid);
+    const requesterCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau demandeur");
+    const intermediaryCanonicalUid = await resolveCanonicalUid(OiseauModel, data.intermediaryUid, "Oiseau intermédiaire");
+    const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, data.targetUid, "Oiseau cible");
 
-    const result = await TransactionManager.execute("Demande de Passerelle", async (mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Demande de Passerelle", async (_mongoSession, neo4jTx) => {
       const now = new Date();
 
       const cypher = `
@@ -216,23 +201,7 @@ export class KontaktOrchestrator {
       return { success: true, status: 'PENDING' };
     });
 
-    try {
-      await syncUniversalInteraction(requesterCanonicalUid, intermediaryCanonicalUid, 'KONTAKT');
-    } catch (err: any) {
-      console.error(`  [Orchestrator] Échec du tissage universel (requestIntroduction), basculement DLQ :`, err);
-      try {
-        await SystemGraphDlqModel.create({
-          operationName: 'syncUniversalInteraction_requestIntroduction',
-          payload: { sourceUid: requesterCanonicalUid, targetUid: intermediaryCanonicalUid, type: 'KONTAKT' },
-          error: err.message,
-          status: 'PENDING_RETRY',
-          retryCount: 0,
-          timestamp: new Date()
-        });
-      } catch (dlqErr) {
-        console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
-      }
-    }
+    await safeSyncUniversalInteraction(requesterCanonicalUid, intermediaryCanonicalUid, 'KONTAKT', 'requestIntroduction');
 
     return result;
   }

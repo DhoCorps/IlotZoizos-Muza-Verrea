@@ -1,16 +1,11 @@
 import mongoose from 'mongoose';
+import type { Document } from 'mongoose';
 
-// 1. Importe Schema (et les autres) en tant que TYPE pur
-import type { Document, Model, Schema as MongooseSchema } from 'mongoose';
-
-// 2. Récupère le constructeur pour le runtime (new mongoose.Schema)
-const { model, models } = mongoose;
-
-// L'interface pour le typage TypeScript dans le modèle
-export interface IKonTraKt extends Document {
+// L'interface Mongoose enrichie pour l'infrastructure
+export interface IKonTraKtDocument extends Document {
   creatorId: string;
   gameId: string;
-  gameMode: 'solo' | 'multiplayer';
+  gameMode: string; // Permet d'accueillir n'importe quel string valide ou enum partagé
   difficulty: 'Initiate' | 'Artisan' | 'Maestro';
   wagerAmount: number;
   wagerCurrency: 'plumes' | 'totamtoes' | 'parchemins' | 'vinyles' | 'sampleNotes';
@@ -20,6 +15,8 @@ export interface IKonTraKt extends Document {
   acceptedById?: string;
   coverCurrency?: 'plumes' | 'totamtoes' | 'parchemins' | 'vinyles' | 'sampleNotes';
   coverAmount?: number;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 const KonTraKtSchema = new mongoose.Schema(
@@ -28,7 +25,6 @@ const KonTraKtSchema = new mongoose.Schema(
     gameId: { type: String, required: true },
     gameMode: { 
       type: String, 
-      enum: ['solo', 'multiplayer'], 
       required: true 
     },
     difficulty: { 
@@ -69,8 +65,8 @@ const KonTraKtSchema = new mongoose.Schema(
     },
     coverAmount: { type: Number, min: [0, 'La couverture ne peut être négative'] }
   },
-  { timestamps: true } // Second argument : Ajoute automatiquement createdAt et updatedAt
+  { timestamps: true }
 );
 
 // Empêche la recompilation du modèle lors du hot-reload de Next.js
-export const KonTraKt = mongoose.models.KonTraKt || mongoose.model<IKonTraKt>('KonTraKt', KonTraKtSchema);
+export const KonTraKt = (mongoose.models.KonTraKt as mongoose.Model<IKonTraKtDocument>) || mongoose.model<IKonTraKtDocument>('KonTraKt', KonTraKtSchema);

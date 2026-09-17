@@ -1,25 +1,53 @@
-import { OiseauModel, TeamModel, ProjectModel, TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { OiseauModel, TeamModel, ProjectModel, TaskModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { IOiseau, CAPABILITIES } from '@ilot/types';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
+import { resolveCanonicalUid } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
+import type { ClientSession } from 'mongoose';
+import type { Transaction, QueryResult } from 'neo4j-driver';
 
 interface IStorageManager {
-  deleteFile(key: string): Promise<any>;
+  deleteFile(key: string): Promise<unknown>;
   extractKeyFromUrl(url: string): string;
 }
 
 export interface OiseauSyncResult {
   success: boolean;
   status: string;
-  mongo: any;
-  neo4j: any;
+  mongo: unknown;
+  neo4j: QueryResult | null;
+  [key: string]: unknown;
 }
 
 export interface ActionSignature {
   actorUid: string;            
   capabilities: string[]; 
+}
+
+export interface FosterOiseauPayload {
+  email: string;
+  password: string;
+  pseudo: string;
+  frequenceHEX?: string;
+  capabilities?: string[];
+  [key: string]: unknown;
+}
+
+interface IDocumentStorage {
+  documents?: Array<{ url?: string; [key: string]: unknown }>;
+  [key: string]: unknown;
+}
+
+interface ITeamUidEntity {
+  uid: string;
+  [key: string]: unknown;
+}
+
+interface IProjectUidEntity {
+  uid: string;
+  [key: string]: unknown;
 }
 
 export class OiseauOrchestrator {
@@ -32,21 +60,14 @@ export class OiseauOrchestrator {
     };
   }
 
-  // 🛡️ Résolution canonique interne via l'utilitaire global unifié
-  private async resolveCanonicalUserUid(identifier: string): Promise<string> {
-    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
-    if (!user) throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
-    return (user as any).uid;
-  }
-
   /**
    * 🐣 L'ÉCLOSION (Création d'un nouvel Oiseau avec Souveraineté Totale)
    */
-  async fosterOiseau(birdData: Record<string, any>): Promise<OiseauSyncResult> {
+  public async fosterOiseau(birdData: FosterOiseauPayload): Promise<OiseauSyncResult> {
     const uid = uuidv4(); 
     const hashedPassword = await bcrypt.hash(birdData.password, 10);
 
-    return await TransactionManager.execute("Éclosion d'Oiseau", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Éclosion d'Oiseau", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
       
       const newOiseauData = {
@@ -84,13 +105,13 @@ export class OiseauOrchestrator {
         RETURN u
       `;
       
-      const neoResult = await neo4jTx.run(cypher, {
+      const neoResult = (await neo4jTx.run(cypher, {
         uid: newOiseauData.uid,
         pseudo: newOiseauData.pseudo,
         frequenceHEX: newOiseauData.frequenceHEX,
         capabilities: newOiseauData.capabilities,
         now: now.toISOString()
-      });
+      })) as QueryResult;
 
       return { 
         success: true, 
@@ -104,13 +125,13 @@ export class OiseauOrchestrator {
   /**
    * 🕊️ L'ENVOL (Mise à jour de l'essence)
    */
-  async syncOiseau(
+  public async syncOiseau(
     oiseauData: Partial<IOiseau> & { uid: string; capabilities?: string[] }, 
     signature: ActionSignature 
   ): Promise<OiseauSyncResult> {
     
-    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
-    const targetCanonicalUid = await this.resolveCanonicalUserUid(oiseauData.uid);
+    const actorCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau acteur");
+    const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, oiseauData.uid, "Oiseau cible");
 
     const isSelfEdit = actorCanonicalUid === targetCanonicalUid;
     const hasGlobalPower = signature.capabilities.includes('*');
@@ -119,10 +140,10 @@ export class OiseauOrchestrator {
       throw new IlotError("Aura insuffisante pour altérer l'essence d'un autre Oiseau.", "FORBIDDEN", 403);
     }
 
-    return await TransactionManager.execute("L'Envol de l'Oiseau", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("L'Envol de l'Oiseau", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
 
-      const updatePayload: Record<string, any> = {};
+      const updatePayload: Record<string, unknown> = {};
       if (oiseauData.pseudo) updatePayload.pseudo = oiseauData.pseudo;
       if (oiseauData.frequenceHEX) updatePayload.frequenceHEX = oiseauData.frequenceHEX;
       
@@ -154,13 +175,13 @@ export class OiseauOrchestrator {
         RETURN u
       `;
 
-      const neoResult = await neo4jTx.run(cypher, {
+      const neoResult = (await neo4jTx.run(cypher, {
         canonicalUid: targetCanonicalUid,
         pseudo: oiseauData.pseudo || null,
         frequenceHEX: oiseauData.frequenceHEX || null,
-        capabilities: updatePayload.capabilities !== undefined ? updatePayload.capabilities : null,
+        capabilities: updatePayload.capabilities !== undefined ? (updatePayload.capabilities as string[]) : null,
         now: now.toISOString()
-      });
+      })) as QueryResult;
 
       return { 
         success: true, 
@@ -174,13 +195,13 @@ export class OiseauOrchestrator {
   /**
    * 💀 L'EXIL (Désintégration Totale et Libération - Phase 4 : Curseurs Mongoose anti Memory Spikes)
    */
-  async exileOiseau(
+  public async exileOiseau(
     oiseauIdentifier: string, 
     signature: ActionSignature 
   ): Promise<{ success: boolean; message: string }> {
     
-    const targetCanonicalUid = await this.resolveCanonicalUserUid(oiseauIdentifier);
-    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
+    const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, oiseauIdentifier, "Oiseau cible");
+    const actorCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau acteur");
 
     const isSelf = actorCanonicalUid === targetCanonicalUid;
     const isRoot = signature.capabilities.includes('*');
@@ -189,7 +210,7 @@ export class OiseauOrchestrator {
       throw new IlotError("Seul l'Oiseau peut fermer son Sanctuaire.", "FORBIDDEN", 403);
     }
 
-    return await TransactionManager.execute("L'Exil de l'Oiseau", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("L'Exil de l'Oiseau", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       
       const batchSize = 50;
       let filesBatch: string[] = [];
@@ -200,8 +221,9 @@ export class OiseauOrchestrator {
           files.map(async (key) => {
             try {
               await this.storageService.deleteFile(key);
-            } catch (err) {
-              console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
+            } catch (error: unknown) {
+              const errMessage = error instanceof Error ? error.message : String(error);
+              console.error(`  [Orchestrator] Échec purge fichier ${key} :`, errMessage);
             }
           })
         );
@@ -210,9 +232,10 @@ export class OiseauOrchestrator {
       // 1. Purge S3/R2 incrémentielle par lots via curseur Mongoose pour les Tâches
       const taskCursor = TaskModel.find({ creatorUid: targetCanonicalUid }).select('documents').session(mongoSession).cursor();
       for await (const task of taskCursor) {
-        if ((task as any).documents && Array.isArray((task as any).documents)) {
-          for (const doc of (task as any).documents) {
-            if (doc.url) {
+        const taskDoc = task as unknown as IDocumentStorage;
+        if (taskDoc.documents && Array.isArray(taskDoc.documents)) {
+          for (const doc of taskDoc.documents) {
+            if (doc && doc.url) {
               filesBatch.push(this.storageService.extractKeyFromUrl(doc.url));
               if (filesBatch.length >= batchSize) {
                 await processBatch(filesBatch);
@@ -226,9 +249,10 @@ export class OiseauOrchestrator {
       // 2. Purge S3/R2 incrémentielle par lots via curseur Mongoose pour les Projets
       const projCursor = ProjectModel.find({ creatorUid: targetCanonicalUid }).select('documents').session(mongoSession).cursor();
       for await (const proj of projCursor) {
-        if ((proj as any).documents && Array.isArray((proj as any).documents)) {
-          for (const doc of (proj as any).documents) {
-            if (doc.url) {
+        const projDoc = proj as unknown as IDocumentStorage;
+        if (projDoc.documents && Array.isArray(projDoc.documents)) {
+          for (const doc of projDoc.documents) {
+            if (doc && doc.url) {
               filesBatch.push(this.storageService.extractKeyFromUrl(doc.url));
               if (filesBatch.length >= batchSize) {
                 await processBatch(filesBatch);
@@ -269,9 +293,9 @@ export class OiseauOrchestrator {
       
       await neo4jTx.run(cypher, { canonicalUid: targetCanonicalUid });
 
-      const userTeams = await TeamModel.find({ ownerUid: targetCanonicalUid }).session(mongoSession).lean();
+      const userTeams = (await TeamModel.find({ ownerUid: targetCanonicalUid }).session(mongoSession).lean()) as unknown as ITeamUidEntity[];
       const teamUids = userTeams.map(t => t.uid);
-      const projects = await ProjectModel.find({ ownerUid: { $in: teamUids } }).session(mongoSession).lean();
+      const projects = (await ProjectModel.find({ ownerUid: { $in: teamUids } }).session(mongoSession).lean()) as unknown as IProjectUidEntity[];
       const projectUids = projects.map(p => p.uid);
 
       await TaskModel.deleteMany({ $or: [{ projectUid: { $in: projectUids } }, { creatorUid: targetCanonicalUid }] }, { session: mongoSession });
@@ -283,14 +307,14 @@ export class OiseauOrchestrator {
     });
   }
 
-  async purgeProjectActivities(
+  public async purgeProjectActivities(
     targetUserIdentifier: string,
     projectUid: string,
     signature: ActionSignature
   ): Promise<{ success: boolean; message: string }> {
     
-    const targetCanonicalUid = await this.resolveCanonicalUserUid(targetUserIdentifier);
-    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
+    const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, targetUserIdentifier, "Oiseau cible");
+    const actorCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau acteur");
 
     const isAuthorized = actorCanonicalUid === targetCanonicalUid || signature.capabilities.includes('*');
     if (!isAuthorized) throw new IlotError("Souveraineté violée.", "FORBIDDEN", 403);
@@ -298,7 +322,7 @@ export class OiseauOrchestrator {
     const project = await ProjectModel.findOne({ uid: projectUid });
     if (!project) throw new IlotError("Chantier introuvable.", "NOT_FOUND", 404);
 
-    return await TransactionManager.execute("Purge Activités Projet", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Purge Activités Projet", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       await neo4jTx.run(`
         MATCH (u:User {uid: $userUid})
         MATCH (p:Project {uid: $projectUid})
@@ -316,36 +340,36 @@ export class OiseauOrchestrator {
     });
   }
 
-  async appliquerFluctuation(
+  public async appliquerFluctuation(
     oiseauIdentifier: string,
     entropie: number,
     signature: ActionSignature,
     frequenceHEX?: string
   ): Promise<OiseauSyncResult> {
     
-    const targetCanonicalUid = await this.resolveCanonicalUserUid(oiseauIdentifier);
-    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
+    const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, oiseauIdentifier, "Oiseau cible");
+    const actorCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau acteur");
 
     const isSelf = actorCanonicalUid === targetCanonicalUid;
     if (!isSelf && !signature.capabilities.includes('*')) throw new IlotError("Aura insuffisante.", "FORBIDDEN", 403);
 
-    return await TransactionManager.execute("Fluctuation d'Oiseau", async (_mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Fluctuation d'Oiseau", async (_mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
 
-      const updateData: Record<string, any> = { entropieActive: entropie };
+      const updateData: Record<string, unknown> = { entropieActive: entropie };
       if (frequenceHEX) updateData.frequenceHEX = frequenceHEX;
       updateData['dates.updatedAt'] = now;
 
       const updatedMongo = await OiseauModel.findOneAndUpdate({ uid: targetCanonicalUid }, { $set: updateData }, { new: true }).lean();
       if (!updatedMongo) throw new IlotError("Oiseau introuvable.", "NOT_FOUND", 404);
 
-      await neo4jTx.run(`MATCH (u:User {uid: $uid}) SET u.frequenceHEX = coalesce($hex, u.frequenceHEX), u.updatedAt = datetime($now)`, { 
+      const neoResult = (await neo4jTx.run(`MATCH (u:User {uid: $uid}) SET u.frequenceHEX = coalesce($hex, u.frequenceHEX), u.updatedAt = datetime($now) RETURN u`, { 
         uid: targetCanonicalUid, 
         hex: frequenceHEX || null,
         now: now.toISOString() 
-      });
+      })) as QueryResult;
 
-      return { success: true, status: 'success', mongo: updatedMongo, neo4j: null };
+      return { success: true, status: 'success', mongo: updatedMongo, neo4j: neoResult };
     });
   }
 }

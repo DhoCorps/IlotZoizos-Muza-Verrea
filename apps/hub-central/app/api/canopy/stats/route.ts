@@ -1,20 +1,41 @@
-// Fichier : app/api/canopy/stats/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { withSilice, ApiContext } from '@/lib/api-guards';
+import { withSilice, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedCanopyStats } from '@/lib/cache/canopy.cache';
 
-export const GET = withSilice(async (req: Request, _context: ApiContext) => {
+interface CanopyStatsSnapshot {
+  yearMonth: string;
+  macroTotals: Record<string, unknown>;
+  topSellers: unknown[];
+  topBuyers: unknown[];
+  mostCommented: unknown[];
+  mostReactive: unknown[];
+}
+
+// ==========================================
+// GET : Récupérer les statistiques de la dernière diffusion Canopy (Public / Silice)
+// ==========================================
+export const GET = withSilice(async (_req: Request, _context: ApiContext) => {
   try {
     const latestBroadcast = await getCachedCanopyStats();
-    if (!latestBroadcast || !latestBroadcast.metadata || !('statsSnapshot' in latestBroadcast.metadata)) {
+    if (!latestBroadcast || !latestBroadcast.metadata || typeof latestBroadcast.metadata !== 'object') {
       return NextResponse.json(
         { success: false, message: "Aucun bilan de la canopée disponible pour le moment." }, 
         { status: 404 }
       );
     }
-    const snapshot = (latestBroadcast.metadata as any).statsSnapshot;
+
+    const metadata = latestBroadcast.metadata as Record<string, unknown>;
+    if (!('statsSnapshot' in metadata) || !metadata.statsSnapshot) {
+      return NextResponse.json(
+        { success: false, message: "Aucun bilan de la canopée disponible pour le moment." }, 
+        { status: 404 }
+      );
+    }
+
+    const snapshot = metadata.statsSnapshot as CanopyStatsSnapshot;
+
     return NextResponse.json({
       success: true,
       yearMonth: snapshot.yearMonth,
@@ -25,12 +46,9 @@ export const GET = withSilice(async (req: Request, _context: ApiContext) => {
       mostReactive: snapshot.mostReactive,
       broadcastedAt: latestBroadcast.createdAt
     }, { status: 200 });
-  } catch (error: any) {
-    console.error('  [CANOPY STATS ERROR] :', error);
-    const status = error.statusCode || error.status || 500;
-    return NextResponse.json(
-      { success: false, error: error.message || "Erreur interne de la régulation." }, 
-      { status }
-    );
+
+  } catch (error: unknown) {
+    // 🛡️ Utilisation du gestionnaire d'erreur global (zéro 'any')
+    return handleRouteError(error, "Erreur interne de la régulation.");
   }
 });

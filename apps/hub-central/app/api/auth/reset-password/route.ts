@@ -5,7 +5,8 @@ import bcrypt from "bcryptjs";
 import { OiseauModel } from "@ilot/infrastructure";
 import { ResetPasswordSchema } from "@ilot/types";
 import { revalidateTag } from "next/cache";
-import { withSilice, ApiContext } from "@/lib/api-guards";
+import { withSilice, ApiContext, handleRouteError } from "@/lib/api-guards";
+import { IOiseau } from "@ilot/types";
 
 // ==========================================
 // 🛡️ POST : Sceller une nouvelle clé (Public / Silice)
@@ -14,21 +15,22 @@ export const POST = withSilice(async (req: Request, _context: ApiContext) => {
   try {
     const body = await req.json().catch(() => null);
     if (!body) {
-      return NextResponse.json({ error: "Flux illisible." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Flux illisible." }, { status: 400 });
     }
     
     // 🛡️ Validation stricte via Zod
     const validation = ResetPasswordSchema.safeParse(body);
     if (!validation.success) {
+      const errorMessages = validation.error.issues.map(issue => issue.message).join(" ");
       return NextResponse.json(
-        { error: "Données invalides ou mots de passe non identiques." }, 
+        { success: false, error: errorMessages || "Données invalides ou mots de passe non identiques." }, 
         { status: 400 }
       );
     }
 
     const { token, password } = validation.data;
 
-    // 🔨 Jambonisage : Hachage de la nouvelle clé
+    // 🔨 Hachage de la nouvelle clé
     const hashedPassword = await bcrypt.hash(password, 12);
 
     // 🚀 Mise à jour atomique : Trouve, Change et Nettoie d'un coup
@@ -42,12 +44,12 @@ export const POST = withSilice(async (req: Request, _context: ApiContext) => {
         $unset: { resetPasswordToken: "", resetPasswordExpires: "" } 
       },
       { new: true }
-    );
+    ).lean() as unknown as IOiseau | null;
 
     if (!user) {
       console.warn("❌ [RESET] Tentative de forge échouée (token invalide ou expiré)");
       return NextResponse.json(
-        { error: "Le lien de récupération est invalide ou a expiré." }, 
+        { success: false, error: "Le lien de récupération est invalide ou a expiré." }, 
         { status: 400 }
       );
     }
@@ -63,11 +65,8 @@ export const POST = withSilice(async (req: Request, _context: ApiContext) => {
       message: "Ta nouvelle clé est scellée. Bon vol !" 
     });
 
-  } catch (error: any) {
-    console.error("🚨 [RESET ERROR]", error);
-    return NextResponse.json(
-      { error: "La forge a surchauffé. Réessaie plus tard." }, 
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    // 🛡️ Utilisation du gestionnaire d'erreur global (zéro 'any')
+    return handleRouteError(error, "La forge a surchauffé. Réessaie plus tard.");
   }
 });

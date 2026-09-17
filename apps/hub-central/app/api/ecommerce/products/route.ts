@@ -1,54 +1,64 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { ProductModel, OiseauModel } from '@ilot/infrastructure';
+import { IOiseau} from '@ilot/types';
 import { v4 as uuidv4 } from 'uuid';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withSilice, withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedProducts } from '@/lib/cache/ecommerce.cache';
-import { ProductSchema } from '@ilot/types';
+import { ProductSchema, IProduct } from '@ilot/types';
 
 // ==========================================
 // GET : Recenser les artefacts du catalogue (Public / Silice)
 // ==========================================
-export const GET = withSilice(async (req: Request, _context: ApiContext) => {
+export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => {
   try {
-    const url = new URL(req.url);
+    let url: URL;
+    try {
+      url = new URL(req.url);
+    } catch {
+      return NextResponse.json({ success: false, error: "URL de requête invalide." }, { status: 400 });
+    }
+
     const storeUid = url.searchParams.get('storeUid');
     const category = url.searchParams.get('category');
     const products = await getCachedProducts(storeUid, category);
     return NextResponse.json(products, { status: 200 });
-  } catch (error: any) {
-    console.error("  Erreur lors de la lecture des artefacts :", error);
-    return NextResponse.json({ error: error.message || "Échec de la lecture." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "Échec de la lecture des artefacts du catalogue.");
   }
 });
 
 // ==========================================
 // POST : Ajouter un artefact au catalogue (Strictement Privé / Aura)
 // ==========================================
-export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const userUid = currentUser.uid || currentUser.id;
+    const userUid = currentUser.uid;
     
     // 🛡️ DOUANE VIBRATOIRE : Vérification du Tribunal de la Canopée
-    const oiseauProfile = await OiseauModel.findOne({ uid: userUid }).lean() as any;
+    const oiseauProfile = await OiseauModel.findOne({ uid: userUid }).lean() as IOiseau | null;
     if (oiseauProfile && (oiseauProfile.isBanned || oiseauProfile.profileStatus === 'INDESIRABLE')) {
       return NextResponse.json({ 
+         success: false,
          error: "Souveraineté restreinte : Votre fréquence est jugée indésirable. Le dépôt d'artefacts vous est interdit." 
       }, { status: 403 });
     }
     
-    const body = await req.json().catch(() => null);
-    if (!body) {
-      return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
+    let rawBody: unknown;
+    try {
+      rawBody = await req.json();
+    } catch {
+      return NextResponse.json({ success: false, error: "Corps de requête illisible." }, { status: 400 });
     }
 
     // 🛡️ BLINDAGE MASS ASSIGNMENT : Validation stricte via ProductSchema
-    const validation = ProductSchema.safeParse(body);
+    const validation = ProductSchema.safeParse(rawBody);
     if (!validation.success) {
       return NextResponse.json({ 
+        success: false,
         error: "Contrat souverain invalide : Le format des données produit est corrompu.", 
         details: validation.error.flatten() 
       }, { status: 400 });
@@ -71,12 +81,13 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       safetyCounter++;
     }
     
-    // 2. Enregistrement en base de données de manière strictement filtrée (sans sellerUid absent du schema)
+    // 2. Enregistrement en base de données de manière strictement filtrée
     const newProduct = await ProductModel.create({
       ...validatedData,
+      ownerUid: validatedData.ownerUid || userUid,
       uid: productUid,
       slug: finalSlug,
-    });
+    }) as unknown as IProduct;
     
     // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('products');
@@ -88,8 +99,7 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       message: "Artefact ajouté au catalogue de l'îlot.",
       data: newProduct
     }, { status: 201 });
-  } catch (error: any) {
-    console.error("  Fracture lors de l'ajout de l'artefact :", error);
-    return NextResponse.json({ error: error.message || "Échec de l'ajout." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "Échec lors de l'ajout de l'artefact.");
   }
 });

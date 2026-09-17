@@ -3,12 +3,15 @@ import { TransactionManager } from './transactionManager';
 import { SeveEngine, ExchangeItem } from '../utils/seve.engine';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
+import type { ClientSession } from 'mongoose';
+import type { Transaction } from 'neo4j-driver';
 
 export interface MarketEntityContext {
     uid: string;
     exchanges: ExchangeItem[];
     currentNeeds: number;
     creationFactor: number;
+    [key: string]: unknown;
 }
 
 export interface MarketEvaluationResult {
@@ -16,12 +19,13 @@ export interface MarketEvaluationResult {
     vitalBalance: number;
     latencyMs: number;
     message: string;
+    [key: string]: unknown;
 }
 
 export interface ConnectedRegulationResult extends MarketEvaluationResult {
     success: boolean;
     targetUid: string;
-    user: any;
+    user: unknown;
 }
 
 export interface MarketContractPayload {
@@ -34,6 +38,13 @@ export interface MarketContractPayload {
     interestRate?: number;      // Pourcentage (ex: 5.5 pour 5.5%)
     durationDays?: number;      // Durée du prêt avant exigibilité
     description?: string;
+    [key: string]: unknown;
+}
+
+interface IOiseauMarketEntity {
+    uid: string;
+    exchanges?: ExchangeItem[];
+    [key: string]: unknown;
 }
 
 export class MarketRegulationOrchestrator {
@@ -79,7 +90,7 @@ export class MarketRegulationOrchestrator {
     ): Promise<ConnectedRegulationResult> {
         if (!signature.actorUid) throw new IlotError("Identité requise.", "UNAUTHORIZED", 401);
 
-        const user = await findEntityBySlugOrUid(OiseauModel, userIdentifier) as any;
+        const user = await findEntityBySlugOrUid(OiseauModel, userIdentifier) as unknown as IOiseauMarketEntity | null;
         if (!user) {
             throw new IlotError(`Oiseau introuvable dans la Silice : ${userIdentifier}`, "NOT_FOUND", 404);
         }
@@ -95,7 +106,7 @@ export class MarketRegulationOrchestrator {
 
         const evaluation = MarketRegulationOrchestrator.evaluateMarketAccess(context, minJustTakeThreshold);
 
-        return await TransactionManager.execute("Régulation de Marché", async (_mongoSession, neo4jTx) => {
+        return await TransactionManager.execute("Régulation de Marché", async (_mongoSession: ClientSession, neo4jTx: Transaction) => {
             // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
             const now = new Date();
 
@@ -156,7 +167,7 @@ export class MarketRegulationOrchestrator {
             throw new IlotError("Un contrat nécessite deux entités distinctes.", "BAD_REQUEST", 400);
         }
 
-        return await TransactionManager.execute("Forge de Contrat Marchand", async (_mongoSession, neo4jTx) => {
+        return await TransactionManager.execute("Forge de Contrat Marchand", async (_mongoSession: ClientSession, neo4jTx: Transaction) => {
             // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
             const now = new Date();
             

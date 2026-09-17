@@ -3,23 +3,30 @@ import { GET, POST } from '@/app/api/bibliotek/[slug]/annotations/route';
 import { AnnotationModel, LibraryBookModel } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards'; // 🛡️ Import explicite pour éliminer l'erreur ApiContext
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-vi.mock('@/lib/api-guards', () => ({
-  withOptionalAura: (handler: any) => async (req: any, context: any) => {
-    return await handler(req, context, global.__mockUser);
-  },
-  withAura: (handler: any) => async (req: any, context: any) => {
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
-    }
-    return await handler(req, context, mockUser);
-  },
-}));
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withOptionalAura: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
+      // @ts-ignore
+      return await handler(req, context, global.__mockUser);
+    },
+    withAura: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
+      const mockUser = global.__mockUser;
+      if (!mockUser || !mockUser.uid) {
+        return NextResponse.json({ success: false, error: 'Accès non autorisé.' }, { status: 401 });
+      }
+      // @ts-ignore
+      return await handler(req, context, mockUser);
+    },
+  };
+});
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
@@ -32,38 +39,41 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       find: vi.fn(),
       create: vi.fn(),
     },
-    // On conserve le helper réel ou on le mocke si besoin, mais comme il appelle LibraryBookModel.findOne, 
-    // mocker directement LibraryBookModel suffira à le faire fonctionner !
   };
 });
 
 declare global {
-  var __mockUser: any;
+  // 🛡️ Harmonisation stricte de la signature d'index pour correspondre à auth.user.update.test.ts
+  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
+type RouteHandler = (req: NextRequest, ctx: { params: Promise<{ slug?: string | string[] }> }) => Promise<Response>;
+
 describe('API Bibliotek - Sous-route Annotations ([slug]/annotations)', () => {
+  const getHandler = GET as unknown as RouteHandler;
+  const postHandler = POST as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   it('🟢 GET : doit lister les notes associées au livre par son slug', async () => {
-    // 🪡 Suture du .lean() chaînable sur findOne (utilisé par le helper findEntityBySlugOrUid)
     vi.mocked(LibraryBookModel.findOne).mockReturnValue({
       lean: vi.fn().mockResolvedValue({
         uid: 'book_999',
         title: 'Traité'
       })
-    } as any);
+    } as unknown as ReturnType<typeof LibraryBookModel.findOne>);
 
     vi.mocked(AnnotationModel.find).mockReturnValue({
       sort: vi.fn().mockReturnValue({
         lean: vi.fn().mockResolvedValue([{ uid: 'annot_1', selectedText: 'Extrait Spinoza' }])
       })
-    } as any);
+    } as unknown as ReturnType<typeof AnnotationModel.find>);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/traite/annotations');
-    const res = await GET(req, { params: Promise.resolve({ slug: 'traite' }) });
+    const res = await getHandler(req, { params: Promise.resolve({ slug: 'traite' }) });
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -80,13 +90,13 @@ describe('API Bibliotek - Sous-route Annotations ([slug]/annotations)', () => {
         uid: 'book_999',
         title: 'Traité de Philosophie'
       })
-    } as any);
+    } as unknown as ReturnType<typeof LibraryBookModel.findOne>);
 
     vi.mocked(AnnotationModel.create).mockResolvedValueOnce({
       uid: 'annot_new',
       selectedText: 'Le conatus persiste',
       importance: 2
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof AnnotationModel.create>>);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/traite/annotations', {
       method: 'POST',
@@ -97,7 +107,7 @@ describe('API Bibliotek - Sous-route Annotations ([slug]/annotations)', () => {
       })
     });
 
-    const res = await POST(req, { params: Promise.resolve({ slug: 'traite' }) });
+    const res = await postHandler(req, { params: Promise.resolve({ slug: 'traite' }) });
     const json = await res.json();
 
     expect(res.status).toBe(201);

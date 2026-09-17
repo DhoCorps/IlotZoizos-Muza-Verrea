@@ -1,23 +1,61 @@
 import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { ISujet } from '@ilot/types';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { randomUUID, randomBytes } from 'crypto';
+import { randomUUID } from 'crypto';
+import { ensureUniqueSlug } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
 
 // Interface d'injection pour isoler le shared-core du service de stockage externe de l'application
 interface IStorageManager {
-  deleteFile(key: string): Promise<any>;
+  deleteFile(key: string): Promise<unknown>;
   extractKeyFromUrl(url: string): string;
 }
 
 export interface SujetSyncResult {
   success: boolean;
   status: string;
-  mongo: any;
-  neo4j: any;
+  mongo: ISujet | null;
+  neo4j: import('neo4j-driver').QueryResult | null;
 }
 
-const generateSlug = (text: string) => {
+export interface FosterSujetPayload {
+  uid?: string;
+  title?: string;
+  slug?: string;
+  content?: string;
+  lyrics?: string | null;
+  copyright?: string | null;
+  authorUid: string;
+  category?: string;
+  status?: string;
+  tags?: string[];
+  connections?: {
+    relatedProjects?: string[];
+    relatedTasks?: string[];
+    [key: string]: unknown;
+  };
+  merchLink?: {
+    productId?: string;
+    [key: string]: unknown;
+  } | null;
+  media?: Record<string, unknown>;
+  settings?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface UpdateSujetPayload {
+  title?: string;
+  status?: string;
+  category?: string;
+  merchLink?: {
+    productId?: string | null;
+    [key: string]: unknown;
+  } | null;
+  [key: string]: unknown;
+}
+
+const generateSlug = (text: string): string => {
   return text.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
 };
 
@@ -35,25 +73,11 @@ export class SujetOrchestrator {
       extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
     };
   }
-
-  /**
-   * Utilitaire interne pour garantir l'unicité du slug sans boucle séquentielle bloquante (Race Conditions E11000).
-   */
-  private async ensureUniqueSlug(Model: any, baseSlug: string, session: any): Promise<string> {
-    let finalSlug = baseSlug;
-    let exists = await Model.findOne({ slug: finalSlug }).session(session).lean();
-    
-    if (exists) {
-      const randomSuffix = randomBytes(2).toString('hex');
-      finalSlug = `${baseSlug}-${randomSuffix}`;
-    }
-    return finalSlug;
-  }
   
   /**
    * FONDATION : FORGER UN NŒUD DE PENSÉE (Sujet)
    */
-  async fosterSujet(data: any, signature: ActionSignature): Promise<SujetSyncResult> {
+  async fosterSujet(data: FosterSujetPayload, signature: ActionSignature): Promise<SujetSyncResult> {
     const isSelf = signature.actorUid === data.authorUid;
     if (!isSelf && !signature.capabilities.includes('*')) {
         throw new IlotError("Aura insuffisante pour parler à la place d'un autre.", "FORBIDDEN", 403);
@@ -65,11 +89,12 @@ export class SujetOrchestrator {
       const sujetUid = data.uid || `sujet_${randomUUID()}`;
       const title = data.title || "Monologue sans nom";
       
-      // Sécurisation atomique de l'unicité du slug
-      let baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
-      let finalSlug = await this.ensureUniqueSlug(SujetModel, baseSlug, mongoSession);
+      // Sécurisation atomique de l'unicité du slug via l'utilitaire global
+      const baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
+      const finalSlug = await ensureUniqueSlug(SujetModel, baseSlug, mongoSession);
 
       const newSujetData = {
+        ...data,
         uid: sujetUid,
         title: title,
         slug: finalSlug,
@@ -90,13 +115,14 @@ export class SujetOrchestrator {
         }
       };
 
-      // 1. SILICE (MongoDB) avec gestion de secours E11000
-      let newSujet;
+      // 1. SILICE (MongoDB) avec gestion de secours E11000 et typage strict ISujet
+      let newSujet: ISujet;
       try {
         const created = await SujetModel.create([newSujetData], { session: mongoSession });
-        newSujet = created[0];
-      } catch (err: any) {
-        if (err.code === 11000) {
+        newSujet = created[0] as unknown as ISujet;
+      } catch (err: unknown) {
+        const error = err as { code?: number };
+        if (error.code === 11000) {
           throw new IlotError("Collision critique de slug sur le sujet. Veuillez réitérer.", "CONFLICT", 409);
         }
         throw err;
@@ -142,6 +168,9 @@ export class SujetOrchestrator {
         RETURN s
       `;
 
+      const connections = newSujet.connections as { relatedProjects?: string[]; relatedTasks?: string[] } | undefined;
+      const merchLink = newSujet.merchLink as { productId?: string } | null | undefined;
+
       const neoResult = await neo4jTx.run(cypher, {
         actorUid: signature.actorUid,
         sujetUid: newSujet.uid,
@@ -149,9 +178,9 @@ export class SujetOrchestrator {
         slug: newSujet.slug,
         category: newSujet.category,
         status: newSujet.status,
-        relatedProjects: newSujet.connections?.relatedProjects || [],
-        relatedTasks: newSujet.connections?.relatedTasks || [],
-        productId: newSujet.merchLink?.productId || null,
+        relatedProjects: connections?.relatedProjects || [],
+        relatedTasks: connections?.relatedTasks || [],
+        productId: merchLink?.productId || null,
         now: now.toISOString()
       });
 
@@ -171,11 +200,11 @@ export class SujetOrchestrator {
   /**
    * MUTATION : METTRE À JOUR UN SUJET (Résolution Silice via findEntityBySlugOrUid -> Propagation Graphe)
    */
-  async updateSujet(sujetIdentifier: string, updates: any, signature: ActionSignature): Promise<SujetSyncResult> {
-    const existing = await findEntityBySlugOrUid(SujetModel, sujetIdentifier);
+  async updateSujet(sujetIdentifier: string, updates: UpdateSujetPayload, signature: ActionSignature): Promise<SujetSyncResult> {
+    const existing = await findEntityBySlugOrUid(SujetModel, sujetIdentifier) as ISujet | null;
     if (!existing) throw new IlotError("Sujet introuvable dans la Silice.", "NOT_FOUND", 404);
 
-    const isAuthor = (existing as any).authorUid === signature.actorUid;
+    const isAuthor = existing.authorUid === signature.actorUid;
     if (!isAuthor && !signature.capabilities.includes('*')) {
       throw new IlotError("Tu ne peux modifier que tes propres pensées.", "FORBIDDEN", 403);
     }
@@ -189,10 +218,10 @@ export class SujetOrchestrator {
       };
 
       const updatedSujet = await SujetModel.findOneAndUpdate(
-        { uid: (existing as any).uid },
+        { uid: existing.uid },
         { $set: finalUpdates },
         { new: true, session: mongoSession }
-      ).lean();
+      ).lean() as unknown as ISujet;
 
       let neoResult = null;
       if (updates.status || updates.category || updates.title || updates.merchLink) {
@@ -218,7 +247,7 @@ export class SujetOrchestrator {
 
           RETURN s
         `, { 
-          sujetUid: (existing as any).uid, 
+          sujetUid: existing.uid, 
           title: updates.title || null,
           status: updates.status || null, 
           category: updates.category || null,
@@ -239,17 +268,17 @@ export class SujetOrchestrator {
   /**
    * DÉSINTÉGRATION : PURGER UN SUJET
    */
-  async disintegrateSujet(sujetIdentifier: string, signature: ActionSignature) {
-    const existing = await findEntityBySlugOrUid(SujetModel, sujetIdentifier);
+  async disintegrateSujet(sujetIdentifier: string, signature: ActionSignature): Promise<{ success: boolean; purgedCount: number }> {
+    const existing = await findEntityBySlugOrUid(SujetModel, sujetIdentifier) as ISujet | null;
     if (!existing) throw new IlotError("Sujet introuvable.", "NOT_FOUND", 404);
 
-    const isAuthor = (existing as any).authorUid === signature.actorUid;
+    const isAuthor = existing.authorUid === signature.actorUid;
     if (!isAuthor && !signature.capabilities.includes('*')) {
       throw new IlotError("Seul l'auteur ou le système peut brûler ce texte.", "FORBIDDEN", 403);
     }
 
     return await TransactionManager.execute("Désintégration de Sujet", async (mongoSession, neo4jTx) => {
-      const media = (existing as any).media;
+      const media = existing.media as { coverImageUrl?: string; audioTrackUrl?: string } | undefined;
       if (media?.coverImageUrl) {
         try { await this.storageService.deleteFile(this.storageService.extractKeyFromUrl(media.coverImageUrl)); } catch {}
       }
@@ -257,8 +286,8 @@ export class SujetOrchestrator {
         try { await this.storageService.deleteFile(this.storageService.extractKeyFromUrl(media.audioTrackUrl)); } catch {}
       }
 
-      await neo4jTx.run(`MATCH (s:Sujet { uid: $sujetUid }) DETACH DELETE s`, { sujetUid: (existing as any).uid });
-      await SujetModel.deleteOne({ uid: (existing as any).uid }, { session: mongoSession });
+      await neo4jTx.run(`MATCH (s:Sujet { uid: $sujetUid }) DETACH DELETE s`, { sujetUid: existing.uid });
+      await SujetModel.deleteOne({ uid: existing.uid }, { session: mongoSession });
 
       return { success: true, purgedCount: 1 };
     });

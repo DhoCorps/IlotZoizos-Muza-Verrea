@@ -3,9 +3,11 @@ import { IProject, CAPABILITIES, ActionSignature } from '@ilot/types';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { v4 as uuidv4 } from 'uuid';
+import type { ClientSession } from 'mongoose';
+import type { Transaction, QueryResult } from 'neo4j-driver';
 
 interface IStorageManager {
-  deleteFile(key: string): Promise<any>;
+  deleteFile(key: string): Promise<unknown>;
   extractKeyFromUrl(url: string): string;
 }
 
@@ -13,9 +15,28 @@ export interface ProjectSyncResult {
   success: boolean;
   status: string;
   project?: IProject;
-  mongo?: any;
-  neo4j?: any;
+  mongo?: unknown;
+  neo4j?: QueryResult | null;
   purgedCount?: number;
+  [key: string]: unknown;
+}
+
+export interface ProjectUpdatePayload {
+  name?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+interface IProjectEntity {
+  uid: string;
+  creatorUid?: string;
+  documents?: Array<{ url?: string }>;
+  [key: string]: unknown;
+}
+
+interface ITaskEntity {
+  documents?: Array<{ url?: string }>;
+  [key: string]: unknown;
 }
 
 /**
@@ -33,7 +54,7 @@ export class ProjectOrchestrator {
   }
 
   // --- 🧱 FONDATION : CRÉATION DU CHANTIER (ANCRAGE DOUBLE) ---
-  async fosterProject(
+  public async fosterProject(
     projectData: IProject,
     signature: ActionSignature
   ): Promise<ProjectSyncResult> {
@@ -51,7 +72,7 @@ export class ProjectOrchestrator {
 
     const uid = projectData.uid || uuidv4();
 
-    return await TransactionManager.execute("Fondation Chantier", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Fondation Chantier", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
       
       const finalProjectData = {
@@ -85,7 +106,7 @@ export class ProjectOrchestrator {
         RETURN p
       `;
       
-      const neoResult = await neo4jTx.run(cypher, {
+      const neoResult = (await neo4jTx.run(cypher, {
         actorUid: actorUid,
         teamUid: teamUid,
         uid: uid,
@@ -93,7 +114,7 @@ export class ProjectOrchestrator {
         slug: newProject.slug,
         status: newProject.status || 'CONCEPT',
         now: now.toISOString()
-      });
+      })) as QueryResult;
 
       if (neoResult.records.length === 0) {
         throw new IlotError("Échec du scelllement : Utilisateur ou Nid introuvable dans le Graphe.", "NOT_FOUND", 404);
@@ -109,16 +130,16 @@ export class ProjectOrchestrator {
   }
 
   // --- 🧬 MUTATION (Update) ---
-  async mutateProject(projectIdentifier: string, updates: any, signature: ActionSignature): Promise<ProjectSyncResult> {
-    const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier);
+  public async mutateProject(projectIdentifier: string, updates: ProjectUpdatePayload, signature: ActionSignature): Promise<ProjectSyncResult> {
+    const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier) as unknown as IProjectEntity | null;
     if (!project) throw new IlotError("Chantier introuvable dans la Silice.", "NOT_FOUND", 404);
 
-    const projectUid = (project as any).uid;
+    const projectUid = project.uid;
 
-    return await TransactionManager.execute("Mutation Chantier", async (_mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Mutation Chantier", async (_mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
       
-      const isCreator = (project as any).creatorUid === signature.actorUid;
+      const isCreator = project.creatorUid === signature.actorUid;
       const isArchitect = signature.capabilities.includes('*');
 
       if (!isCreator && !isArchitect) {
@@ -164,13 +185,13 @@ export class ProjectOrchestrator {
    * 🌋 DISSOLUTION GLOBALE DU CHANTIER (Phase 3 : Éradication des verrous longs & Memory Spikes)
    * Utilise des curseurs Mongoose et un traitement par lots incrémentiels pour préserver la RAM.
    */
-  async dissolveProject(projectIdentifier: string, _signature: ActionSignature) {
-    const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier);
+  public async dissolveProject(projectIdentifier: string, _signature: ActionSignature): Promise<ProjectSyncResult> {
+    const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier) as unknown as IProjectEntity | null;
     if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
     
-    const projectUid = (project as any).uid;
+    const projectUid = project.uid;
 
-    return await TransactionManager.execute("Désintégration Totale", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Désintégration Totale", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       
       // 1. Identification de l'arbre complet DANS la transaction
       const hierarchyResult = await neo4jTx.run(`
@@ -181,11 +202,11 @@ export class ProjectOrchestrator {
       `, { projectUid });
 
       const record = hierarchyResult.records[0];
-      const projUids: string[] = record ? record.get('projUids') : [];
-      const taskUids: string[] = record ? record.get('taskUids') : [];
+      const projUids: string[] = record ? (record.get('projUids') as string[]) : [];
+      const taskUids: string[] = record ? (record.get('taskUids') as string[]) : [];
       
       const allUids = [...projUids, ...taskUids];
-      if (allUids.length === 0) return { success: true, purgedCount: 0 };
+      if (allUids.length === 0) return { success: true, status: 'success', purgedCount: 0 };
 
       // 2. Traitement par lots incrémentiels via curseurs Mongoose (anti Memory Spikes)
       const batchSize = 50;
@@ -197,8 +218,9 @@ export class ProjectOrchestrator {
           files.map(async (key) => {
             try {
               await this.storageService.deleteFile(key);
-            } catch (err) {
-              console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
+            } catch (err: unknown) {
+              const errMessage = err instanceof Error ? err.message : String(err);
+              console.error(`  [Orchestrator] Échec purge fichier ${key} :`, errMessage);
             }
           })
         );
@@ -207,8 +229,9 @@ export class ProjectOrchestrator {
       if (taskUids.length > 0) {
         const taskCursor = TaskModel.find({ uid: { $in: taskUids } }).select('documents').session(mongoSession).cursor();
         for await (const task of taskCursor) {
-          if ((task as any).documents && Array.isArray((task as any).documents)) {
-            for (const doc of (task as any).documents) {
+          const taskDoc = task as unknown as ITaskEntity;
+          if (taskDoc.documents && Array.isArray(taskDoc.documents)) {
+            for (const doc of taskDoc.documents) {
               if (doc.url) {
                 filesBatch.push(this.storageService.extractKeyFromUrl(doc.url));
                 if (filesBatch.length >= batchSize) {
@@ -224,8 +247,9 @@ export class ProjectOrchestrator {
       if (projUids.length > 0) {
         const projCursor = ProjectModel.find({ uid: { $in: projUids } }).select('documents').session(mongoSession).cursor();
         for await (const proj of projCursor) {
-          if ((proj as any).documents && Array.isArray((proj as any).documents)) {
-            for (const doc of (proj as any).documents) {
+          const projDoc = proj as unknown as IProjectEntity;
+          if (projDoc.documents && Array.isArray(projDoc.documents)) {
+            for (const doc of projDoc.documents) {
               if (doc.url) {
                 filesBatch.push(this.storageService.extractKeyFromUrl(doc.url));
                 if (filesBatch.length >= batchSize) {
@@ -261,22 +285,22 @@ export class ProjectOrchestrator {
   }
 
   // --- 🖇️ ATTACHEMENT : AJOUT DE FICHIERS ---
-  async appendFiles(
+  public async appendFiles(
     projectIdentifier: string,
     fileUrls: string[],
     signature: ActionSignature
-  ) {
+  ): Promise<unknown> {
     if (!signature.capabilities.includes(CAPABILITIES.PROJECT.UPDATE) && !signature.capabilities.includes('*')) {
       throw new IlotError("Aura insuffisante pour injecter des données dans ce chantier.", "FORBIDDEN", 403);
     }
 
-    const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier);
+    const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier) as unknown as IProjectEntity | null;
     if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
 
     const now = new Date();
 
     const updated = await ProjectModel.findOneAndUpdate(
-      { uid: (project as any).uid },
+      { uid: project.uid },
       { $push: { fileUploads: { $each: fileUrls } }, $set: { "dates.lastActivity": now, "dates.updatedAt": now } },
       { new: true }
     );

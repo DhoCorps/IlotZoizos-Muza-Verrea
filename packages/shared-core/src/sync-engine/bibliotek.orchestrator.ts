@@ -6,18 +6,39 @@ import { randomUUID } from 'crypto';
 import { generateSlug } from '../utils/string.engine';
 import { generateFileHash } from '../utils/crypto.engine';
 import { findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { ensureUniqueSlug } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
 
-// 🛡️ Ajout de l'interface d'injection pour le service de stockage
+// Interface d'injection pour le service de stockage
 interface IStorageManager {
-  deleteFile(key: string): Promise<any>;
+  deleteFile(key: string): Promise<unknown>;
   extractKeyFromUrl(url: string): string;
 }
 
 export interface BibliotekSyncResult {
   success: boolean;
   status: string;
-  mongo: ILibraryBook;
-  neo4j: any;
+  mongo: ILibraryBook & {
+    digitalSignature?: string;
+    timestampedAt?: Date;
+  };
+  neo4j: unknown;
+}
+
+export interface FosterBookPayload {
+  uid?: string;
+  title: string;
+  slug?: string;
+  authorUid: string;
+  authorSlug?: string;
+  writingType?: string;
+  style?: string;
+  fileUrl: string;
+  coverUrl?: string | null;
+  format?: string;
+  settings?: {
+    allowReadExchange?: boolean;
+    consentForShowcase?: boolean;
+  };
 }
 
 /**
@@ -29,7 +50,7 @@ export class BibliotekOrchestrator {
   private storageService: IStorageManager;
 
   constructor(customStorageService?: IStorageManager) {
-    // Par défaut (for tests), on injecte un mock silencieux
+    // Par défaut (pour les tests), on injecte un mock silencieux
     this.storageService = customStorageService || {
       deleteFile: async () => ({ success: true }),
       extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
@@ -39,7 +60,7 @@ export class BibliotekOrchestrator {
   /**
    * 🧱 FONDATION : FORGER UN OUVRAGE (Livre / Manuscrit / Essai)
    */
-  async fosterBook(data: any, signature: ActionSignature): Promise<BibliotekSyncResult> {
+  async fosterBook(data: FosterBookPayload, signature: ActionSignature): Promise<BibliotekSyncResult> {
     const isSelf = signature.actorUid === data.authorUid;
     if (!isSelf && !signature.capabilities.includes('*')) {
       throw new IlotError("Aura insuffisante pour publier un ouvrage à la place d'un autre.", "FORBIDDEN", 403);
@@ -53,16 +74,9 @@ export class BibliotekOrchestrator {
       const bookUid = data.uid || `book_${randomUUID()}`;
       const title = data.title;
 
-      // Sécurisation de l'unicité du slug dans la Silice via l'utilitaire partagé
-      let baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
-      let finalSlug = baseSlug;
-      let slugExists = await LibraryBookModel.findOne({ slug: finalSlug }).session(mongoSession);
-      let counter = 1;
-      while (slugExists) {
-        finalSlug = `${baseSlug}-${counter}`;
-        slugExists = await LibraryBookModel.findOne({ slug: finalSlug }).session(mongoSession);
-        counter++;
-      }
+      // Sécurisation de l'unicité du slug dans la Silice via l'utilitaire global partagé
+      const baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
+      const finalSlug = await ensureUniqueSlug(LibraryBookModel, baseSlug, mongoSession);
 
       // 🪡 Génération du Sceau Cryptographique (SHA-256) d'antériorité via l'utilitaire partagé
       const canonicalContent = JSON.stringify({
@@ -91,7 +105,10 @@ export class BibliotekOrchestrator {
         digitalSignature,
         timestampedAt: now,
         copyrightClaimed: true,
-        settings: data.settings || { allowReadExchange: true, consentForShowcase: true }
+        settings: {
+          allowReadExchange: data.settings?.allowReadExchange ?? true,
+          consentForShowcase: data.settings?.consentForShowcase ?? true,
+        }
       };
 
       // 1. Sédimentation dans la Silice (MongoDB)
@@ -101,14 +118,14 @@ export class BibliotekOrchestrator {
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (b:LibraryBook {
-           uid: $bookUid,
-           title: $title,
-           slug: $slug,
-           writingType: $writingType,
-           style: $style,
-           format: $format,
-           digitalSignature: $digitalSignature,
-           createdAt: datetime($now)
+            uid: $bookUid,
+            title: $title,
+            slug: $slug,
+            writingType: $writingType,
+            style: $style,
+            format: $format,
+            digitalSignature: $digitalSignature,
+            createdAt: datetime($now)
         })
         CREATE (u)-[:WROTE]->(b)
         RETURN b
@@ -133,7 +150,7 @@ export class BibliotekOrchestrator {
       return {
         success: true,
         status: 'success',
-        mongo: newBook,
+        mongo: newBook.toObject() as unknown as BibliotekSyncResult['mongo'],
         neo4j: neoResult
       };
     });
@@ -142,9 +159,9 @@ export class BibliotekOrchestrator {
   /**
    * 🧬 MUTATION : METTRE À JOUR UN OUVRAGE
    */
-  async updateBook(bookIdentifier: string, updates: any, signature: ActionSignature): Promise<BibliotekSyncResult> {
+  async updateBook(bookIdentifier: string, updates: Record<string, unknown>, signature: ActionSignature): Promise<BibliotekSyncResult> {
     // Utilisation de la recherche unifiée par Slug ou UID
-    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier);
+    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as ILibraryBook | null;
     if (!existing) {
       throw new IlotError("Ouvrage introuvable dans la Silice.", "NOT_FOUND", 404);
     }
@@ -186,7 +203,7 @@ export class BibliotekOrchestrator {
       return {
         success: true,
         status: 'success',
-        mongo: updatedBook,
+        mongo: updatedBook as unknown as BibliotekSyncResult['mongo'],
         neo4j: neoResult
       };
     });
@@ -195,9 +212,9 @@ export class BibliotekOrchestrator {
   /**
    * 🌋 DÉSINTRÉGRATION : PURGER UN OUVRAGE DU SANCTUAIRE
    */
-  async disintegrateBook(bookIdentifier: string, signature: ActionSignature) {
+  async disintegrateBook(bookIdentifier: string, signature: ActionSignature): Promise<{ success: boolean; purgedCount: number }> {
     // Utilisation de la recherche unifiée par Slug ou UID
-    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier);
+    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as ILibraryBook | null;
     if (!existing) {
       throw new IlotError("Ouvrage introuvable.", "NOT_FOUND", 404);
     }

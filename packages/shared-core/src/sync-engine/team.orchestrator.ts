@@ -5,10 +5,12 @@ import { MoralChecker } from '../integrity/moral.checker';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
-import { syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure';
+import { resolveCanonicalUid, safeSyncUniversalInteraction } from '../utils/orchestrator.engine';
+import type { ClientSession } from 'mongoose';
+import type { Transaction, QueryResult } from 'neo4j-driver';
 
 interface IStorageManager {
-  deleteFile(key: string): Promise<any>;
+  deleteFile(key: string): Promise<unknown>;
   extractKeyFromUrl(url: string): string;
 }
 
@@ -16,8 +18,57 @@ export interface TeamSyncResult {
   uid: string;
   success: boolean;
   status: string;
-  mongo: any;
-  neo4j: any;
+  mongo: unknown;
+  neo4j: QueryResult | null;
+  [key: string]: unknown;
+}
+
+export interface FosterTeamPayload {
+  name: string;
+  description?: string;
+  parentId?: string | null;
+  category: string;
+  frequency?: string;
+  isPrivate: boolean;
+  ownerUid: string;
+  leaderUid: string | null;
+  [key: string]: unknown;
+}
+
+export interface InviteBirdPayload {
+  teamUid?: string;
+  teamIdentifier?: string;
+  targetUserUid: string;
+  capabilities?: string[];
+  [key: string]: unknown;
+}
+
+interface IOiseauTeamEntity {
+  uid: string;
+  _id: unknown;
+  [key: string]: unknown;
+}
+
+interface ITeamLookupEntity {
+  uid: string;
+  ownerUid: string;
+  _id: unknown;
+  frequency?: string;
+  isPrivate?: boolean;
+  [key: string]: unknown;
+}
+
+interface ITaskStorageEntity {
+  documents?: Array<{ url?: string; [key: string]: unknown }>;
+  [key: string]: unknown;
+}
+
+interface IProjectStorageEntity {
+  uid: string;
+  ownerUid?: string;
+  creatorUid?: string;
+  documents?: Array<{ url?: string; [key: string]: unknown }>;
+  [key: string]: unknown;
 }
 
 /**
@@ -34,24 +85,8 @@ export class TeamOrchestrator {
     };
   }
 
-  // 🛡️ Résolution canonique interne encapsulée et sécurisée via findEntityBySlugOrUid
-  private async resolveCanonicalUserUid(identifier: string): Promise<string> {
-    const user = await findEntityBySlugOrUid(OiseauModel, identifier);
-    if (!user) throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
-    return (user as any).uid;
-  }
-
-  async fosterTeam(
-    teamData: { 
-      name: string, 
-      description?: string,
-      parentId?: string | null;
-      category: string; 
-      frequency?: string; 
-      isPrivate: boolean; 
-      ownerUid: string;
-      leaderUid: string | null;
-    },
+  public async fosterTeam(
+    teamData: FosterTeamPayload,
     signature: ActionSignature
   ): Promise<TeamSyncResult> {
         
@@ -63,14 +98,14 @@ export class TeamOrchestrator {
     const check = moralCheck.analyze(teamData.name);
     if (!check.isSafe) throw new IlotError(`Nom invalide : ${check.suggestion}`, "BAD_REQUEST", 400);
 
-    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
-    const creator = await findEntityBySlugOrUid(OiseauModel, actorCanonicalUid) as any;
+    const actorCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau créateur");
+    const creator = await findEntityBySlugOrUid(OiseauModel, actorCanonicalUid) as unknown as IOiseauTeamEntity | null;
     if (!creator) throw new IlotError("Empreinte créatrice introuvable dans la canopée.", "NOT_FOUND", 404);
 
     const teamUid = `team_${randomUUID()}`;
     const defaultFreq = teamData.frequency || '#2A3B4C';
 
-    return await TransactionManager.execute("Fondation d'Escouade", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Fondation d'Escouade", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
 
       const [newTeam] = await TeamModel.create([{
@@ -92,7 +127,7 @@ export class TeamOrchestrator {
       await OiseauModel.findOneAndUpdate(
         { uid: creator.uid },
         { 
-          $push: { teams: newTeam._id },
+          $push: { teams: creator._id },
           $set: { 'dates.updatedAt': now }
         }, 
         { session: mongoSession }
@@ -127,7 +162,7 @@ export class TeamOrchestrator {
         RETURN t
       `;
 
-      const neoResult = await neo4jTx.run(cypher, {
+      const neoResult = (await neo4jTx.run(cypher, {
         actorUid: creator.uid,
         teamUid: teamUid, 
         parentId: teamData.parentId || null,
@@ -136,7 +171,7 @@ export class TeamOrchestrator {
         category: teamData.category,
         capabilities: founderCapabilities,
         now: now.toISOString()
-      });
+      })) as QueryResult;
 
       return { 
         uid: teamUid,        
@@ -148,7 +183,7 @@ export class TeamOrchestrator {
     });
   }
 
-  async getRecruitableBirds(search: string = "") {
+  public async getRecruitableBirds(search: string = "") {
     return await OiseauModel.find({
       isOpenToInvitations: true, 
       pseudo: { $regex: search, $options: 'i' }
@@ -158,17 +193,19 @@ export class TeamOrchestrator {
   /**
    * 💌 INVITATION D'UN OISEAU DANS LE NID
    */
-  async inviteBird(
-    data: { teamUid?: string; teamIdentifier?: string; targetUserUid: string; capabilities?: string[] },
+  public async inviteBird(
+    data: InviteBirdPayload,
     signature: ActionSignature
-  ) {
+  ): Promise<TeamSyncResult> {
     const identifier = data.teamIdentifier || data.teamUid;
-    const team = await findEntityBySlugOrUid(TeamModel, identifier!) as any;
+    if (!identifier) throw new IlotError("Identifiant de Nid requis.", "BAD_REQUEST", 400);
+
+    const team = await findEntityBySlugOrUid(TeamModel, identifier) as unknown as ITeamLookupEntity | null;
     if (!team) {
       throw new IlotError("Ce Nid n'existe pas dans la Silice.", "NOT_FOUND", 404);
     }
 
-    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
+    const actorCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau acteur");
     const isNestOwner = team.ownerUid === actorCanonicalUid;
     const hasGlobalPower = signature.capabilities.includes(CAPABILITIES.MEMBER.INVITE) || 
                            signature.capabilities.includes('*');
@@ -177,11 +214,11 @@ export class TeamOrchestrator {
       throw new IlotError("Aura insuffisante pour recruter dans ce Nid.", "FORBIDDEN", 403);
     }
 
-    const targetCanonicalUid = await this.resolveCanonicalUserUid(data.targetUserUid);
-    const target = await findEntityBySlugOrUid(OiseauModel, targetCanonicalUid) as any;
+    const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, data.targetUserUid, "Oiseau cible");
+    const target = await findEntityBySlugOrUid(OiseauModel, targetCanonicalUid) as unknown as IOiseauTeamEntity | null;
     if (!target) throw new IlotError("Oiseau introuvable.", "NOT_FOUND", 404);
 
-    const result = await TransactionManager.execute("Invitation d'Oiseau", async (_mongoSession, neo4jTx) => {
+    const result = await TransactionManager.execute("Invitation d'Oiseau", async (_mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
 
       const cypher = `
@@ -198,12 +235,12 @@ export class TeamOrchestrator {
         RETURN r
       `;
 
-      const neoResult = await neo4jTx.run(cypher, { 
+      const neoResult = (await neo4jTx.run(cypher, { 
         targetUserUid: target.uid, 
         teamUid: team.uid,
         caps: data.capabilities || [CAPABILITIES.PROJECT.READ, CAPABILITIES.TASK.CREATE],
         now: now.toISOString()
-      });
+      })) as QueryResult;
 
       return { 
         uid: target.uid,      
@@ -214,30 +251,15 @@ export class TeamOrchestrator {
       };
     });
 
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA L'UTILISATEUR GLOBAL
     if (actorCanonicalUid !== targetCanonicalUid) {
-      try {
-        await syncUniversalInteraction(actorCanonicalUid, targetCanonicalUid, 'TEAM');
-      } catch (err: any) {
-        console.error(`  [Orchestrator] Échec du tissage universel (inviteBird), basculement DLQ :`, err);
-        try {
-          await SystemGraphDlqModel.create({
-            operationName: 'syncUniversalInteraction_inviteBird',
-            payload: { sourceUid: actorCanonicalUid, targetUid: targetCanonicalUid, type: 'TEAM' },
-            error: err.message,
-            status: 'PENDING_RETRY',
-            retryCount: 0,
-            timestamp: new Date()
-          });
-        } catch (dlqErr) {
-          console.error("🔥 [DLQ Fatal] Impossible d'écrire dans la file de rattrapage :", dlqErr);
-        }
-      }
+      await safeSyncUniversalInteraction(actorCanonicalUid, targetCanonicalUid, 'TEAM', 'inviteBird');
     }
 
     return result;
   }
 
-  async mutateTeam(
+  public async mutateTeam(
     teamIdentifier: string, 
     data: Partial<ITeam>, 
     signature: ActionSignature
@@ -252,30 +274,30 @@ export class TeamOrchestrator {
       if (!check.isSafe) throw new IlotError(`Nom invalide : ${check.suggestion}`, "BAD_REQUEST", 400);
     }
 
-    const existingTeam = await findEntityBySlugOrUid(TeamModel, teamIdentifier) as any;
+    const existingTeam = await findEntityBySlugOrUid(TeamModel, teamIdentifier) as unknown as ITeamLookupEntity | null;
     if (!existingTeam) throw new IlotError("Nid introuvable.", "NOT_FOUND", 404);
 
-    return await TransactionManager.execute("Mutation de Nid", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Mutation de Nid", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
 
       const updatedTeam = await TeamModel.findOneAndUpdate(
         { uid: existingTeam.uid }, 
         { $set: { ...data, 'dates.updatedAt': now } }, 
         { new: true, session: mongoSession }
-      ).lean();
+      ).lean() as unknown as ITeamLookupEntity | null;
       
-      let neoResult = null;
+      let neoResult: QueryResult | null = null;
       if (data.frequency !== undefined || data.isPrivate !== undefined || data.name !== undefined) {
-        neoResult = await neo4jTx.run(
+        neoResult = (await neo4jTx.run(
           `MATCH (t:Team {uid: $teamUid}) SET t.frequency = $freq, t.isPrivate = $priv, t.name = coalesce($name, t.name), t.updatedAt = datetime($now) RETURN t`,
           { 
             teamUid: existingTeam.uid, 
-            freq: data.frequency ?? updatedTeam!.frequency, 
-            priv: data.isPrivate ?? updatedTeam!.isPrivate,
+            freq: data.frequency ?? updatedTeam?.frequency ?? '#2A3B4C', 
+            priv: data.isPrivate ?? updatedTeam?.isPrivate ?? false,
             name: data.name ?? null,
             now: now.toISOString()
           }
-        );
+        )) as QueryResult;
       }
       
       return { 
@@ -291,19 +313,19 @@ export class TeamOrchestrator {
   /**
    * 🌋 DISSOLUTION DU NID (Phase 4 : Curseurs Mongoose et lots incrémentiels anti Memory Spikes)
    */
-  async dissolveTeam(teamIdentifier: string, signature: ActionSignature): Promise<boolean> {
+  public async dissolveTeam(teamIdentifier: string, signature: ActionSignature): Promise<boolean> {
     if (!signature.capabilities.includes(CAPABILITIES.TEAM.DELETE) && !signature.capabilities.includes('*')) {
       throw new IlotError("Aura insuffisante pour dissoudre ce Nid.", "FORBIDDEN", 403);
     }
 
-    const team = await findEntityBySlugOrUid(TeamModel, teamIdentifier) as any;
+    const team = await findEntityBySlugOrUid(TeamModel, teamIdentifier) as unknown as ITeamLookupEntity | null;
     if (!team) throw new IlotError("Nid introuvable.", "NOT_FOUND", 404);
 
     const teamUid = team.uid;
 
-    return await TransactionManager.execute("Dissolution de Nid", async (mongoSession, neo4jTx) => {
-      const projects = await ProjectModel.find({ ownerUid: teamUid }).select('uid').session(mongoSession).lean();
-      const projectUids = projects.map((p: any) => p.uid);
+    return await TransactionManager.execute("Dissolution de Nid", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
+      const projects = (await ProjectModel.find({ ownerUid: teamUid }).select('uid').session(mongoSession).lean()) as unknown as IProjectStorageEntity[];
+      const projectUids = projects.map((p) => p.uid);
 
       const batchSize = 50;
       let filesBatch: string[] = [];
@@ -314,8 +336,9 @@ export class TeamOrchestrator {
           files.map(async (key) => {
             try {
               await this.storageService.deleteFile(key);
-            } catch (err) {
-              console.error(`  [Orchestrator] Échec purge fichier ${key} :`, err);
+            } catch (error: unknown) {
+              const errMessage = error instanceof Error ? error.message : String(error);
+              console.error(`  [Orchestrator] Échec purge fichier ${key} :`, errMessage);
             }
           })
         );
@@ -324,9 +347,10 @@ export class TeamOrchestrator {
       if (projectUids.length > 0) {
         const taskCursor = TaskModel.find({ projectUid: { $in: projectUids } }).select('documents').session(mongoSession).cursor();
         for await (const task of taskCursor) {
-          if ((task as any).documents && Array.isArray((task as any).documents)) {
-            for (const doc of (task as any).documents) {
-              if (doc.url) {
+          const taskDoc = task as unknown as ITaskStorageEntity;
+          if (taskDoc.documents && Array.isArray(taskDoc.documents)) {
+            for (const doc of taskDoc.documents) {
+              if (doc && doc.url) {
                 filesBatch.push(this.storageService.extractKeyFromUrl(doc.url));
                 if (filesBatch.length >= batchSize) {
                   await processBatch(filesBatch);
@@ -340,9 +364,10 @@ export class TeamOrchestrator {
 
       const projCursor = ProjectModel.find({ ownerUid: teamUid }).select('documents').session(mongoSession).cursor();
       for await (const proj of projCursor) {
-        if ((proj as any).documents && Array.isArray((proj as any).documents)) {
-          for (const doc of (proj as any).documents) {
-            if (doc.url) {
+        const projDoc = proj as unknown as IProjectStorageEntity;
+        if (projDoc.documents && Array.isArray(projDoc.documents)) {
+          for (const doc of projDoc.documents) {
+            if (doc && doc.url) {
               filesBatch.push(this.storageService.extractKeyFromUrl(doc.url));
               if (filesBatch.length >= batchSize) {
                 await processBatch(filesBatch);
@@ -362,7 +387,7 @@ export class TeamOrchestrator {
         await ProjectModel.deleteMany({ ownerUid: teamUid }, { session: mongoSession });
       }
 
-      const deletedTeam = await TeamModel.findOneAndDelete({ uid: teamUid }, { session: mongoSession });
+      const deletedTeam = (await TeamModel.findOneAndDelete({ uid: teamUid }, { session: mongoSession })) as unknown as ITeamLookupEntity | null;
       if (deletedTeam) {
         await OiseauModel.updateMany({ teams: deletedTeam._id }, { $pull: { teams: deletedTeam._id } }, { session: mongoSession });
       }
@@ -377,21 +402,21 @@ export class TeamOrchestrator {
     });
   }
 
-  async leaveTeam(
+  public async leaveTeam(
     teamIdentifier: string,
     userIdentifier: string,
     mode: 'CLEAN' | 'TRACE',
     signature: ActionSignature
   ): Promise<{ success: boolean; message: string }> {
     
-    const actorCanonicalUid = await this.resolveCanonicalUserUid(signature.actorUid);
-    const targetCanonicalUid = await this.resolveCanonicalUserUid(userIdentifier);
+    const actorCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau acteur");
+    const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, userIdentifier, "Oiseau cible");
 
     if (actorCanonicalUid !== targetCanonicalUid) {
       throw new IlotError("Tu ne peux pas forcer l'envol d'un autre oiseau via cette route.", "FORBIDDEN", 403);
     }
 
-    const team = await findEntityBySlugOrUid(TeamModel, teamIdentifier) as any;
+    const team = await findEntityBySlugOrUid(TeamModel, teamIdentifier) as unknown as ITeamLookupEntity | null;
     if (!team) throw new IlotError("Nid introuvable dans la Silice.", "NOT_FOUND", 404);
     
     if (team.ownerUid === targetCanonicalUid) {
@@ -400,7 +425,7 @@ export class TeamOrchestrator {
 
     const teamUid = team.uid;
 
-    return await TransactionManager.execute("L'Envol Volontaire", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("L'Envol Volontaire", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
 
       if (mode === 'CLEAN') {
@@ -427,8 +452,8 @@ export class TeamOrchestrator {
         `;
         await neo4jTx.run(cypherClean, { userUid: targetCanonicalUid, teamUid });
 
-        const projects = await ProjectModel.find({ ownerUid: teamUid }).select('uid').session(mongoSession).lean();
-        const projectUids = projects.map((p: any) => p.uid);
+        const projects = (await ProjectModel.find({ ownerUid: teamUid }).select('uid').session(mongoSession).lean()) as unknown as IProjectStorageEntity[];
+        const projectUids = projects.map((p) => p.uid);
 
         if (projectUids.length > 0) {
           await TaskModel.deleteMany({ 
@@ -437,8 +462,8 @@ export class TeamOrchestrator {
           }).session(mongoSession);
         }
 
-        const userProjects = await ProjectModel.find({ ownerUid: teamUid, creatorUid: targetCanonicalUid }).select('uid').session(mongoSession).lean();
-        const userProjectUids = userProjects.map((p: any) => p.uid);
+        const userProjects = (await ProjectModel.find({ ownerUid: teamUid, creatorUid: targetCanonicalUid }).select('uid').session(mongoSession).lean()) as unknown as IProjectStorageEntity[];
+        const userProjectUids = userProjects.map((p) => p.uid);
 
         if (userProjectUids.length > 0) {
           await TaskModel.deleteMany({ projectUid: { $in: userProjectUids } }).session(mongoSession);

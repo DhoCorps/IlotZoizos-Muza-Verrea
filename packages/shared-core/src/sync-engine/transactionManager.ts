@@ -1,4 +1,3 @@
-// packages/shared-core/src/sync-engine/transactionManager.ts
 import type { ClientSession } from 'mongoose';
 import mongoose from 'mongoose';
 import { getNeo4jDriver } from '@ilot/infrastructure'; 
@@ -39,38 +38,41 @@ export class TransactionManager {
       // Étape B : On valide ensuite Neo4j (Projection relationnelle / Graphe)
       try {
         await neo4jTx.commit();
-      } catch (neo4jCommitError: any) {
+      } catch (neo4jCommitError: unknown) {
+        const neo4jErrorMessage = neo4jCommitError instanceof Error ? neo4jCommitError.message : String(neo4jCommitError);
         // 🚨 CATASTROPHE CRITIQUE MAIS CONTRÔLÉE : Sauvetage en Dead Letter Queue
-        console.error(`💥 [FATAL DESYNC] Échec du commit Neo4j sur [${operationName}] :`, neo4jCommitError.message);
+        console.error(`💥 [FATAL DESYNC] Échec du commit Neo4j sur [${operationName}] :`, neo4jErrorMessage);
         
         try {
           // On consigne la rupture dans la Silice pour un rejeu futur (Cron de synchronisation)
           await mongoose.connection.collection('system_graph_dlq').insertOne({
             operationName,
-            errorPayload: neo4jCommitError.message,
+            errorPayload: neo4jErrorMessage,
             status: 'PENDING_RETRY',
             timestamp: new Date()
           });
           console.warn(`🚑 [DLQ] Désynchronisation consignée avec succès. La Matrice sera réparée ultérieurement.`);
-        } catch (dlqError) {
-          console.error(`🌑 [ABYSS] Échec total de la DLQ ! La désynchronisation n'a pas pu être sauvegardée.`, dlqError);
+        } catch (dlqError: unknown) {
+          const dlqErrorMessage = dlqError instanceof Error ? dlqError.message : String(dlqError);
+          console.error(`🌑 [ABYSS] Échec total de la DLQ ! La désynchronisation n'a pas pu être sauvegardée.`, dlqErrorMessage);
         }
 
-        throw new IlotError(`Rupture de la Matrice Neo4j (Consignée en DLQ) : ${neo4jCommitError.message}`, "INTERNAL_ERROR", 500);
+        throw new IlotError(`Rupture de la Matrice Neo4j (Consignée en DLQ) : ${neo4jErrorMessage}`, "INTERNAL_ERROR", 500);
       }
       
       console.log(`✅ [NEXUS] Harmonie totale (Mongo + Neo4j) : ${operationName}`);
       return result;
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       // 🚨 4. ROLLBACK D'URGENCE
       
       // Si MongoDB n'avait pas encore été scellé, on l'annule proprement
       if (!mongoCommitted && mongoSession.inTransaction()) {
         try {
           await mongoSession.abortTransaction();
-        } catch (mongoAbortErr) {
-          console.error(`⚠️ [TransactionManager] Échec de l'abandon de la session Mongo :`, mongoAbortErr);
+        } catch (mongoAbortErr: unknown) {
+          const abortMsg = mongoAbortErr instanceof Error ? mongoAbortErr.message : String(mongoAbortErr);
+          console.error(`⚠️ [TransactionManager] Échec de l'abandon de la session Mongo :`, abortMsg);
         }
       }
       
@@ -78,34 +80,35 @@ export class TransactionManager {
       if (neo4jTx.isOpen()) {
         try {
           await neo4jTx.rollback();
-        } catch (neo4jRollbackErr) {
+        } catch {
           // Ignoré silencieusement, la transaction est probablement déjà expirée
         }
       }
       
-      console.error(`❌ [NEXUS] Brèche détectée sur ${operationName} :`, error.message);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`❌ [NEXUS] Brèche détectée sur ${operationName} :`, errorMessage);
       
       // 🛡️ CORRECTION CRITIQUE : Préserver les erreurs métiers (IlotError)
       // Si l'erreur provient de nos vérifications métier (403, 404, etc.), on la propage intacte.
-      if (error instanceof IlotError || error.name === 'IlotError') {
+      if (error instanceof IlotError || (typeof error === 'object' && error !== null && 'name' in error && (error as { name: string }).name === 'IlotError')) {
         throw error;
       }
 
       // Sinon, on encapsule les erreurs systèmes non gérées
-      throw new IlotError(`Échec inattendu de la transaction [${operationName}] : ${error.message}`, "INTERNAL_ERROR", 500);
+      throw new IlotError(`Échec inattendu de la transaction [${operationName}] : ${errorMessage}`, "INTERNAL_ERROR", 500);
 
     } finally {
       // 5. NETTOYAGE CLINIQUE ET INFAILLIBLE DES RESSOURCES
       if (mongoSession) {
         try { 
             await mongoSession.endSession(); 
-        } catch (e) { /* Silencieux */ }
+        } catch { /* Silencieux */ }
       }
 
       if (neo4jSession) {
         try { 
             await neo4jSession.close(); 
-        } catch (e) { /* Silencieux */ }
+        } catch { /* Silencieux */ }
       }
     }
   }

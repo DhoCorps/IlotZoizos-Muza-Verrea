@@ -89,7 +89,7 @@ describe('LetrinSpriteOrchestrator - Atelier Typographique Letr\'in (Police & Sp
         orchestrator.publishFontSprite({
           uid: 'font_beta', name: 'Broken Font', slug: 'broken-font', authorUid: 'ghost', gridSize: { width: 8, height: 8 }, glyphs: []
         }, validSignature as any)
-      ).rejects.toThrow(/Oiseau introuvable/);
+      ).rejects.toThrow(/Oiseau auteur introuvable dans la Silice/);
     });
   });
 });

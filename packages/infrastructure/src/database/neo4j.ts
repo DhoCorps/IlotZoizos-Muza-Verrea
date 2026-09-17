@@ -35,40 +35,43 @@ export const getNeo4jSession = (): Session => {
 };
 
 /**
+ * 🛡️ withNeo4jSession : Encapsule l'exécution d'une opération au sein d'une session Neo4j 
+ * et GARANTIT sa fermeture absolue (anti-fuites mémoire / pool de connexions saturé).
+ */
+export async function withNeo4jSession<T>(
+  operation: (session: Session) => Promise<T>
+): Promise<T> {
+  const session = getNeo4jSession();
+  try {
+    return await operation(session);
+  } catch (error: any) {
+    console.error("❌ [Neo4j] Erreur dans le wrapper de session :", error.message);
+    throw error;
+  } finally {
+    // ⚡ LIBÉRATION DU PORT 7687 : Vital pour éviter les fuites de connexions
+    await session.close();
+  }
+}
+
+/**
  * 🚀 runQuery : Exécute Cypher et GARANTIT la fermeture de la session.
  * Typage générique <T> pour retourner directement le format attendu.
  */
 export async function runQuery<T extends RecordShape = any>(cypher: string, params: Record<string, any> = {}): Promise<QueryResult<T>> {
-  const session = getNeo4jSession();
-  
-  try {
+  return withNeo4jSession(async (session) => {
     const result = await session.run(cypher, params);
-    // On retourne le QueryResult complet (qui contient les .records)
     return result as unknown as QueryResult<T>;
-  } catch (error: any) {
-    console.error("❌ [Neo4j] Erreur d'exécution de la requête :", error.message);
-    throw error;
-  } finally {
-    // ⚡ LIBÉRATION DU PORT 7687 : Vital pour éviter les fuites de mémoire
-    await session.close();
-  }
+  });
 }
 
 /**
  * ✍️ ÉCRITURE : Utilise les transactions explicites (recommandé par Neo4j pour les mutations)
  */
 export const writeToGraph = async (cypher: string, params: Record<string, any> = {}) => {
-  const session = getNeo4jSession();
-  try {
+  return withNeo4jSession(async (session) => {
     const result = await session.executeWrite(tx => tx.run(cypher, params));
     return result;
-  } catch (error: any) {
-    console.error("❌ [NEO4J WRITE ERROR] :", error.message);
-    throw error;
-  } finally {
-    // 🛡️ Crucial pour garder le dashboard 100% vert
-    await session.close(); 
-  }
+  });
 };
 
 /**
@@ -76,7 +79,8 @@ export const writeToGraph = async (cypher: string, params: Record<string, any> =
  */
 export const readFromGraph = async (cypher: string, params: Record<string, any> = {}) => {
   // Session spécifique en mode READ pour des performances accrues
-  const session = getNeo4jDriver().session({ defaultAccessMode: neo4j.session.READ });
+  const driver = getNeo4jDriver();
+  const session = driver.session({ defaultAccessMode: neo4j.session.READ });
   try {
     const result = await session.run(cypher, params);
     return result.records.map(record => record.toObject());

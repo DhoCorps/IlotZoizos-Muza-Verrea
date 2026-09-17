@@ -79,7 +79,7 @@ describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
       const result = await orchestrator.fosterProject(payload as any, signature);
       
       expect(result.success).toBe(true);
-      expect(result.mongo.name).toBe('Renewall');
+      expect((result.mongo as any).name).toBe('Renewall');
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });
@@ -96,7 +96,7 @@ describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
       const result = await orchestrator.mutateProject('proj-slug', { name: 'New Name' }, signature);
       
       expect(result.success).toBe(true);
-      expect(result.mongo.name).toBe('Mutation OK'); 
+      expect((result.mongo as any).name).toBe('Mutation OK'); 
     });
   });
 

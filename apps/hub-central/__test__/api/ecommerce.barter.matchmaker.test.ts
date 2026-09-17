@@ -1,23 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/ecommerce/barter/matchmaker/route';
 import { getNeo4jSession } from '@ilot/infrastructure';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
-vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, ctx: any) => {
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
-    }
-    return await handler(req, ctx, mockUser);
-  },
-}));
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withAura: (handler: unknown) => async (req: NextRequest, ctx: ApiContext) => {
+      const mockUser = global.__mockUser;
+      if (!mockUser || !mockUser.uid) {
+        return NextResponse.json({ success: false, error: "Oiseau non identifié." }, { status: 401 });
+      }
+      // @ts-ignore
+      return await handler(req, ctx, mockUser);
+    },
+  };
+});
 
 vi.mock('next/cache', () => ({
-  unstable_cache: vi.fn((cb) => cb),
+  unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
@@ -26,20 +32,25 @@ vi.mock('@ilot/infrastructure', () => ({
 }));
 
 declare global {
-  var __mockUser: any;
+  // 🛡️ Signature globale harmonisée avec le reste du projet
+  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
+type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
+
 describe('API Matchmaker Harmonique', () => {
+  const getHandler = GET as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   it('🔴 [GET] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
-    const req = new Request('http://localhost/api/matchmaker');
-    const res = await GET(req as any, {});
+    const req = new NextRequest('http://localhost/api/matchmaker');
+    const res = await getHandler(req, {} as ApiContext);
 
     expect(res.status).toBe(401);
   });
@@ -64,11 +75,11 @@ describe('API Matchmaker Harmonique', () => {
       close: vi.fn().mockResolvedValue(true),
     };
 
-    vi.mocked(getNeo4jSession).mockReturnValue(mockSession as any);
+    vi.mocked(getNeo4jSession).mockReturnValue(mockSession as unknown as ReturnType<typeof getNeo4jSession>);
 
-    const req = new Request('http://localhost/api/matchmaker');
-    const res = await GET(req as any, {});
-    const json = await res.json();
+    const req = new NextRequest('http://localhost/api/matchmaker');
+    const res = await getHandler(req, {} as ApiContext);
+    const json = await res.json() as { success: boolean; matches: Array<{ matchUid: string; itemsTheyHaveThatYouWant: string[] }> };
 
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);

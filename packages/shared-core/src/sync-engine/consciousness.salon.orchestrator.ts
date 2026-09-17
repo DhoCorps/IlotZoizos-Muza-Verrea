@@ -6,10 +6,12 @@ export interface EnactedThought {
     iv: string;
     tag: string;
     timestamp: number;
+    [key: string]: unknown;
 }
 
 export class ConsciousnessSalonOrchestrator {
     private static readonly ALGORITHM = 'aes-256-gcm';
+    private static readonly CRYPTO_SALT = process.env.E2EE_CRYPTO_SALT || 'fallback-dev-salt';
 
     /**
      * Calcule le niveau d'intrication quantique de la conscience partagée (C = S ⊗ B)
@@ -28,8 +30,8 @@ export class ConsciousnessSalonOrchestrator {
         }
         const iv = crypto.randomBytes(12);
         
-        // 🛡️ CORRECTION CYBERSÉCURITÉ : Dérivation forte scrypt
-        const key = crypto.scryptSync(String(sharedSecretKey), 'ilot-zoizos-salt-E2EE', 32);
+        // 🛡️ CORRECTION CYBERSÉCURITÉ : Dérivation forte scrypt avec sel d'environnement sécurisé
+        const key = crypto.scryptSync(String(sharedSecretKey), this.CRYPTO_SALT, 32);
         
         const cipher = crypto.createCipheriv(this.ALGORITHM, key, iv);
 
@@ -54,7 +56,7 @@ export class ConsciousnessSalonOrchestrator {
     public static unsealThought(enacted: EnactedThought, sharedSecretKey: string): string {
         try {
             // 🛡️ SYNCHRONISATION : Utilisation rigoureuse du même scryptSync pour correspondre à sealThought
-            const key = crypto.scryptSync(String(sharedSecretKey), 'ilot-zoizos-salt-E2EE', 32);
+            const key = crypto.scryptSync(String(sharedSecretKey), this.CRYPTO_SALT, 32);
             
             const decipher = crypto.createDecipheriv(
                 this.ALGORITHM, 
@@ -67,7 +69,7 @@ export class ConsciousnessSalonOrchestrator {
             decrypted += decipher.final('utf8');
 
             return decrypted;
-        } catch (error) {
+        } catch (_error: unknown) {
             // 🛡️ SUTURE : On intercepte les erreurs cryptographiques brutes
             throw new IlotError("Échec du dés-enchâssement : Clé invalide ou pensée altérée par l'abîme.", "FORBIDDEN", 403);
         }

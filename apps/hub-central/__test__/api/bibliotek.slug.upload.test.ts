@@ -5,31 +5,38 @@ import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { LibraryBookModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
-    }
-    return await handler(req, context, mockUser);
-  },
-  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
-    const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
-    if (rateLimitResult && rateLimitResult.allowed === false) {
-      return NextResponse.json({ error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
-    }
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
-    }
-    return await handler(req, context, mockUser);
-  },
-}));
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withAura: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
+      const mockUser = global.__mockUser;
+      if (!mockUser || !mockUser.uid) {
+        return NextResponse.json({ success: false, error: 'Accès non autorisé.' }, { status: 401 });
+      }
+      // @ts-ignore
+      return await handler(req, context, mockUser);
+    },
+    withRateLimit: (_actionKey: string, _max: number, _window: number, handler: unknown) => async (req: NextRequest, context: ApiContext) => {
+      const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
+      if (rateLimitResult && rateLimitResult.allowed === false) {
+        return NextResponse.json({ success: false, error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
+      }
+      const mockUser = global.__mockUser;
+      if (!mockUser || !mockUser.uid) {
+        return NextResponse.json({ success: false, error: 'Accès non autorisé.' }, { status: 401 });
+      }
+      // @ts-ignore
+      return await handler(req, context, mockUser);
+    },
+  };
+});
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
@@ -40,7 +47,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       findOneAndUpdate: vi.fn(),
       updateOne: vi.fn(),
     },
-    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
     findEntityBySlugOrUid: vi.fn(),
   };
 });
@@ -50,26 +56,30 @@ vi.mock('@/modules/security/rateLimiter', () => ({
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 declare global {
-  var __mockUser: any;
+  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
+type RouteHandler = (req: NextRequest, ctx: { params: Promise<{ slug?: string | string[] }> }) => Promise<Response>;
+
 describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
+  const postHandler = POST as unknown as RouteHandler;
+  const deleteHandler = DELETE as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     vi.spyOn(storageService, 'generateKey').mockReturnValue('mock-book-key.epub');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
       publicUrl: 'https://cdn.ilot/books/essai.epub',
       key: 'mock-book-key.epub',
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof storageService.uploadFile>>);
 
-    // 🛡️ Simulation réaliste d'extraction de clé normalisée avec filtrage des URL étrangères
     vi.spyOn(storageService, 'extractKeyFromUrl').mockImplementation((url: string) => {
       if (url.includes('volée') || url.includes('etrangere')) {
         return 'foreign-key';
@@ -77,7 +87,7 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
       return 'mock-book-key.epub';
     });
 
-    vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
+    vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as unknown as Awaited<ReturnType<typeof storageService.deleteFile>>);
   });
 
   it('🟢 POST : doit réussir l’upload d’un manuscrit, forger le Sceau SHA-256 et mettre à jour l’ouvrage (201)', async () => {
@@ -88,22 +98,24 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
       slug: 'essai-sur-la-silice',
       title: 'Essai sur la Silice', 
       authorUid: 'bird_writer' 
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
     vi.mocked(LibraryBookModel.findOneAndUpdate).mockReturnValue({
       lean: vi.fn().mockResolvedValue({ uid: 'book_999', fileUrl: 'https://cdn.ilot/books/essai.epub' })
-    } as any);
+    } as unknown as ReturnType<typeof LibraryBookModel.findOneAndUpdate>);
 
     const formData = new FormData();
     formData.append('file', new Blob(['contenu-epub'], { type: 'application/epub+zip' }), 'essai.epub');
     formData.append('assetType', 'manuscript');
 
-    const req = {
-      headers: { get: () => '127.0.0.1' },
-      formData: async () => formData,
-    } as unknown as NextRequest;
+    const req = new NextRequest('http://localhost/api/bibliotek/essai-sur-la-silice/upload', {
+      method: 'POST',
+    });
 
-    const res = await POST(req as any, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
+    // 🛡️ Suture absolue : On mocke directement la méthode formData() au niveau du prototype de la requête
+    vi.spyOn(req, 'formData').mockResolvedValue(formData);
+
+    const res = await postHandler(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
     const json = await res.json();
 
     expect(res.status).toBe(201);
@@ -111,7 +123,7 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
     expect(json.data.url).toBe('https://cdn.ilot/books/essai.epub');
     expect(json.digitalSignature).toBeDefined();
     expect(typeof json.digitalSignature).toBe('string');
-    expect(json.digitalSignature.length).toBe(64); // Validation SHA-256
+    expect(json.digitalSignature.length).toBe(64);
     
     expect(findEntityBySlugOrUid).toHaveBeenCalledWith(LibraryBookModel, 'essai-sur-la-silice');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
@@ -127,13 +139,13 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
       slug: 'essai-sur-la-silice',
       authorUid: 'bird_writer', 
       fileUrl: 'https://cdn.ilot/books/essai.epub' 
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
     const req = new NextRequest('http://localhost/api/bibliotek/essai-sur-la-silice/upload?url=https://cdn.ilot/books/essai.epub', {
       method: 'DELETE',
     });
 
-    const res = await DELETE(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
+    const res = await deleteHandler(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -155,19 +167,17 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
       slug: 'essai-sur-la-silice',
       authorUid: 'bird_writer', 
       fileUrl: 'https://cdn.ilot/books/essai.epub' 
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-    // Tentative de suppression d'une URL arbitraire étrangère
     const req = new NextRequest('http://localhost/api/bibliotek/essai-sur-la-silice/upload?url=https://cdn.ilot/books/volée-par-un-intrus.epub', {
       method: 'DELETE',
     });
 
-    const res = await DELETE(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
+    const res = await deleteHandler(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
     const json = await res.json();
 
     expect(res.status).toBe(403);
     expect(json.error).toContain("Souveraineté brisée");
-    // Le vaporisateur R2 ne doit surtout pas s'être déclenché !
     expect(storageService.deleteFile).not.toHaveBeenCalled();
     expect(LibraryBookModel.updateOne).not.toHaveBeenCalled();
   });

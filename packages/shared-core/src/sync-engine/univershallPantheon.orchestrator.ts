@@ -3,11 +3,28 @@ import { OiseauModel, LedgerEntryModel } from '@ilot/infrastructure';
 export interface PantheonEntry {
   uid: string;
   pseudo: string;
-  avatarUrl?: string;
+  avatarUrl?: string | null;
   resonanceScore: number;
   financialEnergy: number;
   praisesCount: number;
   matrixScore: number;
+  [key: string]: unknown;
+}
+
+interface IOiseauPantheonDocument {
+  uid: string;
+  pseudo?: string;
+  avatarUrl?: string;
+  praisesCount?: number;
+  totalResonance?: number;
+  demopraxyExScore?: number;
+  [key: string]: unknown;
+}
+
+interface ILedgerAggregateResult {
+  _id?: string;
+  totalVolume: number;
+  [key: string]: unknown;
 }
 
 export class UniversHallPantheonOrchestrator {
@@ -20,16 +37,16 @@ export class UniversHallPantheonOrchestrator {
     const now = new Date();
 
     // 1. Récupération des profils d'Oiseaux avec leur compteur d'éloges
-    const birds = await OiseauModel.find({ isBanned: { $ne: true } })
+    const birds = (await OiseauModel.find({ isBanned: { $ne: true } })
       .select('uid pseudo avatarUrl praisesCount totalResonance demopraxyExScore')
-      .lean();
+      .lean()) as unknown as IOiseauPantheonDocument[];
 
     if (!birds || birds.length === 0) return [];
 
     // 2. Agrégation des volumes financiers (KomptaStats) si une période est ciblée ou global
-    let financialMap = new Map<string, number>();
+    const financialMap = new Map<string, number>();
     try {
-      const matchQuery: any = { type: 'CREDIT' };
+      const matchQuery: Record<string, unknown> = { type: 'CREDIT' };
       if (yearMonth) {
         const startDate = new Date(`${yearMonth}-01T00:00:00Z`);
         const endDate = new Date(startDate);
@@ -37,22 +54,23 @@ export class UniversHallPantheonOrchestrator {
         matchQuery.createdAt = { $gte: startDate, $lt: endDate };
       }
 
-      const rawLedger = await LedgerEntryModel.aggregate([
+      const rawLedger = (await LedgerEntryModel.aggregate([
         { $match: matchQuery },
         { $group: { _id: '$ownerUid', totalVolume: { $sum: '$amountCents' } } }
-      ]);
+      ])) as unknown as ILedgerAggregateResult[];
 
-      rawLedger.forEach((entry: any) => {
-        if (entry._id) {
+      rawLedger.forEach((entry) => {
+        if (entry._id && typeof entry._id === 'string') {
           financialMap.set(entry._id, entry.totalVolume / 100); // Conversion en unités principales
         }
       });
-    } catch (err) {
-      console.warn(`  [Pantheon] (${now.toISOString()}) Impossible d'agréger le grand livre, repli à 0 pour le score financier.`, err);
+    } catch (error: unknown) {
+      const errMessage = error instanceof Error ? error.message : String(error);
+      console.warn(`  [Pantheon] (${now.toISOString()}) Impossible d'agréger le grand livre, repli à 0 pour le score financier.`, errMessage);
     }
 
     // 3. Fusion pondérée des signaux hétérogènes en un Indice de Résonance Unique
-    const scoredBirds: PantheonEntry[] = birds.map((bird: any) => {
+    const scoredBirds: PantheonEntry[] = birds.map((bird) => {
       const uid = bird.uid;
       const praisesCount = bird.praisesCount || 0;
       const financialEnergy = financialMap.get(uid) || 0;

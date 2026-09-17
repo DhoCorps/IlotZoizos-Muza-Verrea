@@ -2,15 +2,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EcommerceOrchestrator } from '../ecommerce.orchestrator';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
-import { syncUniversalInteraction, SystemGraphDlqModel } from '@ilot/infrastructure';
+import { syncUniversalInteraction, SystemGraphDlqModel, ProductModel, StoreModel } from '@ilot/infrastructure';
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
-  const actual: any = await importOriginal();
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
   return {
     ...actual,
     syncUniversalInteraction: vi.fn(async () => true),
     SystemGraphDlqModel: {
       create: vi.fn().mockResolvedValue([{}])
+    },
+    ProductModel: {
+      deleteOne: vi.fn().mockResolvedValue({ deletedCount: 1 })
+    },
+    StoreModel: {
+      deleteOne: vi.fn().mockResolvedValue({ deletedCount: 1 })
     }
   };
 });
@@ -35,7 +41,7 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', () => {
+describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes, Troc, Artefacts & Dissolution', () => {
   let orchestrator: EcommerceOrchestrator;
   const mockActorUid = 'bird-alpha';
 
@@ -67,7 +73,7 @@ describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', (
 
     it('🔴 doit rejeter (404) si l\'Oiseau est introuvable dans le Graphe (zéro record)', async () => {
       vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name, cb) => {
-        return await cb({} as any, { run: vi.fn().mockResolvedValue({ records: [] }) } as any);
+        return await cb({} as unknown as Parameters<Parameters<typeof TransactionManager.execute>[1]>[0], { run: vi.fn().mockResolvedValue({ records: [] }) } as unknown as Parameters<Parameters<typeof TransactionManager.execute>[1]>[1]);
       });
 
       await expect(
@@ -76,6 +82,25 @@ describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', (
           { actorUid: mockActorUid, capabilities: ['*'] }
         )
       ).rejects.toThrow(/Oiseau propriétaire introuvable/);
+    });
+  });
+
+  describe('dissolveStore', () => {
+    it('🔴 doit rejeter (401) si l\'Oiseau n\'est pas authentifié pour dissoudre une boutique', async () => {
+      await expect(
+        orchestrator.dissolveStore('store-1', { actorUid: '', capabilities: [] })
+      ).rejects.toThrow(IlotError);
+    });
+
+    it('🟢 doit dissoudre la boutique du graphe et de MongoDB avec succès', async () => {
+      const result = await orchestrator.dissolveStore(
+        'store-1',
+        { actorUid: mockActorUid, capabilities: ['*'] }
+      );
+
+      expect(result.success).toBe(true);
+      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
+      expect(StoreModel.deleteOne).toHaveBeenCalledWith({ uid: 'store-1' });
     });
   });
 
@@ -131,6 +156,25 @@ describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes & Troc', (
 
       expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
       expect(syncUniversalInteraction).toHaveBeenCalledWith('initiator_123', 'bird-beta', 'ECOMMERCE');
+    });
+  });
+
+  describe('removeProduct', () => {
+    it('🔴 doit rejeter (401) si l\'Oiseau n\'est pas authentifié pour supprimer un produit', async () => {
+      await expect(
+        orchestrator.removeProduct('prod-1', { actorUid: '', capabilities: [] })
+      ).rejects.toThrow(IlotError);
+    });
+
+    it('🟢 doit supprimer l\'artefact de la base de données et du graphe avec succès', async () => {
+      const result = await orchestrator.removeProduct(
+        'prod-1',
+        { actorUid: mockActorUid, capabilities: ['*'] }
+      );
+
+      expect(result.success).toBe(true);
+      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
+      expect(ProductModel.deleteOne).toHaveBeenCalledWith({ uid: 'prod-1' });
     });
   });
 });

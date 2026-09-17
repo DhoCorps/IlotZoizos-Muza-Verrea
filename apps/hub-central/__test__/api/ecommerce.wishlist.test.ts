@@ -1,26 +1,36 @@
-// Fichier : __test__/api/ecommerce.wishlist.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/ecommerce/wishlist/route';
 import { WishlistModel } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
-vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, ctx: any) => {
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withAura: (handler: unknown) => async (req: NextRequest, ctx: ApiContext) => {
+      const mockUser = global.__mockUser;
+      if (!mockUser || !mockUser.uid) {
+        return NextResponse.json({ success: false, error: "Oiseau non identifié." }, { status: 401 });
+      }
+      // @ts-ignore
+      return await handler(req, ctx, mockUser);
+    },
+    handleRouteError: (error: unknown, defaultMessage: string) => {
+      const status = (error as { status?: number }).status || 500;
+      const message = (error as { message?: string }).message || defaultMessage;
+      return NextResponse.json({ success: false, error: message }, { status });
     }
-    return await handler(req, ctx, mockUser);
-  },
-}));
+  };
+});
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
-  unstable_cache: vi.fn((cb) => cb),
+  unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
@@ -33,21 +43,26 @@ vi.mock('@ilot/infrastructure', () => ({
 }));
 
 declare global {
-  var __mockUser: any;
+  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
+type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
+
 describe('API Ecommerce Wishlists', () => {
+  const getHandler = GET as unknown as RouteHandler;
+  const postHandler = POST as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   describe('GET /api/ecommerce/wishlist', () => {
     it('🔴 doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-      delete (global as any).__mockUser;
+      delete global.__mockUser;
 
-      const req = new Request('http://localhost/api/ecommerce/wishlist');
-      const res = await GET(req as any, {});
+      const req = new NextRequest('http://localhost/api/ecommerce/wishlist');
+      const res = await getHandler(req, {} as ApiContext);
 
       expect(res.status).toBe(401);
     });
@@ -57,11 +72,11 @@ describe('API Ecommerce Wishlists', () => {
 
       vi.mocked(WishlistModel.find).mockReturnValue({
         lean: vi.fn().mockResolvedValue([{ uid: 'wish_1', name: 'Favoris' }])
-      } as any);
+      } as unknown as ReturnType<typeof WishlistModel.find>);
 
-      const req = new Request('http://localhost/api/ecommerce/wishlist');
-      const res = await GET(req as any, {});
-      const json = await res.json();
+      const req = new NextRequest('http://localhost/api/ecommerce/wishlist');
+      const res = await getHandler(req, {} as ApiContext);
+      const json = await res.json() as { success: boolean; data: Array<{ uid: string }> };
 
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);
@@ -77,20 +92,22 @@ describe('API Ecommerce Wishlists', () => {
         uid: 'wish_new',
         name: 'Matériel Musique',
         productUids: []
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof WishlistModel.create>>);
 
-      const req = new Request('http://localhost/api/ecommerce/wishlist', {
+      const req = new NextRequest('http://localhost/api/ecommerce/wishlist', {
         method: 'POST',
         body: JSON.stringify({ name: 'Matériel Musique' })
       });
 
-      const res = await POST(req as any, {});
-      const json = await res.json();
+      const res = await postHandler(req, {} as ApiContext);
+      const json = await res.json() as { success: boolean; data: { uid: string } };
 
       expect(res.status).toBe(201);
       expect(json.success).toBe(true);
       expect(json.data.uid).toBe('wish_new');
       expect(revalidateTag).toHaveBeenCalledWith('user-wishlists-bird_1');
+      expect(revalidateTag).toHaveBeenCalledWith('wishlists');
+      expect(revalidateTag).toHaveBeenCalledWith('ecommerce');
     });
 
     it('🟢 doit basculer (toggle) un produit dans une wishlist existante (200)', async () => {
@@ -103,21 +120,23 @@ describe('API Ecommerce Wishlists', () => {
         save: vi.fn().mockResolvedValue(true)
       };
 
-      vi.mocked(WishlistModel.findOne).mockResolvedValueOnce(mockWishlistInstance as any);
+      vi.mocked(WishlistModel.findOne).mockResolvedValueOnce(mockWishlistInstance as unknown as Awaited<ReturnType<typeof WishlistModel.findOne>>);
 
-      const req = new Request('http://localhost/api/ecommerce/wishlist', {
+      const req = new NextRequest('http://localhost/api/ecommerce/wishlist', {
         method: 'POST',
         body: JSON.stringify({ wishlistUid: 'wish_1', productUid: 'prod_2' })
       });
 
-      const res = await POST(req as any, {});
-      const json = await res.json();
+      const res = await postHandler(req, {} as ApiContext);
+      const json = await res.json() as { success: boolean };
 
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);
       expect(mockWishlistInstance.productUids).toContain('prod_2');
       expect(mockWishlistInstance.save).toHaveBeenCalled();
       expect(revalidateTag).toHaveBeenCalledWith('user-wishlists-bird_1');
+      expect(revalidateTag).toHaveBeenCalledWith('wishlists');
+      expect(revalidateTag).toHaveBeenCalledWith('ecommerce');
     });
   });
 });

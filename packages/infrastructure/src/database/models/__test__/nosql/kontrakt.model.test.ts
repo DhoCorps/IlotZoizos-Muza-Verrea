@@ -44,7 +44,7 @@ describe('KonTraKt Model Test Suite', () => {
       wagerAmount: 3
     });
 
-    let err;
+    let err: unknown;
     try {
       await invalidKonTraKt.save();
     } catch (error) {
@@ -65,13 +65,13 @@ describe('KonTraKt Model Test Suite', () => {
       expiresAt: new Date()
     });
 
-    let err: any;
+    let err: unknown;
     try {
       await negativeWagerDoc.save();
     } catch (error) {
       err = error;
     }
     expect(err).toBeDefined();
-    expect(err.errors.wagerAmount).toBeDefined();
+    expect((err as mongoose.Error.ValidationError).errors.wagerAmount).toBeDefined();
   });
 });

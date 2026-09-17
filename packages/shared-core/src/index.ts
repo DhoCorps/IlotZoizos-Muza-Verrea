@@ -16,6 +16,7 @@ export * from './utils/observatory.engine';
 export * from './utils/alchimy.engine';
 export * from './utils/string.engine';
 export * from './utils/crypto.engine';
+export * from './utils/orchestrator.engine';
 
 // --- 3. BLOC ENGINE & CANVAS ---
 export * from './bloc-engine/useBlockEngine';

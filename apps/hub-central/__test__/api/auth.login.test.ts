@@ -6,9 +6,13 @@ import { compare } from 'bcryptjs';
 // -------------------------------------------------------------------------
 // 🎭 MOCKS
 // -------------------------------------------------------------------------
-vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
-}));
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withSilice: (handler: unknown) => handler,
+  };
+});
 
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
@@ -26,55 +30,61 @@ vi.mock('bcryptjs', () => ({
   },
 }));
 
+type RouteHandler = (req: Request, ctx: unknown) => Promise<Response>;
+
 describe('API Auth Login POST', () => {
+  const postHandler = POST as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
   });
 
-  it('🔴 [POST] doit rejeter (400) si les champs sont manquants', async () => {
+  it('🔴 [POST] doit rejeter (400) si les champs sont manquants ou invalides (Zod)', async () => {
     const req = new Request('http://localhost/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email: 'test@ilot.fr' })
+      body: JSON.stringify({ email: 'test@ilot.fr' }) // password manquant
     });
 
-    const res = await POST(req as any, {});
+    const res = await postHandler(req, {});
     expect(res.status).toBe(400);
   });
 
   it('🔴 [POST] doit rejeter (401) si l\'oiseau est introuvable', async () => {
     vi.mocked(OiseauModel.findOne).mockReturnValue({
-      select: vi.fn().mockResolvedValue(null)
-    } as any);
+      select: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue(null)
+      })
+    } as unknown as ReturnType<typeof OiseauModel.findOne>);
 
     const req = new Request('http://localhost/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email: 'inconnu@ilot.fr', password: 'password123' })
     });
 
-    const res = await POST(req as any, {});
+    const res = await postHandler(req, {});
     expect(res.status).toBe(401);
   });
 
   it('🟢 [POST] doit autoriser la connexion (200) avec les bonnes credentials', async () => {
     vi.mocked(OiseauModel.findOne).mockReturnValue({
-      select: vi.fn().mockResolvedValue({ 
-        uid: 'bird_1', 
-        pseudo: 'PiafTest', 
-        email: 'test@ilot.fr',
-        password: 'hashed_password' 
+      select: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue({ 
+          uid: 'bird_1', 
+          pseudo: 'PiafTest', 
+          email: 'test@ilot.fr',
+          password: 'hashed_password' 
+        })
       })
-    } as any);
+    } as unknown as ReturnType<typeof OiseauModel.findOne>);
     
-    // On s'assure que compare renvoie bien true
-    vi.mocked(compare).mockResolvedValue(true as any);
+    vi.mocked(compare).mockResolvedValue(true as unknown as Awaited<ReturnType<typeof compare>>);
 
     const req = new Request('http://localhost/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email: 'test@ilot.fr', password: 'password123' })
     });
 
-    const res = await POST(req as any, {});
+    const res = await postHandler(req, {});
     const json = await res.json();
 
     expect(res.status).toBe(200);

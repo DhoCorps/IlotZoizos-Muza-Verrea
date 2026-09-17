@@ -3,6 +3,37 @@ import { TaskModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastruct
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
+import type { ClientSession } from 'mongoose';
+import type { Transaction, QueryResult } from 'neo4j-driver';
+
+export interface TaskResonanceResult {
+    success: boolean;
+    userUid: string;
+    completedTasksCount: number;
+    totalResonance: number;
+    user: unknown;
+    [key: string]: unknown;
+}
+
+interface IOiseauResonanceEntity {
+    uid: string;
+    slug?: string;
+    pseudo?: string;
+    [key: string]: unknown;
+}
+
+interface ITaskCompletedLean {
+    pomodoros?: {
+        estimated?: number;
+        completed?: number;
+        [key: string]: unknown;
+    };
+    metrics?: {
+        complexity?: number;
+        [key: string]: unknown;
+    };
+    [key: string]: unknown;
+}
 
 export class TaskResonanceOrchestrator {
     /**
@@ -33,9 +64,9 @@ export class TaskResonanceOrchestrator {
      * 🎶 CALCUL CONNECTÉ DE LA RÉSONANCE D'UN OISEAU
      * Résout l'identité dans MongoDB via findEntityBySlugOrUid pour obtenir le canonicalUid, puis met à jour Mongo et Neo4j sans Full Graph Scan.
      */
-    public async processUserTaskResonance(userIdentifier: string, signature: ActionSignature) {
+    public async processUserTaskResonance(userIdentifier: string, signature: ActionSignature): Promise<TaskResonanceResult> {
         // 1. Résolution stricte de l'Oiseau dans la Silice via l'utilitaire global
-        const user = await findEntityBySlugOrUid(OiseauModel, userIdentifier) as any;
+        const user = await findEntityBySlugOrUid(OiseauModel, userIdentifier) as unknown as IOiseauResonanceEntity | null;
 
         if (!user) throw new IlotError("Oiseau introuvable dans la Silice.", "NOT_FOUND", 404);
 
@@ -50,12 +81,12 @@ export class TaskResonanceOrchestrator {
         }
 
         // Récupération des tâches complétées assignées ou créées par l'oiseau
-        const completedTasks = await TaskModel.find({
+        const completedTasks = (await TaskModel.find({
             $or: [{ creatorUid: canonicalUid }, { assigneeUids: canonicalUid }],
             status: 'COMPLETED'
-        }).lean();
+        }).lean()) as unknown as ITaskCompletedLean[];
 
-        const taskInputs: TaskResonanceInput[] = completedTasks.map((t: any) => ({
+        const taskInputs: TaskResonanceInput[] = completedTasks.map((t) => ({
             estimatedTime: t.pomodoros?.estimated || 1,
             realTime: t.pomodoros?.completed || 1,
             weight: t.metrics?.complexity || 1
@@ -63,7 +94,7 @@ export class TaskResonanceOrchestrator {
 
         const totalResonance = TaskResonanceOrchestrator.calculateBatchResonance(taskInputs);
 
-        return await TransactionManager.execute("Résonance d'Atomes", async (mongoSession, neo4jTx) => {
+        return await TransactionManager.execute("Résonance d'Atomes", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
             // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
             const now = new Date();
 
@@ -87,11 +118,11 @@ export class TaskResonanceOrchestrator {
                 RETURN u
             `;
 
-            const neoResult = await neo4jTx.run(cypher, {
+            const neoResult = (await neo4jTx.run(cypher, {
                 canonicalUid,
                 totalResonance,
                 now: now.toISOString()
-            });
+            })) as QueryResult;
 
             if (neoResult.records.length === 0) {
                 throw new IlotError("Oiseau introuvable dans la Matrice Neo4j.", "NOT_FOUND", 404);

@@ -3,11 +3,65 @@ import { KomptaStatsEngine } from './komptaStats.orchestrator';
 import { RewardEntryModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature, CAPABILITIES } from '@ilot/types';
+import type { ClientSession } from 'mongoose';
+import type { Transaction } from 'neo4j-driver';
 
 // Interface d'injection pour isoler le shared-core de l'application
 export interface IMessageManager {
-  sendSystemNewsletter(payload: any): Promise<any>;
-  sendMessage(payload: any): Promise<any>;
+  sendSystemNewsletter(payload: NewsletterPayload): Promise<unknown>;
+  sendMessage(payload: PrivateMessagePayload): Promise<unknown>;
+  [key: string]: unknown;
+}
+
+export interface NewsletterPayload {
+  targetAudience: string;
+  subject: string;
+  content: string;
+  statsSnapshot: unknown;
+  [key: string]: unknown;
+}
+
+export interface PrivateMessagePayload {
+  conversationSlug: string;
+  senderSlug: string;
+  content: string;
+  attachments: unknown[];
+  replyToSlug: string;
+  [key: string]: unknown;
+}
+
+export interface RewardMetadata {
+  renewallBonus?: string;
+  multiplier?: number;
+  rate?: number;
+  radius?: number;
+  charges?: number;
+  aura?: string;
+  [key: string]: unknown;
+}
+
+export interface RewardEntryPayload {
+  ownerUid: string;
+  type: string;
+  month: string;
+  isTradable: boolean;
+  isConsumed: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  metadata: RewardMetadata;
+  [key: string]: unknown;
+}
+
+export interface MonthlyHarvestResult {
+  success: boolean;
+  yearMonth: string;
+  distributedRewardsCount: number;
+  [key: string]: unknown;
+}
+
+interface IOiseauEntity {
+  uid: string;
+  [key: string]: unknown;
 }
 
 export class MonthlyStatsOrchestrator {
@@ -26,19 +80,19 @@ export class MonthlyStatsOrchestrator {
    * S'exécute par défaut le 1er du mois à 03:00.
    * Calcule les métriques, forge les titres honorifiques et distribue la Sève
    */
-  public async executeMonthlyHarvest(yearMonth: string, signature: ActionSignature) {
+  public async executeMonthlyHarvest(yearMonth: string, signature: ActionSignature): Promise<MonthlyHarvestResult> {
     // Seul le système souverain (*) ou un Architecte peut déclencher la moisson globale
     if (!signature.capabilities.includes('*') && !signature.capabilities.includes(CAPABILITIES.SYSTEM.ALL)) {
       throw new IlotError("Aura insuffisante pour invoquer le Rituel de la Moisson.", "FORBIDDEN", 403);
     }
 
-    return await TransactionManager.execute("Moisson de la Canopée", async (mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Moisson de la Canopée", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now' pour toute l'exécution de la moisson
       const now = new Date();
 
       // 1. Extraction des flux énergétiques de la Silice
       const stats = await KomptaStatsEngine.calculateMonthlyStats(yearMonth);
-      const awardedRewards: any[] = [];
+      const awardedRewards: RewardEntryPayload[] = [];
 
       // 2. FORGE DES TITRES HONORIFIQUES ET RÉCOMPENSES ÉVOCATRICES
       // L'Alchimiste de Valeur (Top Vendeur / Créateur de Richesse)
@@ -152,7 +206,7 @@ export class MonthlyStatsOrchestrator {
       await Promise.all(
         rewardedUids.map(async (uid) => {
           try {
-            const oiseau = await findEntityBySlugOrUid(OiseauModel, uid);
+            const oiseau = await findEntityBySlugOrUid(OiseauModel, uid) as unknown as IOiseauEntity | null;
             if (!oiseau) return;
 
             const userRewards = awardedRewards.filter(r => r.ownerUid === uid);
@@ -161,12 +215,13 @@ export class MonthlyStatsOrchestrator {
             await this.messageService.sendMessage({
               conversationSlug: `private-${uid}`,
               senderSlug: 'SYSTEM_CANOPY_ROOT',
-              content: `L'Îlot a entendu ton chant. Pour ce cycle de ${yearMonth}, tu as été adoubé(e) et l'aura "${auras}" t'enveloppe désormais. Tes récompenses symbiotiques ont été liées dans ton inventaire de Silice.`,
+              content: `L'Îlot a entendu ton chant. Pour ce cycle de ${yearMonth}, tu has été adoubé(e) et l'aura "${auras}" t'enveloppe désormais. Tes récompenses symbiotiques ont été liées dans ton inventaire de Silice.`,
               attachments: [],
               replyToSlug: ''
             });
-          } catch (err) {
-            console.error(`  [Orchestrator] Échec de l'envoi du message privé au lauréat ${uid} :`, err);
+          } catch (err: unknown) {
+            const errMessage = err instanceof Error ? err.message : String(err);
+            console.error(`  [Orchestrator] Échec de l'envoi du message privé au lauréat ${uid} :`, errMessage);
           }
         })
       );

@@ -50,7 +50,12 @@ describe('SamplotekOrchestrator - Le Moteur du Studio E-Jay', () => {
 
   describe('fosterSample (Gravure)', () => {
     it('🔴 devrait rejeter si le sample manque de métadonnées vitales ou de sceau', async () => {
-      const invalidData = { title: 'Kick' }; // Manque audioUrl et signature
+      // 🛠️ Complété avec audioUrl et digitalSignature vides ou invalides pour satisfaire FosterSamplePayload tout en testant le rejet
+      const invalidData = { 
+        title: '', 
+        audioUrl: '', 
+        digitalSignature: '' 
+      }; 
       await expect(orchestrator.fosterSample(invalidData, userSignature as any))
         .rejects.toThrow(IlotError);
     });
@@ -77,7 +82,7 @@ describe('SamplotekOrchestrator - Le Moteur du Studio E-Jay', () => {
       const result = await orchestrator.fosterSample(sampleData, userSignature as any);
 
       expect(result.success).toBe(true);
-      expect(result.mongo.slug).toBe('snare-lofi');
+      expect((result.mongo as any).slug).toBe('snare-lofi');
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });

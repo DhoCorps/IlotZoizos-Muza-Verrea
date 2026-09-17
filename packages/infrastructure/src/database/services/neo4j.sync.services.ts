@@ -1,6 +1,23 @@
 // packages/infrastructure/src/database/services/neo4j.sync.ts
 import { getNeo4jDriver } from '../neo4j'; // ou ton driver habituel
 
+export type UniversalInteractionContext = 
+  | 'CHAT' 
+  | 'ECOMMERCE' 
+  | 'KONTAKT' 
+  | 'TASK' 
+  | 'PRAISE' 
+  | 'TEAM'
+  | 'BIBLIOTEK'
+  | 'PARTITA'
+  | 'SAMPLOTEK'
+  | 'SUJET'
+  | 'POETRIK'
+  | 'UNIVERSHALL'
+  | 'LETRIN'
+  | 'ABYSS'
+  | string; // Permet de rester ouvert aux extensions futures tout en gardant l'autocomplétion sur les connus
+
 /**
  * 🕸️ SYNCHRONISATION UNIVERSELLE DU GRAPHE
  * Enregistre ou renforce le lien d'interaction neutre entre deux oiseaux
@@ -9,7 +26,7 @@ import { getNeo4jDriver } from '../neo4j'; // ou ton driver habituel
 export async function syncUniversalInteraction(
   uidA: string, 
   uidB: string, 
-  contextModule: 'CHAT' | 'ECOMMERCE' | 'KONTAKT' | 'TASK' | 'PRAISE' | 'TEAM'
+  contextModule: UniversalInteractionContext
 ): Promise<void> {
   if (!uidA || !uidB || uidA === uidB) return;
 

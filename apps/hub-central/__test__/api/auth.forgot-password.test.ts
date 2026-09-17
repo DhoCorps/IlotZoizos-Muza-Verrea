@@ -8,9 +8,13 @@ import { revalidateTag } from 'next/cache';
 // -------------------------------------------------------------------------
 process.env.RESEND_API_KEY = 're_test_key';
 
-vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
-}));
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withSilice: (handler: unknown) => handler,
+  };
+});
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
@@ -34,10 +38,13 @@ vi.mock('resend', () => {
   };
 });
 
+type RouteHandler = (req: Request, ctx: unknown) => Promise<Response>;
+
 describe('API Forgot Password POST', () => {
+  const postHandler = POST as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
   });
 
   it('🔴 [POST] doit rejeter (400) si l\'email est invalide ou absent', async () => {
@@ -46,7 +53,7 @@ describe('API Forgot Password POST', () => {
       body: JSON.stringify({ email: 'mauvais-format' })
     });
 
-    const res = await POST(req as any, {});
+    const res = await postHandler(req, {});
     expect(res.status).toBe(400);
   });
 
@@ -58,7 +65,7 @@ describe('API Forgot Password POST', () => {
       body: JSON.stringify({ email: 'inconnu@ilot.fr' })
     });
 
-    const res = await POST(req as any, {});
+    const res = await postHandler(req, {});
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -74,14 +81,14 @@ describe('API Forgot Password POST', () => {
       save: vi.fn().mockResolvedValue(true),
     };
 
-    vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockUserDoc as any);
+    vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockUserDoc as unknown as Awaited<ReturnType<typeof OiseauModel.findOne>>);
 
     const req = new Request('http://localhost/api/auth/forgot-password', {
       method: 'POST',
       body: JSON.stringify({ email: 'piaf@ilot.fr' })
     });
 
-    const res = await POST(req as any, {});
+    const res = await postHandler(req, {});
     const json = await res.json();
 
     expect(res.status).toBe(200);

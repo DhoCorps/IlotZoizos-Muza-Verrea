@@ -26,21 +26,31 @@ export interface MonthlyCanopyStats {
   macroTotals: MacroTotals;
 }
 
+interface IAggregatedLedgerEntry {
+  _id: {
+    ownerUid?: string;
+    currency?: string;
+  } | string;
+  totalVolume: number;
+  transactionCount?: number;
+  [key: string]: unknown;
+}
+
 export class KomptaStatsEngine {
   /**
    * ⚖️ MATRICE DES TAUX DE CHANGE SOUVERAINS (L'Étalon-Énergie)
    * Définit la valeur de chaque énergie de l'Îlot par rapport à un indice universel (ex: 1.0 = 1 centime d'Euro).
    */
   private static readonly EXCHANGE_RATES: Record<string, number> = {
-    'EUR': 1.0,                   // Monnaie fiduciaire (Base 1)
-    'TOTAMTOE': 0.1,              // Monnaie de jeu standard
+    'EUR': 1.0,                     // Monnaie fiduciaire (Base 1)
+    'TOTAMTOE': 0.1,                // Monnaie de jeu standard
     'PLUME_SILEX': 0.5,         // Artefact Letr'in
     'SILLON_VINYLE': 0.5,       // Artefact Partita
     'ESSENCE_VENT': 2.0,        // Énergie élémentaire rare
     'ATOME_AIR': 1.5,
     'GLUON_FEU': 3.0,
     'KAOS_ORGANIQUE': 10.0,     // Énergie chaotique de très haute valeur
-    'BARTER': 0.0                 // Le troc pur n'a pas de valeur financière spéculative
+    'BARTER': 0.0                   // Le troc pur n'a pas de valeur financière spéculative
   };
 
   /**
@@ -54,10 +64,12 @@ export class KomptaStatsEngine {
   /**
    * Compile les agrégations MongoDB multi-devises en un classement universel unifié.
    */
-  private static rankByUniversalEnergy(aggregatedData: any[]): RankedEntity[] {
+  private static rankByUniversalEnergy(aggregatedData: IAggregatedLedgerEntry[]): RankedEntity[] {
     const userMap = new Map<string, RankedEntity>();
 
     for (const entry of aggregatedData) {
+      if (!entry._id || typeof entry._id === 'string') continue;
+      
       const uid = entry._id.ownerUid;
       const currency = entry._id.currency;
       const amount = entry.totalVolume;
@@ -111,40 +123,40 @@ export class KomptaStatsEngine {
       LedgerEntryModel.aggregate([
         { $match: { createdAt: { $gte: startDate, $lt: endDate }, type: 'CREDIT', category: 'STORE_SALE' } },
         { $group: { _id: { ownerUid: '$ownerUid', currency: '$currency' }, totalVolume: { $sum: '$amountCents' } } }
-      ]),
+      ]) as unknown as IAggregatedLedgerEntry[],
       // 2. Top Acheteurs / Mécènes (Agrégation multi-devises)
       LedgerEntryModel.aggregate([
         { $match: { createdAt: { $gte: startDate, $lt: endDate }, type: 'DEBIT', category: { $in: ['STORE_PURCHASE', 'TIP'] } } },
         { $group: { _id: { ownerUid: '$ownerUid', currency: '$currency' }, totalVolume: { $sum: '$amountCents' } } }
-      ]),
+      ]) as unknown as IAggregatedLedgerEntry[],
       // 3. L'Oiseau Écho (Commentaires)
       CommentModel.aggregate([
         { $match: { createdAt: { $gte: startDate, $lt: endDate } } },
         { $group: { _id: '$targetOwnerUid', commentCount: { $sum: 1 } } },
         { $sort: { commentCount: -1 } },
         { $limit: 5 }
-      ]),
+      ]) as unknown as Array<{ _id: string; commentCount: number }>,
       // 4. L'Oiseau Réactif (Réactions)
       ReactionModel.aggregate([
         { $match: { createdAt: { $gte: startDate, $lt: endDate } } },
         { $group: { _id: '$senderUid', reactionCount: { $sum: 1 } } },
         { $sort: { reactionCount: -1 } },
         { $limit: 5 }
-      ]),
+      ]) as unknown as Array<{ _id: string; reactionCount: number }>,
       // 5. Macro Totaux financiers (Sécurisés par devise)
       LedgerEntryModel.aggregate([
         { $match: { createdAt: { $gte: startDate, $lt: endDate } } },
         { $group: { _id: '$currency', totalVolume: { $sum: '$amountCents' }, transactionCount: { $sum: 1 } } }
-      ])
+      ]) as unknown as IAggregatedLedgerEntry[]
     ]);
 
     // Résolution des classements universels
     const topSellers = this.rankByUniversalEnergy(rawSellers);
     const topBuyers = this.rankByUniversalEnergy(rawBuyers);
 
-    const macroTotals: MacroTotals = rawMacro.reduce((acc, curr) => {
-      if (curr._id) {
-        acc[curr._id] = { totalVolume: curr.totalVolume, transactionCount: curr.transactionCount };
+    const macroTotals: MacroTotals = rawMacro.reduce((acc: MacroTotals, curr: IAggregatedLedgerEntry) => {
+      if (curr._id && typeof curr._id === 'string') {
+        acc[curr._id] = { totalVolume: curr.totalVolume, transactionCount: curr.transactionCount || 0 };
       }
       return acc;
     }, {} as MacroTotals);

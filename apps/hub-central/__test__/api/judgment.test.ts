@@ -1,18 +1,27 @@
-// app/api/judgment/__tests__/route.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, GET } from '@/app/api/judgment/route';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
 // 🛡️ Mock du garde du corps pour injecter notre utilisateur
-vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: Request, context: any) => {
-    // On simule un architecte suprême
-    const mockUser = { uid: 'bird_juge_supreme', capabilities: ['*'] };
-    return handler(req, context, mockUser);
-  }
-}));
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withAura: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
+      const mockUser = { uid: 'bird_juge_supreme', capabilities: ['*'] };
+      // @ts-ignore
+      return await handler(req, context, mockUser);
+    },
+    handleRouteError: (error: unknown, defaultMessage: string) => {
+      const status = (error as { status?: number; statusCode?: number }).status || (error as { statusCode?: number }).statusCode || 500;
+      const message = (error as { message?: string }).message || defaultMessage;
+      return NextResponse.json({ success: false, error: message }, { status });
+    }
+  };
+});
 
-// 👈 CORRECTION ICI : vi.hoisted permet aux variables d'exister AVANT le vi.mock
+// 👈 vi.hoisted permet aux variables d'exister AVANT le vi.mock
 const { mockSummon, mockExecute } = vi.hoisted(() => ({
   mockSummon: vi.fn(),
   mockExecute: vi.fn()
@@ -28,18 +37,24 @@ vi.mock('@ilot/shared-core', () => ({
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
+  unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
+type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
+
 describe('Routes API - Tribunal de la Canopée (Judgment)', () => {
+  const getHandler = GET as unknown as RouteHandler;
+  const postHandler = POST as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   describe('GET /api/judgment (Convocation des Jurés)', () => {
     it('🔴 doit rejeter (400) si les UIDs du plaignant et de l\'accusé manquent', async () => {
-      const req = new Request('http://localhost/api/judgment?plaintiffId=plaignant_1'); // Manque defendant
-      const res: NextResponse = await GET(req, {} as any);
-      const json = await res.json();
+      const req = new NextRequest('http://localhost/api/judgment?plaintiffId=plaignant_1');
+      const res = await getHandler(req, {} as ApiContext);
+      const json = await res.json() as { success: boolean; error: string };
 
       expect(res.status).toBe(400);
       expect(json.error).toContain("sont requis");
@@ -48,9 +63,9 @@ describe('Routes API - Tribunal de la Canopée (Judgment)', () => {
     it('🟢 doit renvoyer la liste des jurés impartiaux si les paramètres sont valides', async () => {
       mockSummon.mockResolvedValueOnce({ success: true, jurors: ['juror_1', 'juror_2', 'juror_3'] });
 
-      const req = new Request('http://localhost/api/judgment?plaintiffId=bird_a&defendantId=bird_b');
-      const res: NextResponse = await GET(req, {} as any);
-      const json = await res.json();
+      const req = new NextRequest('http://localhost/api/judgment?plaintiffId=bird_a&defendantId=bird_b');
+      const res = await getHandler(req, {} as ApiContext);
+      const json = await res.json() as { success: boolean; jurors: Array<string> };
 
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);
@@ -61,13 +76,13 @@ describe('Routes API - Tribunal de la Canopée (Judgment)', () => {
 
   describe('POST /api/judgment (Exécution de la Sentence)', () => {
     it('🔴 doit rejeter (400) si les paramètres de la sentence sont incomplets', async () => {
-      const req = new Request('http://localhost/api/judgment', {
+      const req = new NextRequest('http://localhost/api/judgment', {
         method: 'POST',
         body: JSON.stringify({ targetIdentifier: 'bird_criminel' }) // Manque reportUid et judgmentLevel
       });
 
-      const res: NextResponse = await POST(req, {} as any);
-      const json = await res.json();
+      const res = await postHandler(req, {} as ApiContext);
+      const json = await res.json() as { success: boolean; error: string };
 
       expect(res.status).toBe(400);
       expect(json.error).toContain("Paramètres incomplets");
@@ -77,21 +92,21 @@ describe('Routes API - Tribunal de la Canopée (Judgment)', () => {
       const mockResult = {
         success: true,
         targetUid: 'bird_canonical_criminel',
-        appliedLevel: 0,
-        usedGrace: true, // Le bouclier a fonctionné !
+        appliedLevel: 1,
+        usedGrace: true,
         newKarmaStatus: 'clear',
         strikes: 0,
         gracesRemaining: 2
       };
       mockExecute.mockResolvedValueOnce(mockResult);
 
-      const req = new Request('http://localhost/api/judgment', {
+      const req = new NextRequest('http://localhost/api/judgment', {
         method: 'POST',
         body: JSON.stringify({ targetIdentifier: 'bird_criminel', reportUid: 'report_1', judgmentLevel: 1 })
       });
 
-      const res: NextResponse = await POST(req, {} as any);
-      const json = await res.json();
+      const res = await postHandler(req, {} as ApiContext);
+      const json = await res.json() as { success: boolean; message: string; data: { usedGrace: boolean } };
 
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);
@@ -105,20 +120,20 @@ describe('Routes API - Tribunal de la Canopée (Judgment)', () => {
         success: true,
         targetUid: 'bird_canonical_criminel',
         appliedLevel: 2,
-        usedGrace: false, // Pas de grâce
+        usedGrace: false,
         newKarmaStatus: 'quarantined',
         strikes: 3,
         gracesRemaining: 0
       };
       mockExecute.mockResolvedValueOnce(mockResult);
 
-      const req = new Request('http://localhost/api/judgment', {
+      const req = new NextRequest('http://localhost/api/judgment', {
         method: 'POST',
         body: JSON.stringify({ targetIdentifier: 'bird_criminel', reportUid: 'report_2', judgmentLevel: 2 })
       });
 
-      const res: NextResponse = await POST(req, {} as any);
-      const json = await res.json();
+      const res = await postHandler(req, {} as ApiContext);
+      const json = await res.json() as { success: boolean; message: string; data: { newKarmaStatus: string } };
 
       expect(res.status).toBe(200);
       expect(json.message).toContain("La sentence est tombée");

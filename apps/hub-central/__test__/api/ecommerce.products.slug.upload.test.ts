@@ -5,6 +5,7 @@ import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { ProductModel, UniversalMediaRegistry, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
@@ -13,26 +14,46 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withAura: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
+      const mockUser = global.__mockUser;
+      if (!mockUser || !mockUser.uid) {
+        return NextResponse.json({ success: false, error: 'Accès non autorisé.' }, { status: 401 });
+      }
+      // @ts-ignore
+      return await handler(req, context, mockUser);
+    },
+    withRateLimit: (_actionKey: string, _max: number, _window: number, handler: unknown) => async (req: NextRequest, context: ApiContext) => {
+      const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
+      if (rateLimitResult && rateLimitResult.allowed === false) {
+        return NextResponse.json({ success: false, error: 'Trop de versements. Veuillez patienter.' }, { status: 429 });
+      }
+      const mockUser = global.__mockUser;
+      if (!mockUser || !mockUser.uid) {
+        return NextResponse.json({ success: false, error: 'Accès non autorisé.' }, { status: 401 });
+      }
+      // @ts-ignore
+      return await handler(req, context, mockUser);
+    },
+    assertEntitySovereignty: (user: { uid: string; capabilities?: string[] }, ownerUid?: string) => {
+      const isArchitect = user.capabilities?.includes('*');
+      if (!isArchitect && (!ownerUid || user.uid !== ownerUid)) {
+        throw new (class extends Error {
+          status = 403;
+          constructor(m: string) { super(m); }
+        })("Souveraineté violée.");
+      }
+    },
+    handleRouteError: (error: unknown, defaultMessage: string) => {
+      const status = (error as { status?: number }).status || 500;
+      const message = (error as { message?: string }).message || defaultMessage;
+      return NextResponse.json({ success: false, error: message }, { status });
     }
-    return await handler(req, context, mockUser);
-  },
-  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
-    const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
-    if (rateLimitResult && rateLimitResult.allowed === false) {
-      return NextResponse.json({ error: 'Trop de versements. Veuillez patienter.' }, { status: 429 });
-    }
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
-    }
-    return await handler(req, context, mockUser);
-  },
-}));
+  };
+});
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
@@ -53,27 +74,32 @@ vi.mock('@/modules/security/rateLimiter', () => ({
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 declare global {
-  var __mockUser: any;
+  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
+
+type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
 
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
-describe('POST /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
+describe('POST & DELETE /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
+  const postHandler = POST as unknown as RouteHandler;
+  const deleteHandler = DELETE as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     vi.spyOn(storageService, 'generateKey').mockReturnValue('hub-central/fr/projects/mon-produit/product_image_123.jpg');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
       publicUrl: 'https://cdn.ilot/product.jpg',
       key: 'hub-central/fr/projects/mon-produit/product_image_123.jpg',
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof storageService.uploadFile>>);
 
     // 🛡️ Simulation réaliste d'extraction de clé normalisée
     vi.spyOn(storageService, 'extractKeyFromUrl').mockImplementation((url: string) => {
@@ -82,7 +108,7 @@ describe('POST /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
       }
       return 'hub-central/fr/projects/mon-produit/product_image_123.jpg';
     });
-    vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
+    vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as unknown as Awaited<ReturnType<typeof storageService.deleteFile>>);
   });
 
   describe('POST - Upload Image', () => {
@@ -93,7 +119,7 @@ describe('POST /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
         uid: 'prod_999',
         title: 'Mon Super Produit',
         ownerUid: 'merchant_123',
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
       const formData = new FormData();
       formData.append('file', new Blob(['fake-image'], { type: 'image/jpeg' }), 'product.jpg');
@@ -103,7 +129,7 @@ describe('POST /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
         formData: async () => formData,
       } as unknown as NextRequest;
 
-      const response = await POST(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
+      const response = await postHandler(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
       expect(response.status).toBe(403);
     });
 
@@ -118,7 +144,7 @@ describe('POST /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
         ownerSlug: 'marchand',
         priceCents: 1500,
         settings: { consentForShowcase: true },
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
       const formData = new FormData();
       formData.append('file', new Blob(['fake-image'], { type: 'image/jpeg' }), 'product.jpg');
@@ -128,8 +154,8 @@ describe('POST /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
         formData: async () => formData,
       } as unknown as NextRequest;
 
-      const response = await POST(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
-      const json = await response.json();
+      const response = await postHandler(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
+      const json = await response.json() as { success: boolean; data: { url: string; digitalSignature: string } };
 
       expect(response.status).toBe(201);
       expect(json.success).toBe(true);
@@ -155,13 +181,13 @@ describe('POST /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 'prod_999',
         ownerUid: 'merchant_123',
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-      const req = new Request('http://localhost/api/ecommerce/products/mon-produit/upload?url=https://cdn.ilot/product.jpg', {
+      const req = new NextRequest('http://localhost/api/ecommerce/products/mon-produit/upload?url=https://cdn.ilot/product.jpg', {
         method: 'DELETE',
-      }) as unknown as NextRequest;
+      });
 
-      const response = await DELETE(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
+      const response = await deleteHandler(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
       expect(response.status).toBe(403);
     });
 
@@ -173,13 +199,13 @@ describe('POST /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
         slug: 'mon-produit',
         ownerUid: 'merchant_123',
         imageUrl: 'https://cdn.ilot/product.jpg'
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-      const req = new Request('http://localhost/api/ecommerce/products/mon-produit/upload?url=https://cdn.ilot/image-etrangere.jpg', {
+      const req = new NextRequest('http://localhost/api/ecommerce/products/mon-produit/upload?url=https://cdn.ilot/image-etrangere.jpg', {
         method: 'DELETE',
-      }) as unknown as NextRequest;
+      });
 
-      const response = await DELETE(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
+      const response = await deleteHandler(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
       expect(response.status).toBe(403);
       expect(storageService.deleteFile).not.toHaveBeenCalled();
       expect(ProductModel.updateOne).not.toHaveBeenCalled();
@@ -193,14 +219,14 @@ describe('POST /ecommerce/[slug]/upload avec Sceau d\'intégrité', () => {
         slug: 'mon-produit',
         ownerUid: 'merchant_123',
         imageUrl: 'https://cdn.ilot/product.jpg',
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-      const req = new Request('http://localhost/api/ecommerce/products/mon-produit/upload?url=https://cdn.ilot/product.jpg', {
+      const req = new NextRequest('http://localhost/api/ecommerce/products/mon-produit/upload?url=https://cdn.ilot/product.jpg', {
         method: 'DELETE',
-      }) as unknown as NextRequest;
+      });
 
-      const response = await DELETE(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
-      const json = await response.json();
+      const response = await deleteHandler(req, { params: Promise.resolve({ slug: 'mon-produit' }) });
+      const json = await response.json() as { success: boolean };
 
       expect(response.status).toBe(200);
       expect(json.success).toBe(true);

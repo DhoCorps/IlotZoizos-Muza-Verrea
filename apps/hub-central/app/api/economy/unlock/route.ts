@@ -1,35 +1,62 @@
-// Fichier : app/api/economy/unlock/route.ts
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
-import { EconomyService } from '@ilot/infrastructure';
+import { NextResponse, NextRequest } from 'next/server';
+import { EconomyService, IOiseauInventoryDocument } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
+import { z } from 'zod';
 
-export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+// ==========================================
+// 🛡️ SCHÉMA ZOD (Validation stricte du featureId)
+// ==========================================
+const UnlockPayloadSchema = z.object({
+  featureId: z.string().min(1, "L'identifiant d'artefact (featureId) est requis.")
+});
+
+// ==========================================
+// 💥 FONCTION DE CASCADE DES TAGS (CACHE)
+// ==========================================
+function revalidateUnlockCascades(userUid: string): void {
+  revalidateTag('economy');
+  revalidateTag(`alveole-${userUid}`);
+}
+
+// ==========================================
+// POST : Déverrouiller un artefact ou une capacité de la Canopée
+// ==========================================
+export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const body = await req.json().catch(() => null);
-    if (!body || !body.featureId) {
-      return NextResponse.json({ success: false, error: 'Identifiant d\'artefact (featureId) manquant.' }, { status: 400 });
+    let rawBody: unknown;
+    try {
+      rawBody = await req.json();
+    } catch {
+      return NextResponse.json({ success: false, error: 'Corps de requête illisible.' }, { status: 400 });
     }
 
-    const { featureId } = body;
-    
-    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
+    // 🛡️ Blindage strict via Zod
+    const validation = UnlockPayloadSchema.safeParse(rawBody);
+    if (!validation.success) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Identifiant d\'artefact (featureId) manquant ou invalide.',
+        details: validation.error.flatten() 
+      }, { status: 400 });
+    }
+
+    const { featureId } = validation.data;
     const userUid = currentUser.uid;
 
     // Tentative de transaction non-marchande via le service
-    const updatedInventory = await EconomyService.unlockFeature(userUid, String(featureId));
+    const updatedInventory = (await EconomyService.unlockFeature(userUid, featureId)) as unknown as IOiseauInventoryDocument;
 
-    // 💥 BOOM ! Invalidation chirurgicale du cache de l'économie du joueur
-    revalidateTag('economy');
-    revalidateTag(`alveole-${userUid}`);
+    // 💥 BOOM ! Invalidation chirurgicale du cache de l'économie du joueur via notre helper dédié
+    revalidateUnlockCascades(userUid);
 
     return NextResponse.json({
       success: true,
       message: `La capacité [${featureId}] a été scellée dans votre Alvéole.`,
       data: {
-        unlockedUnlocks: updatedInventory.unlockedUnlocks,
+        unlockedUnlocks: updatedInventory.unlockedUnlocks || [],
         remainingBalances: {
           parchemins: updatedInventory.parchemins,
           plumes: updatedInventory.plumes,
@@ -40,9 +67,6 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     }, { status: 200 });
 
   } catch (error: unknown) {
-    console.error('🔥 [ECONOMY UNLOCK ERROR] :', error);
-    const err = error as { status?: number; statusCode?: number; message?: string };
-    const status = err.status || err.statusCode || 400; // 400 par défaut (fonds insuffisants)
-    return NextResponse.json({ success: false, error: err.message || 'La transaction a échoué.' }, { status });
+    return handleRouteError(error, 'La transaction a échoué.');
   }
 });

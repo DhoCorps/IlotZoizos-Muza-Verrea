@@ -89,7 +89,7 @@ const SujetSchema = new Schema<ISujetDocument>(
     timestamps: true,
     toJSON: {
       virtuals: true,
-      transform: (_, ret: any) => {
+      transform: (_, ret: Record<string, unknown>) => {
         delete ret._id;
         delete ret.__v;
         return ret;
@@ -101,4 +101,4 @@ const SujetSchema = new Schema<ISujetDocument>(
 SujetSchema.index({ title: 'text', content: 'text', lyrics: 'text', tags: 'text' });
 
 export const SujetModel = (mongoose.models.Sujet as Model<ISujetDocument>) || 
-                          mongoose.model<ISujetDocument>('Sujet', SujetSchema);
+                        mongoose.model<ISujetDocument>('Sujet', SujetSchema);

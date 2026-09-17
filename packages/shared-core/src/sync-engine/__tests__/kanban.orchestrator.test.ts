@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { KanbanOrchestrator } from '../kanban.orchestrator';
 import { TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
+import * as OrchestratorEngine from '../../utils/orchestrator.engine'; // On importe TOUT le module
 import { IlotError } from '../../errors/ilot.errors';
 import { CAPABILITIES } from '@ilot/types';
-import { syncUniversalInteraction } from '@ilot/infrastructure';
 
 // 🛡️ Mock unifié et sécurisé de l'infrastructure
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -16,7 +16,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       bulkWrite: vi.fn(),
     },
     findEntityBySlugOrUid: vi.fn(),
-    syncUniversalInteraction: vi.fn(async () => true),
   };
 });
 
@@ -37,9 +36,21 @@ describe('KanbanOrchestrator - Gestion du Tableau et des Atomes', () => {
   const adminSignature = { actorUid: 'bird_admin', capabilities: [CAPABILITIES.TASK.UPDATE] };
   const restrictedSignature = { actorUid: 'bird_visitor', capabilities: [] };
 
+  // On prépare notre spy pour l'utilitaire local
+  let safeSyncSpy: any; // <--- C'est ici qu'on simplifie !
+
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new KanbanOrchestrator();
+    
+    // 🛡️ On espionne la fonction DIRECTEMENT sur l'objet importé
+    // Et on empêche son exécution réelle (mockResolvedValue)
+    safeSyncSpy = vi.spyOn(OrchestratorEngine, 'safeSyncUniversalInteraction').mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    // Nettoyage impératif du spy après chaque test
+    safeSyncSpy.mockRestore();
   });
 
   describe('updateTask', () => {
@@ -67,7 +78,7 @@ describe('KanbanOrchestrator - Gestion du Tableau et des Atomes', () => {
       const res = await orchestrator.updateTask('atome-alpha', { status: 'DONE' }, adminSignature as any);
       
       expect(res.success).toBe(true);
-      expect(res.mongo.uid).toBe('task-uid-123');
+      expect((res.mongo as any).uid).toBe('task-uid-123');
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });
@@ -98,9 +109,9 @@ describe('KanbanOrchestrator - Gestion du Tableau et des Atomes', () => {
       expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
-      // Vérification du tissage universel avec await
-      expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
-      expect(syncUniversalInteraction).toHaveBeenCalledWith('bird_admin', 'bird_target', 'TASK');
+      // Vérification du spy qu'on a déclaré avec vi.spyOn
+      expect(safeSyncSpy).toHaveBeenCalledTimes(1);
+      expect(safeSyncSpy).toHaveBeenCalledWith('bird_admin', 'bird_target', 'TASK', 'assignMember');
     });
 
     it('⚠️ ne doit pas propager l\'interaction universelle si on s\'assigne soi-même', async () => {
@@ -109,7 +120,7 @@ describe('KanbanOrchestrator - Gestion du Tableau et des Atomes', () => {
       const res = await orchestrator.assignMember('task-1', 'bird_admin', adminSignature as any);
       
       expect(res.success).toBe(true);
-      expect(syncUniversalInteraction).not.toHaveBeenCalled();
+      expect(safeSyncSpy).not.toHaveBeenCalled();
     });
   });
 });

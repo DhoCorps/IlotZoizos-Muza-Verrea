@@ -1,27 +1,38 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, POST } from '@/app/api/ecommerce/stores/route'; // Ajuste le chemin selon ton arborescence
-import { StoreModel } from '@ilot/infrastructure';
+import { GET, POST } from '@/app/api/ecommerce/stores/route';
+import { StoreModel, OiseauModel } from '@ilot/infrastructure';
 import { EcommerceOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
-vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
-  withAura: (handler: any) => async (req: any, ctx: any) => {
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withSilice: (handler: unknown) => handler,
+    withAura: (handler: unknown) => async (req: NextRequest, ctx: ApiContext) => {
+      const mockUser = global.__mockUser;
+      if (!mockUser || !mockUser.uid) {
+        return NextResponse.json({ success: false, error: "Oiseau non identifié." }, { status: 401 });
+      }
+      // @ts-ignore
+      return await handler(req, ctx, mockUser);
+    },
+    handleRouteError: (error: unknown, defaultMessage: string) => {
+      const status = (error as { status?: number }).status || 500;
+      const message = (error as { message?: string }).message || defaultMessage;
+      return NextResponse.json({ success: false, error: message }, { status });
     }
-    return await handler(req, ctx, mockUser);
-  },
-}));
+  };
+});
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
-  unstable_cache: vi.fn((cb) => cb),
+  unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
@@ -34,6 +45,9 @@ vi.mock('@ilot/infrastructure', () => ({
     findOne: vi.fn(),
     create: vi.fn(),
   },
+  OiseauModel: {
+    findOne: vi.fn(),
+  },
 }));
 
 vi.mock('@ilot/shared-core', () => ({
@@ -43,13 +57,18 @@ vi.mock('@ilot/shared-core', () => ({
 }));
 
 declare global {
-  var __mockUser: any;
+  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
+type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
+
 describe('API Stores (Boutiques)', () => {
+  const getHandler = GET as unknown as RouteHandler;
+  const postHandler = POST as unknown as RouteHandler;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   describe('GET /api/stores', () => {
@@ -57,11 +76,11 @@ describe('API Stores (Boutiques)', () => {
       vi.mocked(StoreModel.find).mockReturnValue({
         sort: vi.fn().mockReturnThis(),
         lean: vi.fn().mockResolvedValue([{ uid: 'store_1', storeName: 'Boutique Test' }]),
-      } as any);
+      } as unknown as ReturnType<typeof StoreModel.find>);
 
-      const req = new Request('http://localhost/api/stores');
-      const res = await GET(req as any, {});
-      const json = await res.json();
+      const req = new NextRequest('http://localhost/api/stores');
+      const res = await getHandler(req, {} as ApiContext);
+      const json = await res.json() as Array<{ uid: string }>;
 
       expect(res.status).toBe(200);
       expect(json).toHaveLength(1);
@@ -71,43 +90,76 @@ describe('API Stores (Boutiques)', () => {
 
   describe('POST /api/stores', () => {
     it('🔴 [POST] doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-      delete (global as any).__mockUser;
+      delete global.__mockUser;
 
-      const req = new Request('http://localhost/api/stores', {
+      const req = new NextRequest('http://localhost/api/stores', {
         method: 'POST',
         body: JSON.stringify({ storeName: 'Boutique Inconnue' })
       });
 
-      const res = await POST(req as any, {});
+      const res = await postHandler(req, {} as ApiContext);
       expect(res.status).toBe(401);
+    });
+
+    it('🔴 doit rejeter avec une erreur 403 si l oiseau est classé INDESIRABLE ou banni', async () => {
+      global.__mockUser = { uid: 'bird_1', capabilities: [] };
+
+      vi.mocked(OiseauModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValueOnce({
+          uid: 'bird_1',
+          profileStatus: 'INDESIRABLE',
+          isBanned: false,
+        })
+      } as unknown as ReturnType<typeof OiseauModel.findOne>);
+
+      const req = new NextRequest('http://localhost/api/stores', {
+        method: 'POST',
+        body: JSON.stringify({ uid: 'store_1', storeName: 'Boutique Interdite', slug: 'boutique-interdite' })
+      });
+
+      const res = await postHandler(req, {} as ApiContext);
+      const json = await res.json() as { success: boolean; error: string };
+
+      expect(res.status).toBe(403);
+      expect(json.error).toContain('Souveraineté restreinte');
+      expect(StoreModel.create).not.toHaveBeenCalled();
     });
 
     it('🟢 [POST] doit créer une boutique avec succès (201) et invalider le cache', async () => {
       global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
+      vi.mocked(OiseauModel.findOne).mockReturnValue({
+        lean: vi.fn().mockResolvedValueOnce({
+          uid: 'bird_1',
+          profileStatus: 'RESPECTABLE',
+          isBanned: false,
+        })
+      } as unknown as ReturnType<typeof OiseauModel.findOne>);
+
       vi.mocked(StoreModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue(null) // Pas de collision de slug
-      } as any);
+      } as unknown as ReturnType<typeof StoreModel.findOne>);
 
       vi.mocked(StoreModel.create).mockResolvedValueOnce({
         uid: 'store_new',
         storeName: 'Canopée Shop',
         slug: 'canopee-shop'
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof StoreModel.create>>);
 
-      const req = new Request('http://localhost/api/stores', {
+      const req = new NextRequest('http://localhost/api/stores', {
         method: 'POST',
-        body: JSON.stringify({ storeName: 'Canopée Shop', stripeAccountId: 'acct_test' })
+        body: JSON.stringify({ uid: 'store_new', ownerUid: 'bird_1', storeName: 'Canopée Shop', slug: 'canopee-shop', stripeAccountId: 'acct_test' })
       });
 
-      const res = await POST(req as any, {});
-      const json = await res.json();
+      const res = await postHandler(req, {} as ApiContext);
+      const json = await res.json() as { success: boolean; data: { uid: string } };
 
       expect(res.status).toBe(201);
       expect(json.success).toBe(true);
       expect(json.data.uid).toBe('store_new');
       expect(revalidateTag).toHaveBeenCalledWith('stores');
       expect(revalidateTag).toHaveBeenCalledWith('verified-stores');
+      expect(revalidateTag).toHaveBeenCalledWith('user-stores-bird_1');
     });
   });
 });

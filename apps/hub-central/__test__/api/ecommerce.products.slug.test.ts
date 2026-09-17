@@ -2,24 +2,44 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, DELETE } from '@/app/api/ecommerce/products/[slug]/route';
 import { ProductModel } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
-vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
-  withAura: (handler: any) => async (req: any, ctx: any) => {
-    const mockUser = global.__mockUser;
-    if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: "Oiseau non identifié." }, { status: 401 });
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withSilice: (handler: unknown) => handler,
+    withAura: (handler: unknown) => async (req: NextRequest, ctx: ApiContext) => {
+      const mockUser = global.__mockUser;
+      if (!mockUser || !mockUser.uid) {
+        return NextResponse.json({ success: false, error: "Oiseau non identifié." }, { status: 401 });
+      }
+      // @ts-ignore
+      return await handler(req, ctx, mockUser);
+    },
+    assertEntitySovereignty: (user: { uid: string; capabilities?: string[] }, ownerUid?: string) => {
+      const isArchitect = user.capabilities?.includes('*');
+      if (!isArchitect && (!ownerUid || user.uid !== ownerUid)) {
+        throw new (class extends Error {
+          status = 403;
+          constructor(m: string) { super(m); }
+        })("Souveraineté violée.");
+      }
+    },
+    handleRouteError: (error: unknown, defaultMessage: string) => {
+      const status = (error as { status?: number }).status || 500;
+      const message = (error as { message?: string }).message || defaultMessage;
+      return NextResponse.json({ success: false, error: message }, { status });
     }
-    return await handler(req, ctx, mockUser);
-  },
-}));
+  };
+});
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val),
+  slugify: vi.fn((val: string) => val),
 }));
 
 vi.mock('@/lib/cache/ecommerce.cache', () => ({
@@ -28,7 +48,7 @@ vi.mock('@/lib/cache/ecommerce.cache', () => ({
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
-  unstable_cache: vi.fn((cb) => cb),
+  unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -41,7 +61,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       deleteOne: vi.fn(),
     },
     // Mock du helper unifié s'appuyant sur ProductModel.findOne
-    findEntityBySlugOrUid: vi.fn(async (model, identifier) => {
+    findEntityBySlugOrUid: vi.fn(async (model: { findOne: Function }, identifier: string) => {
       const doc = await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] });
       if (!doc) return null;
       if (typeof doc.lean === 'function') {
@@ -59,25 +79,29 @@ vi.mock('@ilot/shared-core', () => ({
 }));
 
 declare global {
-  var __mockUser: any;
+  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
+type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
+
 describe('API Product [slug] (GET & DELETE)', () => {
+  const getHandler = GET as unknown as RouteHandler;
+  const deleteHandler = DELETE as unknown as RouteHandler;
   
   beforeEach(() => {
       vi.clearAllMocks();
-      delete (global as any).__mockUser;
+      delete global.__mockUser;
   });  
 
   describe('GET /api/products/[slug]', () => {
     it('🟢 doit récupérer l\'artefact avec succès (200)', async () => {
       vi.mocked(ProductModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'prod_1', title: 'Artefact Ancien' })
-      } as any);
+      } as unknown as ReturnType<typeof ProductModel.findOne>);
 
-      const req = new Request('http://localhost/api/products/artefact-ancien');
-      const res = await GET(req as any, { params: Promise.resolve({ slug: 'artefact-ancien' }) });
-      const json = await res.json();
+      const req = new NextRequest('http://localhost/api/products/artefact-ancien');
+      const res = await getHandler(req, { params: Promise.resolve({ slug: 'artefact-ancien' }) });
+      const json = await res.json() as { uid: string };
 
       expect(res.status).toBe(200);
       expect(json.uid).toBe('prod_1');
@@ -86,10 +110,10 @@ describe('API Product [slug] (GET & DELETE)', () => {
     it('🔴 doit renvoyer 404 si l\'artefact est introuvable', async () => {
       vi.mocked(ProductModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue(null)
-      } as any);
+      } as unknown as ReturnType<typeof ProductModel.findOne>);
 
-      const req = new Request('http://localhost/api/products/inconnu');
-      const res = await GET(req as any, { params: Promise.resolve({ slug: 'inconnu' }) });
+      const req = new NextRequest('http://localhost/api/products/inconnu');
+      const res = await getHandler(req, { params: Promise.resolve({ slug: 'inconnu' }) });
 
       expect(res.status).toBe(404);
     });
@@ -97,10 +121,10 @@ describe('API Product [slug] (GET & DELETE)', () => {
 
   describe('DELETE /api/products/[slug]', () => {
     it('🔴 doit refuser l\'accès (401) si l\'oiseau n\'est pas authentifié', async () => {
-      delete (global as any).__mockUser;
+      delete global.__mockUser;
 
-      const req = new Request('http://localhost/api/products/artefact-ancien', { method: 'DELETE' });
-      const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'artefact-ancien' }) });
+      const req = new NextRequest('http://localhost/api/products/artefact-ancien', { method: 'DELETE' });
+      const res = await deleteHandler(req, { params: Promise.resolve({ slug: 'artefact-ancien' }) });
 
       expect(res.status).toBe(401);
     });
@@ -112,13 +136,14 @@ describe('API Product [slug] (GET & DELETE)', () => {
         lean: vi.fn().mockResolvedValue({
           uid: 'prod_1',
           slug: 'artefact-ancien',
-          storeUid: 'store_1'
+          storeUid: 'store_1',
+          ownerUid: 'bird_1'
         })
-      } as any);
+      } as unknown as ReturnType<typeof ProductModel.findOne>);
 
-      const req = new Request('http://localhost/api/products/artefact-ancien', { method: 'DELETE' });
-      const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'artefact-ancien' }) });
-      const json = await res.json();
+      const req = new NextRequest('http://localhost/api/products/artefact-ancien', { method: 'DELETE' });
+      const res = await deleteHandler(req, { params: Promise.resolve({ slug: 'artefact-ancien' }) });
+      const json = await res.json() as { success: boolean };
 
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);
