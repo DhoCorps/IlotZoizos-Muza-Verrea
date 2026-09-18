@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PATCH, DELETE } from '@/app/api/tasks/[slug]/route';
 import { TaskModel, getNeo4jSession, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { NextRequest, NextResponse } from 'next/server';
 
 // 🛡️ Mocks globaux de l'infrastructure
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -31,20 +32,25 @@ vi.mock('@ilot/shared-core', () => {
     };
 });
 
-// 🛡️ Simulation de l'API Guard withAura
+// 🛡️ Simulation de l'API Guard withAura et handleRouteError
 vi.mock('@/lib/api-guards', () => ({
-    withAura: (handler: any) => async (req: Request, context: any) => {
+    withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
         const currentUser = { uid: 'bird_123', capabilities: ['*'] };
         return handler(req, context, currentUser);
     },
+    handleRouteError: (error: unknown, context: string) => {
+        const err = error as Error;
+        console.error(`[${context}]`, err);
+        return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
 }));
 
 vi.mock('@/lib/slugify', () => ({
-    slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+    slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 vi.mock('next/cache', () => ({
-    unstable_cache: (fn: any) => fn,
+    unstable_cache: (fn: Function) => fn,
     revalidateTag: vi.fn(),
 }));
 
@@ -55,24 +61,24 @@ describe('Route API : Atome Individuel ([slug])', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        delete (global as any).__mockUser;
+        delete global.__mockUser;
         mockNeoSession = {
             run: vi.fn().mockResolvedValue({ records: [] }),
             close: vi.fn().mockResolvedValue(undefined),
         };
-        vi.mocked(getNeo4jSession).mockReturnValue(mockNeoSession as any);
+        vi.mocked(getNeo4jSession).mockReturnValue(mockNeoSession as unknown as ReturnType<typeof getNeo4jSession>);
     });
 
     it('🟢 GET : doit ausculter l\'atome via le cache avec succès', async () => {
         vi.mocked(getCachedTaskDetails).mockResolvedValueOnce({
             task: { uid: 'task_123', title: 'Atome Silice' },
             caps: ['*']
-        } as any);
+        } as unknown as Awaited<ReturnType<typeof getCachedTaskDetails>>);
 
-        const req = new Request('http://localhost:3000/api/tasks/task_123');
+        const req = new NextRequest('http://localhost:3000/api/tasks/task_123');
         const context = { params: Promise.resolve({ slug: 'task_123' }) };
 
-        const res = await GET(req as any, context as any);
+        const res = await GET(req, context);
         const data = await res.json();
 
         expect(res.status).toBe(200);
@@ -84,16 +90,15 @@ describe('Route API : Atome Individuel ([slug])', () => {
         vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
             uid: 'task_123',
             slug: 'task_123',
-        } as any);
+        } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-        const req = new Request('http://localhost:3000/api/tasks/task_123', {
+        const req = new NextRequest('http://localhost:3000/api/tasks/task_123', {
             method: 'PATCH',
             body: JSON.stringify({ title: 'Mutation de l Atome' }),
-            headers: { 'Content-Type': 'application/json' },
         });
         const context = { params: Promise.resolve({ slug: 'task_123' }) };
 
-        const res = await PATCH(req as any, context as any);
+        const res = await PATCH(req, context);
         const data = await res.json();
 
         expect(res.status).toBe(200);
@@ -106,14 +111,14 @@ describe('Route API : Atome Individuel ([slug])', () => {
         vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
             uid: 'task_123',
             slug: 'task_123',
-        } as any);
+        } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-        const req = new Request('http://localhost:3000/api/tasks/task_123', {
+        const req = new NextRequest('http://localhost:3000/api/tasks/task_123', {
             method: 'DELETE',
         });
         const context = { params: Promise.resolve({ slug: 'task_123' }) };
 
-        const res = await DELETE(req as any, context as any);
+        const res = await DELETE(req, context);
         const data = await res.json();
 
         expect(res.status).toBe(200);

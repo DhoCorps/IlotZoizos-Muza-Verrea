@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/teams/[slug]/members/route';
-import { getServerSession } from 'next-auth/next';
 import { TeamModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TeamOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
+import { NextRequest, NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
@@ -12,8 +12,19 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser) {
+      return NextResponse.json({ success: false, error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
+    }
+    return await handler(req, context, mockUser);
+  },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -30,8 +41,16 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 });
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
+
+declare global {
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
+}
 
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
@@ -39,23 +58,24 @@ vi.mock('@/lib/slugify', () => ({
 describe('Route API : Membres et Recrutement (POST /api/teams/[slug]/members)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete global.__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de TeamOrchestrator
     vi.spyOn(TeamOrchestrator.prototype, 'inviteBird').mockResolvedValue({
       success: true,
       message: "Invitation envoyée avec succès",
-    } as any);
+    } as unknown as Awaited<ReturnType<TeamOrchestrator['inviteBird']>>);
   });
 
   it('doit rejeter (401) si l\'utilisateur n\'a pas d\'Aura', async () => {
-    vi.mocked(getServerSession).mockResolvedValue(null);
+    delete global.__mockUser;
 
-    const req = new Request('http://localhost/api/teams/mon-nid/members', {
+    const req = new NextRequest('http://localhost/api/teams/mon-nid/members', {
       method: 'POST',
       body: JSON.stringify({ action: 'INVITE', userUid: 'target-123' }),
     });
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-nid' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'mon-nid' }) });
     const json = await response.json();
 
     expect(response.status).toBe(401);
@@ -63,16 +83,14 @@ describe('Route API : Membres et Recrutement (POST /api/teams/[slug]/members)', 
   });
 
   it('doit rejeter (400) si l\'action n\'est pas INVITE', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'u-123', capabilities: [] }
-    } as any);
+    global.__mockUser = { uid: 'u-123', capabilities: [] };
 
-    const req = new Request('http://localhost/api/teams/mon-nid/members', {
+    const req = new NextRequest('http://localhost/api/teams/mon-nid/members', {
       method: 'POST',
       body: JSON.stringify({ action: 'KICK', userUid: 'target-123' }),
     });
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-nid' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'mon-nid' }) });
     const json = await response.json();
 
     expect(response.status).toBe(400);
@@ -80,16 +98,14 @@ describe('Route API : Membres et Recrutement (POST /api/teams/[slug]/members)', 
   });
 
   it('doit rejeter (400) si l\'UID de l\'oiseau cible est manquant', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'u-123', capabilities: [] }
-    } as any);
+    global.__mockUser = { uid: 'u-123', capabilities: [] };
 
-    const req = new Request('http://localhost/api/teams/mon-nid/members', {
+    const req = new NextRequest('http://localhost/api/teams/mon-nid/members', {
       method: 'POST',
       body: JSON.stringify({ action: 'INVITE' }),
     });
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-nid' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'mon-nid' }) });
     const json = await response.json();
 
     expect(response.status).toBe(400);
@@ -97,21 +113,19 @@ describe('Route API : Membres et Recrutement (POST /api/teams/[slug]/members)', 
   });
 
   it('doit réussir (200) l\'invitation d\'un oiseau, exécuter l\'orchestrateur et invalider le cache', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'u-123', capabilities: ['*'] }
-    } as any);
+    global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 't-1',
       slug: 'mon-nid'
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-    const req = new Request('http://localhost/api/teams/mon-nid/members', {
+    const req = new NextRequest('http://localhost/api/teams/mon-nid/members', {
       method: 'POST',
       body: JSON.stringify({ action: 'INVITE', userUid: 'target-123', capabilities: ['READ'] }),
     });
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-nid' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'mon-nid' }) });
     const json = await response.json();
 
     expect(response.status).toBe(200);

@@ -1,22 +1,32 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { OiseauModel, PraiseModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
-import { syncUniversalInteraction } from '@ilot/infrastructure'; // Ou le chemin relatif vers neo4j.sync.service
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
+import { syncUniversalInteraction } from '@ilot/infrastructure';
+import { z } from 'zod';
+
+// 🛡️ Schéma de validation Zod pour l'éloge
+const CreatePraiseSchema = z.object({
+  targetIdentifier: z.string().min(1, "La cible est requise."),
+  text: z.string().min(1, "Le texte de l'éloge est requis.").max(500, "L'éloge est trop long (500 caractères maximum)."),
+  type: z.string().optional().default('gratitude'),
+});
+
+type CreatePraiseInput = z.infer<typeof CreatePraiseSchema>;
 
 // ==========================================
 // GET : Consulter les éloges d'un Oiseau (Le Panthéon)
 // ==========================================
-export const GET = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const GET = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
     const url = new URL(req.url);
     // On consulte soit la cible demandée, soit soi-même par défaut
     const targetIdentifier = url.searchParams.get('targetUid') || currentUser.uid;
 
     // 🔍 Résolution unifiée de l'Oiseau ciblé
-    const targetUser: any = await findEntityBySlugOrUid(OiseauModel, targetIdentifier);
+    const targetUser = (await findEntityBySlugOrUid(OiseauModel, targetIdentifier)) as { _id: unknown; uid?: string } | null;
 
     if (!targetUser) {
       return NextResponse.json({ error: "L'Oiseau ciblé est introuvable." }, { status: 404 });
@@ -30,40 +40,39 @@ export const GET = withAura(async (req: Request, _context: ApiContext, currentUs
 
     return NextResponse.json({ success: true, data: praises }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 [PRAISES GET ERROR] :", error);
-    return NextResponse.json({ error: "Erreur interne lors de la lecture du Panthéon." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'PRAISES GET ERROR');
   }
 });
 
 // ==========================================
 // POST : Graver un Éloge (Alimente le Bouclier Karmique)
 // ==========================================
-export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const body = await req.json().catch(() => null);
-    if (!body) {
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
       return NextResponse.json({ error: "Le chant est illisible : Corps de requête manquant." }, { status: 400 });
     }
 
-    const { targetIdentifier, text, type = 'gratitude' } = body;
-
-    if (!targetIdentifier || !text) {
-      return NextResponse.json({ error: "Paramètres incomplets. Une cible et un texte sont requis." }, { status: 400 });
+    const validationResult = CreatePraiseSchema.safeParse(body);
+    if (!validationResult.success) {
+      const errorMessage = validationResult.error.issues.map(e => e.message).join(', ');
+      return NextResponse.json({ error: `Paramètres incomplets ou invalides : ${errorMessage}` }, { status: 400 });
     }
 
-    if (text.length > 500) {
-      return NextResponse.json({ error: "L'éloge est trop long (500 caractères maximum)." }, { status: 400 });
-    }
+    const validatedData: CreatePraiseInput = validationResult.data;
 
     // 🔍 1. Résolution unifiée de l'expéditeur
-    const author: any = await findEntityBySlugOrUid(OiseauModel, currentUser.uid);
+    const author = (await findEntityBySlugOrUid(OiseauModel, currentUser.uid)) as { _id: unknown; uid?: string } | null;
     if (!author) {
       return NextResponse.json({ error: "Auteur introuvable." }, { status: 404 });
     }
 
     // 🔍 2. Résolution unifiée de la cible
-    const recipient: any = await findEntityBySlugOrUid(OiseauModel, targetIdentifier);
+    const recipient = (await findEntityBySlugOrUid(OiseauModel, validatedData.targetIdentifier)) as { _id: unknown; uid?: string } | null;
     if (!recipient) {
       return NextResponse.json({ error: "L'Oiseau ciblé est introuvable." }, { status: 404 });
     }
@@ -79,8 +88,8 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     const newPraise = await PraiseModel.create({
       author: author._id,
       recipient: recipient._id,
-      text,
-      type
+      text: validatedData.text,
+      type: validatedData.type
     });
 
     // 5. Alimentation du Bouclier Karmique : on incrémente le compteur de la cible
@@ -90,12 +99,14 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     );
 
     // 6. 🕸️ Tissage de la toile universelle en arrière-plan (Fire & Forget)
-    syncUniversalInteraction(currentUser.uid, targetCanonicalUid, 'PRAISE').catch(console.error);
+    syncUniversalInteraction(currentUser.uid, targetCanonicalUid || '', 'PRAISE').catch(console.error);
 
     // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('praises');
-    revalidateTag(`praises-${targetCanonicalUid}`);
-    revalidateTag(`profile-${targetCanonicalUid}`); // Car le compteur praisesCount a changé !
+    if (targetCanonicalUid) {
+      revalidateTag(`praises-${targetCanonicalUid}`);
+      revalidateTag(`profile-${targetCanonicalUid}`);
+    }
 
     return NextResponse.json({
       success: true,
@@ -103,8 +114,7 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       data: newPraise
     }, { status: 201 });
 
-  } catch (error: any) {
-    console.error("🔥 [PRAISES POST ERROR] :", error);
-    return NextResponse.json({ error: "Erreur interne lors de la gravure de l'éloge." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'PRAISES POST ERROR');
   }
 });

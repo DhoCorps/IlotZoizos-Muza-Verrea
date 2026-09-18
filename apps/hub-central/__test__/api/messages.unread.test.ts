@@ -1,65 +1,61 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/messages/unread/route';
-import { MessageModel } from '@ilot/infrastructure';
-import { NextResponse } from 'next/server';
+import { getCachedUnreadCount } from '@/lib/cache/messages.cache';
+import { NextResponse, NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
-// 🎭 MOCKS DES GARDES D'API ET DU CACHE
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
 vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser;
     if (!mockUser || !mockUser.uid) {
-      return NextResponse.json({ error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
+      return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
     }
     return await handler(req, context, mockUser);
   },
 }));
 
-vi.mock('next/cache', () => ({
-  unstable_cache: vi.fn((cb) => cb),
-}));
-
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  MessageModel: {
-    countDocuments: vi.fn(),
-  },
+vi.mock('@/lib/cache/messages.cache', () => ({
+  getCachedUnreadCount: vi.fn(),
 }));
 
 declare global {
-  var __mockUser: any;
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
 }
 
 describe('API Messages Unread - Comptage des murmures non lus', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
-  it('🔴 doit rejeter l’accès (401) si l’oiseau n’est pas connecté', async () => {
-    delete (global as any).__mockUser;
+  it('🟢 doit renvoyer le nombre de messages non lus avec succès (200)', async () => {
+    global.__mockUser = { uid: 'bird_1', slug: 'bird-1', capabilities: [] };
+    vi.mocked(getCachedUnreadCount).mockResolvedValueOnce(5);
 
-    const req = new Request('http://localhost/api/messages/unread');
-    const res = await GET(req as any, {});
-
-    expect(res.status).toBe(401);
-  });
-
-  it('🟢 doit renvoyer le nombre de messages non lus (200) avec succès', async () => {
-    global.__mockUser = { uid: 'bird_1', slug: 'oiseau-fer', capabilities: [] };
-    vi.mocked(MessageModel.countDocuments).mockResolvedValueOnce(5);
-
-    const req = new Request('http://localhost/api/messages/unread');
-    const res = await GET(req as any, {});
+    const req = new NextRequest('http://localhost/api/messages/unread');
+    const res = await GET(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
     expect(json.unreadCount).toBe(5);
-    expect(MessageModel.countDocuments).toHaveBeenCalledWith({
-      senderSlug: { $ne: 'oiseau-fer' },
-      "readBy.userSlug": { $ne: 'oiseau-fer' }
-    });
+    expect(getCachedUnreadCount).toHaveBeenCalledWith('bird-1');
+  });
+
+  it('🔴 doit rejeter avec une erreur 401 si l\'oiseau n\'est pas authentifié par le garde', async () => {
+    delete global.__mockUser; // Pas d'utilisateur connecté
+
+    const req = new NextRequest('http://localhost/api/messages/unread');
+    const res = await GET(req, { params: Promise.resolve({}) });
+    const json = await res.json();
+
+    expect(res.status).toBe(401);
+    expect(json.error).toContain('Accès non autorisé');
   });
 });

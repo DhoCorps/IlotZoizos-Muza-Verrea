@@ -1,16 +1,16 @@
-import { NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
+
+import { NextResponse, NextRequest } from 'next/server';
 import { TeamModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '@ilot/shared-core';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards'; // 🪡 Notre bouclier souverain strict
-
-export const dynamic = 'force-dynamic';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards'; // 🪡 Notre bouclier souverain strict
 
 // ==========================================
 // 🧨 DELETE : Révocation d'une invitation sur un Nid
 // ==========================================
-export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     // 1. Résolution stricte et typée des paramètres dynamiques de l'URL
     const resolvedParams = await context.params;
@@ -21,18 +21,18 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
     const targetUid = typeof rawTargetUid === 'string' ? rawTargetUid.trim() : Array.isArray(rawTargetUid) ? rawTargetUid[0]?.trim() : '';
 
     if (!teamIdentifier) {
-      return NextResponse.json({ error: "Identifiant de nid (slug) invalide." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Identifiant de nid (slug) invalide." }, { status: 400 });
     }
 
     if (!targetUid) {
-      return NextResponse.json({ error: "UID cible (targetUid) manquant dans la route." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "UID cible (targetUid) manquant dans la route." }, { status: 400 });
     }
 
     // 🔍 2. Récupération unifiée du Nid dans la Silice via notre helper centralisé (Slug ou UID)
-    const team: any = await findEntityBySlugOrUid(TeamModel, teamIdentifier);
+    const team = (await findEntityBySlugOrUid(TeamModel, teamIdentifier)) as { uid?: string; slug?: string; ownerUid?: string; [key: string]: unknown } | null;
 
     if (!team) {
-      return NextResponse.json({ error: "Nid introuvable dans la Silice." }, { status: 404 });
+      return NextResponse.json({ success: false, error: "Nid introuvable dans la Silice." }, { status: 404 });
     }
 
     const teamId = team.uid;
@@ -44,6 +44,7 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
 
     if (!isNestOwner && !isArchitect) {
       return NextResponse.json({ 
+        success: false, 
         error: "Aura insuffisante pour révoquer une invitation sur ce territoire." 
       }, { status: 403 });
     }
@@ -65,10 +66,11 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
         
         return true;
       });
-    } catch (txErr: any) {
-      console.error("🌋 [TRANSACTION REVOKE ERROR]", txErr);
-      const status = txErr.status || txErr.statusCode || 400;
-      return NextResponse.json({ error: txErr.message || "L'action de gouvernance a échoué." }, { status });
+    } catch (txErr: unknown) {
+      const err = txErr as { status?: number; statusCode?: number; message?: string };
+      console.error("🌋 [TRANSACTION REVOKE ERROR]", err);
+      const status = err.status || err.statusCode || 400;
+      return NextResponse.json({ success: false, error: err.message || "L'action de gouvernance a échoué." }, { status });
     }
 
     // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
@@ -82,8 +84,7 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
       message: "L'invitation a été révoquée et les fréquences ont été nettoyées." 
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 Fracture globale lors de la révocation de l'invitation :", error);
-    return NextResponse.json({ error: error.message || "L'action de gouvernance a échoué." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "TEAM INVITATION REVOKE FATAL ERROR");
   }
 });

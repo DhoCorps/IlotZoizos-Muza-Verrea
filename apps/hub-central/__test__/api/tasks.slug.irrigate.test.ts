@@ -3,7 +3,7 @@ import { POST } from '@/app/api/tasks/[slug]/irrigate/route';
 import { TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TaskIrrigationOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS
@@ -13,17 +13,22 @@ vi.mock('next/cache', () => ({
 }));
 
 vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser;
     if (!mockUser || !mockUser.uid) {
       return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
     }
     return await handler(req, context, mockUser);
   },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -39,7 +44,11 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 });
 
 declare global {
-  var __mockUser: any;
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
 }
 
 // -------------------------------------------------------------------------
@@ -48,20 +57,20 @@ declare global {
 describe('Route API : Irrigation Tâche (POST /api/tasks/[slug]/irrigate)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de TaskIrrigationOrchestrator
     vi.spyOn(TaskIrrigationOrchestrator.prototype, 'processTaskIrrigation').mockResolvedValue({
       status: 'irrigated',
       healthy: true,
-    } as any);
+    } as unknown as Awaited<ReturnType<TaskIrrigationOrchestrator['processTaskIrrigation']>>);
   });
 
   it('doit rejeter (401) si l\'utilisateur n\'est pas connecté', async () => {
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
-    const req = new Request('http://localhost/api/tasks/my-task/irrigate', { method: 'POST' });
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'my-task' }) });
+    const req = new NextRequest('http://localhost/api/tasks/my-task/irrigate', { method: 'POST' });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'my-task' }) });
     
     expect(response.status).toBe(401);
   });
@@ -70,8 +79,8 @@ describe('Route API : Irrigation Tâche (POST /api/tasks/[slug]/irrigate)', () =
     global.__mockUser = { uid: 'u-123', capabilities: [] };
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
-    const req = new Request('http://localhost/api/tasks/inconnue/irrigate', { method: 'POST' });
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'inconnue' }) });
+    const req = new NextRequest('http://localhost/api/tasks/inconnue/irrigate', { method: 'POST' });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'inconnue' }) });
     const json = await response.json();
 
     expect(response.status).toBe(404);
@@ -83,10 +92,10 @@ describe('Route API : Irrigation Tâche (POST /api/tasks/[slug]/irrigate)', () =
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 'task_abc',
       slug: 'my-task',
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-    const req = new Request('http://localhost/api/tasks/my-task/irrigate', { method: 'POST' });
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'my-task' }) });
+    const req = new NextRequest('http://localhost/api/tasks/my-task/irrigate', { method: 'POST' });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'my-task' }) });
     const json = await response.json();
 
     expect(response.status).toBe(200);

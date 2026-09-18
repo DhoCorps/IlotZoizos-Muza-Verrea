@@ -1,20 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/users/route';
-import { getServerSession } from 'next-auth/next';
 import { OiseauModel } from '@ilot/infrastructure';
 import { OiseauOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
+import { NextRequest, NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
 // -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
-  unstable_cache: vi.fn((cb) => cb),
+  unstable_cache: vi.fn((cb: Function) => cb),
   revalidateTag: vi.fn(),
-}));
-
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
@@ -31,22 +27,46 @@ vi.mock('@ilot/shared-core', () => ({
   })),
 }));
 
+// Mock unifié des api-guards
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const mockCurrentUser = global.__mockUser;
+    if (!mockCurrentUser) {
+      return NextResponse.json({ success: false, error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
+    }
+    return await handler(req, context, mockCurrentUser);
+  },
+  withSilice: (handler: Function) => handler,
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}));
+
+declare global {
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
+}
+
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
 describe('Route API : Volière Publique (GET / POST)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   describe('GET - Recensement', () => {
     it('doit rejeter (401) si l\'Oiseau n\'a pas d\'Aura', async () => {
-      vi.mocked(getServerSession).mockResolvedValue(null);
+      delete global.__mockUser;
 
-      const req = new Request('http://localhost/api/users');
-      // 🪡 Correction : 2 arguments (req et context)
-      const response = await GET(req, {});
+      const req = new NextRequest('http://localhost/api/users');
+      const response = await GET(req, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(401);
@@ -54,7 +74,7 @@ describe('Route API : Volière Publique (GET / POST)', () => {
     });
 
     it('doit renvoyer (200) la liste des oiseaux filtrés pour un utilisateur connecté', async () => {
-      vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'u-123', capabilities: [] } } as any);
+      global.__mockUser = { uid: 'u-123', capabilities: [] };
       
       const mockOiseaux = [{ uid: '123', pseudo: 'Alpha' }];
       const chainMock = {
@@ -63,11 +83,10 @@ describe('Route API : Volière Publique (GET / POST)', () => {
         limit: vi.fn().mockReturnThis(),
         lean: vi.fn().mockResolvedValue(mockOiseaux),
       };
-      vi.mocked(OiseauModel.find).mockReturnValue(chainMock as any);
+      vi.mocked(OiseauModel.find).mockReturnValue(chainMock as unknown as ReturnType<typeof OiseauModel.find>);
 
-      const req = new Request('http://localhost/api/users?search=Alpha');
-      // 🪡 Correction : 2 arguments (req et context)
-      const response = await GET(req, {});
+      const req = new NextRequest('http://localhost/api/users?search=Alpha');
+      const response = await GET(req, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(200);
@@ -79,55 +98,17 @@ describe('Route API : Volière Publique (GET / POST)', () => {
   });
 
   describe('POST - Éclosion', () => {
-    it('doit rejeter (400) si l\oeuf est incomplet', async () => {
-      const req = new Request('http://localhost/api/users', {
+    it('doit rejeter (400) si l\'oeuf est incomplet', async () => {
+      const req = new NextRequest('http://localhost/api/users', {
         method: 'POST',
         body: JSON.stringify({ email: 'test@mail.com' }), // Manque pseudo et password
       });
 
-      const response = await POST(req, {});
+      const response = await POST(req, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(400);
       expect(json.error).toContain("L'oeuf est incomplet");
-    });
-
-    it('doit rejeter (401) si l\'Oiseau n\'a pas d\'Aura', async () => {
-      // 1. On simule l'absence de session (étranger)
-      vi.mocked(getServerSession).mockResolvedValue(null);
-
-      const req = new Request('http://localhost/api/users');
-      // 🪡 Correction : Seulement 2 arguments (req et context)
-      const response = await GET(req, {}); 
-      const json = await response.json();
-
-      expect(response.status).toBe(401);
-      expect(json.error).toBe("Le Nexus est invisible aux étrangers.");
-    });
-
-    it('doit renvoyer (200) la liste des oiseaux filtrés pour un utilisateur connecté', async () => {
-      // 2. On simule une session active
-      vi.mocked(getServerSession).mockResolvedValue({ user: { uid: 'u-123', capabilities: [] } } as any);
-      
-      const mockOiseaux = [{ uid: '123', pseudo: 'Alpha' }];
-      const chainMock = {
-        select: vi.fn().mockReturnThis(),
-        sort: vi.fn().mockReturnThis(),
-        limit: vi.fn().mockReturnThis(),
-        lean: vi.fn().mockResolvedValue(mockOiseaux),
-      };
-      vi.mocked(OiseauModel.find).mockReturnValue(chainMock as any);
-
-      const req = new Request('http://localhost/api/users?search=Alpha');
-      // 🪡 Correction : Seulement 2 arguments
-      const response = await GET(req, {});
-      const json = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(json).toEqual(mockOiseaux);
-      expect(OiseauModel.find).toHaveBeenCalledWith(expect.objectContaining({
-        $or: expect.any(Array)
-      }));
     });
   });
 });

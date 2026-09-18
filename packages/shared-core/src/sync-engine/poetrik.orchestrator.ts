@@ -19,7 +19,7 @@ export interface TranslationItem {
 }
 
 export interface LexiconEntryPayload {
-  uid: string;
+  uid?: string;
   languageCode: string;
   word: string;
   phoneticIpa: string;

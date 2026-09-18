@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { UniversHallPantheonOrchestrator } from '@ilot/shared-core';
-import { withSilice, ApiContext } from '@/lib/api-guards';
+import { withSilice, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { unstable_cache } from 'next/cache';
 
 // Gestion sécurisée et propre du cache de production (totalement agnostique du contexte Vitest)
@@ -23,7 +23,13 @@ const getCachedPantheon = (yearMonth?: string) => {
 // -------------------------------------------------------------------------
 export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => {
   try {
-    const url = new URL(req.url);
+    let url: URL;
+    try {
+      url = new URL(req.url);
+    } catch {
+      return NextResponse.json({ success: false, error: "URL de requête invalide." }, { status: 400 });
+    }
+
     const yearMonth = url.searchParams.get('yearMonth') || undefined;
 
     const elite = await getCachedPantheon(yearMonth);
@@ -34,11 +40,7 @@ export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => 
       pantheon: elite
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("  [UNIVERS'HALL PANTHEON ERROR] :", error);
-    return NextResponse.json({ 
-      success: false, 
-      error: error.message || "Erreur interne lors du calcul du Panthéon des Résonances." 
-    }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "UNIVERSHALL PANTHEON GET FATAL ERROR");
   }
 });

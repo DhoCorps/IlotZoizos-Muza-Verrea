@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '../../app/api/users/onboarding/route'; // Ajuste le chemin relatif vers ta route si besoin
+import { POST } from '@/app/api/users/onboarding/route';
 import { OiseauModel, generateOiseauIdentity } from '@ilot/infrastructure';
+import { NextRequest, NextResponse } from 'next/server';
 
 // Mock global de la Silice et des générateurs (Tout centralisé dans infrastructure)
 vi.mock('@ilot/infrastructure', () => ({
@@ -13,24 +14,36 @@ vi.mock('@ilot/infrastructure', () => ({
 
 // Mock de `withAura` pour simuler l'injection de `currentUser`
 vi.mock('@/lib/api-guards', () => ({
-    withAura: (handler: any) => {
-        return async (req: Request, context: any) => {
+    withAura: (handler: Function) => {
+        return async (req: NextRequest, context: unknown) => {
             const mockCurrentUser = { uid: 'bird_new_123', capabilities: ['*'] };
-            return handler(req, context, mockCurrentUser);
+            return await handler(req, context, mockCurrentUser);
         };
     },
+    handleRouteError: (error: unknown, context: string) => {
+        const err = error as Error;
+        console.error(`[${context}]`, err);
+        return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
 }));
 
 vi.mock('next/cache', () => ({
     revalidateTag: vi.fn(),
 }));
 
-describe('POST /api/oiseau/onboarding (Attribution d\'Identité Organique)', () => {
-    let mockOiseauDoc: any;
+describe('POST /api/users/onboarding (Attribution d\'Identité Organique)', () => {
+    let mockOiseauDoc: {
+        uid: string;
+        pseudo: string | null;
+        frequenceHEX: string;
+        isOnboarded: boolean;
+        slug?: string;
+        save: ReturnType<typeof vi.fn>;
+    };
 
     beforeEach(() => {
         vi.clearAllMocks();
-        delete (global as any).__mockUser;
+        delete global.__mockUser;
 
         mockOiseauDoc = {
             uid: 'bird_new_123',
@@ -42,20 +55,20 @@ describe('POST /api/oiseau/onboarding (Attribution d\'Identité Organique)', () 
     });
 
     it('🟢 doit attribuer une identité organique (pseudo + HEX) et finaliser l onboarding', async () => {
-        vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockOiseauDoc);
+        vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockOiseauDoc as unknown as Awaited<ReturnType<typeof OiseauModel.findOne>>);
         
         // On mocke directement la fonction importée
         vi.mocked(generateOiseauIdentity).mockResolvedValueOnce({
             pseudo: 'Ombre Céleste Observe',
             frequenceHEX: '#C53030'
-        } as any);
+        });
 
-        const req = new Request('http://localhost/api/oiseau/onboarding', {
+        const req = new NextRequest('http://localhost/api/users/onboarding', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
 
-        const response = await POST(req, { params: {} } as any);
+        const response = await POST(req, { params: Promise.resolve({}) });
         const json = await response.json();
 
         expect(response.status).toBe(200);
@@ -69,12 +82,12 @@ describe('POST /api/oiseau/onboarding (Attribution d\'Identité Organique)', () 
     it('🔴 doit renvoyer une erreur 404 si l oiseau n est pas trouvé dans la matrice', async () => {
         vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(null);
 
-        const req = new Request('http://localhost/api/oiseau/onboarding', {
+        const req = new NextRequest('http://localhost/api/users/onboarding', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
 
-        const response = await POST(req, { params: {} } as any);
+        const response = await POST(req, { params: Promise.resolve({}) });
         const json = await response.json();
 
         expect(response.status).toBe(404);
@@ -86,14 +99,14 @@ describe('POST /api/oiseau/onboarding (Attribution d\'Identité Organique)', () 
         mockOiseauDoc.isOnboarded = true;
         mockOiseauDoc.pseudo = 'Faucon Déjà Éveillé';
         
-        vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockOiseauDoc);
+        vi.mocked(OiseauModel.findOne).mockResolvedValueOnce(mockOiseauDoc as unknown as Awaited<ReturnType<typeof OiseauModel.findOne>>);
 
-        const req = new Request('http://localhost/api/oiseau/onboarding', {
+        const req = new NextRequest('http://localhost/api/users/onboarding', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
 
-        const response = await POST(req, { params: {} } as any);
+        const response = await POST(req, { params: Promise.resolve({}) });
         const json = await response.json();
 
         expect(response.status).toBe(200);

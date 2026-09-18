@@ -1,10 +1,26 @@
 export const dynamic = 'force-dynamic';
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { CanopyJudgeEngine } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
+import { z } from 'zod';
+
+// 🛡️ Schéma de validation Zod pour le Tribunal de la Canopée
+const SovereignJudgmentSchema = z.object({
+  targetUid: z.string().min(1, "L'identifiant de la cible est requis."),
+  action: z.enum(['JUDGE', 'PARDON'], { message: "L'action doit être 'JUDGE' ou 'PARDON'." }),
+});
+
+interface IOiseauDocument {
+  isBanned?: boolean;
+  bannedFingerprint?: string | null;
+  ifvScore?: number;
+  profileStatus?: string;
+  save: () => Promise<unknown>;
+  [key: string]: unknown;
+}
 
 // ==========================================
 // POST : Exécuter un jugement ou lever le bannissement
@@ -12,19 +28,26 @@ import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
     try {
         // Seul l'Architecte (Aura absolue '*') peut juger
-        if (!currentUser.capabilities.includes('*')) {
+        if (!currentUser.capabilities?.includes('*')) {
             return NextResponse.json({ success: false, error: "Aura insuffisante pour prononcer un jugement." }, { status: 403 });
         }
 
-        const body = await req.json().catch(() => null);
-        if (!body || !body.targetUid || !body.action) {
-            return NextResponse.json({ success: false, error: "Paramètres de jugement incomplets." }, { status: 400 });
+        let rawBody: unknown;
+        try {
+            rawBody = await req.json();
+        } catch {
+            return NextResponse.json({ success: false, error: "Paramètres de jugement incomplets ou illisibles." }, { status: 400 });
         }
 
-        const { targetUid, action } = body; // action: 'JUDGE' | 'PARDON'
+        const validation = SovereignJudgmentSchema.safeParse(rawBody);
+        if (!validation.success) {
+            return NextResponse.json({ success: false, error: "Paramètres de jugement incomplets.", details: validation.error.flatten() }, { status: 400 });
+        }
+
+        const { targetUid, action } = validation.data; // action: 'JUDGE' | 'PARDON'
 
         // 🔍 Résolution unifiée de la cible (lean: false est crucial ici pour pouvoir utiliser .save() au moment du Pardon)
-        const targetOiseau: any = await findEntityBySlugOrUid(OiseauModel, targetUid, { lean: false });
+        const targetOiseau = (await findEntityBySlugOrUid(OiseauModel, targetUid, { lean: false })) as IOiseauDocument | null;
         
         if (!targetOiseau) {
             return NextResponse.json({ success: false, error: "Oiseau introuvable dans la Silice." }, { status: 404 });
@@ -63,8 +86,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
 
         return NextResponse.json({ success: false, error: "Action de jugement inconnue." }, { status: 400 });
 
-    } catch (error: any) {
-        console.error("🔥 [Judgment Error] :", error);
-        return NextResponse.json({ success: false, error: error.message || "Erreur interne du tribunal de la canopée." }, { status: 500 });
+    } catch (error: unknown) {
+        return handleRouteError(error, 'JUDGMENT ERROR');
     }
 });

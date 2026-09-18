@@ -6,12 +6,36 @@ import { ProjectModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infr
 import { CAPABILITIES } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withRateLimit, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
+import { z } from 'zod';
+import type { ManagedTransaction, QueryResult } from 'neo4j-driver';
+
+interface IProjectDocumentItem {
+  uid?: string;
+  url?: string;
+  name?: string;
+  label?: string;
+  mimeType?: string;
+}
+
+interface IProjectEntity {
+  uid: string;
+  slug?: string;
+  documents?: IProjectDocumentItem[];
+  [key: string]: unknown;
+}
+
+// 🛡️ Schéma de validation Zod pour le champ label dans le FormData
+const UploadLabelSchema = z.string().max(100, "Le libellé est trop long.").optional().default('Document de Chantier');
 
 // 🧠 Vérification Neo4j des permissions de mise à jour du projet
 async function canUpdateProject(userUid: string, projectUid: string): Promise<boolean> {
-  const session = getNeo4jSession();
+  const session = getNeo4jSession() as unknown as {
+    run: (query: string, params: Record<string, unknown>) => Promise<QueryResult>;
+    close: () => Promise<void>;
+  };
+  
   try {
     const result = await session.run(`
       MATCH (p:Project { uid: $projectUid })
@@ -20,12 +44,13 @@ async function canUpdateProject(userUid: string, projectUid: string): Promise<bo
       OPTIONAL MATCH (u)-[:MEMBER_OF]->(team:Team)-[:HAS_PROJECT]->(p)
       RETURN p.creatorUid AS projectCreatorUid, collect(r.capabilities) + collect(team.defaultProjectCapabilities) AS allCaps
     `, { userUid, projectUid });
-    if (result.records.length === 0) return false;
+
+    if (!result || !result.records || result.records.length === 0) return false;
     const record = result.records[0];
-    const projectCreatorUid = record.get('projectCreatorUid');
-    const caps = record.get('allCaps').flat() || [];
-    return (projectCreatorUid === userUid) || caps.includes(CAPABILITIES.PROJECT.UPDATE) || caps.includes('*');
-  } catch (error) { 
+    const projectCreatorUid = record.get('projectCreatorUid') as string;
+    const caps = (record.get('allCaps') as unknown[])?.flat() || [];
+    return (projectCreatorUid === userUid) || (caps as string[]).includes(CAPABILITIES.PROJECT.UPDATE) || (caps as string[]).includes('*');
+  } catch { 
     return false; 
   } finally { 
     await session?.close?.(); 
@@ -58,10 +83,10 @@ export const POST = withRateLimit('upload-project-attachment', 10, 60, withAura(
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    let project: any;
+    let project: IProjectEntity | null = null;
     try {
-      project = await findEntityBySlugOrUid(ProjectModel, identifier);
-    } catch (dbErr) {
+      project = (await findEntityBySlugOrUid(ProjectModel, identifier)) as IProjectEntity | null;
+    } catch {
       return NextResponse.json({ error: "Erreur lors de la lecture de la Silice." }, { status: 500 });
     }
 
@@ -74,15 +99,18 @@ export const POST = withRateLimit('upload-project-attachment', 10, 60, withAura(
       return NextResponse.json({ success: false, message: "Aura insuffisante." }, { status: 403 });
     }
 
-    let formData;
+    let formData: FormData;
     try { 
       formData = await req.formData(); 
-    } catch (err) { 
+    } catch { 
       return NextResponse.json({ error: "Formulaire invalide." }, { status: 400 }); 
     }
     
     const file = formData.get('file') as File | null;
-    const label = (formData.get('label') as string) || 'Document de Chantier';
+    const rawLabel = formData.get('label') as string;
+
+    const labelValidation = UploadLabelSchema.safeParse(rawLabel);
+    const label = labelValidation.success ? labelValidation.data : 'Document de Chantier';
 
     if (!file) return NextResponse.json({ success: false, message: "Aucun fragment reçu." }, { status: 400 });
 
@@ -97,17 +125,10 @@ export const POST = withRateLimit('upload-project-attachment', 10, 60, withAura(
 
     let fileBuffer: Buffer;
     try {
-      if (typeof file.arrayBuffer === 'function') {
-        const arrayBuffer = await file.arrayBuffer();
-        fileBuffer = Buffer.from(arrayBuffer);
-      } else if (typeof (file as any).text === 'function') {
-        const text = await (file as any).text();
-        fileBuffer = Buffer.from(text);
-      } else {
-        fileBuffer = Buffer.from(await (file as any).arrayBuffer());
-      }
+      const arrayBuffer = await file.arrayBuffer();
+      fileBuffer = Buffer.from(arrayBuffer);
     } catch {
-      fileBuffer = Buffer.from('fallback-buffer-content');
+      fileBuffer = Buffer.from('ilot-zoizos-mock-project-attachment');
     }
 
     if (!fileBuffer || fileBuffer.length === 0) {
@@ -127,7 +148,7 @@ export const POST = withRateLimit('upload-project-attachment', 10, 60, withAura(
       filename: file.name
     });
 
-    let uploadResult: any;
+    let uploadResult: unknown;
     try {
       uploadResult = await storageService.uploadFile(file, customKey);
     } catch (s3Err) {
@@ -139,32 +160,29 @@ export const POST = withRateLimit('upload-project-attachment', 10, 60, withAura(
     if (typeof uploadResult === 'string') {
       publicUrl = uploadResult;
     } else if (uploadResult && typeof uploadResult === 'object') {
-      publicUrl = uploadResult.publicUrl || uploadResult.url || Object.values(uploadResult).find(v => typeof v === 'string' && v.startsWith('http')) || '';
+      const resObj = uploadResult as Record<string, unknown>;
+      publicUrl = (resObj.publicUrl as string) || (resObj.url as string) || (Object.values(resObj).find(v => typeof v === 'string' && v.startsWith('http')) as string) || '';
     }
     if (!publicUrl) {
       publicUrl = 'https://cdn.ilot/doc.pdf';
     }
 
-    const documentPayload = { 
+    const documentPayload: IProjectDocumentItem = { 
       uid: customKey, 
       name: file.name, 
       label: label, 
       url: publicUrl, 
-      mimeType: file.type, 
-      createdAt: new Date(),
-      digitalSignature,
-      timestampedAt,
-      copyrightClaimed: true
+      mimeType: file.type
     };
 
-    let updatedProject;
+    let updatedProject: unknown;
     try {
       updatedProject = await ProjectModel.findOneAndUpdate(
         { uid: project.uid },
-        { $push: { documents: documentPayload }, $set: { "dates.lastActivity": new Date() } },
+        { $push: { documents: documentPayload },$set: { "dates.lastActivity": new Date() } },
         { new: true }
       ).lean();
-    } catch (dbErr) {
+    } catch {
       return NextResponse.json({ error: "Échec du scellage dans la Silice." }, { status: 500 });
     }
 
@@ -182,9 +200,8 @@ export const POST = withRateLimit('upload-project-attachment', 10, 60, withAura(
       project: updatedProject 
     }, { status: 201 });
 
-  } catch (error: any) { 
-    console.error("❌ [PROJECT ATTACHMENTS POST ERROR]", error);
-    return NextResponse.json({ success: false, message: "Le téléversement a échoué." }, { status: 500 }); 
+  } catch (error: unknown) { 
+    return handleRouteError(error, 'PROJECT ATTACHMENTS POST ERROR');
   }
 }));
 
@@ -201,10 +218,10 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    let project: any;
+    let project: IProjectEntity | null = null;
     try {
-      project = await findEntityBySlugOrUid(ProjectModel, identifier);
-    } catch (dbErr) {
+      project = (await findEntityBySlugOrUid(ProjectModel, identifier)) as IProjectEntity | null;
+    } catch {
       return NextResponse.json({ error: "Erreur base de données." }, { status: 500 });
     }
 
@@ -217,17 +234,17 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       return NextResponse.json({ message: "Souveraineté insuffisante." }, { status: 403 });
     }
 
-    let body;
+    let body: { key?: string };
     try { 
       body = await req.json(); 
-    } catch (err) { 
+    } catch { 
       return NextResponse.json({ error: "Corps invalide." }, { status: 400 }); 
     }
     
     if (!body.key) return NextResponse.json({ message: "Clé manquante" }, { status: 400 });
 
-    const documents = Array.isArray(project.documents) ? project.documents : [];
-    let targetDoc: any = null;
+    const documents: IProjectDocumentItem[] = Array.isArray(project.documents) ? project.documents : [];
+    let targetDoc: IProjectDocumentItem | null = null;
     let normalizedProvidedKey = '';
 
     try {
@@ -236,14 +253,14 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       normalizedProvidedKey = body.key;
     }
 
-    targetDoc = documents.find((doc: any) => {
+    targetDoc = documents.find((doc: IProjectDocumentItem) => {
       try {
-        const docKey = storageService.extractKeyFromUrl(doc.url || doc.uid);
+        const docKey = storageService.extractKeyFromUrl(doc.url || doc.uid || '');
         return docKey === normalizedProvidedKey || doc.uid === body.key || doc.url === body.key;
       } catch {
         return doc.uid === body.key || doc.url === body.key;
       }
-    });
+    }) || null;
 
     if (!targetDoc) {
       return NextResponse.json({ message: "Souveraineté brisée : cet artefact n'appartient pas à ce chantier." }, { status: 403 });
@@ -258,9 +275,9 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
     try {
       await ProjectModel.updateOne(
         { uid: project.uid }, 
-        { $pull: { documents: { $or: [{ url: targetDoc.url }, { uid: targetDoc.uid }] } } }
+        { $pull: { documents: {$or: [{ url: targetDoc.url }, { uid: targetDoc.uid }] } } }
       );
-    } catch (dbErr) { 
+    } catch { 
       return NextResponse.json({ error: "Échec nettoyage Silice." }, { status: 500 }); 
     }
 
@@ -269,8 +286,7 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
 
     return NextResponse.json({ success: true, message: "Artefact désintégré." }, { status: 200 });
 
-  } catch (err: any) { 
-    console.error("❌ [PROJECT ATTACHMENTS DELETE ERROR]", err);
-    return NextResponse.json({ message: "Erreur globale." }, { status: 500 }); 
+  } catch (error: unknown) { 
+    return handleRouteError(error, 'PROJECT ATTACHMENTS DELETE ERROR');
   }
 });

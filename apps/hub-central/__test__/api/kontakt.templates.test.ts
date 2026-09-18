@@ -2,16 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/kontakt/templates/route';
 import { CVTemplateModel } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
 vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => async (req: any, context: any) => {
+  withSilice: (handler: Function) => async (req: NextRequest, context: unknown) => {
     return await handler(req, context);
   },
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser;
     if (!mockUser || !mockUser.uid) {
       return NextResponse.json({ error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
@@ -22,7 +22,7 @@ vi.mock('@/lib/api-guards', () => ({
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
-  unstable_cache: vi.fn((cb) => cb),
+  unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
 // 🛡️ MOCK MONGOOSE PLEINEMENT CHAÎNABLE
@@ -38,14 +38,10 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-declare global {
-  var __mockUser: any;
-}
-
 describe('API CV Templates - Gestion des modèles de CV', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   // =========================================================================
@@ -56,10 +52,10 @@ describe('API CV Templates - Gestion des modèles de CV', () => {
       sort: vi.fn().mockReturnValue({
         lean: vi.fn().mockResolvedValue([{ uid: 'tmpl_1', title: 'Parchemin Cyber' }]),
       }),
-    } as any);
+    } as unknown as ReturnType<typeof CVTemplateModel.find>);
 
-    const req = new Request('http://localhost/api/cv-templates');
-    const res = await GET(req as any, {});
+    const req = new NextRequest('http://localhost/api/cv-templates');
+    const res = await GET(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -72,14 +68,14 @@ describe('API CV Templates - Gestion des modèles de CV', () => {
   // 🚀 TESTS POST (Sédimentation)
   // =========================================================================
   it('🔴 doit rejeter la publication si l’oiseau n’est pas connecté (401)', async () => {
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
-    const req = new Request('http://localhost/api/cv-templates', {
+    const req = new NextRequest('http://localhost/api/cv-templates', {
       method: 'POST',
       body: JSON.stringify({ title: 'Nouveau Modèle' })
     });
 
-    const res = await POST(req as any, {});
+    const res = await POST(req, { params: Promise.resolve({}) });
     expect(res.status).toBe(401);
   });
 
@@ -92,14 +88,14 @@ describe('API CV Templates - Gestion des modèles de CV', () => {
       authorUid: 'bird_1'
     };
 
-    vi.mocked(CVTemplateModel.create).mockResolvedValueOnce(mockCreatedTemplate as any);
+    vi.mocked(CVTemplateModel.create).mockResolvedValueOnce(mockCreatedTemplate as unknown as Awaited<ReturnType<typeof CVTemplateModel.create>>);
 
-    const req = new Request('http://localhost/api/cv-templates', {
+    const req = new NextRequest('http://localhost/api/cv-templates', {
       method: 'POST',
       body: JSON.stringify({ title: 'Nouveau Modèle', priceShards: 10 })
     });
 
-    const res = await POST(req as any, {});
+    const res = await POST(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(201);

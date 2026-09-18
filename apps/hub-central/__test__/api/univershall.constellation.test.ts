@@ -1,8 +1,7 @@
-// apps/hub-central/__test__/api/univershall.constellation.test.ts
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/univershall/constellation/route';
 import { UniversHallBeaconModel } from '@ilot/infrastructure';
+import { NextRequest, NextResponse } from 'next/server';
 
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
@@ -11,8 +10,14 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-vi.mock('@lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
+// CORRECTION : Utilisation de l'alias canonique `@/lib/api-guards`
+vi.mock('@/lib/api-guards', () => ({
+  withSilice: (handler: Function) => handler,
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 describe('API Route /api/univershall/constellation', () => {
@@ -21,8 +26,8 @@ describe('API Route /api/univershall/constellation', () => {
   });
 
   it('doit rejeter (400) si le paramètre tag est absent', async () => {
-    const req = new Request('http://localhost/api/univershall/constellation');
-    const res = await GET(req as any, {} as any);
+    const req = new NextRequest('http://localhost/api/univershall/constellation');
+    const res = await GET(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(400);
@@ -32,8 +37,8 @@ describe('API Route /api/univershall/constellation', () => {
 
   it('doit rejeter (400) si le paramètre tag dépasse 50 caractères (protection ReDoS)', async () => {
     const longTag = 'a'.repeat(51);
-    const req = new Request(`http://localhost/api/univershall/constellation?tag=${longTag}`);
-    const res = await GET(req as any, {} as any);
+    const req = new NextRequest(`http://localhost/api/univershall/constellation?tag=${longTag}`);
+    const res = await GET(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(400);
@@ -59,10 +64,10 @@ describe('API Route /api/univershall/constellation', () => {
           tags: ['ciel']
         }
       ])
-    } as any);
+    } as unknown as ReturnType<typeof UniversHallBeaconModel.find>);
 
-    const req = new Request('http://localhost/api/univershall/constellation?tag=ciel');
-    const res = await GET(req as any, {} as any);
+    const req = new NextRequest('http://localhost/api/univershall/constellation?tag=ciel');
+    const res = await GET(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(200);

@@ -1,34 +1,42 @@
-import { NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
+
+import { NextRequest, NextResponse } from 'next/server';
 import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
-import { withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedOiseau } from '@/lib/cache/users.cache';
-
-export const dynamic = 'force-dynamic';
 
 // -------------------------------------------------------------------------
 // GET : Lecture du Profil (Miroir)
 // -------------------------------------------------------------------------
 // withOptionalAura : Laisse passer tout le monde, avec typage strict ApiContext
-export const GET = withOptionalAura(async (req: Request, context: ApiContext, currentUser?: OiseauUser) => {
+export const GET = withOptionalAura(async (req: NextRequest, context: ApiContext, currentUser?: OiseauUser) => {
   try {
-    // 1. Résolution stricte et typée des paramètres de route
-    const resolvedParams = await context.params;
+    let resolvedParams;
+    try {
+      resolvedParams = await context.params;
+      if (resolvedParams instanceof Promise) {
+        resolvedParams = await resolvedParams;
+      }
+    } catch {
+      return NextResponse.json({ success: false, message: "Paramètres de route invalides." }, { status: 400 });
+    }
+
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
     if (!identifier) {
-      return NextResponse.json({ message: "Identifiant invalide." }, { status: 400 });
+      return NextResponse.json({ success: false, message: "Identifiant invalide." }, { status: 400 });
     }
 
     // 🔍 2. Résolution unifiée en premier (Cache ou Silice) pour obtenir l'entité canonique
-    let oiseau: any = await getCachedOiseau(identifier);
+    let oiseau = (await getCachedOiseau(identifier)) as { uid?: string; pseudo?: string; email?: string; frequenceHEX?: string; entropieActive?: number; sanctuaire?: unknown; sanctuaireVerrouille?: boolean; isGhostMode?: boolean; avatarUrl?: string | null; coverPicture?: string | null; capabilities?: string[]; [key: string]: unknown } | null;
     if (!oiseau) {
-      oiseau = await findEntityBySlugOrUid(OiseauModel, identifier);
+      oiseau = (await findEntityBySlugOrUid(OiseauModel, identifier)) as typeof oiseau;
     }
 
     if (!oiseau) {
-      return NextResponse.json({ message: "L'onde s'est dissipée." }, { status: 404 });
+      return NextResponse.json({ success: false, message: "L'onde s'est dissipée." }, { status: 404 });
     }
 
     // 🛡️ 3. Vérification de la propriété basée sur l'UID canonique résolu
@@ -38,6 +46,7 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
     // --- LE MIROIR INTIME (Expose les données privées) ---
     if (isSelf) {
       return NextResponse.json({
+        success: true,
         pseudo: oiseau.pseudo,
         email: oiseau.email,
         frequenceHEX: oiseau.frequenceHEX,
@@ -53,6 +62,7 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
 
     // --- MODE STANDARD (Vitrine publique) ---
     return NextResponse.json({
+      success: true,
       pseudo: oiseau.pseudo,
       frequenceHEX: oiseau.frequenceHEX,
       sanctuaire: oiseau.sanctuaire,
@@ -60,8 +70,7 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
       coverPicture: oiseau.coverPicture,
       capabilities: oiseau.capabilities
     }, { status: 200 });
-  } catch (error) {
-    console.error("  Interférence réseau (GET User):", error);
-    return NextResponse.json({ message: "Interférence réseau." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "USER PROFILE GET FATAL ERROR");
   }
 });

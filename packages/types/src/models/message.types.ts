@@ -1,4 +1,3 @@
-// packages/types/src/models/message.types.ts
 import { z } from 'zod';
 
 export type AttachmentSourceType = 'LETRIN' | 'PARTITA' | 'BLOG' | 'SHOP' | string;
@@ -70,3 +69,6 @@ export const SendMessageBodySchema = z.object({
   rawAttachments: z.array(RawAttachmentPointerSchema).optional().default([]),
   replyToSlug: z.string().optional()
 });
+
+// 🛡️ Export explicite du type inféré pour satisfaire l'import de la route
+export type SendMessageBody = z.infer<typeof SendMessageBodySchema>;

@@ -1,8 +1,7 @@
-// apps/hub-central/__test__/api/univershall.beacons.test.ts
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/univershall/beacons/route';
 import { UniversHallBeaconModel } from '@ilot/infrastructure';
+import { NextRequest, NextResponse } from 'next/server';
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
@@ -26,16 +25,30 @@ vi.mock('@ilot/shared-core', () => ({
 
 // CORRECTION : Utiliser le même alias de chemin `@/lib/api-guards` que dans la route
 vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
-  withAura: (handler: any) => async (req: any, context: any) => {
-    const mockUser = { uid: 'architect_1', capabilities: ['*'] };
-    return handler(req, context, mockUser);
+  withSilice: (handler: Function) => handler,
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const mockUser = global.__mockUser || { uid: 'architect_1', capabilities: ['*'] };
+    return await handler(req, context, mockUser);
   },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
+
+declare global {
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
+}
 
 describe('API Route /api/univershall/beacons', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete global.__mockUser;
   });
 
   describe('GET - Recensement de l\'Agora', () => {
@@ -44,10 +57,10 @@ describe('API Route /api/univershall/beacons', () => {
         sort: vi.fn().mockReturnThis(),
         limit: vi.fn().mockReturnThis(),
         lean: vi.fn().mockResolvedValue([{ uid: 'beacon_123', title: 'Chant Libre' }])
-      } as any);
+      } as unknown as ReturnType<typeof UniversHallBeaconModel.find>);
 
-      const req = new Request('http://localhost/api/univershall/beacons?module=POETRIK');
-      const res = await GET(req as any, {} as any);
+      const req = new NextRequest('http://localhost/api/univershall/beacons?module=POETRIK');
+      const res = await GET(req, { params: Promise.resolve({}) });
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -59,12 +72,12 @@ describe('API Route /api/univershall/beacons', () => {
 
   describe('POST - Plantation de balise', () => {
     it('doit rejeter (400) si les champs indispensables manquent', async () => {
-      const req = new Request('http://localhost/api/univershall/beacons', {
+      const req = new NextRequest('http://localhost/api/univershall/beacons', {
         method: 'POST',
         body: JSON.stringify({ title: '' })
       });
 
-      const res = await POST(req as any, {} as any);
+      const res = await POST(req, { params: Promise.resolve({}) });
       const json = await res.json();
 
       expect(res.status).toBe(400);
@@ -72,7 +85,9 @@ describe('API Route /api/univershall/beacons', () => {
     });
 
     it('doit planter une balise avec succès si l\'aura est valide', async () => {
-      const req = new Request('http://localhost/api/univershall/beacons', {
+      global.__mockUser = { uid: 'architect_1', capabilities: ['*'] };
+
+      const req = new NextRequest('http://localhost/api/univershall/beacons', {
         method: 'POST',
         body: JSON.stringify({
           sourceModule: 'POETRIK',
@@ -82,7 +97,7 @@ describe('API Route /api/univershall/beacons', () => {
         })
       });
 
-      const res = await POST(req as any, {} as any);
+      const res = await POST(req, { params: Promise.resolve({}) });
       const json = await res.json();
 
       expect(res.status).toBe(201);

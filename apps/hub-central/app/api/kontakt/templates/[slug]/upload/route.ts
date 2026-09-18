@@ -2,13 +2,21 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
-import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { IlotError } from '@ilot/shared-core';
 import { CVTemplateModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
+import { handleRouteError } from '@/lib/api-guards';
+
+interface CVTemplateDocument {
+  uid: string;
+  slug?: string;
+  authorUid: string;
+  previewUrl?: string | null;
+  [key: string]: unknown;
+}
 
 // 🛡️ Fonction centralisée d'invalidation en cascade pour les templates Kontakt / CV
 function revalidateKontaktCascades(template: { slug?: string; uid?: string }) {
@@ -30,7 +38,7 @@ export const POST = withRateLimit('upload-kontakt', 10, 60, withAura(async (req:
   try {
     // 🛡️ Résolution asynchrone sécurisée des paramètres de route
     const resolvedParams = await Promise.resolve(context.params);
-    const rawSlug = (resolvedParams as any)?.slug;
+    const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
     if (!identifier) {
@@ -38,7 +46,7 @@ export const POST = withRateLimit('upload-kontakt', 10, 60, withAura(async (req:
     }
 
     // 🔍 Résolution unifiée pour s'assurer de l'existence et récupérer le véritable UID
-    const template: any = await findEntityBySlugOrUid(CVTemplateModel, identifier);
+    const template = (await findEntityBySlugOrUid(CVTemplateModel, identifier)) as CVTemplateDocument | null;
     
     if (!template) {
       return NextResponse.json({ error: "Parchemin introuvable dans la matrice." }, { status: 404 });
@@ -67,11 +75,11 @@ export const POST = withRateLimit('upload-kontakt', 10, 60, withAura(async (req:
       if (typeof file.arrayBuffer === 'function') {
         const arrayBuffer = await file.arrayBuffer();
         fileBuffer = Buffer.from(arrayBuffer);
-      } else if (typeof (file as any).text === 'function') {
-        const text = await (file as any).text();
+      } else if (typeof (file as unknown as { text?: () => Promise<string> }).text === 'function') {
+        const text = await (file as unknown as { text: () => Promise<string> }).text();
         fileBuffer = Buffer.from(text);
       } else {
-        fileBuffer = Buffer.from(await (file as any).arrayBuffer());
+        fileBuffer = Buffer.from(await file.arrayBuffer());
       }
     } catch {
       fileBuffer = Buffer.from('fallback-buffer-content');
@@ -95,20 +103,24 @@ export const POST = withRateLimit('upload-kontakt', 10, 60, withAura(async (req:
       filename: file.name,
     });
 
-    const uploadResult: any = await storageService.uploadFile(file, customKey);
+    const uploadResult = await storageService.uploadFile(file, customKey);
 
     // Résilience de l'URL publique
+     // Résilience de l'URL publique
     let publicUrl = '';
     if (typeof uploadResult === 'string') {
       publicUrl = uploadResult;
     } else if (uploadResult && typeof uploadResult === 'object') {
-      publicUrl = uploadResult.publicUrl || uploadResult.url || Object.values(uploadResult).find(v => typeof v === 'string' && v.startsWith('http')) || '';
+      const resObj = uploadResult as Record<string, unknown>;
+      const foundUrl = Object.values(resObj).find(v => typeof v === 'string' && v.startsWith('http')) as string | undefined;
+      
+      publicUrl = (resObj.publicUrl as string) || (resObj.url as string) || foundUrl || '';
     }
     if (!publicUrl) {
-      publicUrl = 'https://cdn.ilot/doc.pdf';
+      publicUrl = 'https://cdn.ilot/book-asset.epub';
     }
 
-    const storageKey = uploadResult?.key || customKey;
+    const storageKey = (uploadResult as Record<string, unknown>)?.key || customKey;
 
     // Mise à jour de l'URL d'aperçu dans le template MongoDB
     await CVTemplateModel.updateOne(
@@ -132,10 +144,8 @@ export const POST = withRateLimit('upload-kontakt', 10, 60, withAura(async (req:
       timestampedAt
     }, { status: 201 });
 
-  } catch (error: any) {
-    console.error('🔥 [KONTAKT UPLOAD FATAL ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
-    return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'KONTAKT UPLOAD FATAL ERROR');
   }
 }));
 
@@ -145,7 +155,7 @@ export const POST = withRateLimit('upload-kontakt', 10, 60, withAura(async (req:
 export const DELETE = withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
   try {
     const resolvedParams = await Promise.resolve(context.params);
-    const rawSlug = (resolvedParams as any)?.slug;
+    const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
     if (!identifier) {
@@ -153,7 +163,7 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
     }
 
     // 🔍 Résolution unifiée pour s'assurer de l'existence et récupérer le véritable UID
-    const template: any = await findEntityBySlugOrUid(CVTemplateModel, identifier);
+    const template = (await findEntityBySlugOrUid(CVTemplateModel, identifier)) as CVTemplateDocument | null;
     
     if (!template) {
       return NextResponse.json({ error: "Parchemin introuvable dans la matrice." }, { status: 404 });
@@ -207,9 +217,7 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
       message: 'Parchemin désintégré du Nexus.' 
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error('🔥 [KONTAKT DELETE FATAL ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
-    return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'KONTAKT DELETE FATAL ERROR');
   }
 });

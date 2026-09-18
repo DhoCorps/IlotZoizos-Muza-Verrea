@@ -11,7 +11,10 @@ export interface OiseauUser {
   slug?: string;
   capabilities: string[];
   actorUid?: string; // Rendu optionnel pour compatibilité croisée
+  name?: string;     // 👈 Ajouté proprement à la source
+  [key: string]: unknown; // 👈 Index signature pour absorber les extensions futures
 }
+
 
 export type UserSignatureLike = {
   actorUid?: string;

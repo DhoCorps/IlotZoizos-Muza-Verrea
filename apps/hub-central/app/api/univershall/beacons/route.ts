@@ -1,24 +1,29 @@
-// app/api/univershall/beacons/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { UniversHallBeaconModel } from '@ilot/infrastructure';
-import { UniversHallOrchestrator } from '@ilot/shared-core';
+import { UniversHallOrchestrator, PlantBeaconPayload, UniversHallSyncResult } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
-import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withSilice, withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 
 // -------------------------------------------------------------------------
 // GET : Recenser et filtrer les balises de l'Agora (Public / Silice)
 // -------------------------------------------------------------------------
 export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => {
   try {
-    const url = new URL(req.url);
+    let url: URL;
+    try {
+      url = new URL(req.url);
+    } catch {
+      return NextResponse.json({ success: false, error: "URL de requête invalide." }, { status: 400 });
+    }
+
     const module = url.searchParams.get('module');
     const tag = url.searchParams.get('tag');
     const search = url.searchParams.get('search');
 
-    const query: any = {};
+    const query: Record<string, unknown> = {};
     if (module && module !== 'ALL') {
       query.sourceModule = module.toUpperCase();
     }
@@ -26,7 +31,7 @@ export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => 
       query.tags = tag;
     }
     if (search) {
-      query.$text = { $search: search };
+      query.$text = {$search: search };
     }
 
     const beacons = await UniversHallBeaconModel.find(query)
@@ -37,9 +42,8 @@ export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => 
     const safeBeacons = JSON.parse(JSON.stringify(beacons || []));
 
     return NextResponse.json({ success: true, data: safeBeacons }, { status: 200 });
-  } catch (error: any) {
-    console.error("  [UNIVERS'HALL GET ERROR] :", error);
-    return NextResponse.json({ error: error.message || "Erreur interne lors de la lecture de l'Agora." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "UNIVERSHALL BEACONS GET FATAL ERROR");
   }
 });
 
@@ -48,16 +52,16 @@ export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => 
 // -------------------------------------------------------------------------
 export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let body;
+    let body: { title?: string; entityUid?: string; sourceModule?: string; [key: string]: unknown };
     try {
       body = await req.json();
     } catch {
-      return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Corps de requête illisible." }, { status: 400 });
     }
 
-    if (!body.title || !body.entityUid || !body.sourceModule) {
+    if (!body?.title || !body?.entityUid || !body?.sourceModule) {
       return NextResponse.json(
-        { error: "Une balise nécessite un titre, un module source et un identifiant d'entité." },
+        { success: false, error: "Une balise nécessite un titre, un module source et un identifiant d'entité." },
         { status: 400 }
       );
     }
@@ -67,14 +71,20 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       capabilities: currentUser.capabilities || []
     };
 
-    let result;
+    let result: UniversHallSyncResult;
     try {
       const orchestrator = new UniversHallOrchestrator();
-      result = await orchestrator.plantBeacon(body, signature);
-    } catch (orchErr: any) {
-      console.error("  [UNIVERS'HALL ORCHESTRATOR ERROR] :", orchErr);
-      const status = orchErr.statusCode || orchErr.status || 500;
-      return NextResponse.json({ error: orchErr.message || "L'Îlot repousse cette balise." }, { status });
+      result = await orchestrator.plantBeacon({
+        ...body,
+        sourceModule: body.sourceModule as PlantBeaconPayload['sourceModule'],
+        entityUid: body.entityUid as string,
+        title: body.title as string,
+      }, signature);
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      console.error("  [UNIVERS'HALL ORCHESTRATOR ERROR] :", err);
+      const status = err.statusCode || err.status || 500;
+      return NextResponse.json({ success: false, error: err.message || "L'Îlot repousse cette balise." }, { status });
     }
 
     // Invalidation chirurgicale du cache de l'Agora
@@ -87,8 +97,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       data: result.mongo
     }, { status: 201 });
 
-  } catch (error: any) {
-    console.error("  [UNIVERS'HALL POST GLOBAL ERROR] :", error);
-    return NextResponse.json({ error: error.message || "Erreur interne du serveur." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "UNIVERSHALL BEACONS POST FATAL ERROR");
   }
 });

@@ -1,7 +1,6 @@
-// apps/hub-central/__test__/api/univershall.stream.test.ts
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/univershall/stream/route';
+import { NextRequest } from 'next/server';
 import { UniversalMediaModel } from '@ilot/infrastructure';
 
 vi.mock('@ilot/infrastructure', () => ({
@@ -11,8 +10,13 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-vi.mock('@lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
+vi.mock('@/lib/api-guards', () => ({
+  withSilice: (handler: Function) => handler,
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 describe('API Route /api/univershall/stream', () => {
@@ -36,10 +40,10 @@ describe('API Route /api/univershall/stream', () => {
           createdAt: new Date()
         }
       ])
-    } as any);
+    } as unknown as ReturnType<typeof UniversalMediaModel.find>);
 
-    const req = new Request('http://localhost/api/univershall/stream');
-    const res = await GET(req as any, {} as any);
+    const req = new NextRequest('http://localhost/api/univershall/stream');
+    const res = await GET(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(200);

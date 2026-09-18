@@ -1,12 +1,13 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { LetterSpriteModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { getCachedFontDetail } from '@/lib/cache/letrin.cache';
 import { IlotError } from '@ilot/shared-core';
+import { handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
 // 🛡️ Schéma Zod strict pour interdire l'assignation de masse sur les champs sensibles des sprites
@@ -16,19 +17,29 @@ const UpdateLetterSpriteSchema = z.object({
     width: z.number().int().positive(),
     height: z.number().int().positive()
   }).optional(),
-  glyphs: z.array(z.any()).optional(),
+  glyphs: z.array(z.unknown()).optional(),
   status: z.string().optional(),
 });
+
+type UpdateLetterSpriteInput = z.infer<typeof UpdateLetterSpriteSchema>;
+
+interface LetterSpriteDocument {
+  uid: string;
+  slug?: string;
+  authorUid: string;
+  name?: string;
+  [key: string]: unknown;
+}
 
 // ==========================================
 // GET : Ausculter un sprite spécifique
 // ==========================================
-export const GET = withSilice(async (_req: Request, context: ApiContext) => {
+export const GET = withSilice(async (_req: NextRequest, context: ApiContext) => {
   try {
     let resolvedParams;
     try {
       resolvedParams = await context.params;
-    } catch (err) {
+    } catch {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
     const rawSlug = resolvedParams?.slug;
@@ -39,34 +50,31 @@ export const GET = withSilice(async (_req: Request, context: ApiContext) => {
     }
 
     // 🔍 Tentative via le cache, puis repli sur notre helper unifié (slug ou uid)
-    let font: any = await getCachedFontDetail(identifier);
+    let font = (await getCachedFontDetail(identifier)) as LetterSpriteDocument | null;
     if (!font) {
-      font = await findEntityBySlugOrUid(LetterSpriteModel, identifier);
+      font = (await findEntityBySlugOrUid(LetterSpriteModel, identifier)) as LetterSpriteDocument | null;
     }
 
     if (!font) {
       return NextResponse.json({ error: "Police introuvable." }, { status: 404 });
     }
     return NextResponse.json(font, { status: 200 });
-  } catch (error: any) {
-    console.error("  Erreur globale GET Letr'In Sprite Slug :", error);
-    const status = error instanceof IlotError ? error.status : 500;
-    const message = error instanceof IlotError ? error.message : "Erreur interne lors de la consultation du sprite.";
-    return NextResponse.json({ error: message }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'LETRIN SPRITE GET ERROR');
   }
 });
 
 // ==========================================
 // PUT : Muter un sprite (Strictement Privé / Aura)
 // ==========================================
-export const PUT = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const PUT = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     let resolvedParams;
-    let body;
+    let body: unknown;
     try {
       resolvedParams = await context.params;
       body = await req.json();
-    } catch (err) {
+    } catch {
       return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
     }
     const rawSlug = resolvedParams?.slug;
@@ -81,10 +89,10 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     if (!validation.success) {
       return NextResponse.json({ error: "Données de mutation de sprite invalides.", details: validation.error.flatten() }, { status: 400 });
     }
-    const sanitizedData = validation.data;
+    const sanitizedData: UpdateLetterSpriteInput = validation.data;
 
     // 🔍 Recherche unifiée par slug ou UID pour cibler l'entité
-    const targetSprite: any = await findEntityBySlugOrUid(LetterSpriteModel, identifier, { lean: false });
+    const targetSprite = (await findEntityBySlugOrUid(LetterSpriteModel, identifier, { lean: false })) as LetterSpriteDocument | null;
     if (!targetSprite) {
       return NextResponse.json({ error: "Police introuvable." }, { status: 404 });
     }
@@ -96,13 +104,13 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
       return NextResponse.json({ error: "Souveraineté violée : tu ne peux altérer ce sprite." }, { status: 403 });
     }
 
-    let updated;
+    let updated: LetterSpriteDocument | null;
     try {
-      updated = await LetterSpriteModel.findOneAndUpdate(
+      updated = (await LetterSpriteModel.findOneAndUpdate(
         { uid: targetSprite.uid },
         { $set: sanitizedData },
         { new: true }
-      ).lean();
+      ).lean()) as LetterSpriteDocument | null;
     } catch (updateErr) {
       console.error("  [SPRITE PUT ERROR]", updateErr);
       return NextResponse.json({ error: "Échec de la mutation du sprite." }, { status: 500 });
@@ -116,31 +124,28 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     revalidateTag('fonts');
     revalidateTag('letrin');
     revalidateTag(`font-${identifier}`);
-    if ((updated as any).slug) {
-      revalidateTag(`font-${(updated as any).slug}`);
+    if (updated.slug) {
+      revalidateTag(`font-${updated.slug}`);
     }
-    if ((updated as any).uid) {
-      revalidateTag(`font-${(updated as any).uid}`);
+    if (updated.uid) {
+      revalidateTag(`font-${updated.uid}`);
     }
 
     return NextResponse.json({ success: true, data: updated }, { status: 200 });
-  } catch (error: any) {
-    console.error("  Erreur globale PUT Letr'In Sprite Slug :", error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
-    const message = error instanceof IlotError ? error.message : "Erreur interne lors de la mutation du sprite.";
-    return NextResponse.json({ error: message }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'LETRIN SPRITE PUT ERROR');
   }
 });
 
 // ==========================================
 // DELETE : Dissoudre un sprite (Strictement Privé / Aura)
 // ==========================================
-export const DELETE = withAura(async (_req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const DELETE = withAura(async (_req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     let resolvedParams;
     try {
       resolvedParams = await context.params;
-    } catch (err) {
+    } catch {
       return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
     }
     const rawSlug = resolvedParams?.slug;
@@ -151,7 +156,7 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, curren
     }
 
     // 🔍 Utilisation de notre helper unifié pour cibler proprement la suppression
-    const targetSprite: any = await findEntityBySlugOrUid(LetterSpriteModel, identifier);
+    const targetSprite = (await findEntityBySlugOrUid(LetterSpriteModel, identifier)) as LetterSpriteDocument | null;
     if (!targetSprite) {
       return NextResponse.json({ error: "Police introuvable." }, { status: 404 });
     }
@@ -163,9 +168,9 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, curren
       return NextResponse.json({ error: "Souveraineté violée : dissolution interdite." }, { status: 403 });
     }
 
-    let deleted;
+    let deleted: LetterSpriteDocument | null;
     try {
-      deleted = await LetterSpriteModel.findOneAndDelete({ uid: targetSprite.uid });
+      deleted = (await LetterSpriteModel.findOneAndDelete({ uid: targetSprite.uid })) as LetterSpriteDocument | null;
     } catch (delErr) {
       console.error("  [SPRITE DELETE ERROR]", delErr);
       return NextResponse.json({ error: "Erreur lors de la dissolution." }, { status: 500 });
@@ -182,10 +187,7 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, curren
     revalidateTag(`font-${targetSprite.uid}`);
 
     return NextResponse.json({ success: true, message: "Police dissoute avec succès." }, { status: 200 });
-  } catch (error: any) {
-    console.error("  Erreur globale DELETE Letr'In Sprite Slug :", error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
-    const message = error instanceof IlotError ? error.message : "Erreur interne lors de la dissolution du sprite.";
-    return NextResponse.json({ error: message }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'LETRIN SPRITE DELETE ERROR');
   }
 });

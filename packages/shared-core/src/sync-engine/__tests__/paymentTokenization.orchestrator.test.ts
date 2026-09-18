@@ -1,27 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PaymentTokenizationOrchestrator, TokenizePaymentPayload } from '../paymentTokenisation.orchestrator';
-import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
+import * as orchestratorEngine from '../../utils/orchestrator.engine';
+import type { ClientSession } from 'mongoose';
+import type { Transaction } from 'neo4j-driver';
 
-vi.mock('@ilot/infrastructure', async (importOriginal) => {
-  const actual: any = await importOriginal();
-  return {
-    ...actual,
-    OiseauModel: {
-      findOneAndUpdate: vi.fn(),
-    },
-    findEntityBySlugOrUid: vi.fn(),
-  };
-});
+// 🛡️ 1. Mock synchrone pur de l'infrastructure
+vi.mock('@ilot/infrastructure', () => ({
+  OiseauModel: {
+    findOneAndUpdate: vi.fn(),
+  },
+  findEntityBySlugOrUid: vi.fn(),
+}));
 
+// 🛡️ 2. Mock direct du moteur d'orchestration pour neutraliser les appels imbriqués
+vi.mock('../../utils/orchestrator.engine', () => ({
+  resolveCanonicalUid: vi.fn(),
+  safeSyncUniversalInteraction: vi.fn(async () => {})
+}));
+
+// 🛡️ 3. Mock de la transaction Neo4j/Mongo
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (_name, callback) => {
-      const mockMongoSession = {};
-      const mockNeo4jTx = { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_uid' }] }) };
-      return await callback(mockMongoSession, mockNeo4jTx);
-    }),
+    execute: vi.fn(),
   },
 }));
 
@@ -34,6 +37,19 @@ describe('PaymentTokenizationOrchestrator - Sécurité Financière', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new PaymentTokenizationOrchestrator();
+
+    // 🔍 Résolution canonique via mock (contourne totalement findEntityBySlugOrUid)
+    vi.mocked(orchestratorEngine.resolveCanonicalUid).mockImplementation(async (_model, identifier) => {
+      if (identifier === 'bird_ghost') {
+        throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
+      }
+      return 'bird_canonical_alpha'; // Résolution de succès par défaut
+    });
+
+    // ⚙️ Transaction par défaut réussie
+    vi.mocked(TransactionManager.execute).mockImplementation(async (_name, cb) => {
+      return await cb({} as ClientSession, { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_uid' }] }) } as unknown as Transaction);
+    });
   });
 
   describe('linkExternalPaymentProfile', () => {
@@ -62,8 +78,6 @@ describe('PaymentTokenizationOrchestrator - Sécurité Financière', () => {
     });
 
     it('🔴 doit rejeter (404) si l\'oiseau est introuvable lors de la résolution canonique', async () => {
-      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
-
       const payload: TokenizePaymentPayload = {
         userUid: 'bird_ghost',
         externalCustomerId: 'cus_stripe_123',
@@ -76,19 +90,16 @@ describe('PaymentTokenizationOrchestrator - Sécurité Financière', () => {
     });
 
     it('🟢 doit lier avec succès les tokens externes pour soi-même après résolution canonique', async () => {
-      const mockUser = { uid: 'bird_canonical_alpha' };
-      
-      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockUser as any);
-
+      // ✅ Configuration stricte du chaînage Mongoose pour ce test précis
       vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce({
-          ...mockUser,
+          uid: 'bird_canonical_alpha',
           paymentProfile: { hasActiveWallet: true },
         }),
       } as any);
 
       const payload: TokenizePaymentPayload = {
-        userUid: 'bird_alpha', // L'acteur agit sur lui-même
+        userUid: 'bird_alpha', 
         externalCustomerId: 'cus_stripe_abc789',
         defaultPaymentMethodId: 'pm_card_xyz987',
       };
@@ -96,24 +107,21 @@ describe('PaymentTokenizationOrchestrator - Sécurité Financière', () => {
       const result = await orchestrator.linkExternalPaymentProfile(payload, validSignature as any);
 
       expect(result.success).toBe(true);
-      expect(result.userUid).toBe('bird_canonical_alpha'); // L'UID a bien été résolu et traduit
+      expect(result.userUid).toBe('bird_canonical_alpha'); // Validation du mock de resolveCanonicalUid
       expect(result.hasActiveWallet).toBe(true);
-      expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(1);
+      expect(orchestratorEngine.resolveCanonicalUid).toHaveBeenCalledTimes(1);
       expect(OiseauModel.findOneAndUpdate).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
 
     it('🔴 doit lever une erreur interne (500) si la synchronisation Neo4j échoue (nœud introuvable)', async () => {
-      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ uid: 'bird_canonical_alpha' } as any);
-
-      // On simule également le findOneAndUpdate pour éviter l'erreur TypeError reading 'lean'
       vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce({ uid: 'bird_canonical_alpha' }),
       } as any);
 
       // Simulation d'une rupture Neo4j : L'oiseau existe dans Mongo mais pas dans le Graphe
       vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name, cb) => {
-        return await cb({} as any, { run: vi.fn().mockResolvedValue({ records: [] }) } as any);
+        return await cb({} as ClientSession, { run: vi.fn().mockResolvedValue({ records: [] }) } as unknown as Transaction);
       });
 
       const payload: TokenizePaymentPayload = {

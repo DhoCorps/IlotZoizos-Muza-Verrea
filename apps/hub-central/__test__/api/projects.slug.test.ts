@@ -4,24 +4,30 @@ import { ProjectModel, getNeo4jSession } from '@ilot/infrastructure';
 import { ProjectOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
 import { CAPABILITIES } from '@ilot/types';
+import { NextRequest, NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
 // -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
-  unstable_cache: vi.fn((cb) => cb), // Exécution immédiate
+  unstable_cache: vi.fn((cb: Function) => cb), // Exécution immédiate
   revalidateTag: vi.fn(),
 }));
 
 // Neutralisation des gardes d'API pour les tests unitaires
 vi.mock('@/lib/api-guards', () => ({
-  withOptionalAura: (handler: any) => async (req: any, context: any) => {
+  withOptionalAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     return await handler(req, context, global.__mockUser);
   },
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser || { uid: 'u-123', capabilities: [CAPABILITIES.PROJECT.UPDATE] };
     return await handler(req, context, mockUser);
   },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@/lib/cache/projects.cache', () => ({
@@ -29,7 +35,7 @@ vi.mock('@/lib/cache/projects.cache', () => ({
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -53,7 +59,11 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 });
 
 declare global {
-  var __mockUser: any;
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
 }
 
 // Helper pour mocker les sessions Neo4j de vérification des capacités avec vérification du .close()
@@ -64,7 +74,7 @@ function mockNeo4jCaps(hasAccess: boolean = true, caps: string[] = [], rels: str
       records: hasAccess ? [{ get: (key: string) => key === 'compiledCaps' ? [caps] : rels }] : [],
     }),
     close: closeMock,
-  } as any);
+  } as unknown as ReturnType<typeof getNeo4jSession>);
   return closeMock;
 }
 
@@ -74,31 +84,31 @@ function mockNeo4jCaps(hasAccess: boolean = true, caps: string[] = [], rels: str
 describe('Route API : Project [projectId] (GET / PUT / DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     vi.spyOn(ProjectOrchestrator.prototype, 'mutateProject').mockResolvedValue({
       uid: 'proj-1',
       name: 'Projet Muté',
-    } as any);
+    } as unknown as Awaited<ReturnType<ProjectOrchestrator['mutateProject']>>);
 
     vi.spyOn(ProjectOrchestrator.prototype, 'dissolveProject').mockResolvedValue({
       success: true,
       purgedCount: 1,
-    } as any);
+    } as unknown as Awaited<ReturnType<ProjectOrchestrator['dissolveProject']>>);
 
-    vi.spyOn(ProjectOrchestrator.prototype, 'appendFiles').mockResolvedValue(true as any);
+    vi.spyOn(ProjectOrchestrator.prototype, 'appendFiles').mockResolvedValue(true as unknown as Awaited<ReturnType<ProjectOrchestrator['appendFiles']>>);
   });
 
   describe('GET - Auscultation du Chantier', () => {
     it('doit autoriser (200) la lecture d\'un projet public pour un visiteur anonyme', async () => {
-      delete (global as any).__mockUser;
+      delete global.__mockUser;
 
       vi.mocked(ProjectModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'proj-1', slug: 'proj-1', visibility: 'PUBLIC', creatorUid: 'u-other' }),
-      } as any);
+      } as unknown as ReturnType<typeof ProjectModel.findOne>);
 
-      const req = new Request('http://localhost/api/projects/proj-1');
-      const response = await GET(req as any, { params: Promise.resolve({ projectId: 'proj-1' }) });
+      const req = new NextRequest('http://localhost/api/projects/proj-1');
+      const response = await GET(req, { params: Promise.resolve({ projectId: 'proj-1' }) });
       const json = await response.json();
 
       expect(response.status).toBe(200);
@@ -111,10 +121,10 @@ describe('Route API : Project [projectId] (GET / PUT / DELETE)', () => {
 
       vi.mocked(ProjectModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'proj-priv', slug: 'proj-priv', visibility: 'PRIVATE', creatorUid: 'u-owner' }),
-      } as any);
+      } as unknown as ReturnType<typeof ProjectModel.findOne>);
 
-      const req = new Request('http://localhost/api/projects/proj-priv');
-      const response = await GET(req as any, { params: Promise.resolve({ projectId: 'proj-priv' }) });
+      const req = new NextRequest('http://localhost/api/projects/proj-priv');
+      const response = await GET(req, { params: Promise.resolve({ projectId: 'proj-priv' }) });
       const json = await response.json();
 
       expect(response.status).toBe(403);
@@ -130,14 +140,14 @@ describe('Route API : Project [projectId] (GET / PUT / DELETE)', () => {
 
       vi.mocked(ProjectModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'proj-1', slug: 'proj-1', creatorUid: 'u-other' }),
-      } as any);
+      } as unknown as ReturnType<typeof ProjectModel.findOne>);
 
-      const req = new Request('http://localhost/api/projects/proj-1', {
+      const req = new NextRequest('http://localhost/api/projects/proj-1', {
         method: 'PUT',
         body: JSON.stringify({ name: 'Nouveau Nom' }),
       });
 
-      const response = await PUT(req as any, { params: Promise.resolve({ projectId: 'proj-1' }) });
+      const response = await PUT(req, { params: Promise.resolve({ projectId: 'proj-1' }) });
       const json = await response.json();
 
       expect(response.status).toBe(200);
@@ -156,13 +166,13 @@ describe('Route API : Project [projectId] (GET / PUT / DELETE)', () => {
 
       vi.mocked(ProjectModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'proj-1', slug: 'proj-1', creatorUid: 'u-creator' }),
-      } as any);
+      } as unknown as ReturnType<typeof ProjectModel.findOne>);
 
-      const req = new Request('http://localhost/api/projects/proj-1', {
+      const req = new NextRequest('http://localhost/api/projects/proj-1', {
         method: 'DELETE',
       });
 
-      const response = await DELETE(req as any, { params: Promise.resolve({ projectId: 'proj-1' }) });
+      const response = await DELETE(req, { params: Promise.resolve({ projectId: 'proj-1' }) });
       const json = await response.json();
 
       expect(response.status).toBe(200);

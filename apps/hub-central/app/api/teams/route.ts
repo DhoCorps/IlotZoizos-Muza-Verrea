@@ -1,10 +1,10 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { TeamOrchestrator } from "@ilot/shared-core";
 import { TeamSchema, CAPABILITIES, ActionSignature } from "@ilot/types";
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedUserTeams } from '@/lib/cache/teams.cache';
 
 // 🛡️ Fonction centralisée d'invalidation en cascade pour les listes et Nids
@@ -23,53 +23,53 @@ function revalidateTeamListCascades(userUid?: string, teamUid?: string) {
 // ==========================================
 // 🔍 GET : Recensement des Nids de l'Oiseau
 // ==========================================
-export const GET = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const GET = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
     const userTeams = await getCachedUserTeams(currentUser.uid);
     return NextResponse.json(userTeams, { status: 200 });
-  } catch (error: any) {
-    console.error("🔥 Erreur globale lors de la récupération des Nids unifiés :", error);
-    return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "TEAMS GET FATAL ERROR");
   }
 });
 
 // ==========================================
 // 📤 POST : Fonder une nouvelle escouade (Nid)
 // ==========================================
-export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const hasPermission = currentUser.capabilities.includes(CAPABILITIES.TEAM.CREATE) || currentUser.capabilities.includes('*');
+    const hasPermission = currentUser.capabilities?.includes(CAPABILITIES.TEAM.CREATE) || currentUser.capabilities?.includes('*');
 
     if (!hasPermission) {
         console.warn(`🚫 [Auth] Tentative de fondation sans droits par : ${currentUser.uid}`);
         return NextResponse.json({ 
+          success: false,
           error: "Aura insuffisante pour fonder un Nid.",
           debug_plumes: currentUser.capabilities 
         }, { status: 403 });
     }
 
-    let body;
+    let rawBody: unknown;
     try {
-      body = await req.json();
-    } catch (parseErr) {
-      return NextResponse.json({ error: "L'onde est muette : Corps de requête invalide ou manquant." }, { status: 400 });
+      rawBody = await req.json();
+    } catch {
+      return NextResponse.json({ success: false, error: "L'onde est muette : Corps de requête invalide ou manquant." }, { status: 400 });
     }
 
     const creationSchema = TeamSchema.omit({ uid: true, ownerUid: true, leaderUid: true });
-    const validated = creationSchema.safeParse(body);
+    const validated = creationSchema.safeParse(rawBody);
 
     if (!validated.success) {
-      return NextResponse.json({ errors: validated.error.flatten() }, { status: 400 });
+      return NextResponse.json({ success: false, errors: validated.error.flatten() }, { status: 400 });
     }
 
-    const signature: ActionSignature = { actorUid: currentUser.uid, capabilities: currentUser.capabilities };
+    const signature: ActionSignature = { actorUid: currentUser.uid, capabilities: currentUser.capabilities || [] };
 
     const teamEngine = new TeamOrchestrator();
-    const result: any = await teamEngine.fosterTeam({
+    const result = (await teamEngine.fosterTeam({
       ...validated.data,
       ownerUid: currentUser.uid,
       leaderUid: currentUser.uid
-    }, signature); 
+    }, signature)) as { uid?: string; team?: { uid?: string }; [key: string]: unknown }; 
 
     // 💥 Invalidation globale et centralisée en cascade
     const createdTeamUid = result?.uid || result?.team?.uid;
@@ -77,9 +77,7 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
 
     return NextResponse.json(result, { status: 201 });
 
-  } catch (error: any) {
-    console.error("🔥 Erreur globale de fondation :", error);
-    const status = error.statusCode || error.status || 500;
-    return NextResponse.json({ error: error.message || "Erreur lors de la fondation." }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, "TEAMS POST FATAL ERROR");
   }
 });

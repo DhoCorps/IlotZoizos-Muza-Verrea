@@ -2,11 +2,24 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/payments/webhook/route';
 import { KomptaPaymentOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
+import { NextRequest } from 'next/server';
 
 // 1. Mock du Cache Next.js
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
-  unstable_cache: vi.fn((fn) => fn),
+  unstable_cache: vi.fn((fn: Function) => fn),
+}));
+
+// Mock souverain du garde `withSilice`
+vi.mock('@/lib/api-guards', () => ({
+  withSilice: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    return await handler(req, context);
+  },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ error: err.message || 'Erreur traitement webhook.' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+  },
 }));
 
 // -------------------------------------------------------------------------
@@ -20,17 +33,17 @@ describe('Route API : Webhook Trésorerie (POST /api/payments/webhook)', () => {
     vi.spyOn(KomptaPaymentOrchestrator.prototype, 'processExternalPayment').mockResolvedValue({
       success: true,
       depositUid: 'pi_12345'
-    });
+    } as unknown as Awaited<ReturnType<KomptaPaymentOrchestrator['processExternalPayment']>>);
   });
 
   it('🔴 doit rejeter (401) si la signature cryptographique est manquante', async () => {
-    const req = new Request('http://localhost/api/payments/webhook', {
+    const req = new NextRequest('http://localhost/api/payments/webhook', {
       method: 'POST',
       body: JSON.stringify({ type: 'payment_intent.succeeded' }),
       headers: new Headers({})
     });
 
-    const response = await POST(req);
+    const response = await POST(req, { params: Promise.resolve({}) });
     const json = await response.json();
 
     expect(response.status).toBe(401);
@@ -38,13 +51,13 @@ describe('Route API : Webhook Trésorerie (POST /api/payments/webhook)', () => {
   });
 
   it('🟢 doit acquitter (200) un événement ignoré sans appeler l\'orchestrateur', async () => {
-    const req = new Request('http://localhost/api/payments/webhook', {
+    const req = new NextRequest('http://localhost/api/payments/webhook', {
       method: 'POST',
       body: JSON.stringify({ type: 'payment_method.attached' }),
       headers: new Headers({ 'stripe-signature': 'signature_valide' })
     });
 
-    const response = await POST(req);
+    const response = await POST(req, { params: Promise.resolve({}) });
     const json = await response.json();
 
     expect(response.status).toBe(200);
@@ -65,13 +78,13 @@ describe('Route API : Webhook Trésorerie (POST /api/payments/webhook)', () => {
       data: { object: mockPaymentData }
     };
 
-    const req = new Request('http://localhost/api/payments/webhook', {
+    const req = new NextRequest('http://localhost/api/payments/webhook', {
       method: 'POST',
       body: JSON.stringify(mockEvent),
       headers: new Headers({ 'stripe-signature': 'signature_valide_test' })
     });
 
-    const response = await POST(req);
+    const response = await POST(req, { params: Promise.resolve({}) });
     const json = await response.json();
 
     expect(response.status).toBe(200);

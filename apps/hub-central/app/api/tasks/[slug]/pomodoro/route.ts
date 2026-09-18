@@ -1,12 +1,12 @@
-import { NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
+
+import { NextResponse, NextRequest } from 'next/server';
 import { TaskModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { TaskOrchestrator } from '@ilot/shared-core';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
-
-export const dynamic = 'force-dynamic';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 
 async function getTaskCapabilitiesForPomodoro(userUid: string, taskUid: string): Promise<string[]> {
   const session = getNeo4jSession();
@@ -25,7 +25,7 @@ async function getTaskCapabilitiesForPomodoro(userUid: string, taskUid: string):
     const record = result.records[0];
     const isDirectlyInvolved = record.get('isDirectlyInvolved');
     const projectCaps = record.get('projectCaps') || [];
-    let compiledCaps = [...projectCaps];
+    const compiledCaps = [...projectCaps];
     if (isDirectlyInvolved) {
       compiledCaps.push(CAPABILITIES.TASK.UPDATE);
     }
@@ -41,7 +41,7 @@ async function getTaskCapabilitiesForPomodoro(userUid: string, taskUid: string):
 // ==========================================
 // 🍅 POST : Valider un cycle Pomodoro sur un Atome via [slug]
 // ==========================================
-export const POST = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     let resolvedParams;
     try {
@@ -58,12 +58,12 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
     }
 
     // 🔍 Résolution unifiée de l'atome par slug ou UID
-    const taskEntity: any = await findEntityBySlugOrUid(TaskModel, identifier);
+    const taskEntity = (await findEntityBySlugOrUid(TaskModel, identifier)) as { uid?: string; slug?: string; [key: string]: unknown } | null;
     if (!taskEntity) {
       return NextResponse.json({ error: "Atome introuvable pour le Pomodoro." }, { status: 404 });
     }
 
-    const targetUid = taskEntity.uid;
+    const targetUid = taskEntity.uid || identifier;
     const caps = await getTaskCapabilitiesForPomodoro(currentUser.uid, targetUid);
 
     if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !currentUser.capabilities?.includes('*')) {
@@ -79,22 +79,22 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
     try {
       const taskOrch = new TaskOrchestrator();
       updatedTask = await taskOrch.completePomodoro(targetUid, signature);
-    } catch (orchErr: any) {
-      console.error("🔥 [TASK ORCHESTRATOR POMODORO ERROR]", orchErr);
-      const status = orchErr.statusCode || orchErr.status || 500;
-      return NextResponse.json({ error: orchErr.message || "Échec de validation du Pomodoro." }, { status });
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      console.error("🔥 [TASK ORCHESTRATOR POMODORO ERROR]", err);
+      const status = err.statusCode || err.status || 500;
+      return NextResponse.json({ error: err.message || "Échec de validation du Pomodoro." }, { status });
     }
 
     // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('tasks');
     revalidateTag(`task-${identifier}`);
     if (taskEntity.uid) revalidateTag(`task-${taskEntity.uid}`);
-    if ((taskEntity as any).slug) revalidateTag(`task-${(taskEntity as any).slug}`);
+    if (taskEntity.slug) revalidateTag(`task-${taskEntity.slug}`);
 
     return NextResponse.json(updatedTask, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 Erreur globale POST Pomodoro :", error);
-    return NextResponse.json({ error: "Erreur interne du serveur." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "TASK POMODORO FATAL ERROR");
   }
 });

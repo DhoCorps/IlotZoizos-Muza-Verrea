@@ -1,13 +1,13 @@
-import { NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
+
+import { NextResponse, NextRequest } from 'next/server';
 import { TeamModel, findEntityBySlugOrUid, getNeo4jSession } from "@ilot/infrastructure"; 
 import { TeamOrchestrator } from "@ilot/shared-core";
-import { CAPABILITIES, ActionSignature } from "@ilot/types";
+import { CAPABILITIES, ActionSignature, ITeam } from "@ilot/types";
 import { unstable_cache, revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards'; // 🪡 Notre bouclier souverain
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards'; // 🪡 Notre bouclier souverain
 import { slugify } from '@/lib/slugify';
 import { z } from 'zod';
-
-export const dynamic = 'force-dynamic';
 
 // 🛡️ Schéma Zod strict pour interdire l'assignation de masse (Mass Assignment) sur les Nids
 const UpdateTeamSchema = z.object({
@@ -28,7 +28,7 @@ const UpdateTeamSchema = z.object({
  * Interroge le Graphe pour récupérer TOUTES les capacités de cet Oiseau sur ce Nid.
  */
 async function getCapabilities(userUid: string, teamUid: string): Promise<string[]> {
-  let session: any = null;
+  let session = null;
   try {
     session = getNeo4jSession();
     if (!session) return [];
@@ -44,8 +44,8 @@ async function getCapabilities(userUid: string, teamUid: string): Promise<string
     let compiledCaps: string[] = [];
     let isInvited = false;
 
-    result.records.forEach((record: any) => {
-      const caps = record.get('caps') || [];
+    result.records.forEach((record) => {
+      const caps = (record.get('caps') || []) as string[];
       compiledCaps = [...compiledCaps, ...caps];
       if (record.get('relType') === 'INVITED_TO') {
         isInvited = true;
@@ -83,15 +83,15 @@ const getCachedTeamDetails = (teamIdentifier: string, userUid: string) => {
   return unstable_cache(
     async () => {
       // 🔍 Utilisation de notre helper unifié
-      const team: any = await findEntityBySlugOrUid(TeamModel, teamIdentifier);
+      const team = (await findEntityBySlugOrUid(TeamModel, teamIdentifier)) as { uid?: string; [key: string]: unknown } | null;
 
       if (!team) return null;
-      const teamUid = team.uid;
+      const teamUid = team.uid || teamIdentifier;
 
       const caps = await getCapabilities(userUid, teamUid);
 
-      let neoSession: any = null;
-      let invitations: any[] = [];
+      let neoSession = null;
+      let invitations: Array<{ uid: string; pseudo: string; status: string }> = [];
       try {
         neoSession = getNeo4jSession();
         if (neoSession) {
@@ -100,9 +100,9 @@ const getCachedTeamDetails = (teamIdentifier: string, userUid: string) => {
             RETURN target.uid AS uid, target.pseudo AS pseudo, type(r) AS relType
           `;
           const inviteResult = await neoSession.run(inviteCypher, { teamUid });
-          invitations = inviteResult.records.map((record: any) => ({
-            uid: record.get('uid'),
-            pseudo: record.get('pseudo'),
+          invitations = inviteResult.records.map((record) => ({
+            uid: record.get('uid') as string,
+            pseudo: record.get('pseudo') as string,
             status: record.get('relType') === 'INVITED_TO' ? 'PENDING' : 'REFUSED'
           }));
         }
@@ -135,27 +135,33 @@ const getCachedTeamDetails = (teamIdentifier: string, userUid: string) => {
 // ==========================================
 // 🔍 GET : Découverte du Nid (Mode Consentement Éclairé)
 // ==========================================
-export const GET = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const GET = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    let resolvedParams;
+    try {
+      resolvedParams = await context.params;
+    } catch {
+      return NextResponse.json({ success: false, error: "Paramètres de route invalides." }, { status: 400 });
+    }
+
     const rawSlug = resolvedParams?.slug;
     const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
     if (!teamIdentifier) {
-      return NextResponse.json({ error: "Identifiant de nid (slug) invalide." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Identifiant de nid (slug) invalide." }, { status: 400 });
     }
 
     // ⚡ Appel au cache chirurgical
     const data = await getCachedTeamDetails(teamIdentifier, currentUser.uid);
 
     if (!data || !data.team) {
-      return NextResponse.json({ error: "Nid introuvable dans la silice." }, { status: 404 });
+      return NextResponse.json({ success: false, error: "Nid introuvable dans la silice." }, { status: 404 });
     }
 
     const { team, caps, invitations } = data;
 
-    if (!caps.includes(CAPABILITIES.TEAM.READ) && !caps.includes('*')) {
-      return NextResponse.json({ error: "Ce territoire t'est inconnu. Accès refusé." }, { status: 403 });
+    if (!caps.includes(CAPABILITIES.TEAM.READ) && !caps.includes('*') && !currentUser.capabilities?.includes('*')) {
+      return NextResponse.json({ success: false, error: "Ce territoire t'est inconnu. Accès refusé." }, { status: 403 });
     }
 
     return NextResponse.json({
@@ -164,49 +170,54 @@ export const GET = withAura(async (req: Request, context: ApiContext, currentUse
       invitations 
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 Erreur globale GET Team:", error);
-    return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "TEAM GET FATAL ERROR");
   }
 });
 
 // ==========================================
 // 🏗️ PUT : Édition du Nid (Mutation de structure)
 // ==========================================
-export const PUT = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const PUT = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    let resolvedParams;
+    try {
+      resolvedParams = await context.params;
+    } catch {
+      return NextResponse.json({ success: false, error: "Paramètres de route invalides." }, { status: 400 });
+    }
+
     const rawSlug = resolvedParams?.slug;
     const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
     if (!teamIdentifier) {
-      return NextResponse.json({ error: "Identifiant de nid (slug) invalide." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Identifiant de nid (slug) invalide." }, { status: 400 });
     }
 
     // 🔍 Résolution unifiée de l'équipe
-    const team: any = await findEntityBySlugOrUid(TeamModel, teamIdentifier);
-    if (!team) return NextResponse.json({ error: "Nid introuvable." }, { status: 404 });
+    const team = (await findEntityBySlugOrUid(TeamModel, teamIdentifier)) as { uid?: string; slug?: string; [key: string]: unknown } | null;
+    if (!team) return NextResponse.json({ success: false, error: "Nid introuvable." }, { status: 404 });
 
-    const teamUid = team.uid;
+    const teamUid = team.uid || teamIdentifier;
     const teamSlug = team.slug;
 
     const caps = await getCapabilities(currentUser.uid, teamUid);
     
-    if (!caps.includes(CAPABILITIES.TEAM.UPDATE) && !caps.includes('*')) {
-        return NextResponse.json({ error: "Tu n'as pas l'aura nécessaire pour modifier ce Nid." }, { status: 403 });
+    if (!caps.includes(CAPABILITIES.TEAM.UPDATE) && !caps.includes('*') && !currentUser.capabilities?.includes('*')) {
+        return NextResponse.json({ success: false, error: "Tu n'as pas l'aura nécessaire pour modifier ce Nid." }, { status: 403 });
     }
 
-    let body;
+    let rawBody: unknown;
     try {
-      body = await req.json();
-    } catch (parseErr) {
-      return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
+      rawBody = await req.json();
+    } catch {
+      return NextResponse.json({ success: false, error: "Corps de requête illisible." }, { status: 400 });
     }
 
     // 🛡️ Validation et assainissement stricts via Zod (Blocage du Mass Assignment)
-    const validation = UpdateTeamSchema.safeParse(body);
+    const validation = UpdateTeamSchema.safeParse(rawBody);
     if (!validation.success) {
-      return NextResponse.json({ error: "Données de mutation de nid invalides.", details: validation.error.flatten() }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Données de mutation de nid invalides.", details: validation.error.flatten() }, { status: 400 });
     }
     const sanitizedData = validation.data;
 
@@ -218,11 +229,12 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     let updatedTeam;
     try {
       const teamEngine = new TeamOrchestrator(); 
-      updatedTeam = await teamEngine.mutateTeam(teamUid, sanitizedData as any, signature);
-    } catch (orchErr: any) {
-      console.error("🌋 [TEAM ORCHESTRATOR MUTATE ERROR]", orchErr);
-      const status = orchErr.statusCode || orchErr.status || 500;
-      return NextResponse.json({ error: orchErr.message || "Échec de mutation du Nid." }, { status });
+      updatedTeam = await teamEngine.mutateTeam(teamUid, sanitizedData as Partial<ITeam>, signature);
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      console.error("🌋 [TEAM ORCHESTRATOR MUTATE ERROR]", err);
+      const status = err.statusCode || err.status || 500;
+      return NextResponse.json({ success: false, error: err.message || "Échec de mutation du Nid." }, { status });
     }
 
     // 💥 BOOM ! Invalidation des caches de ce Nid en cascade
@@ -233,37 +245,41 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
 
     return NextResponse.json(updatedTeam, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 Erreur globale PUT Team:", error);
-    const status = error.statusCode || 500;
-    return NextResponse.json({ error: error.message || "Erreur interne." }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, "TEAM PUT FATAL ERROR");
   }
 });
 
 // ==========================================
 // 🧨 DELETE : Dissolution du Nid
 // ==========================================
-export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    let resolvedParams;
+    try {
+      resolvedParams = await context.params;
+    } catch {
+      return NextResponse.json({ success: false, error: "Paramètres de route invalides." }, { status: 400 });
+    }
+
     const rawSlug = resolvedParams?.slug;
     const teamIdentifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
     if (!teamIdentifier) {
-      return NextResponse.json({ error: "Identifiant de nid (slug) invalide." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Identifiant de nid (slug) invalide." }, { status: 400 });
     }
 
     // 🔍 Résolution unifiée de l'équipe
-    const team: any = await findEntityBySlugOrUid(TeamModel, teamIdentifier);
-    if (!team) return NextResponse.json({ error: "Nid introuvable." }, { status: 404 });
+    const team = (await findEntityBySlugOrUid(TeamModel, teamIdentifier)) as { uid?: string; slug?: string; [key: string]: unknown } | null;
+    if (!team) return NextResponse.json({ success: false, error: "Nid introuvable." }, { status: 404 });
 
-    const teamUid = team.uid;
+    const teamUid = team.uid || teamIdentifier;
     const teamSlug = team.slug;
 
     const caps = await getCapabilities(currentUser.uid, teamUid);
     
-    if (!caps.includes(CAPABILITIES.TEAM.DELETE) && !caps.includes('*')) {
-        return NextResponse.json({ error: "Seul l'Architecte de ce Nid peut le dissoudre." }, { status: 403 });
+    if (!caps.includes(CAPABILITIES.TEAM.DELETE) && !caps.includes('*') && !currentUser.capabilities?.includes('*')) {
+        return NextResponse.json({ success: false, error: "Seul l'Architecte de ce Nid peut le dissoudre." }, { status: 403 });
     }
 
     const signature: ActionSignature = {
@@ -274,10 +290,11 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
     try {
       const teamEngine = new TeamOrchestrator(); 
       await teamEngine.dissolveTeam(teamUid, signature);
-    } catch (orchErr: any) {
-      console.error("🌋 [TEAM ORCHESTRATOR DISSOLVE ERROR]", orchErr);
-      const status = orchErr.statusCode || orchErr.status || 500;
-      return NextResponse.json({ error: orchErr.message || "Échec de dissolution du Nid." }, { status });
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      console.error("🌋 [TEAM ORCHESTRATOR DISSOLVE ERROR]", err);
+      const status = err.statusCode || err.status || 500;
+      return NextResponse.json({ success: false, error: err.message || "Échec de dissolution du Nid." }, { status });
     }
 
     // 💥 BOOM ! Dissolution : Invalidation globale et spécifique en cascade
@@ -287,12 +304,11 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
     if (team.uid) revalidateTag(`team-${team.uid}`);
 
     return NextResponse.json({ 
+      success: true,
       message: "Le Nid a été dissous. Les oiseaux ont pris leur envol." 
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 Erreur globale DELETE Team:", error);
-    const status = error.statusCode || 500;
-    return NextResponse.json({ error: error.message || "Erreur interne." }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, "TEAM DELETE FATAL ERROR");
   }
 });

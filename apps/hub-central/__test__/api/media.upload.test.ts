@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '../../app/api/media/upload/route';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
-import { NextResponse, NextRequest } from 'next/server';
+import { NextRequest } from 'next/server';
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
@@ -12,13 +12,12 @@ vi.mock('@/modules/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true })
 }));
 
-// 🛡️ Mock absolu des gardes pour éviter tout passage dans le vrai code de production bloquant
 vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser || { uid: 'oiseau_666', slug: 'amiga-mia', capabilities: [] };
     return await handler(req, context, mockUser);
   },
-  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
+  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser || { uid: 'oiseau_666', slug: 'amiga-mia', capabilities: [] };
     return await handler(req, context, mockUser);
   },
@@ -62,25 +61,21 @@ vi.mock('@ilot/shared-core', () => ({
   }
 }));
 
-declare global {
-  var __mockUser: any;
-}
-
 describe('API Route: /api/media/upload', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   describe('POST : Téléversement', () => {
     it('devrait refuser une requête sans fichier ni payload', async () => {
-      const formData = new FormData(); 
-      const request = {
-        headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }),
-        formData: async () => formData,
-      } as any;
+      const request = new NextRequest('http://localhost/api/media/upload', {
+        method: 'POST',
+      });
+      // Mock direct de formData pour simuler le vide
+      vi.spyOn(request, 'formData').mockResolvedValueOnce(new Map() as unknown as FormData);
 
-      const response = await POST(request, {} as any);
+      const response = await POST(request, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(400);
@@ -88,17 +83,28 @@ describe('API Route: /api/media/upload', () => {
     });
 
     it('devrait rejeter un payload qui ne respecte pas le Contrat Zod', async () => {
-      const formData = new FormData();
-      const mockFile = new File(['dummy content'], 'test.png', { type: 'image/png' });
-      formData.append('file', mockFile);
-      formData.append('payload', JSON.stringify({ sourceApp: 'NOT_A_REAL_APP' })); 
+      const mockFile = {
+        arrayBuffer: async () => new ArrayBuffer(8),
+        name: 'test.png',
+        type: 'image/png',
+        size: 8
+      };
 
-      const request = {
-        headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }),
-        formData: async () => formData,
-      } as any;
+      const request = new NextRequest('http://localhost/api/media/upload', {
+        method: 'POST',
+      });
 
-      const response = await POST(request, {} as any);
+      // Simulation parfaite d'un FormData contenant un fichier et un payload invalide
+      const mockFormData = {
+        get: (key: string) => {
+          if (key === 'file') return mockFile;
+          if (key === 'payload') return JSON.stringify({ sourceApp: 'NOT_A_REAL_APP' });
+          return null;
+        }
+      };
+      vi.spyOn(request, 'formData').mockResolvedValueOnce(mockFormData as unknown as FormData);
+
+      const response = await POST(request, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(400);
@@ -106,24 +112,35 @@ describe('API Route: /api/media/upload', () => {
     });
 
     it('devrait uploader le fichier, forger le Sceau et appeler l\'Orchestrateur avec invalidation en cascade', async () => {
-      const formData = new FormData();
-      const mockFile = new File(['audio data'], 'lead.wav', { type: 'audio/wav' });
-      formData.append('file', mockFile);
-      
+      const mockFile = {
+        arrayBuffer: async () => new ArrayBuffer(16),
+        name: 'lead.wav',
+        type: 'audio/wav',
+        size: 16
+      };
+
       const validPayload = {
         sourceApp: 'DHO',
         type: 'AUDIO_STEM',
         title: { fr: 'L\'Empire des Je(ux)' },
         rights: { allow_remix: true }
       };
-      formData.append('payload', JSON.stringify(validPayload));
 
-      const request = {
-        headers: new Headers({ 'x-forwarded-for': '127.0.0.1' }),
-        formData: async () => formData,
-      } as any;
+      const request = new NextRequest('http://localhost/api/media/upload', {
+        method: 'POST',
+      });
 
-      const response = await POST(request, {} as any);
+      // Simulation parfaite d'un FormData valide
+      const mockFormData = {
+        get: (key: string) => {
+          if (key === 'file') return mockFile;
+          if (key === 'payload') return JSON.stringify(validPayload);
+          return null;
+        }
+      };
+      vi.spyOn(request, 'formData').mockResolvedValueOnce(mockFormData as unknown as FormData);
+
+      const response = await POST(request, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(201);
@@ -146,7 +163,7 @@ describe('API Route: /api/media/upload', () => {
         { method: 'DELETE' }
       );
 
-      const response = await DELETE(request, {} as any);
+      const response = await DELETE(request, { params: Promise.resolve({}) });
       const json = await response.json();
       
       expect(response.status).toBe(200);

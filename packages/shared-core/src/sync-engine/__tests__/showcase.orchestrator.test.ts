@@ -1,29 +1,38 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ShowcaseOrchestrator } from '../showcase.orchestrator';
-import { UniversalMediaModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { UniversalMediaModel } from '@ilot/infrastructure';
 import { UserShowcaseShuffler } from '../../utils/userShowcaseShuffler';
 import { IlotError } from '../../errors/ilot.errors';
+import * as orchestratorEngine from '../../utils/orchestrator.engine';
 
-// 🛡️ Mocks de la Silice
-vi.mock('@ilot/infrastructure', async (importOriginal) => {
-  const actual: any = await importOriginal();
-  return {
-    ...actual,
-    UniversalMediaModel: {
-      find: vi.fn(),
-    },
-    OiseauModel: {},
-    findEntityBySlugOrUid: vi.fn(),
-  };
-});
+// 🛡️ 1. Mock synchrone de la Silice
+vi.mock('@ilot/infrastructure', () => ({
+  UniversalMediaModel: {
+    find: vi.fn(),
+  },
+  OiseauModel: {},
+  findEntityBySlugOrUid: vi.fn(),
+}));
+
+// 🛡️ 2. Mock direct du moteur d'orchestration pour neutraliser les appels Mongoose internes
+vi.mock('../../utils/orchestrator.engine', () => ({
+  resolveCanonicalUid: vi.fn(),
+}));
 
 describe('ShowcaseOrchestrator - Séquençage et Association Multimédia', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     
-    // 🛡️ Utilisation de spyOn au lieu de vi.mock pour éviter tout problème de résolution de chemin.
-    // On bypass la logique interne du Shuffler pour se concentrer sur le test de l'Orchestrateur.
+    // 🛡️ Bypass de la logique interne du Shuffler
     vi.spyOn(UserShowcaseShuffler, 'shuffleForUser').mockImplementation((items) => [...items]);
+
+    // 🔍 Résolution canonique via mock (contourne totalement findEntityBySlugOrUid)
+    vi.mocked(orchestratorEngine.resolveCanonicalUid).mockImplementation(async (_model, identifier) => {
+      if (identifier === 'bird_ghost') {
+        throw new IlotError(`Oiseau introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
+      }
+      return 'bird_canonical_observer'; // Succès par défaut
+    });
   });
 
   afterEach(() => {
@@ -37,17 +46,12 @@ describe('ShowcaseOrchestrator - Séquençage et Association Multimédia', () =>
   });
 
   it('🔴 doit rejeter l\'appel (404) si l\'Oiseau est un fantôme (non résolu dans la Silice)', async () => {
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
-
     await expect(
       ShowcaseOrchestrator.getPersonalizedShowcase('bird_ghost', { selectedApps: [] })
     ).rejects.toThrow(/Oiseau introuvable/);
   });
 
   it('🟢 doit ordonner la playlist et habiller les œuvres visuelles avec une piste d\'ambiance sonore', async () => {
-    // 1. Simulation de la résolution canonique de l'Oiseau via findEntityBySlugOrUid
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ uid: 'bird_canonical_observer' } as any);
-
     const mockDbItems = [
       {
         mediaId: 'img_1', sourceApp: 'ABYSS', ownerUid: 'bird_visual', ownerSlug: 'artiste-visuel', title: 'Toile du Néant',
@@ -88,5 +92,8 @@ describe('ShowcaseOrchestrator - Séquençage et Association Multimédia', () =>
 
     const audioItem = playlist.find(item => item.sourceApp === 'PARTITA');
     expect(audioItem!.metadata?.ambientTrackInfo).toBeUndefined();
+    
+    // Validation que l'utilitaire d'orchestration a bien été appelé
+    expect(orchestratorEngine.resolveCanonicalUid).toHaveBeenCalledTimes(1);
   });
 });

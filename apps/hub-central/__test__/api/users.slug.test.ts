@@ -1,18 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/users/[slug]/route';
-import { getServerSession } from 'next-auth/next';
 import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
+import { NextRequest, NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS
 // -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
-  unstable_cache: vi.fn((cb) => cb), // Exécute immédiatement la fonction mise en cache
-}));
-
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
+  unstable_cache: vi.fn((cb: Function) => cb), // Exécute immédiatement la fonction mise en cache
 }));
 
 vi.mock('@/lib/cache/users.cache', () => ({
@@ -33,8 +29,29 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 });
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((str) => str), // Mock simple de slugify pour les tests
+  slugify: vi.fn((str: string) => str), // Mock simple de slugify pour les tests
 }));
+
+// Mock unifié de l'api-guard
+vi.mock('@/lib/api-guards', () => ({
+  withOptionalAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const mockCurrentUser = global.__mockUser;
+    return await handler(req, context, mockCurrentUser);
+  },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, message: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}));
+
+declare global {
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
+}
 
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
@@ -42,7 +59,7 @@ vi.mock('@/lib/slugify', () => ({
 describe('Route API : Miroir (GET /[slug])', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   const mockOiseauDb = {
@@ -59,10 +76,10 @@ describe('Route API : Miroir (GET /[slug])', () => {
   };
 
   it('doit renvoyer (404) si l\'oiseau n\'existe pas', async () => {
-    vi.mocked(getServerSession).mockResolvedValue(null);
+    delete global.__mockUser;
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
-    const req = new Request('http://localhost/api/users/inconnu');
+    const req = new NextRequest('http://localhost/api/users/inconnu');
     const response = await GET(req, { params: Promise.resolve({ slug: 'inconnu' }) });
     
     expect(response.status).toBe(404);
@@ -70,10 +87,10 @@ describe('Route API : Miroir (GET /[slug])', () => {
   });
 
   it('doit renvoyer le profil STANDARD (sans email) pour un visiteur public', async () => {
-    vi.mocked(getServerSession).mockResolvedValue(null);
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb);
+    delete global.__mockUser;
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-    const req = new Request('http://localhost/api/users/dho-123');
+    const req = new NextRequest('http://localhost/api/users/dho-123');
     const response = await GET(req, { params: Promise.resolve({ slug: 'dho-123' }) });
     const json = await response.json();
 
@@ -84,13 +101,11 @@ describe('Route API : Miroir (GET /[slug])', () => {
   });
 
   it('doit renvoyer le profil INTIME (avec email) si l\'utilisateur consulte le sien', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({ 
-      user: { uid: 'dho-123' } 
-    } as any);
+    global.__mockUser = { uid: 'dho-123', capabilities: [] };
     
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb);
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-    const req = new Request('http://localhost/api/users/dho-123');
+    const req = new NextRequest('http://localhost/api/users/dho-123');
     const response = await GET(req, { params: Promise.resolve({ slug: 'dho-123' }) });
     const json = await response.json();
 
@@ -100,10 +115,10 @@ describe('Route API : Miroir (GET /[slug])', () => {
   });
 
   it('doit fonctionner avec un slug normalisé', async () => {
-    vi.mocked(getServerSession).mockResolvedValue(null);
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb);
+    delete global.__mockUser;
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-    const req = new Request('http://localhost/api/users/dho-123');
+    const req = new NextRequest('http://localhost/api/users/dho-123');
     const response = await GET(req, { params: Promise.resolve({ slug: 'dho-123' }) });
     
     expect(response.status).toBe(200);

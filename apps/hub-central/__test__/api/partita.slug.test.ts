@@ -3,16 +3,16 @@ import { GET, PUT, DELETE } from '@/app/api/partita/[slug]/route';
 import { PartitaOrchestrator } from '@ilot/shared-core';
 import { PartitaModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
 vi.mock('@/lib/api-guards', () => ({
-  withOptionalAura: (handler: any) => async (req: any, context: any) => {
+  withOptionalAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     return await handler(req, context, global.__mockUser);
   },
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser;
     if (!mockUser || !mockUser.uid) {
       return NextResponse.json({ error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
@@ -22,7 +22,7 @@ vi.mock('@/lib/api-guards', () => ({
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 vi.mock('next/cache', () => ({
@@ -36,22 +36,15 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     PartitaModel: {
       findOne: vi.fn(),
     },
-    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
     findEntityBySlugOrUid: vi.fn(),
   };
 });
 
 // Mock du cache de détails de partition
 vi.mock('@/lib/cache/partita.cache', () => ({
-  getCachedPartitaDetails: vi.fn(async (slug) => {
-    // On force un retour null pour simuler le fallback sur la DB et tester notre findEntityBySlugOrUid
+  getCachedPartitaDetails: vi.fn(async () => {
     return null;
   }),
-}));
-
-// 🪡 MOCK PROPRE DE L'ORCHESTRATEUR AVEC DES SPYS EXPLICITES
-vi.mock('@/lib/shared-core', () => ({
-  PartitaOrchestrator: vi.fn(),
 }));
 
 vi.mock('@ilot/shared-core', () => ({
@@ -61,25 +54,30 @@ vi.mock('@ilot/shared-core', () => ({
   })),
 }));
 
+// 🛡️ Déclaration globale standardisée et alignée
 declare global {
-  var __mockUser: any;
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
 }
 
 describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   // =========================================================================
   // 🔍 TESTS GET (Consultation)
   // =========================================================================
-  describe('GET /api/partitas/[slug]', () => {
+  describe('GET /api/partita/[slug]', () => {
     it('doit renvoyer une erreur 400 si le slug est invalide ou manquant', async () => {
-      const req = new Request('http://localhost/api/partitas/');
+      const req = new NextRequest('http://localhost/api/partita/');
       const context = { params: Promise.resolve({ slug: '' }) };
 
-      const res = await GET(req as any, context);
+      const res = await GET(req, context);
       const json = await res.json();
 
       expect(res.status).toBe(400);
@@ -89,10 +87,10 @@ describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
     it('doit renvoyer une erreur 404 si la partition est introuvable même dans la DB', async () => {
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
-      const req = new Request('http://localhost/api/partitas/inconnue');
+      const req = new NextRequest('http://localhost/api/partita/inconnue');
       const context = { params: Promise.resolve({ slug: 'inconnue' }) };
 
-      const res = await GET(req as any, context);
+      const res = await GET(req, context);
       const json = await res.json();
 
       expect(res.status).toBe(404);
@@ -108,12 +106,12 @@ describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
         slug: 'sonate-intime',
         status: 'DRAFT',
         authorUid: 'bird_author'
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-      const req = new Request('http://localhost/api/partitas/sonate-intime');
+      const req = new NextRequest('http://localhost/api/partita/sonate-intime');
       const context = { params: Promise.resolve({ slug: 'sonate-intime' }) };
 
-      const res = await GET(req as any, context);
+      const res = await GET(req, context);
       expect(res.status).toBe(403);
     });
 
@@ -126,12 +124,12 @@ describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
         status: 'PUBLISHED',
         authorUid: 'bird_author',
         theory: { root: 'E', scaleKey: 'HARMONIC_MINOR', score: 100 }
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-      const req = new Request('http://localhost/api/partitas/sonate-publique');
+      const req = new NextRequest('http://localhost/api/partita/sonate-publique');
       const context = { params: Promise.resolve({ slug: 'sonate-publique' }) };
 
-      const res = await GET(req as any, context);
+      const res = await GET(req, context);
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -144,17 +142,17 @@ describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
   // =========================================================================
   // 🚀 TESTS PUT (Mutation)
   // =========================================================================
-  describe('PUT /api/partitas/[slug]', () => {
+  describe('PUT /api/partita/[slug]', () => {
     it('doit rejeter (401) si l\'oiseau n\'est pas connecté', async () => {
-      delete (global as any).__mockUser;
+      delete global.__mockUser;
 
-      const req = new Request('http://localhost/api/partitas/ma-partition', {
+      const req = new NextRequest('http://localhost/api/partita/ma-partition', {
         method: 'PUT',
         body: JSON.stringify({ title: 'Nouveau Titre' })
       });
       const context = { params: Promise.resolve({ slug: 'ma-partition' }) };
 
-      const res = await PUT(req as any, context);
+      const res = await PUT(req, context);
       expect(res.status).toBe(401);
     });
 
@@ -164,7 +162,7 @@ describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 'part_canonique_123',
         slug: 'ma-partition'
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
       const mockUpdatedResult = { uid: 'part_canonique_123', slug: 'ma-partition-mut', success: true, title: 'Titre Muté' };
       
@@ -172,15 +170,15 @@ describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
       vi.mocked(PartitaOrchestrator).mockImplementationOnce(() => ({
         updatePartita: updatePartitaMock,
         disintegratePartita: vi.fn(),
-      } as any));
+      } as unknown as PartitaOrchestrator));
 
-      const req = new Request('http://localhost/api/partitas/ma-partition', {
+      const req = new NextRequest('http://localhost/api/partita/ma-partition', {
         method: 'PUT',
         body: JSON.stringify({ title: 'Titre Muté' })
       });
       const context = { params: Promise.resolve({ slug: 'ma-partition' }) };
 
-      const res = await PUT(req as any, context);
+      const res = await PUT(req, context);
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -195,27 +193,27 @@ describe('API Partita Slug - Gestion d\'une Partition Spécifique', () => {
   // =========================================================================
   // 🗑️ TESTS DELETE (Dissolution)
   // =========================================================================
-  describe('DELETE /api/partitas/[slug]', () => {
+  describe('DELETE /api/partita/[slug]', () => {
     it('doit dissoudre (200) la partition avec l\'UID canonique et purifier le cache', async () => {
       global.__mockUser = { uid: 'bird_author', capabilities: [] };
 
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 'part_to_burn_99',
         slug: 'partition-a-bruler'
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
       const disintegrateMock = vi.fn().mockResolvedValueOnce({ success: true, purgedCount: 1, filesToDelete: [] });
       vi.mocked(PartitaOrchestrator).mockImplementationOnce(() => ({
         updatePartita: vi.fn(),
         disintegratePartita: disintegrateMock,
-      } as any));
+      } as unknown as PartitaOrchestrator));
 
-      const req = new Request('http://localhost/api/partitas/partition-a-bruler', {
+      const req = new NextRequest('http://localhost/api/partita/partition-a-bruler', {
         method: 'DELETE',
       });
       const context = { params: Promise.resolve({ slug: 'partition-a-bruler' }) };
 
-      const res = await DELETE(req as any, context);
+      const res = await DELETE(req, context);
       const json = await res.json();
 
       expect(res.status).toBe(200);

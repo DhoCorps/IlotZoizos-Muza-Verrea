@@ -1,10 +1,8 @@
-// app/api/univershall/constellation/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { UniversHallBeaconModel } from '@ilot/infrastructure';
-import { withSilice, ApiContext } from '@/lib/api-guards';
-import { IlotError } from '@ilot/shared-core';
+import { withSilice, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
 // 🛡️ Schéma Zod strict pour limiter la longueur et prévenir les attaques par ReDoS
@@ -19,7 +17,13 @@ const TagQuerySchema = z.object({
 // -------------------------------------------------------------------------
 export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => {
   try {
-    const url = new URL(req.url);
+    let url: URL;
+    try {
+      url = new URL(req.url);
+    } catch {
+      return NextResponse.json({ success: false, error: "URL de requête invalide." }, { status: 400 });
+    }
+
     const rawTag = url.searchParams.get('tag');
 
     // Intercepte proprement l'absence du paramètre pour renvoyer le message exact attendu
@@ -54,9 +58,9 @@ export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => 
     const safeBeacons = JSON.parse(JSON.stringify(matchingBeacons || []));
 
     // Regroupement par module source pour cartographier la constellation
-    const constellationMap: Record<string, any[]> = {};
-    safeBeacons.forEach((beacon: any) => {
-      const mod = beacon.sourceModule || 'GENERAL';
+    const constellationMap: Record<string, Array<Record<string, unknown>>> = {};
+    safeBeacons.forEach((beacon: Record<string, unknown>) => {
+      const mod = (beacon.sourceModule as string) || 'GENERAL';
       if (!constellationMap[mod]) {
         constellationMap[mod] = [];
       }
@@ -71,13 +75,7 @@ export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => 
       data: safeBeacons
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("  [UNIVERS'HALL CONSTELLATION ERROR] :", error);
-    const status = error instanceof IlotError ? error.status : 500;
-    const message = error instanceof IlotError ? error.message : "Erreur interne lors de l'exploration de la constellation.";
-    return NextResponse.json({ 
-      success: false, 
-      error: message 
-    }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, "UNIVERSHALL CONSTELLATION GET FATAL ERROR");
   }
 });

@@ -1,8 +1,7 @@
-// Fichier : app/api/salon/unread/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedUnreadCount } from '@/lib/cache/messages.cache';
 
 // ==========================================
@@ -17,8 +16,7 @@ export const GET = withAura(async (_req: NextRequest, _context: ApiContext, curr
 
     const unreadCount = await getCachedUnreadCount(userSlug);
     return NextResponse.json({ success: true, unreadCount }, { status: 200 });
-  } catch (error: any) {
-    console.error("  [UNREAD COUNT ERROR] :", error);
-    return NextResponse.json({ error: "Erreur de comptage des murmures." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'UNREAD COUNT ERROR');
   }
 });

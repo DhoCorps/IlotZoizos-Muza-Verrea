@@ -14,11 +14,11 @@ vi.mock('next/cache', () => ({
 }));
 
 vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser || { uid: 'u-123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
   },
-  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
+  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: Function) => async (req: NextRequest, context: unknown) => {
     const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
     if (rateLimitResult && rateLimitResult.allowed === false) {
       return NextResponse.json({ success: false, message: "Trop de téléversements. Veuillez patienter." }, { status: 429 });
@@ -26,6 +26,11 @@ vi.mock('@/lib/api-guards', () => ({
     const mockUser = global.__mockUser || { uid: 'u-123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
   },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, message: err.message || 'Erreur globale.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -39,7 +44,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       updateOne: vi.fn(),
     },
     getNeo4jSession: vi.fn(),
-    // Mock du helper unifié s'appuyant sur ProjectModel.findOne
     findEntityBySlugOrUid: vi.fn(async (model, identifier, options = { lean: true }) => {
       const doc = await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] });
       if (!doc) return null;
@@ -56,11 +60,15 @@ vi.mock('@/modules/security/rateLimiter', () => ({
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 declare global {
-  var __mockUser: any;
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
 }
 
 function mockNeo4jAuth(isValid: boolean = true) {
@@ -69,39 +77,40 @@ function mockNeo4jAuth(isValid: boolean = true) {
       records: isValid ? [{ get: (key: string) => key === 'projectCreatorUid' ? 'u-123' : ['project:update'] }] : [],
     }),
     close: vi.fn().mockResolvedValue(true),
-  } as any);
+  } as unknown as ReturnType<typeof getNeo4jSession>);
 }
 
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
-describe('Route API : Project Attachments & Sceau SHA-256 (POST / DELETE /api/projects/[slug]/attachments)', () => {
+describe('Route API : Project Attachments & Sceau SHA-256 (POST / DELETE /api/projects/[slug]/upload)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     vi.spyOn(storageService, 'generateKey').mockReturnValue('ilot-zoizos/fr/projects/proj-1/attachments/test.pdf');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
       publicUrl: 'https://cdn.ilot/doc.pdf',
       key: 'mock-key',
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof storageService.uploadFile>>);
     vi.spyOn(storageService, 'extractKeyFromUrl').mockImplementation((url: string) => {
       if (url.includes('etranger')) return 'foreign-key';
       return 'mock-key';
     });
-    vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
+    vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as unknown as Awaited<ReturnType<typeof storageService.deleteFile>>);
   });
 
   describe('POST - Téléversement d\'un artefact avec Sceau SHA-256', () => {
     it('doit refuser (429) si le rate limit est dépassé', async () => {
-      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0 } as any);
+      vi.mocked(checkRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0 } as unknown as Awaited<ReturnType<typeof checkRateLimit>>);
 
-      const req = new Request('http://localhost/api/projects/mon-chantier/attachments', {
-        method: 'POST',
-      });
+      const req = {
+        headers: { get: () => '127.0.0.1' },
+        formData: async () => new FormData(),
+      } as unknown as NextRequest;
 
-      const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-chantier' }) });
+      const response = await POST(req, { params: Promise.resolve({ slug: 'mon-chantier' }) });
       const json = await response.json();
 
       expect(response.status).toBe(429);
@@ -113,22 +122,23 @@ describe('Route API : Project Attachments & Sceau SHA-256 (POST / DELETE /api/pr
 
       vi.mocked(ProjectModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'proj-1', slug: 'mon-chantier', name: 'Mon Chantier' }),
-      } as any);
+      } as unknown as ReturnType<typeof ProjectModel.findOne>);
 
       vi.mocked(ProjectModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'proj-1', documents: [{ name: 'test.pdf' }] }),
-      } as any);
+      } as unknown as ReturnType<typeof ProjectModel.findOneAndUpdate>);
 
       const formData = new FormData();
       formData.append('file', new Blob(['pdf content'], { type: 'application/pdf' }), 'test.pdf');
       formData.append('label', 'Schéma technique');
 
+      // 🛡️ Passage direct d'un objet simulant la requête avec formData asynchrone pour éviter les erreurs de parsing en test
       const req = {
         headers: { get: () => '127.0.0.1' },
         formData: async () => formData,
       } as unknown as NextRequest;
 
-      const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-chantier' }) });
+      const response = await POST(req, { params: Promise.resolve({ slug: 'mon-chantier' }) });
       const json = await response.json();
 
       expect(response.status).toBe(201);
@@ -154,14 +164,14 @@ describe('Route API : Project Attachments & Sceau SHA-256 (POST / DELETE /api/pr
           slug: 'mon-chantier', 
           documents: [{ url: 'https://cdn.ilot/autre-doc.pdf' }] 
         }),
-      } as any);
+      } as unknown as ReturnType<typeof ProjectModel.findOne>);
 
-      const req = new Request('http://localhost/api/projects/mon-chantier/attachments', {
+      const req = new NextRequest('http://localhost/api/projects/mon-chantier/upload', {
         method: 'DELETE',
         body: JSON.stringify({ key: 'https://cdn.ilot/doc-etranger.pdf' }),
       });
 
-      const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'mon-chantier' }) });
+      const response = await DELETE(req, { params: Promise.resolve({ slug: 'mon-chantier' }) });
       const json = await response.json();
 
       expect(response.status).toBe(403);
@@ -179,16 +189,16 @@ describe('Route API : Project Attachments & Sceau SHA-256 (POST / DELETE /api/pr
           slug: 'mon-chantier',
           documents: [{ url: 'https://cdn.ilot/doc.pdf' }]
         }),
-      } as any);
+      } as unknown as ReturnType<typeof ProjectModel.findOne>);
 
-      vi.mocked(ProjectModel.updateOne).mockResolvedValueOnce({ modifiedCount: 1 } as any);
+      vi.mocked(ProjectModel.updateOne).mockResolvedValueOnce({ modifiedCount: 1 } as unknown as Awaited<ReturnType<typeof ProjectModel.updateOne>>);
 
-      const req = new Request('http://localhost/api/projects/mon-chantier/attachments', {
+      const req = new NextRequest('http://localhost/api/projects/mon-chantier/upload', {
         method: 'DELETE',
         body: JSON.stringify({ key: 'https://cdn.ilot/doc.pdf' }),
       });
 
-      const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'mon-chantier' }) });
+      const response = await DELETE(req, { params: Promise.resolve({ slug: 'mon-chantier' }) });
       const json = await response.json();
 
       expect(response.status).toBe(200);
@@ -199,5 +209,5 @@ describe('Route API : Project Attachments & Sceau SHA-256 (POST / DELETE /api/pr
       expect(revalidateTag).toHaveBeenCalledWith('project-proj-1');
       expect(revalidateTag).toHaveBeenCalledWith('project-slug-mon-chantier');
     });
-  });
+  }); 
 });

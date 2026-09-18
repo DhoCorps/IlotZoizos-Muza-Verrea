@@ -4,17 +4,40 @@ import { getServerSession } from 'next-auth/next';
 import { SujetModel } from '@ilot/infrastructure';
 import { SujetOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
+import { NextRequest, NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
 // -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
-  unstable_cache: vi.fn((cb) => cb), // Exécution immédiate
+  unstable_cache: vi.fn((cb: Function) => cb), // Exécution immédiate
   revalidateTag: vi.fn(),
 }));
 
 vi.mock('next-auth/next', () => ({
   getServerSession: vi.fn(),
+}));
+
+// Neutralisation des api-guards
+vi.mock('@/lib/api-guards', () => ({
+  withOptionalAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const session = await getServerSession();
+    const currentUser = session?.user;
+    return await handler(req, context, currentUser);
+  },
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const session = await getServerSession();
+    const currentUser = session?.user;
+    if (!currentUser) {
+      return NextResponse.json({ error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
+    }
+    return await handler(req, context, currentUser);
+  },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
@@ -30,14 +53,14 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('Route API : Bibliothèque & Sujets (GET / POST /api/sujets)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de SujetOrchestrator
     vi.spyOn(SujetOrchestrator.prototype, 'fosterSujet').mockResolvedValue({
       success: true,
       uid: 'sujet-new',
       title: 'Nouvelle Pensée',
-    } as any);
+    } as unknown as Awaited<ReturnType<SujetOrchestrator['fosterSujet']>>);
   });
 
   describe('GET - Consultation de la Bibliothèque', () => {
@@ -50,10 +73,10 @@ describe('Route API : Bibliothèque & Sujets (GET / POST /api/sujets)', () => {
             lean: vi.fn().mockResolvedValue([{ uid: 's-1', title: 'Sujet Public' }]),
           }),
         }),
-      } as any);
+      } as unknown as ReturnType<typeof SujetModel.find>);
 
-      const req = new Request('http://localhost/api/sujets');
-      const response = await GET(req as any, {});
+      const req = new NextRequest('http://localhost/api/sujets');
+      const response = await GET(req, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(200);
@@ -64,17 +87,17 @@ describe('Route API : Bibliothèque & Sujets (GET / POST /api/sujets)', () => {
     it('doit intégrer les sujets de l\'auteur connecté si une session est active', async () => {
       vi.mocked(getServerSession).mockResolvedValue({
         user: { uid: 'u-123', capabilities: [] }
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof getServerSession>>);
 
       const mockLean = vi.fn().mockResolvedValue([{ uid: 's-2', title: 'Mon Sujet Privé' }]);
       vi.mocked(SujetModel.find).mockReturnValue({
         sort: () => ({
           limit: () => ({ lean: mockLean }),
         }),
-      } as any);
+      } as unknown as ReturnType<typeof SujetModel.find>);
 
-      const req = new Request('http://localhost/api/sujets');
-      const response = await GET(req as any, {});
+      const req = new NextRequest('http://localhost/api/sujets');
+      const response = await GET(req, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(200);
@@ -86,12 +109,12 @@ describe('Route API : Bibliothèque & Sujets (GET / POST /api/sujets)', () => {
     it('doit rejeter (401) si l\'utilisateur n\'a pas d\'Aura', async () => {
       vi.mocked(getServerSession).mockResolvedValue(null);
 
-      const req = new Request('http://localhost/api/sujets', {
+      const req = new NextRequest('http://localhost/api/sujets', {
         method: 'POST',
         body: JSON.stringify({ title: 'Mon Idée', content: 'Substance...' }),
       });
 
-      const response = await POST(req as any, {});
+      const response = await POST(req, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(401);
@@ -104,14 +127,14 @@ describe('Route API : Bibliothèque & Sujets (GET / POST /api/sujets)', () => {
     it('doit réussir (201) la création d\'un sujet, exécuter l\'orchestrateur et invalider le cache', async () => {
       vi.mocked(getServerSession).mockResolvedValue({
         user: { uid: 'u-123', capabilities: [] }
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof getServerSession>>);
 
-      const req = new Request('http://localhost/api/sujets', {
+      const req = new NextRequest('http://localhost/api/sujets', {
         method: 'POST',
         body: JSON.stringify({ title: 'La conscience de l\'Îlot', content: 'Contenu profond...' }),
       });
 
-      const response = await POST(req as any, {});
+      const response = await POST(req, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(201);

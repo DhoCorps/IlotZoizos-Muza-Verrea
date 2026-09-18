@@ -6,7 +6,7 @@ import { UniversHallOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withSilice, withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 
 // -------------------------------------------------------------------------
 // GET : Ausculter une balise spécifique de l'Agora (Public / Silice)
@@ -20,29 +20,28 @@ export const GET = withSilice(async (_req: NextRequest, context: ApiContext) => 
         resolvedParams = await resolvedParams;
       }
     } catch {
-      return NextResponse.json({ error: "Paramètres de route invalides." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Paramètres de route invalides." }, { status: 400 });
     }
 
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
     if (!identifier) {
-      return NextResponse.json({ error: "Identifiant de balise invalide." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Identifiant de balise invalide." }, { status: 400 });
     }
 
     // 🔍 Résolution unifiée de la balise via notre helper centralisé
-    const beacon: any = await findEntityBySlugOrUid(UniversHallBeaconModel, identifier);
+    const beacon = (await findEntityBySlugOrUid(UniversHallBeaconModel, identifier)) as { uid?: string; slug?: string; [key: string]: unknown } | null;
 
     if (!beacon) {
-      return NextResponse.json({ error: "Balise introuvable sur l'Agora." }, { status: 404 });
+      return NextResponse.json({ success: false, error: "Balise introuvable sur l'Agora." }, { status: 404 });
     }
 
     const safeBeacon = JSON.parse(JSON.stringify(beacon));
     return NextResponse.json({ success: true, data: safeBeacon }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("  [UNIVERS'HALL GET SLUG ERROR] :", error);
-    return NextResponse.json({ error: error.message || "Erreur interne du serveur." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "UNIVERSHALL GET SLUG FATAL ERROR");
   }
 });
 
@@ -58,20 +57,20 @@ export const DELETE = withAura(async (_req: NextRequest, context: ApiContext, cu
         resolvedParams = await resolvedParams;
       }
     } catch {
-      return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Paramètres invalides." }, { status: 400 });
     }
 
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
     if (!identifier) {
-      return NextResponse.json({ error: "Identifiant de balise invalide." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Identifiant de balise invalide." }, { status: 400 });
     }
 
     // 🔍 Résolution unifiée pour cibler proprement la balise avant dissolution
-    const targetBeacon: any = await findEntityBySlugOrUid(UniversHallBeaconModel, identifier);
+    const targetBeacon = (await findEntityBySlugOrUid(UniversHallBeaconModel, identifier)) as { uid?: string; slug?: string; [key: string]: unknown } | null;
     if (!targetBeacon) {
-      return NextResponse.json({ error: "Balise introuvable sur l'Agora." }, { status: 404 });
+      return NextResponse.json({ success: false, error: "Balise introuvable sur l'Agora." }, { status: 404 });
     }
 
     const signature: ActionSignature = {
@@ -82,11 +81,12 @@ export const DELETE = withAura(async (_req: NextRequest, context: ApiContext, cu
     try {
       const orchestrator = new UniversHallOrchestrator();
       // On passe l'UID canonique à l'orchestrateur
-      await orchestrator.dissolveBeacon(targetBeacon.uid, signature);
-    } catch (orchErr: any) {
-      console.error("  [UNIVERS'HALL ORCHESTRATOR DELETE ERROR] :", orchErr);
-      const status = orchErr.statusCode || orchErr.status || 500;
-      return NextResponse.json({ error: orchErr.message || "Échec de la dissolution de la balise." }, { status });
+      await orchestrator.dissolveBeacon(targetBeacon.uid || identifier, signature);
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      console.error("  [UNIVERS'HALL ORCHESTRATOR DELETE ERROR] :", err);
+      const status = err.statusCode || err.status || 500;
+      return NextResponse.json({ success: false, error: err.message || "Échec de la dissolution de la balise." }, { status });
     }
 
     // 💥 Invalidation chirurgicale du cache en cascade
@@ -100,8 +100,7 @@ export const DELETE = withAura(async (_req: NextRequest, context: ApiContext, cu
       message: "La balise a été dissoute et retirée de l'Agora."
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("  [UNIVERS'HALL DELETE GLOBAL ERROR] :", error);
-    return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "UNIVERSHALL DELETE FATAL ERROR");
   }
 });

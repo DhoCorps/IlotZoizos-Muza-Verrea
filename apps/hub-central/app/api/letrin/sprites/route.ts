@@ -9,6 +9,35 @@ import { revalidateTag } from 'next/cache';
 import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { getCachedFonts } from '@/lib/cache/letrin.cache';
 import { generateFileHash } from '@/lib/cryptoHelper';
+import { handleRouteError } from '@/lib/api-guards';
+import { z } from 'zod';
+
+// 🛡️ Schéma Zod strict pour la création d'une police de sprites
+const CreateLetterSpriteSchema = z.object({
+  name: z.string().min(1, "Le nom de la police est requis.").optional(),
+  gridSize: z.object({
+    width: z.number().int().positive(),
+    height: z.number().int().positive()
+  }).optional(),
+  glyphs: z.array(z.unknown()).optional(),
+  status: z.string().optional(),
+});
+
+type CreateLetterSpriteInput = z.infer<typeof CreateLetterSpriteSchema>;
+
+interface LetterSpriteDocument {
+  uid: string;
+  name: string;
+  slug: string;
+  authorUid: string;
+  gridSize: { width: number; height: number };
+  glyphs: unknown[];
+  status: string;
+  digitalSignature?: string;
+  timestampedAt?: Date;
+  copyrightClaimed?: boolean;
+  [key: string]: unknown;
+}
 
 export const GET = withSilice(async (_req: NextRequest, _context: ApiContext) => {
   try {
@@ -16,43 +45,57 @@ export const GET = withSilice(async (_req: NextRequest, _context: ApiContext) =>
     // Sérialisation propre pour éviter les erreurs de type non sérialisable
     const safeFonts = JSON.parse(JSON.stringify(fonts || []));
     return NextResponse.json(safeFonts, { status: 200 });
-  } catch (error: any) {
-    console.error("  Erreur globale GET Letr'In Sprites :", error);
-    return NextResponse.json({ error: error.message || "Échec du recensement." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'LETRIN SPRITES GET ERROR');
   }
 });
 
 export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let body;
+    let body: unknown;
     try {
       body = await req.json();
     } catch {
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
-    const fontName = body.name || 'Police Anonyme';
-    let baseSlug = slugify(fontName);
+    // 🛡️ Validation et assainissement via Zod
+    const validation = CreateLetterSpriteSchema.safeParse(body);
+    if (!validation.success) {
+      return NextResponse.json({ error: "Données de police de sprites invalides.", details: validation.error.flatten() }, { status: 400 });
+    }
+    const sanitizedData: CreateLetterSpriteInput = validation.data;
+    const rawBody = (body || {}) as Record<string, unknown>;
+
+    const fontName = sanitizedData.name || 'Police Anonyme';
+    const baseSlug = slugify(fontName);
     let finalSlug = baseSlug;
+
     try {
       let slugExists = await LetterSpriteModel.findOne({ slug: finalSlug }).lean();
       let counter = 1;
-      while (slugExists) {
+      let safetyCounter = 0;
+      while (slugExists && safetyCounter < 50) {
         finalSlug = `${baseSlug}-${counter}`;
         slugExists = await LetterSpriteModel.findOne({ slug: finalSlug }).lean();
         counter++;
+        safetyCounter++;
       }
     } catch (slugErr) {
       console.error("  [SLUG VALIDATION ERROR]", slugErr);
       return NextResponse.json({ error: "Erreur de validation de l'empreinte URL." }, { status: 500 });
     }
 
+    const gridSize = sanitizedData.gridSize || (rawBody.gridSize as { width: number; height: number }) || { width: 16, height: 16 };
+    const glyphs = sanitizedData.glyphs || (rawBody.glyphs as unknown[]) || [];
+    const authorUid = currentUser.uid || 'unknown';
+
     // 🪡 Génération du Sceau Cryptographique (SHA-256) d'Antériorité
     const canonicalContent = JSON.stringify({
       name: fontName,
-      gridSize: body.gridSize || { width: 16, height: 16 },
-      glyphs: body.glyphs || [],
-      authorUid: currentUser.uid || 'unknown'
+      gridSize,
+      glyphs,
+      authorUid
     });
     
     const contentBuffer = Buffer.from(canonicalContent, 'utf-8');
@@ -61,21 +104,23 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
 
     const fontUid = `font_${uuidv4()}`;
     const fontData = {
+      ...rawBody,
+      ...sanitizedData,
       uid: fontUid,
       name: fontName,
       slug: finalSlug,
-      authorUid: currentUser.uid || 'unknown',
-      gridSize: body.gridSize || { width: 16, height: 16 },
-      glyphs: body.glyphs || [],
-      status: body.status || 'DRAFT',
+      authorUid,
+      gridSize,
+      glyphs,
+      status: sanitizedData.status || (rawBody.status as string) || 'DRAFT',
       digitalSignature,
       timestampedAt,
       copyrightClaimed: true
     };
 
-    let newFont;
+    let newFont: LetterSpriteDocument;
     try {
-      newFont = await LetterSpriteModel.create(fontData);
+      newFont = (await LetterSpriteModel.create(fontData)) as unknown as LetterSpriteDocument;
     } catch (createErr) {
       console.error("  [SPRITE CREATE ERROR]", createErr);
       return NextResponse.json({ error: "Échec de sédimentation." }, { status: 500 });
@@ -83,7 +128,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
 
     try {
       const orchestrator = new LetrinSpriteOrchestrator();
-      await orchestrator.publishFontSprite(fontData, {
+      await orchestrator.publishFontSprite(fontData as Parameters<LetrinSpriteOrchestrator['publishFontSprite']>[0], {
         actorUid: fontData.authorUid,
         capabilities: currentUser.capabilities || []
       });
@@ -102,8 +147,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       timestampedAt
     }, { status: 201 });
 
-  } catch (error: any) {
-    console.error("  Erreur globale POST Letr'In Sprites :", error);
-    return NextResponse.json({ error: error.message || "Échec de la sédimentation." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'LETRIN SPRITES POST ERROR');
   }
 });

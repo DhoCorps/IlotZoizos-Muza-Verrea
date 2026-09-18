@@ -4,12 +4,13 @@ import { getServerSession } from 'next-auth/next';
 import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { SujetOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
+import { NextRequest, NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
 // -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
-  unstable_cache: vi.fn((cb) => cb), // Exécution immédiate
+  unstable_cache: vi.fn((cb: Function) => cb), // Exécution immédiate
   revalidateTag: vi.fn(),
 }));
 
@@ -22,7 +23,29 @@ vi.mock('@/lib/cache/sujets.cache', () => ({
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+}));
+
+// Neutralisation des api-guards avec gestion d'erreur centralisée
+vi.mock('@/lib/api-guards', () => ({
+  withOptionalAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const session = await getServerSession();
+    const currentUser = session?.user;
+    return await handler(req, context, currentUser);
+  },
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const session = await getServerSession();
+    const currentUser = session?.user;
+    if (!currentUser) {
+      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+    }
+    return await handler(req, context, currentUser);
+  },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -52,7 +75,6 @@ vi.mock('@ilot/shared-core', () => ({
 describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
   });
 
   describe('GET - Auscultation du Sujet', () => {
@@ -65,10 +87,10 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
         slug: 'mon-sujet',
         status: 'PUBLISHED',
         authorUid: 'u-999',
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-      const req = new Request('http://localhost/api/sujets/mon-sujet');
-      const response = await GET(req as any, { params: Promise.resolve({ slug: 'mon-sujet' }) });
+      const req = new NextRequest('http://localhost/api/sujets/mon-sujet');
+      const response = await GET(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
       const json = await response.json();
 
       expect(response.status).toBe(200);
@@ -79,17 +101,17 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
     it('doit refuser (403) l\'accès à un sujet privé pour un utilisateur non autorisé', async () => {
       vi.mocked(getServerSession).mockResolvedValue({
         user: { uid: 'u-other', capabilities: [] }
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof getServerSession>>);
 
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 's-1',
         slug: 'mon-sujet',
         status: 'DRAFT',
         authorUid: 'u-owner',
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-      const req = new Request('http://localhost/api/sujets/mon-sujet');
-      const response = await GET(req as any, { params: Promise.resolve({ slug: 'mon-sujet' }) });
+      const req = new NextRequest('http://localhost/api/sujets/mon-sujet');
+      const response = await GET(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
       const json = await response.json();
 
       expect(response.status).toBe(403);
@@ -102,24 +124,24 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
     it('doit réussir (200) si l\'utilisateur est l\'auteur, valide via Zod et invalide le cache', async () => {
       vi.mocked(getServerSession).mockResolvedValue({
         user: { uid: 'u-owner', capabilities: [] }
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof getServerSession>>);
 
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 's-1',
         slug: 'mon-sujet',
         authorUid: 'u-owner',
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
       vi.mocked(SujetModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 's-1', title: 'Titre Modifié' }),
-      } as any);
+      } as unknown as ReturnType<typeof SujetModel.findOneAndUpdate>);
 
-      const req = new Request('http://localhost/api/sujets/mon-sujet', {
+      const req = new NextRequest('http://localhost/api/sujets/mon-sujet', {
         method: 'PUT',
-        body: JSON.stringify({ title: 'Titre Modifié', authorUid: 'fake-hack' }), // authorUid sera filtré par Zod
+        body: JSON.stringify({ title: 'Titre Modifié', authorUid: 'fake-hack' }), // authorUid sera ignoré ou filtré par le design
       });
 
-      const response = await PUT(req as any, { params: Promise.resolve({ slug: 'mon-sujet' }) });
+      const response = await PUT(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
       const json = await response.json();
 
       expect(response.status).toBe(200);
@@ -136,19 +158,19 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
     it('doit réussir (200) si l\'utilisateur est l\'auteur et invalider le cache', async () => {
       vi.mocked(getServerSession).mockResolvedValue({
         user: { uid: 'u-owner', capabilities: [] }
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof getServerSession>>);
 
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 's-1',
         slug: 'mon-sujet',
         authorUid: 'u-owner',
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-      const req = new Request('http://localhost/api/sujets/mon-sujet', {
+      const req = new NextRequest('http://localhost/api/sujets/mon-sujet', {
         method: 'DELETE',
       });
 
-      const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'mon-sujet' }) });
+      const response = await DELETE(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
       const json = await response.json();
 
       expect(response.status).toBe(200);

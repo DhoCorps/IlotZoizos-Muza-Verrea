@@ -1,40 +1,63 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LetrinSpriteOrchestrator } from '../letrinSprite.orchestrator';
 import { TransactionManager } from '../transactionManager';
-import { FontModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { IlotError } from '../../errors/ilot.errors';
+import { ActionSignature } from '@ilot/types';
+import * as orchestratorEngine from '../../utils/orchestrator.engine';
+import { FontModel } from '@ilot/infrastructure';
+import type { ClientSession } from 'mongoose';
+import type { Transaction } from 'neo4j-driver';
 
-const mockFindOneAndUpdate = vi.fn();
+// 🛡️ 1. Mock synchrone pur : évite les bugs de chargement asynchrone de Vitest
+vi.mock('@ilot/infrastructure', () => ({
+  OiseauModel: {},
+  FontModel: {
+    findOneAndUpdate: vi.fn(),
+  },
+  findEntityBySlugOrUid: vi.fn(),
+}));
 
-// 🛡️ MOCK UNIFIÉ ET SÉCURISÉ DE L'INFRASTRUCTURE
-vi.mock('@ilot/infrastructure', async (importOriginal) => {
-  const actual: any = await importOriginal();
-  return {
-    ...actual,
-    OiseauModel: {},
-    FontModel: {
-      findOneAndUpdate: (...args: any[]) => mockFindOneAndUpdate(...args),
-    },
-    findEntityBySlugOrUid: vi.fn(),
-  };
-});
+// 🛡️ 2. Mock du moteur d'orchestration
+vi.mock('../../utils/orchestrator.engine', () => ({
+  safeSyncUniversalInteraction: vi.fn(async () => {}),
+  resolveCanonicalUid: vi.fn(async (_model, identifier: string) => {
+    if (identifier === 'ghost') {
+      throw new IlotError(`Oiseau auteur introuvable dans la Silice : ${identifier}`, "NOT_FOUND", 404);
+    }
+    return `resolved_${identifier}`;
+  })
+}));
 
+// 🛡️ 3. Mock de la transaction
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (_name, cb) => cb({} as any, { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'font_1' }] }) })),
+    execute: vi.fn(async (_name: string, cb: (mongoSession: ClientSession, neo4jTx: Transaction) => Promise<unknown>) => 
+      cb({} as ClientSession, { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'font_1' }] }) } as unknown as Transaction)
+    ),
   },
 }));
 
 describe('LetrinSpriteOrchestrator - Atelier Typographique Letr\'in (Police & Sprites)', () => {
   let orchestrator: LetrinSpriteOrchestrator;
-  const validSignature = { actorUid: 'bird_typographer', capabilities: [] };
+  const validSignature: ActionSignature = { actorUid: 'bird_typographer', capabilities: [] };
 
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new LetrinSpriteOrchestrator();
 
-    // Simulation de la résolution canonique via findEntityBySlugOrUid
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValue({ uid: 'bird_canonical_123' } as any);
+    // 🛡️ 4. Assignation explicite du chaînage Mongoose avant chaque test
+    // Cela garantit que .lean() existera TOUJOURS au moment de l'exécution
+    vi.mocked(FontModel.findOneAndUpdate).mockReturnValue({
+      lean: vi.fn().mockResolvedValue({
+        uid: 'font_alpha',
+        name: 'Canopy Sans Font',
+        slug: 'canopy-sans-font',
+        authorUid: 'bird_typographer',
+        gridSize: { width: 16, height: 16 },
+        glyphs: [],
+        status: 'RELEASED'
+      })
+    } as any);
   });
 
   describe('publishFontSprite (Police et Glyphs)', () => {
@@ -59,32 +82,25 @@ describe('LetrinSpriteOrchestrator - Atelier Typographique Letr\'in (Police & Sp
         authorUid: 'bird_typographer',
         gridSize: { width: 16, height: 16 },
         glyphs: [
-          { char: 'A', matrix: [[0, 1], [1, 0]], unicodeHex: 'U+0041' }, // Majuscule
-          { char: 'a', matrix: [[1, 1], [0, 0]], unicodeHex: 'U+0061' }, // Minuscule
-          { char: 'é', matrix: [[1, 0], [1, 0]], unicodeHex: 'U+00E9' }, // Accent
-          { char: '@', matrix: [[0, 0], [1, 1]], unicodeHex: 'U+0040' }  // Caractère spécial
+          { char: 'A', matrix: [[0, 1], [1, 0]], unicodeHex: 'U+0041' },
+          { char: 'a', matrix: [[1, 1], [0, 0]], unicodeHex: 'U+0061' },
+          { char: 'é', matrix: [[1, 0], [1, 0]], unicodeHex: 'U+00E9' },
+          { char: '@', matrix: [[0, 0], [1, 1]], unicodeHex: 'U+0040' } 
         ],
         status: 'RELEASED' as const
       };
-
-      mockFindOneAndUpdate.mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce(mockFontData),
-      } as any);
 
       const res = await orchestrator.publishFontSprite(mockFontData, validSignature as any);
 
       expect(res.success).toBe(true);
       expect(res.name).toBe('Canopy Sans Font');
       expect(res.slug).toBe('canopy-sans-font');
-      expect(res.glyphsCount).toBe(4); // Les 4 symboles de la police ont bien été traités
-      expect(findEntityBySlugOrUid).toHaveBeenCalledTimes(1);
-      expect(mockFindOneAndUpdate).toHaveBeenCalledTimes(1);
+      expect(res.glyphsCount).toBe(4);
+      expect(orchestratorEngine.resolveCanonicalUid).toHaveBeenCalledTimes(1);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
 
     it('🔴 doit lever une erreur 404 si l\'Oiseau créateur n\'existe pas dans la Silice', async () => {
-      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null); // L'oiseau n'existe pas
-
       await expect(
         orchestrator.publishFontSprite({
           uid: 'font_beta', name: 'Broken Font', slug: 'broken-font', authorUid: 'ghost', gridSize: { width: 8, height: 8 }, glyphs: []

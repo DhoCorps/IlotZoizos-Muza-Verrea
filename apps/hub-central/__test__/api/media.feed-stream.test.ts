@@ -1,18 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/media/stream-feed/route';
 import { ProductModel } from '@ilot/infrastructure';
+import { getCachedMediaFeed } from '@/lib/cache/media.cache';
+import { NextResponse, NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DU CACHE
 // -------------------------------------------------------------------------
 vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => async (req: any, context: any) => {
+  withSilice: (handler: Function) => async (req: NextRequest, context: unknown) => {
     return await handler(req, context);
   },
 }));
 
 vi.mock('next/cache', () => ({
-  unstable_cache: vi.fn((cb) => cb),
+  unstable_cache: vi.fn((cb: Function) => cb),
+}));
+
+// 🎯 Mock explicite du cache media pour s'aligner sur la route moderne
+vi.mock('@/lib/cache/media.cache', () => ({
+  getCachedMediaFeed: vi.fn(),
 }));
 
 // 🛡️ MOCK MONGOOSE SÉQUENTIEL PLEINEMENT CONTRÔLÉ
@@ -26,24 +33,17 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('API Media Stream Feed - Flux Public Agora', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   it('🟢 doit récupérer le flux des visuels et des pistes avec succès (200)', async () => {
-    // Premier appel (visuals)
-    const mockLeanVisuals = vi.fn().mockResolvedValueOnce([{ uid: 'vis_1', category: 'VIDEO' }]);
-    const mockLimitVisuals = vi.fn().mockReturnValueOnce({ lean: mockLeanVisuals });
+    vi.mocked(getCachedMediaFeed).mockResolvedValueOnce({
+      visuals: [{ uid: 'vis_1', category: 'VIDEO' }],
+      tracks: [{ uid: 'trk_1', category: 'MUSIC' }]
+    } as unknown as Awaited<ReturnType<typeof getCachedMediaFeed>>);
 
-    // Second appel (tracks)
-    const mockLeanTracks = vi.fn().mockResolvedValueOnce([{ uid: 'trk_1', category: 'MUSIC' }]);
-    const mockLimitTracks = vi.fn().mockReturnValueOnce({ lean: mockLeanTracks });
-
-    vi.mocked(ProductModel.find)
-      .mockReturnValueOnce({ limit: mockLimitVisuals } as any)
-      .mockReturnValueOnce({ limit: mockLimitTracks } as any);
-
-    const req = new Request('http://localhost/api/media/stream/feed');
-    const res = await GET(req as any, {});
+    const req = new NextRequest('http://localhost/api/media/stream/feed');
+    const res = await GET(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -52,6 +52,6 @@ describe('API Media Stream Feed - Flux Public Agora', () => {
     expect(json.data.tracks).toHaveLength(1);
     expect(json.data.visuals[0].uid).toBe('vis_1');
     expect(json.data.tracks[0].uid).toBe('trk_1');
-    expect(ProductModel.find).toHaveBeenCalledTimes(2);
+    expect(getCachedMediaFeed).toHaveBeenCalled();
   });
 });

@@ -1,11 +1,11 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { KontaktProfileModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
-import { IlotError } from '@ilot/shared-core';
+import { handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
 // 🛡️ Schéma Zod strict pour interdire l'assignation de masse sur les profils Kontakt
@@ -18,10 +18,25 @@ const UpdateKontaktProfileSchema = z.object({
   portfolioUrl: z.string().url().nullable().optional(),
 });
 
+type UpdateKontaktProfileInput = z.infer<typeof UpdateKontaktProfileSchema>;
+
+interface KontaktProfileDocument {
+  uid: string;
+  slug: string;
+  userUid: string;
+  professionalTitle?: string;
+  bio?: string;
+  alignment?: string;
+  skills?: string[];
+  status?: string;
+  portfolioUrl?: string | null;
+  [key: string]: unknown;
+}
+
 // ==========================================
 // GET : Ausculter un profil Kontakt spécifique (Public / Silice)
 // ==========================================
-export const GET = withSilice(async (_req: Request, context: ApiContext) => {
+export const GET = withSilice(async (_req: NextRequest, context: ApiContext) => {
   try {
     let resolvedParams;
     try {
@@ -38,7 +53,7 @@ export const GET = withSilice(async (_req: Request, context: ApiContext) => {
     }
 
     // 🔍 Résolution unifiée du profil Kontakt via notre helper centralisé
-    const profile: any = await findEntityBySlugOrUid(KontaktProfileModel, identifier);
+    const profile = (await findEntityBySlugOrUid(KontaktProfileModel, identifier)) as KontaktProfileDocument | null;
 
     if (!profile) {
       return NextResponse.json({ error: "Profil Kontakt introuvable dans la matrice." }, { status: 404 });
@@ -46,21 +61,18 @@ export const GET = withSilice(async (_req: Request, context: ApiContext) => {
 
     return NextResponse.json({ success: true, data: profile }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 Erreur globale GET Kontakt Profile Slug :", error);
-    const status = error instanceof IlotError ? error.status : 500;
-    const message = error instanceof IlotError ? error.message : "Erreur interne du serveur.";
-    return NextResponse.json({ error: message }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'KONTAKT PROFILE GET ERROR');
   }
 });
 
 // ==========================================
 // PUT : Muter / Mettre à jour un profil Kontakt (Strictement Privé / Aura)
 // ==========================================
-export const PUT = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const PUT = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     let resolvedParams;
-    let body;
+    let body: unknown;
     try {
       resolvedParams = await context.params;
       body = await req.json();
@@ -80,10 +92,10 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     if (!validation.success) {
       return NextResponse.json({ error: "Données de mutation de profil invalides.", details: validation.error.flatten() }, { status: 400 });
     }
-    const sanitizedData = validation.data;
+    const sanitizedData: UpdateKontaktProfileInput = validation.data;
 
     // 🔍 Recherche unifiée pour trouver le profil par slug ou UID avant mise à jour
-    const targetProfile: any = await findEntityBySlugOrUid(KontaktProfileModel, identifier, { lean: false });
+    const targetProfile = (await findEntityBySlugOrUid(KontaktProfileModel, identifier, { lean: false })) as KontaktProfileDocument | null;
 
     if (!targetProfile) {
       return NextResponse.json({ error: "Profil introuvable dans la matrice." }, { status: 404 });
@@ -102,13 +114,13 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     if (sanitizedData.professionalTitle) {
       const baseSlug = slugify(sanitizedData.professionalTitle);
       let finalSlug = baseSlug;
-      let slugExists = await findEntityBySlugOrUid(KontaktProfileModel, finalSlug);
+      let slugExists = (await findEntityBySlugOrUid(KontaktProfileModel, finalSlug)) as KontaktProfileDocument | null;
       let counter = 1;
       let safetyCounter = 0;
       // On vérifie que le slug généré n'est pas déjà pris par UN AUTRE profil
       while (slugExists && slugExists.uid !== targetProfile.uid && safetyCounter < 50) {
         finalSlug = `${baseSlug}-${counter}`;
-        slugExists = await findEntityBySlugOrUid(KontaktProfileModel, finalSlug);
+        slugExists = (await findEntityBySlugOrUid(KontaktProfileModel, finalSlug)) as KontaktProfileDocument | null;
         counter++;
         safetyCounter++;
       }
@@ -120,17 +132,17 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
       ...(sanitizedData.professionalTitle ? { slug: newSlug } : {})
     };
 
-    const updatedProfile = await KontaktProfileModel.findOneAndUpdate(
+    const updatedProfile = (await KontaktProfileModel.findOneAndUpdate(
       { uid: targetProfile.uid },
       { $set: payloadToUpdate },
       { new: true }
-    ).lean();
+    ).lean()) as KontaktProfileDocument | null;
 
     // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
     revalidateTag('kontakt-profiles');
     revalidateTag(`kontakt-profile-${identifier}`);
-    if ((updatedProfile as any)?.slug) revalidateTag(`kontakt-profile-${(updatedProfile as any).slug}`);
-    if ((updatedProfile as any)?.uid) revalidateTag(`kontakt-profile-${(updatedProfile as any).uid}`);
+    if (updatedProfile?.slug) revalidateTag(`kontakt-profile-${updatedProfile.slug}`);
+    if (updatedProfile?.uid) revalidateTag(`kontakt-profile-${updatedProfile.uid}`);
 
     return NextResponse.json({
       success: true,
@@ -138,18 +150,15 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
       data: updatedProfile
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 Erreur globale PUT Kontakt Profile :", error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
-    const message = error instanceof IlotError ? error.message : "Erreur interne lors de la mise à jour du profil.";
-    return NextResponse.json({ error: message }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'KONTAKT PROFILE PUT ERROR');
   }
 });
 
 // ==========================================
 // DELETE : Dissoudre un profil Kontakt (Strictement Privé / Aura)
 // ==========================================
-export const DELETE = withAura(async (_req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const DELETE = withAura(async (_req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     let resolvedParams;
     try {
@@ -166,7 +175,7 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, curren
     }
 
     // 🔍 Utilisation de notre helper unifié pour cibler la suppression
-    const targetProfile: any = await findEntityBySlugOrUid(KontaktProfileModel, identifier);
+    const targetProfile = (await findEntityBySlugOrUid(KontaktProfileModel, identifier)) as KontaktProfileDocument | null;
 
     if (!targetProfile) {
       return NextResponse.json({ error: "Profil introuvable pour dissolution." }, { status: 404 });
@@ -193,10 +202,7 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, curren
       message: `Le profil a été désintégré de la matrice.`
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 Erreur globale DELETE Kontakt Profile :", error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
-    const message = error instanceof IlotError ? error.message : "Erreur interne lors de la suppression du profil.";
-    return NextResponse.json({ error: message }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'KONTAKT PROFILE DELETE ERROR');
   }
 });

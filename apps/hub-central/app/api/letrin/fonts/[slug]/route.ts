@@ -1,35 +1,46 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { FontProject, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { IlotError } from '@ilot/shared-core';
+import { handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
 // 🛡️ Schéma Zod strict pour interdire l'assignation de masse sur les projets de polices
 const UpdateFontProjectSchema = z.object({
   name: z.string().min(1, "Le nom du projet de police est requis.").optional(),
-  payload: z.any().optional(),
+  payload: z.unknown().optional(),
   status: z.string().optional(),
 });
+
+type UpdateFontProjectInput = z.infer<typeof UpdateFontProjectSchema>;
+
+interface FontProjectDocument {
+  uid: string;
+  slug?: string;
+  authorUid: string;
+  name?: string;
+  [key: string]: unknown;
+}
 
 // ==========================================
 // 🚀 PUT : Muter un projet de police (Strictement Privé / Aura)
 // ==========================================
-export const PUT = withAura(async (request: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const PUT = withAura(async (request: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     let resolvedParams;
-    let body;
+    let body: unknown;
     try {
       resolvedParams = await context.params;
       body = await request.json();
-    } catch (err) {
+    } catch {
       return NextResponse.json({ error: "Requête ou paramètres invalides." }, { status: 400 });
     }
 
-    const rawSlug = (resolvedParams as any)?.slug;
+    const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
     if (!identifier) {
@@ -41,10 +52,10 @@ export const PUT = withAura(async (request: Request, context: ApiContext, curren
     if (!validation.success) {
       return NextResponse.json({ error: "Données de mutation de projet invalides.", details: validation.error.flatten() }, { status: 400 });
     }
-    const sanitizedData = validation.data;
+    const sanitizedData: UpdateFontProjectInput = validation.data;
 
     // 🔍 Recherche unifiée par slug ou UID
-    const targetProject: any = await findEntityBySlugOrUid(FontProject, identifier, { lean: false });
+    const targetProject = (await findEntityBySlugOrUid(FontProject, identifier, { lean: false })) as FontProjectDocument | null;
     if (!targetProject) {
       return NextResponse.json({ error: "Projet introuvable." }, { status: 404 });
     }
@@ -56,9 +67,9 @@ export const PUT = withAura(async (request: Request, context: ApiContext, curren
       return NextResponse.json({ error: "Souveraineté violée : tu ne peux altérer cette typographie." }, { status: 403 });
     }
 
-    let updated;
+    let updated: FontProjectDocument | null;
     try {
-      updated = await FontProject.findOneAndUpdate({ uid: targetProject.uid }, { $set: sanitizedData }, { new: true }).lean();
+      updated = (await FontProject.findOneAndUpdate({ uid: targetProject.uid }, { $set: sanitizedData }, { new: true }).lean()) as FontProjectDocument | null;
     } catch (updateErr) {
       console.error("🔥 [FONTS PUT UPDATE ERROR]", updateErr);
       return NextResponse.json({ error: "Échec de la mutation du projet." }, { status: 500 });
@@ -72,36 +83,33 @@ export const PUT = withAura(async (request: Request, context: ApiContext, curren
     revalidateTag('fonts');
     revalidateTag('font-projects');
     revalidateTag(`font-${identifier}`);
-    if ((updated as any).slug) {
-      revalidateTag(`font-${(updated as any).slug}`);
+    if (updated.slug) {
+      revalidateTag(`font-${updated.slug}`);
     }
-    if ((updated as any).uid) {
-      revalidateTag(`font-${(updated as any).uid}`);
+    if (updated.uid) {
+      revalidateTag(`font-${updated.uid}`);
     }
 
     return NextResponse.json({ success: true, data: updated }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 Erreur globale PUT Fonts :", error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
-    const message = error instanceof IlotError ? error.message : "Erreur globale interne lors de la mutation de la typographie.";
-    return NextResponse.json({ error: message }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'FONTS PUT ERROR');
   }
 });
 
 // ==========================================
 // 🗑️ DELETE : Dissoudre un projet de police (Strictement Privé / Aura)
 // ==========================================
-export const DELETE = withAura(async (_request: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const DELETE = withAura(async (_request: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     let resolvedParams;
     try {
       resolvedParams = await context.params;
-    } catch (paramErr) {
+    } catch {
       return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
     }
 
-    const rawSlug = (resolvedParams as any)?.slug;
+    const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
     if (!identifier) {
@@ -109,7 +117,7 @@ export const DELETE = withAura(async (_request: Request, context: ApiContext, cu
     }
 
     // 🔍 Recherche unifiée par slug ou UID pour cibler la suppression
-    const targetProject: any = await findEntityBySlugOrUid(FontProject, identifier);
+    const targetProject = (await findEntityBySlugOrUid(FontProject, identifier)) as FontProjectDocument | null;
     if (!targetProject) {
       return NextResponse.json({ error: "Projet introuvable pour dissolution." }, { status: 404 });
     }
@@ -121,9 +129,9 @@ export const DELETE = withAura(async (_request: Request, context: ApiContext, cu
       return NextResponse.json({ error: "Souveraineté violée : dissolution interdite." }, { status: 403 });
     }
 
-    let deleted;
+    let deleted: FontProjectDocument | null;
     try {
-      deleted = await FontProject.findOneAndDelete({ uid: targetProject.uid });
+      deleted = (await FontProject.findOneAndDelete({ uid: targetProject.uid })) as FontProjectDocument | null;
     } catch (delErr) {
       console.error("🔥 [FONTS DELETE ERROR]", delErr);
       return NextResponse.json({ error: "Échec de la dissolution du projet." }, { status: 500 });
@@ -141,10 +149,7 @@ export const DELETE = withAura(async (_request: Request, context: ApiContext, cu
 
     return NextResponse.json({ success: true, message: "Projet dissous avec succès." }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 Erreur globale DELETE Fonts :", error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
-    const message = error instanceof IlotError ? error.message : "Erreur globale interne lors de la dissolution de la typographie.";
-    return NextResponse.json({ error: message }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'FONTS DELETE ERROR');
   }
 });

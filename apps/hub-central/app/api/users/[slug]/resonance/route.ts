@@ -1,12 +1,12 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TaskResonanceOrchestrator, ResonanceOrchestrator } from '@ilot/shared-core';
-import { ActionSignature, ResonanceType, IResonancePayload } from '@ilot/types';
+import { ActionSignature, ResonanceType } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards'; // 🪡 Notre bouclier souverain strict
-
-export const dynamic = 'force-dynamic';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 
 // ==========================================
 // 🎼 POST : La Résonance (Tisser ou Rompre)
@@ -14,26 +14,35 @@ export const dynamic = 'force-dynamic';
 export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     // 1. Résolution stricte et typée des paramètres de route
-    const resolvedParams = await context.params;
+    let resolvedParams;
+    try {
+      resolvedParams = await context.params;
+      if (resolvedParams instanceof Promise) {
+        resolvedParams = await resolvedParams;
+      }
+    } catch {
+      return NextResponse.json({ success: false, error: "Paramètres de route invalides." }, { status: 400 });
+    }
+
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
     if (!identifier) {
-      return NextResponse.json({ error: "Identifiant de cible invalide." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Identifiant de cible invalide." }, { status: 400 });
     }
 
     const signature: ActionSignature = { 
       actorUid: currentUser.uid, 
-      capabilities: currentUser.capabilities 
+      capabilities: currentUser.capabilities || []
     };
 
     // 2. Parsage du corps de la requête
-    let body: Record<string, any> = {};
+    let body: Record<string, unknown> = {};
     try {
       const text = await req.text();
       if (text) body = JSON.parse(text);
-    } catch (e) {
-      return NextResponse.json({ error: "L'onde est muette : Corps de requête invalide." }, { status: 400 });
+    } catch {
+      return NextResponse.json({ success: false, error: "L'onde est muette : Corps de requête invalide." }, { status: 400 });
     }
 
     const { action, type, entityId } = body;
@@ -44,25 +53,26 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     if (action === 'WEAVE' || action === 'SEVER') {
       // On ne résonne pas avec soi-même
       if (currentUser.uid === identifier || slugify(currentUser.uid) === identifier) {
-        return NextResponse.json({ error: "On ne peut résonner avec soi-même." }, { status: 400 });
+        return NextResponse.json({ success: false, error: "On ne peut résonner avec soi-même." }, { status: 400 });
       }
 
       if (!type) {
-        return NextResponse.json({ error: "Fréquence (type) requise." }, { status: 400 });
+        return NextResponse.json({ success: false, error: "Fréquence (type) requise." }, { status: 400 });
       }
 
       // 🔍 Recherche unifiée de la cible via notre helper centralisé
-      const targetUser: any = await findEntityBySlugOrUid(OiseauModel, identifier);
+      const targetUser = (await findEntityBySlugOrUid(OiseauModel, identifier)) as { uid?: string; slug?: string; [key: string]: unknown } | null;
 
-      if (!targetUser) {
-        return NextResponse.json({ error: "La cible a disparu de la matrice." }, { status: 404 });
+      if (!targetUser || !targetUser.uid) {
+        return NextResponse.json({ success: false, error: "La cible a disparu de la matrice." }, { status: 404 });
       }
 
-      const payload: IResonancePayload = {
+      // 🛡️ Typage exact déduit de la signature de l'orchestrateur (zéro `any`)
+      const payload: Parameters<typeof ResonanceOrchestrator.weaveResonance>[0] = {
         sourceUid: currentUser.uid,
         targetUid: targetUser.uid,
         type: type as ResonanceType,
-        entityId
+        entityId: typeof entityId === 'string' ? entityId : undefined
       };
 
       if (action === 'WEAVE') {
@@ -108,14 +118,14 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
       const taskOrchestrator = new TaskResonanceOrchestrator();
       const result = await taskOrchestrator.processUserTaskResonance(identifier, signature);
       return NextResponse.json(result, { status: 200 });
-    } catch (orchErr: any) {
-      console.error("🌋 [ORCHESTRATOR RESONANCE ERROR]", orchErr);
-      const status = orchErr.statusCode || orchErr.status || 400;
-      return NextResponse.json({ error: orchErr.message || "Échec du calcul de la résonance." }, { status });
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      console.error("🌋 [ORCHESTRATOR RESONANCE ERROR]", err);
+      const status = err.statusCode || err.status || 400;
+      return NextResponse.json({ success: false, error: err.message || "Échec du calcul de la résonance." }, { status });
     }
 
-  } catch (error: any) {
-    console.error("🔥 Fracture globale lors de l'appel de résonance :", error);
-    return NextResponse.json({ error: error.message || "Erreur interne de résonance." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "RESONANCE POST FATAL ERROR");
   }
 });

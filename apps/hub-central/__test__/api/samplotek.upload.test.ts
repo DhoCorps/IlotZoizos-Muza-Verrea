@@ -11,11 +11,11 @@ vi.mock('next/cache', () => ({ revalidateTag: vi.fn() }));
 
 // Mocks unifiés des api-guards incluant withRateLimit et withAura
 vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser || { uid: 'bird_dj', capabilities: [] };
     return await handler(req, context, mockUser);
   },
-  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
+  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: Function) => async (req: NextRequest, context: unknown) => {
     const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
     if (rateLimitResult && rateLimitResult.allowed === false) {
       return NextResponse.json({ success: false, error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
@@ -23,6 +23,11 @@ vi.mock('@/lib/api-guards', () => ({
     const mockUser = global.__mockUser || { uid: 'bird_dj', capabilities: [] };
     return await handler(req, context, mockUser);
   },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@/modules/security/rateLimiter', () => ({ checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }) }));
@@ -39,7 +44,7 @@ vi.mock('@/modules/storage/storage.service', () => ({
 
 // Mock de l'Orchestrateur sous forme de vraie classe avec importOriginal
 vi.mock('@ilot/shared-core', async (importOriginal) => {
-  const actual: any = await importOriginal();
+  const actual = await importOriginal<typeof import('@ilot/shared-core')>();
   return {
     ...actual,
     SamplotekOrchestrator: class {
@@ -51,31 +56,28 @@ vi.mock('@ilot/shared-core', async (importOriginal) => {
   };
 });
 
-declare global {
-  var __mockUser: any;
-}
-
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
 describe('API SamploTek - Upload (POST)', () => {
   beforeEach(() => {
       vi.clearAllMocks();
-      delete (global as any).__mockUser;
+      delete global.__mockUser;
   });
 
   it('🟢 doit traiter le FormData, uploader sur R2 et déléguer à l\'Orchestrateur', async () => {
     const req = new NextRequest('http://localhost/api/samplotek/upload', { method: 'POST' });
     
-    req.formData = vi.fn().mockResolvedValue({
+    // Simulation robuste de la méthode formData asynchrone sur la requête
+    (req as unknown as { formData: () => Promise<FormData> }).formData = vi.fn().mockResolvedValue({
       get: (key: string) => {
         if (key === 'file') return new File(['audio content'], 'kick.wav', { type: 'audio/wav' });
         if (key === 'title') return 'Kick Lourd';
         return null;
       }
-    });
+    } as unknown as FormData);
     
-    const res = await POST(req, {} as any);
+    const res = await POST(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(201);

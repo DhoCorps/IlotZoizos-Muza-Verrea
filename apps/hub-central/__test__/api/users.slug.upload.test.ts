@@ -9,11 +9,11 @@ import { revalidateTag } from 'next/cache';
 vi.mock('next/cache', () => ({ revalidateTag: vi.fn() }));
 
 vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser || { uid: 'bird_123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
   },
-  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
+  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: Function) => async (req: NextRequest, context: unknown) => {
     const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
     if (rateLimitResult && rateLimitResult.allowed === false) {
       return NextResponse.json({ success: false, message: "Trop de requêtes." }, { status: 429 });
@@ -21,10 +21,15 @@ vi.mock('@/lib/api-guards', () => ({
     const mockUser = global.__mockUser || { uid: 'bird_123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
   },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, message: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
-  const actual: any = await importOriginal();
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
   return {
     ...actual,
     OiseauModel: {
@@ -37,36 +42,35 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-// Adaptation du mock sur generateKey et extraction de clé
-vi.mock('@/modules/storage/storage.service', () => ({
-  storageService: {
-    generateKey: vi.fn(() => 'users/bird_123/avatar.png'),
-    uploadFile: vi.fn().mockResolvedValue({ publicUrl: 'https://cdn.ilot/avatar.png' }),
-    deleteFile: vi.fn().mockResolvedValue(true),
-    extractKeyFromUrl: vi.fn((url: string) => {
-      if (url.includes('etranger')) return 'foreign-key.png';
-      if (url.includes('old-avatar')) return 'old-key.png';
-      return 'users/bird_123/avatar.png';
-    }),
-  },
-}));
-
 vi.mock('@/modules/security/rateLimiter', () => ({
   checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }),
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 declare global {
-  var __mockUser: any;
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
 }
 
 describe('API Route : Upload Avatar avec Sceau Cryptographique (POST / DELETE /api/users/[slug]/upload)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
+
+    vi.spyOn(storageService, 'generateKey').mockReturnValue('users/bird_123/avatar.png');
+    vi.spyOn(storageService, 'uploadFile').mockResolvedValue({ publicUrl: 'https://cdn.ilot/avatar.png', key: 'users/bird_123/avatar.png' } as unknown as Awaited<ReturnType<typeof storageService.uploadFile>>);
+    vi.spyOn(storageService, 'deleteFile').mockResolvedValue(true as unknown as Awaited<ReturnType<typeof storageService.deleteFile>>);
+    vi.spyOn(storageService, 'extractKeyFromUrl').mockImplementation((url: string) => {
+      if (url.includes('etranger')) return 'foreign-key.png';
+      if (url.includes('old-avatar')) return 'old-key.png';
+      return 'users/bird_123/avatar.png';
+    });
   });
 
   it('🟢 doit téléverser l\'image, purger l\'ancienne (Garbage Collection) et générer le Sceau SHA-256', async () => {
@@ -77,7 +81,7 @@ describe('API Route : Upload Avatar avec Sceau Cryptographique (POST / DELETE /a
       uid: 'bird_123',
       slug: 'bird-test',
       avatarUrl: 'https://cdn.ilot/old-avatar.png',
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
     vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
       lean: vi.fn().mockResolvedValue({
@@ -85,12 +89,12 @@ describe('API Route : Upload Avatar avec Sceau Cryptographique (POST / DELETE /a
         pseudo: 'Oiseau Sélénite',
         avatarUrl: 'https://cdn.ilot/avatar.png',
       }),
-    } as any);
+    } as unknown as ReturnType<typeof OiseauModel.findOneAndUpdate>);
 
     vi.mocked(getNeo4jSession).mockReturnValue({
       run: vi.fn().mockResolvedValue(true),
       close: vi.fn(),
-    } as any);
+    } as unknown as ReturnType<typeof getNeo4jSession>);
 
     const formData = new FormData();
     const file = new Blob(['contenu image test'], { type: 'image/png' });
@@ -102,7 +106,7 @@ describe('API Route : Upload Avatar avec Sceau Cryptographique (POST / DELETE /a
       formData: async () => formData,
     } as unknown as NextRequest;
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'bird-test' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'bird-test' }) });
     const data = await response.json();
 
     expect(response.status).toBe(201);
@@ -124,14 +128,14 @@ describe('API Route : Upload Avatar avec Sceau Cryptographique (POST / DELETE /a
       uid: 'bird_123',
       slug: 'bird-test',
       avatarUrl: 'https://cdn.ilot/avatar.png',
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-    const req = new Request('http://localhost/api/users/bird-test/upload', {
+    const req = new NextRequest('http://localhost/api/users/bird-test/upload', {
       method: 'DELETE',
       body: JSON.stringify({ imageType: 'avatarUrl', url: 'https://cdn.ilot/avatar-etranger.png' }),
-    }) as unknown as NextRequest;
+    });
 
-    const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'bird-test' }) });
+    const response = await DELETE(req, { params: Promise.resolve({ slug: 'bird-test' }) });
     const data = await response.json();
 
     expect(response.status).toBe(403);

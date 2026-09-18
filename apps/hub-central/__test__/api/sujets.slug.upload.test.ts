@@ -15,18 +15,23 @@ vi.mock('next/cache', () => ({
 
 // Mocks unifiés des api-guards incluant withRateLimit
 vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser || { uid: 'u-123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
   },
-  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
+  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: Function) => async (req: NextRequest, context: unknown) => {
     const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
     if (rateLimitResult && rateLimitResult.allowed === false) {
-      return NextResponse.json({ error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
+      return NextResponse.json({ success: false, error: 'Trop de téléversements. Veuillez patienter.' }, { status: 429 });
     }
     const mockUser = global.__mockUser || { uid: 'u-123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
   },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -55,11 +60,15 @@ vi.mock('@/modules/security/rateLimiter', () => ({
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 declare global {
-  var __mockUser: any;
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
 }
 
 // -------------------------------------------------------------------------
@@ -68,7 +77,7 @@ declare global {
 describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     // Espions actifs sur le SujetModel pour le helper unifié
     vi.spyOn(SujetModel, 'findOne').mockReturnValue({
@@ -78,7 +87,7 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
         authorUid: 'u-123',
         mediaUrl: 'https://cdn.ilot/media.jpg' 
       }),
-    } as any);
+    } as unknown as ReturnType<typeof SujetModel.findOne>);
 
     // 🛡️ Espions actifs sur le StorageService mis à jour avec normalisation des clés
     vi.spyOn(storageService, 'generateKey').mockReturnValue('hub-central/fr/projects/s-1/sujet_media/test.jpg');
@@ -86,7 +95,7 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
       success: true,
       publicUrl: 'https://cdn.ilot/media.jpg',
       key: 'mock-key',
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof storageService.uploadFile>>);
 
     vi.spyOn(storageService, 'extractKeyFromUrl').mockImplementation((url: string) => {
       if (url.includes('etrangere') || url.includes('foreign')) {
@@ -95,7 +104,7 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
       return 'mock-key';
     });
 
-    vi.spyOn(storageService, 'deleteFile').mockResolvedValue(true as any);
+    vi.spyOn(storageService, 'deleteFile').mockResolvedValue(true as unknown as Awaited<ReturnType<typeof storageService.deleteFile>>);
   });
 
   it('POST - doit téléverser un média, générer le Sceau SHA-256, respecter la structure et invalider le cache', async () => {
@@ -109,7 +118,7 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
       formData: async () => formData,
     } as unknown as NextRequest;
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-sujet' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
     const json = await response.json();
 
     expect(response.status).toBe(201);
@@ -128,11 +137,11 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
   it('DELETE - doit rejeter (403) en cas de tentative IDOR sur une URL étrangère normalisée', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
-    const req = new Request('http://localhost/api/sujets/mon-sujet/upload?url=https://cdn.ilot/url-etrangere.jpg', {
+    const req = new NextRequest('http://localhost/api/sujets/mon-sujet/upload?url=https://cdn.ilot/url-etrangere.jpg', {
       method: 'DELETE',
-    }) as unknown as NextRequest;
+    });
 
-    const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'mon-sujet' }) });
+    const response = await DELETE(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
     
     expect(response.status).toBe(403);
     expect(storageService.deleteFile).not.toHaveBeenCalled();
@@ -142,11 +151,11 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
   it('DELETE - doit purger le média du stockage, nettoyer la Silice et invalider le cache', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
-    const req = new Request('http://localhost/api/sujets/mon-sujet/upload?url=https://cdn.ilot/media.jpg', {
+    const req = new NextRequest('http://localhost/api/sujets/mon-sujet/upload?url=https://cdn.ilot/media.jpg', {
       method: 'DELETE',
-    }) as unknown as NextRequest;
+    });
 
-    const response = await DELETE(req as any, { params: Promise.resolve({ slug: 'mon-sujet' }) });
+    const response = await DELETE(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
     const json = await response.json();
 
     expect(response.status).toBe(200);

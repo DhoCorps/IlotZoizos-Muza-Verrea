@@ -5,7 +5,7 @@ import { TaskModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrast
 import { CAPABILITIES } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withRateLimit, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { storageService } from '@/modules/storage/storage.service';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
 
@@ -73,120 +73,126 @@ function revalidateTaskCascades(task: { slug?: string; uid?: string }, identifie
 // 📤 POST : Greffer un artefact avec Sceau SHA-256
 // ==========================================
 export const POST = withRateLimit('upload-task-slug', 10, 60, withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser): Promise<NextResponse> => {
-  let resolvedParams;
   try {
-    resolvedParams = await context.params;
-  } catch {
-    return NextResponse.json({ success: false, message: "Paramètres de route invalides." }, { status: 400 });
-  }
-
-  const rawSlug = resolvedParams?.slug;
-  const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-
-  if (!identifier) {
-    return NextResponse.json({ success: false, message: "Identifiant invalide." }, { status: 400 });
-  }
-
-  // 🔍 Résolution unifiée par slug ou UID de l'atome
-  const task: any = await findEntityBySlugOrUid(TaskModel, identifier);
-  if (!task) return NextResponse.json({ success: false, message: "Atome introuvable." }, { status: 404 });
-
-  // 🛡️ SUTURE ARCHITECTURALE : On vérifie l'aura AVANT de toucher aux fichiers ou au stockage !
-  const isAuthorized = await canUpdateTaskBySlug(currentUser.uid, task.uid);
-  if (!isAuthorized && !currentUser.capabilities?.includes('*')) {
-    return NextResponse.json({ success: false, message: "Aura insuffisante." }, { status: 403 });
-  }
-
-  let formData;
-  try {
-    formData = await req.formData();
-  } catch {
-    return NextResponse.json({ success: false, message: "Corps de requête Multipart illisible." }, { status: 400 });
-  }
-
-  const file = formData.get('file') as File | null;
-  if (!file) return NextResponse.json({ success: false, message: "Aucune brindille reçue." }, { status: 400 });
-
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf', 'text/plain'];
-  if (!allowedTypes.includes(file.type)) return NextResponse.json({ success: false, message: "Format interdit." }, { status: 400 });
-
-  // 🪡 Génération du Sceau Cryptographique (SHA-256) d'Antériorité de manière blindée
-  let fileBuffer: Buffer;
-  try {
-    if (typeof file.arrayBuffer === 'function') {
-      const arrayBuffer = await file.arrayBuffer();
-      fileBuffer = Buffer.from(arrayBuffer);
-    } else if (typeof (file as any).text === 'function') {
-      const text = await (file as any).text();
-      fileBuffer = Buffer.from(text);
-    } else {
-      fileBuffer = Buffer.from(await (file as any).arrayBuffer());
+    let resolvedParams;
+    try {
+      resolvedParams = await context.params;
+    } catch {
+      return NextResponse.json({ success: false, message: "Paramètres de route invalides." }, { status: 400 });
     }
-  } catch {
-    fileBuffer = Buffer.from('fallback-buffer-content');
-  }
 
-  if (!fileBuffer || fileBuffer.length === 0) {
-    fileBuffer = Buffer.from('ilot-zoizos-mock-task-document');
-  }
+    const rawSlug = resolvedParams?.slug;
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-  const digitalSignature = generateFileHash(fileBuffer);
-  const timestampedAt = new Date();
-
-  const customKey = storageService.generateKey({
-    mode: 'LEGACY',
-    inceptId: 'ilot-zoizos',
-    locale: 'fr',
-    entityType: 'tasks',
-    entityId: task.uid,
-    imageType: 'attachments',
-    filename: file.name
-  });
-
-  // Résilience stockage cloud
-  let publicUrl = '';
-  try {
-    const uploadResult: any = await storageService.uploadFile(file, customKey);
-    if (typeof uploadResult === 'string') {
-      publicUrl = uploadResult;
-    } else if (uploadResult && typeof uploadResult === 'object') {
-      publicUrl = uploadResult.publicUrl || uploadResult.url || Object.values(uploadResult).find(v => typeof v === 'string' && v.startsWith('http')) || '';
+    if (!identifier) {
+      return NextResponse.json({ success: false, message: "Identifiant invalide." }, { status: 400 });
     }
-    if (!publicUrl) {
-      publicUrl = 'https://cdn.ilot/doc.pdf';
-    }
-  } catch (storageErr) {
-    console.error("🔥 [STORAGE UPLOAD ERROR]", storageErr);
-    return NextResponse.json({ success: false, message: "Échec de téléversement dans les nuages." }, { status: 500 });
-  }
 
-  await TaskModel.findOneAndUpdate(
-    { uid: task.uid },
-    { 
-      $push: { 
-        documents: { 
-          uid: customKey, 
-          name: file.name, 
-          url: publicUrl, 
-          mimeType: file.type, 
-          createdAt: new Date(),
-          digitalSignature,
-          timestampedAt,
-          copyrightClaimed: true
+    // 🔍 Résolution unifiée par slug ou UID de l'atome
+    const task = (await findEntityBySlugOrUid(TaskModel, identifier)) as { uid?: string; slug?: string; [key: string]: unknown } | null;
+    if (!task) return NextResponse.json({ success: false, message: "Atome introuvable." }, { status: 404 });
+
+    // 🛡️ SUTURE ARCHITECTURALE : On vérifie l'aura AVANT de toucher aux fichiers ou au stockage !
+    const isAuthorized = await canUpdateTaskBySlug(currentUser.uid, task.uid || identifier);
+    if (!isAuthorized && !currentUser.capabilities?.includes('*')) {
+      return NextResponse.json({ success: false, message: "Aura insuffisante." }, { status: 403 });
+    }
+
+    let formData: FormData;
+    try {
+      formData = await req.formData();
+    } catch {
+      return NextResponse.json({ success: false, message: "Corps de requête Multipart illisible." }, { status: 400 });
+    }
+
+    const file = formData.get('file') as File | null;
+    if (!file) return NextResponse.json({ success: false, message: "Aucune brindille reçue." }, { status: 400 });
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf', 'text/plain'];
+    if (!allowedTypes.includes(file.type)) return NextResponse.json({ success: false, message: "Format interdit." }, { status: 400 });
+
+    // 🪡 Génération du Sceau Cryptographique (SHA-256) d'Antériorité de manière blindée
+    let fileBuffer: Buffer;
+    try {
+      if (typeof file.arrayBuffer === 'function') {
+        const arrayBuffer = await file.arrayBuffer();
+        fileBuffer = Buffer.from(arrayBuffer);
+      } else if (typeof (file as unknown as { text: () => Promise<string> }).text === 'function') {
+        const text = await (file as unknown as { text: () => Promise<string> }).text();
+        fileBuffer = Buffer.from(text);
+      } else {
+        fileBuffer = Buffer.from(await (file as unknown as { arrayBuffer: () => Promise<ArrayBuffer> }).arrayBuffer());
+      }
+    } catch {
+      fileBuffer = Buffer.from('fallback-buffer-content');
+    }
+
+    if (!fileBuffer || fileBuffer.length === 0) {
+      fileBuffer = Buffer.from('ilot-zoizos-mock-task-document');
+    }
+
+    const digitalSignature = generateFileHash(fileBuffer);
+    const timestampedAt = new Date();
+
+    const customKey = storageService.generateKey({
+      mode: 'LEGACY',
+      inceptId: 'ilot-zoizos',
+      locale: 'fr',
+      entityType: 'tasks',
+      entityId: task.uid || identifier,
+      imageType: 'attachments',
+      filename: file.name || 'document.pdf'
+    });
+
+    // Résilience stockage cloud
+    let publicUrl = '';
+    try {
+      const uploadResult = await storageService.uploadFile(file, customKey);
+      if (typeof uploadResult === 'string') {
+        publicUrl = uploadResult;
+      } else if (uploadResult && typeof uploadResult === 'object') {
+        const resObj = uploadResult as { publicUrl?: string; url?: string; [key: string]: unknown };
+        publicUrl = resObj.publicUrl || resObj.url || (Object.values(resObj).find(v => typeof v === 'string' && v.startsWith('http')) as string) || '';
+      }
+      if (!publicUrl) {
+        publicUrl = 'https://cdn.ilot/doc.pdf';
+      }
+    } catch (storageErr) {
+      console.error("🔥 [STORAGE UPLOAD ERROR]", storageErr);
+      return NextResponse.json({ success: false, message: "Échec de téléversement dans les nuages." }, { status: 500 });
+    }
+
+    await TaskModel.findOneAndUpdate(
+      { uid: task.uid || identifier },
+      { 
+        $push: { 
+          documents: { 
+            uid: customKey, 
+            name: file.name || 'document.pdf', 
+            url: publicUrl, 
+            mimeType: file.type, 
+            createdAt: new Date(),
+            digitalSignature,
+            timestampedAt,
+            copyrightClaimed: true
+          } 
         } 
-      } 
-    }
-  );
+      }
+    );
 
-  // 💥 Invalidation globale et centralisée en cascade
-  revalidateTaskCascades(task, identifier);
+    // 💥 Invalidation globale et centralisée en cascade
+    revalidateTaskCascades(task, identifier);
 
-  return NextResponse.json({ 
-    success: true, 
-    url: publicUrl, 
-    digitalSignature,
-    timestampedAt 
-  }, { status: 201 });
+    return NextResponse.json({ 
+      success: true, 
+      url: publicUrl, 
+      digitalSignature,
+      timestampedAt 
+    }, { status: 201 });
+
+  } catch (error: unknown) {
+    return handleRouteError(error, "TASK UPLOAD FATAL ERROR");
+  }
 }));
 
 // ==========================================
@@ -208,15 +214,15 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       return NextResponse.json({ success: false, message: "Identifiant invalide." }, { status: 400 });
     }
 
-    const task: any = await findEntityBySlugOrUid(TaskModel, identifier);
+    const task = (await findEntityBySlugOrUid(TaskModel, identifier)) as { uid?: string; slug?: string; documents?: Array<{ url?: string; uid?: string; [key: string]: unknown }>; [key: string]: unknown } | null;
     if (!task) return NextResponse.json({ success: false, message: "Atome introuvable." }, { status: 404 });
 
-    const isAuthorized = await canUpdateTaskBySlug(currentUser.uid, task.uid);
+    const isAuthorized = await canUpdateTaskBySlug(currentUser.uid, task.uid || identifier);
     if (!isAuthorized && !currentUser.capabilities?.includes('*')) {
       return NextResponse.json({ success: false, message: "Aura insuffisante." }, { status: 403 });
     }
 
-    let body;
+    let body: { key?: string };
     try {
       body = await req.json();
     } catch {
@@ -229,7 +235,7 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
     }
 
     const documents = Array.isArray(task.documents) ? task.documents : [];
-    const targetDoc = documents.find((doc: any) => doc.url === key || doc.uid === key);
+    const targetDoc = documents.find((doc) => doc.url === key || doc.uid === key);
 
     if (!targetDoc) {
       return NextResponse.json({ success: false, message: "Souveraineté brisée : cet artefact n'appartient pas à cet atome." }, { status: 403 });
@@ -243,8 +249,8 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
     }
 
     await TaskModel.updateOne(
-      { uid: task.uid }, 
-      { $pull: { documents: { $or: [{ url: key }, { uid: key }] } } }
+      { uid: task.uid || identifier }, 
+      { $pull: { documents: {$or: [{ url: key }, { uid: key }] } } }
     );
 
     // 💥 Invalidation globale et centralisée en cascade
@@ -252,8 +258,7 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
 
     return NextResponse.json({ success: true }, { status: 200 });
 
-  } catch (error: any) { 
-    console.error("❌ [DELETE ERROR]", error);
-    return NextResponse.json({ success: false, message: error.message || "Erreur interne." }, { status: error.status || 500 }); 
+  } catch (error: unknown) { 
+    return handleRouteError(error, "TASK UPLOAD DELETE FATAL ERROR"); 
   }
 });

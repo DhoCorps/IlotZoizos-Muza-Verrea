@@ -5,7 +5,7 @@ import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withRateLimit, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { IlotError } from '@ilot/shared-core';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
 import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
@@ -38,10 +38,10 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
     }
 
     // 🔍 3. Recherche unifiée pour récupérer le Sujet et valider son existence
-    let targetSujet: any;
+    let targetSujet: { uid?: string; authorUid?: string; slug?: string; [key: string]: unknown } | null;
     try {
-      targetSujet = await findEntityBySlugOrUid(SujetModel, identifier);
-    } catch (err) {
+      targetSujet = (await findEntityBySlugOrUid(SujetModel, identifier)) as typeof targetSujet;
+    } catch {
       return NextResponse.json({ error: "Erreur lors de la lecture de la Silice." }, { status: 500 });
     }
 
@@ -57,7 +57,7 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
     }
 
     // 4. Récupération et validation du formulaire multipart
-    let formData;
+    let formData: FormData;
     try {
       formData = await req.formData();
     } catch (formErr) {
@@ -76,11 +76,11 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
       if (typeof file.arrayBuffer === 'function') {
         const arrayBuffer = await file.arrayBuffer();
         fileBuffer = Buffer.from(arrayBuffer);
-      } else if (typeof (file as any).text === 'function') {
-        const text = await (file as any).text();
+      } else if (typeof (file as unknown as { text: () => Promise<string> }).text === 'function') {
+        const text = await (file as unknown as { text: () => Promise<string> }).text();
         fileBuffer = Buffer.from(text);
       } else {
-        fileBuffer = Buffer.from(await (file as any).arrayBuffer());
+        fileBuffer = Buffer.from(await (file as unknown as { arrayBuffer: () => Promise<ArrayBuffer> }).arrayBuffer());
       }
     } catch {
       fileBuffer = Buffer.from('fallback-buffer-content');
@@ -94,23 +94,23 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
     const timestampedAt = new Date();
 
     // 5. Génération de la clé structurée via la méthode unifiée en utilisant le véritable UID
-    let structuredKey;
+    let structuredKey: string;
     try {
       structuredKey = storageService.generateKey({
         mode: 'LEGACY',
         inceptId: 'hub-central',
         locale: 'fr',
         entityType: 'projects',
-        entityId: targetSujet.uid, // Utilisation de l'UID robuste
+        entityId: targetSujet.uid || 'unknown-uid',
         imageType: 'sujet_media',
-        filename: file.name,
+        filename: file.name || 'media.jpg',
       });
     } catch (keyErr) {
       console.error("🔥 [STRUCTURED KEY ERROR]", keyErr);
       return NextResponse.json({ error: 'Échec de la génération de la clé de stockage.' }, { status: 500 });
     }
 
-    let uploadResult: any;
+    let uploadResult: unknown;
     try {
       uploadResult = await storageService.uploadFile(file, structuredKey);
     } catch (uploadErr) {
@@ -123,13 +123,15 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
     if (typeof uploadResult === 'string') {
       publicUrl = uploadResult;
     } else if (uploadResult && typeof uploadResult === 'object') {
-      publicUrl = uploadResult.publicUrl || uploadResult.url || Object.values(uploadResult).find(v => typeof v === 'string' && v.startsWith('http')) || '';
+      const resObj = uploadResult as { publicUrl?: string; url?: string; [key: string]: unknown };
+      publicUrl = resObj.publicUrl || resObj.url || (Object.values(resObj).find(v => typeof v === 'string' && v.startsWith('http')) as string) || '';
     }
     if (!publicUrl) {
       publicUrl = 'https://cdn.ilot/media.jpg';
     }
 
-    const storageKey = uploadResult?.key || structuredKey;
+    const resObj = uploadResult as { key?: string } | null;
+    const storageKey = resObj?.key || structuredKey;
 
     // Mise à jour de la Silice avec l'URL du média ancré
     await SujetModel.updateOne(
@@ -153,10 +155,8 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
       },
     }, { status: 201 });
 
-  } catch (error: any) {
-    console.error('❌ [ABYSS SLUG UPLOAD FATAL ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : 500;
-    return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'ABYSS SLUG UPLOAD FATAL ERROR');
   }
 }));
 
@@ -175,10 +175,10 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
     }
 
     // 🔍 2. Recherche unifiée pour valider les droits de suppression sur le Sujet
-    let targetSujet: any;
+    let targetSujet: { uid?: string; authorUid?: string; slug?: string; mediaUrl?: string; [key: string]: unknown } | null;
     try {
-      targetSujet = await findEntityBySlugOrUid(SujetModel, identifier);
-    } catch (err) {
+      targetSujet = (await findEntityBySlugOrUid(SujetModel, identifier)) as typeof targetSujet;
+    } catch {
       return NextResponse.json({ error: "Erreur lors de la lecture de la Silice." }, { status: 500 });
     }
 
@@ -194,10 +194,10 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
     }
 
     // 3. Extraction de l'URL du fichier depuis les paramètres de recherche
-    let fileUrl;
+    let fileUrl: string | null;
     try {
-      const { searchParams } = new URL(req.url);
-      fileUrl = searchParams.get('url');
+      const urlObj = new URL(req.url);
+      fileUrl = urlObj.searchParams.get('url');
     } catch (urlErr) {
       console.error("🔥 [URL PARSE ERROR]", urlErr);
       return NextResponse.json({ error: 'URL de requête invalide.' }, { status: 400 });
@@ -246,9 +246,7 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
 
     return NextResponse.json({ success: true, message: 'Média désintégré du Nexus.' }, { status: 200 });
 
-  } catch (error: any) {
-    console.error('❌ [ABYSS SLUG DELETE FATAL ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : 500;
-    return NextResponse.json({ error: error.message || 'Erreur interne du serveur.' }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'ABYSS SLUG DELETE FATAL ERROR');
   }
 });

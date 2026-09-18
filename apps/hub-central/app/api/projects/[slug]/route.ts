@@ -1,20 +1,39 @@
-import { NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
+
+import { NextResponse, NextRequest } from 'next/server';
 import { ProjectOrchestrator } from '@ilot/shared-core';
 import { ProjectModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedProjectDetails } from '@/lib/cache/projects.cache';
+import { z } from 'zod';
+import type { Session, QueryResult } from 'neo4j-driver';
 
-export const dynamic = 'force-dynamic';
+// 🛡️ Schéma Zod pour sécuriser les mutations de projets (PUT)
+const UpdateProjectSchema = z.object({
+  name: z.string().min(1, "Le nom du chantier est requis.").optional(),
+  status: z.string().optional(),
+  visibility: z.string().optional(),
+  newFiles: z.array(z.string()).optional(),
+}).passthrough(); // Autorise d'autres champs libres propres au modèle
 
-async function getProjectCapabilities(userUid: string | undefined, projectUid: string) {
-  if (!userUid) return { hasAccess: false, capabilities: [] as string[] };
+interface IProjectEntity {
+  uid: string;
+  slug?: string;
+  visibility?: string;
+  creatorUid?: string;
+  [key: string]: unknown;
+}
+
+async function getProjectCapabilities(userUid: string | undefined, projectUid: string): Promise<{ hasAccess: boolean; capabilities: string[] }> {
+  if (!userUid) return { hasAccess: false, capabilities: [] };
   
-  const session = getNeo4jSession();
+  // ✅ Utilisation directe du type Session natif de neo4j-driver
+  const session: Session = getNeo4jSession();
   try {
-    const result = await session.run(
+    const result = (await session.run(
       `MATCH (u:User {uid: $userUid})
        OPTIONAL MATCH (u)-[rDirect:CONTRIBUTES_TO|OWNER_OF]->(p:Project {uid: $projectUid})
        OPTIONAL MATCH (u)-[rTeam:MEMBER_OF|OWNER_OF|INVITED_TO]->(t:Team)-[:HAS_PROJECT]->(p:Project {uid: $projectUid})
@@ -22,15 +41,16 @@ async function getProjectCapabilities(userUid: string | undefined, projectUid: s
             collect(type(rTeam)) AS relTypes
        RETURN DISTINCT compiledCaps, relTypes`,
       { userUid, projectUid }
-    );
+    )) as QueryResult;
     
-    if (result.records.length === 0) return { hasAccess: false, capabilities: [] as string[] };
+    if (!result || !result.records || result.records.length === 0) return { hasAccess: false, capabilities: [] };
     
     const record = result.records[0];
-    let caps = record.get('compiledCaps').flat().filter(Boolean) as string[];
-    const relTypes = record.get('relTypes') as string[];
+    const rawCompiledCaps = record.get('compiledCaps');
+    const caps = (Array.isArray(rawCompiledCaps) ? rawCompiledCaps.flat() : []).filter(Boolean) as string[];
+    const relTypes = (record.get('relTypes') as string[]) || [];
     
-    if (caps.length === 0 && relTypes.length === 0) return { hasAccess: false, capabilities: [] as string[] };
+    if (caps.length === 0 && relTypes.length === 0) return { hasAccess: false, capabilities: [] };
     
     if (relTypes.includes('INVITED_TO')) {
       if (!caps.includes('project:read')) caps.push('project:read');
@@ -40,9 +60,9 @@ async function getProjectCapabilities(userUid: string | undefined, projectUid: s
     return { hasAccess: true, capabilities: caps };
   } catch (err) {
     console.error("  Neo4j Capability Error:", err);
-    return { hasAccess: false, capabilities: [] as string[] };
+    return { hasAccess: false, capabilities: [] };
   } finally {
-    // 🛡️ GARANTIE STRICTE ANTI-FUITE DE CONNEXION NEO4J (Pool Leak Prevention)
+    // 🛡️ GARANTIE STRICTE : Fermeture native et propre de la session
     if (session) {
       try {
         await session.close();
@@ -53,12 +73,12 @@ async function getProjectCapabilities(userUid: string | undefined, projectUid: s
   }
 }
 
+
 // ==========================================
 // GET : Ausculter un Chantier spécifique
 // ==========================================
-export const GET = withOptionalAura(async (req: Request, context: ApiContext, currentUser?: OiseauUser) => {
+export const GET = withOptionalAura(async (req: NextRequest, context: ApiContext, currentUser?: OiseauUser) => {
   try {
-    // 🛡️ Résolution asynchrone sécurisée des paramètres de route (Next.js App Router compatible)
     const resolvedParams = await Promise.resolve(context.params);
     const rawParam = resolvedParams?.slug ?? resolvedParams?.projectId;
     const rawProjectId = typeof rawParam === 'string'
@@ -72,10 +92,9 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
     
-    // Tentative via le cache, puis repli sur le helper unifié si nécessaire
-    let project: any = await getCachedProjectDetails(identifier);
+    let project = (await getCachedProjectDetails(identifier)) as IProjectEntity | null;
     if (!project) {
-      project = await findEntityBySlugOrUid(ProjectModel, identifier);
+      project = (await findEntityBySlugOrUid(ProjectModel, identifier)) as IProjectEntity | null;
     }
 
     if (!project) {
@@ -93,16 +112,15 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
       return NextResponse.json({ error: "Ce chantier est protégé. L'accès t'est refusé." }, { status: 403 });
     }
     return NextResponse.json({ ...project, myCapabilities: mergedCaps }, { status: 200 });
-  } catch (error: any) {
-    console.error("  Erreur globale GET Project:", error);
-    return NextResponse.json({ error: "Erreur interne globale." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'PROJECT GET ERROR');
   }
 });
 
 // ==========================================
 // PUT : Mutation / Modification d'un Chantier
 // ==========================================
-export const PUT = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const PUT = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     const resolvedParams = await Promise.resolve(context.params);
     const rawParam = resolvedParams?.slug ?? resolvedParams?.projectId;
@@ -120,8 +138,7 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     const userUid = currentUser.uid;
     const sessionCaps = currentUser.capabilities || [];
     
-    // 🔍 Recherche unifiée pour récupérer le projet et son véritable UID pour Neo4j
-    const projectCheck: any = await findEntityBySlugOrUid(ProjectModel, identifier);
+    const projectCheck = (await findEntityBySlugOrUid(ProjectModel, identifier)) as IProjectEntity | null;
     const targetUid = projectCheck?.uid || identifier;
 
     const { capabilities } = await getProjectCapabilities(userUid, targetUid);
@@ -134,24 +151,32 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
       return NextResponse.json({ error: "Tu n'as pas l'aura requise pour muter ce Chantier." }, { status: 403 });
     }
     
-    let body;
+    let body: unknown;
     try {
       body = await req.json();
-    } catch (err) {
+    } catch {
       return NextResponse.json({ error: "Corps invalide." }, { status: 400 });
     }
+
+    const validationResult = UpdateProjectSchema.safeParse(body);
+    if (!validationResult.success) {
+      return NextResponse.json({ error: "Paramètres de mutation invalides.", details: validationResult.error.flatten() }, { status: 400 });
+    }
+
+    const validatedData = validationResult.data;
     
     const signature: ActionSignature = { actorUid: userUid, capabilities: mergedCaps };
-    let updatedProject;
+    let updatedProject: unknown;
     try {
       const projectOrch = new ProjectOrchestrator();
-      if (body.newFiles && Array.isArray(body.newFiles)) {
-        await projectOrch.appendFiles(targetUid, body.newFiles, signature);
-        delete body.newFiles;
+      if (validatedData.newFiles && Array.isArray(validatedData.newFiles)) {
+        await projectOrch.appendFiles(targetUid, validatedData.newFiles, signature);
+        delete validatedData.newFiles;
       }
-      updatedProject = await projectOrch.mutateProject(targetUid, body, signature);
-    } catch (orchErr: any) {
-      return NextResponse.json({ error: orchErr.message || "Impossible de muter le projet." }, { status: orchErr.statusCode || orchErr.status || 500 });
+      updatedProject = await projectOrch.mutateProject(targetUid, validatedData, signature);
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      return NextResponse.json({ error: err.message || "Impossible de muter le projet." }, { status: err.statusCode || err.status || 500 });
     }
     
     revalidateTag('projects');
@@ -164,16 +189,15 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
     }
 
     return NextResponse.json(updatedProject, { status: 200 });
-  } catch (error: any) {
-    console.error("  Erreur globale PUT Project:", error);
-    return NextResponse.json({ error: "Erreur interne globale." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'PROJECT PUT ERROR');
   }
 });
 
 // ==========================================
 // DELETE : Dissolution / Suppression d'un Chantier
 // ==========================================
-export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     const resolvedParams = await Promise.resolve(context.params);
     const rawParam = resolvedParams?.slug ?? resolvedParams?.projectId;
@@ -191,8 +215,7 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
     const userUid = currentUser.uid;
     const sessionCaps = currentUser.capabilities || [];
 
-    // 🔍 Recherche unifiée pour récupérer le projet et son véritable UID
-    const projectCheck: any = await findEntityBySlugOrUid(ProjectModel, identifier);
+    const projectCheck = (await findEntityBySlugOrUid(ProjectModel, identifier)) as IProjectEntity | null;
     const targetUid = projectCheck?.uid || identifier;
 
     const { capabilities } = await getProjectCapabilities(userUid, targetUid);
@@ -209,8 +232,9 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
     try {
       const projectOrch = new ProjectOrchestrator();
       await projectOrch.dissolveProject(targetUid, signature);
-    } catch (orchErr: any) {
-      return NextResponse.json({ error: orchErr.message || "Le rituel a échoué." }, { status: orchErr.statusCode || orchErr.status || 500 });
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      return NextResponse.json({ error: err.message || "Le rituel a échoué." }, { status: err.statusCode || err.status || 500 });
     }
          
     revalidateTag('projects');
@@ -223,8 +247,7 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
     }
 
     return NextResponse.json({ message: "L'œuvre est retournée au silence.", status: "dissolved" }, { status: 200 });
-  } catch (error: any) {
-    console.error("  Erreur globale DELETE Project:", error);
-    return NextResponse.json({ error: "Erreur interne globale." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'PROJECT DELETE ERROR');
   }
 });

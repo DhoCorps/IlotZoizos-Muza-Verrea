@@ -1,20 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/users/recruitable/route';
-import { getServerSession } from 'next-auth/next';
 import { OiseauModel } from '@ilot/infrastructure';
 import { OiseauOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
+import { NextRequest, NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
 // -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
-  unstable_cache: vi.fn((cb) => cb), // Laisse passer pour tester la logique
+  unstable_cache: vi.fn((cb: Function) => cb), // Laisse passer pour tester la logique
   revalidateTag: vi.fn(),
-}));
-
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
@@ -31,21 +27,46 @@ vi.mock('@ilot/shared-core', () => ({
   })),
 }));
 
+// Mock unifié de l'api-guard avec NextResponse
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const mockCurrentUser = global.__mockUser;
+    if (!mockCurrentUser) {
+      return NextResponse.json({ success: false, error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
+    }
+    return await handler(req, context, mockCurrentUser);
+  },
+  withSilice: (handler: Function) => handler,
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}));
+
+declare global {
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
+}
+
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
 describe('Route API : Volière Publique (GET / POST)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   describe('GET - Recensement', () => {
     it('doit rejeter (401) si l\'utilisateur n\'est pas connecté (pas d\'Aura)', async () => {
-      vi.mocked(getServerSession).mockResolvedValue(null);
+      delete global.__mockUser;
 
-      const req = new Request('http://localhost/api/users');
-      const response = await GET(req, {}); // 🪡 2 arguments (req et context)
+      const req = new NextRequest('http://localhost/api/users');
+      const response = await GET(req, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(401);
@@ -53,9 +74,7 @@ describe('Route API : Volière Publique (GET / POST)', () => {
     });
 
     it('doit renvoyer (200) la liste des oiseaux filtrés pour un utilisateur connecté', async () => {
-      vi.mocked(getServerSession).mockResolvedValue({ 
-        user: { uid: 'u-123', capabilities: [] } 
-      } as any);
+      global.__mockUser = { uid: 'u-123', capabilities: [] };
       
       const mockOiseaux = [{ uid: '123', pseudo: 'Alpha' }];
       const chainMock = {
@@ -64,10 +83,10 @@ describe('Route API : Volière Publique (GET / POST)', () => {
         limit: vi.fn().mockReturnThis(),
         lean: vi.fn().mockResolvedValue(mockOiseaux),
       };
-      vi.mocked(OiseauModel.find).mockReturnValue(chainMock as any);
+      vi.mocked(OiseauModel.find).mockReturnValue(chainMock as unknown as ReturnType<typeof OiseauModel.find>);
 
-      const req = new Request('http://localhost/api/users?search=Alpha');
-      const response = await GET(req, {}); // 🪡 2 arguments
+      const req = new NextRequest('http://localhost/api/users?search=Alpha');
+      const response = await GET(req, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(200);
@@ -80,12 +99,12 @@ describe('Route API : Volière Publique (GET / POST)', () => {
 
   describe('POST - Éclosion (Inscription)', () => {
     it('doit rejeter (400) si l\'oeuf est incomplet', async () => {
-      const req = new Request('http://localhost/api/users', {
+      const req = new NextRequest('http://localhost/api/users', {
         method: 'POST',
         body: JSON.stringify({ email: 'test@mail.com' }), // Manque pseudo et password
       });
 
-      const response = await POST(req, {});
+      const response = await POST(req, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(400);
@@ -95,31 +114,31 @@ describe('Route API : Volière Publique (GET / POST)', () => {
     it('doit rejeter (409) si l\'email ou le pseudo existe déjà', async () => {
       vi.mocked(OiseauModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'existing' }),
-      } as any);
+      } as unknown as ReturnType<typeof OiseauModel.findOne>);
 
-      const req = new Request('http://localhost/api/users', {
+      const req = new NextRequest('http://localhost/api/users', {
         method: 'POST',
         body: JSON.stringify({ email: 'clone@mail.com', pseudo: 'Clone', password: '123' }),
       });
 
-      const response = await POST(req, {});
+      const response = await POST(req, { params: Promise.resolve({}) });
       expect(response.status).toBe(409);
     });
 
     it('doit créer l\'Oiseau (201) et invalider le cache de la volière', async () => {
       vi.mocked(OiseauModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue(null),
-      } as any);
+      } as unknown as ReturnType<typeof OiseauModel.findOne>);
 
       const mockFoster = vi.fn().mockResolvedValue({ uid: 'new-uid', slug: 'new-slug' });
-      vi.mocked(OiseauOrchestrator).mockImplementation(() => ({ fosterOiseau: mockFoster } as any));
+      vi.mocked(OiseauOrchestrator).mockImplementation(() => ({ fosterOiseau: mockFoster } as unknown as OiseauOrchestrator));
 
-      const req = new Request('http://localhost/api/users', {
+      const req = new NextRequest('http://localhost/api/users', {
         method: 'POST',
         body: JSON.stringify({ email: 'new@mail.com', pseudo: 'NewBird', password: '123' }),
       });
 
-      const response = await POST(req, {});
+      const response = await POST(req, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(201);

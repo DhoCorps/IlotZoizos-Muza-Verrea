@@ -1,25 +1,33 @@
-// Fichier : app/api/showcase/stream/route.ts
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { UniversalMediaType } from '@ilot/types';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedStream } from '@/lib/cache/showcase.cache';
+import { z } from 'zod';
 
 // ==========================================
 // 🌌 GET : Générer le Flux du Diaporama (Strictement Privé / Aura)
 // ==========================================
-export const GET = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const GET = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const { searchParams } = new URL(req.url);
+    let url: URL;
+    try {
+      url = new URL(req.url);
+    } catch {
+      return NextResponse.json({ success: false, error: "URL de requête invalide." }, { status: 400 });
+    }
     
     // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
     const userUid = currentUser.uid; 
 
-    // Extraction et CASTING des filtres granulaires depuis l'URL
-    const appsParam = searchParams.get('apps');
-    const selectedApps = appsParam ? (appsParam.split(',') as UniversalMediaType[]) : [];
-    const onlyTradable = searchParams.get('onlyTradable') === 'true';
+    // Extraction des filtres depuis l'URL
+    const appsParam = url.searchParams.get('apps');
+    const rawApps = appsParam ? appsParam.split(',').map(s => s.trim()).filter(Boolean) : [];
+    const onlyTradable = url.searchParams.get('onlyTradable') === 'true';
+
+    // Validation optionnelle ou typage des apps via Zod si nécessaire
+    const selectedApps = rawApps as UniversalMediaType[];
 
     const filters = {
       selectedApps,
@@ -35,9 +43,7 @@ export const GET = withAura(async (req: Request, _context: ApiContext, currentUs
       count: playlist.length
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error('🔥 [SHOWCASE STREAM ERROR] :', error);
-    const status = error.status || error.statusCode || 500;
-    return NextResponse.json({ success: false, error: error.message || "Erreur interne lors du tissage du flux." }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'SHOWCASE STREAM ERROR');
   }
 });

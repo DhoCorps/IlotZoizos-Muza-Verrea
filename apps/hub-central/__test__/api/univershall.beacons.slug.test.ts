@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, DELETE } from '@/app/api/univershall/beacons/[slug]/route';
 import { UniversHallBeaconModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
+import { NextRequest, NextResponse } from 'next/server';
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
@@ -27,32 +28,46 @@ vi.mock('@ilot/shared-core', () => ({
 }));
 
 vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
-  withAura: (handler: any) => async (req: any, context: any) => {
-    const mockUser = { uid: 'architect_1', capabilities: ['*'] };
-    return handler(req, context, mockUser);
+  withSilice: (handler: Function) => handler,
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const mockUser = global.__mockUser || { uid: 'architect_1', capabilities: ['*'] };
+    return await handler(req, context, mockUser);
   },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
+
+declare global {
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
+}
 
 describe('API Route /api/univershall/beacons/[slug]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete global.__mockUser;
   });
 
   describe('GET - Auscultation d\'une balise', () => {
     it('doit récupérer la balise avec succès par son slug', async () => {
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 'beacon_123', title: 'Chant Libre', slug: 'chant-libre'
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-      const req = new Request('http://localhost/api/univershall/beacons/chant-libre');
+      const req = new NextRequest('http://localhost/api/univershall/beacons/chant-libre');
       const context = { params: Promise.resolve({ slug: 'chant-libre' }) };
 
-      const res = await GET(req as any, context as any);
+      const res = await GET(req, context);
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -64,10 +79,10 @@ describe('API Route /api/univershall/beacons/[slug]', () => {
     it('doit retourner 404 si la balise est introuvable', async () => {
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
-      const req = new Request('http://localhost/api/univershall/beacons/inconnu');
+      const req = new NextRequest('http://localhost/api/univershall/beacons/inconnu');
       const context = { params: Promise.resolve({ slug: 'inconnu' }) };
 
-      const res = await GET(req as any, context as any);
+      const res = await GET(req, context);
       const json = await res.json();
 
       expect(res.status).toBe(404);
@@ -78,17 +93,19 @@ describe('API Route /api/univershall/beacons/[slug]', () => {
 
   describe('DELETE - Dissolution d\'une balise', () => {
     it('doit dissoudre la balise avec succès si l\'Aura est valide et invalider le cache en cascade', async () => {
+      global.__mockUser = { uid: 'architect_1', capabilities: ['*'] };
+
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 'beacon_123',
         slug: 'chant-libre'
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-      const req = new Request('http://localhost/api/univershall/beacons/chant-libre', {
+      const req = new NextRequest('http://localhost/api/univershall/beacons/chant-libre', {
         method: 'DELETE'
       });
       const context = { params: Promise.resolve({ slug: 'chant-libre' }) };
 
-      const res = await DELETE(req as any, context as any);
+      const res = await DELETE(req, context);
       const json = await res.json();
 
       expect(res.status).toBe(200);

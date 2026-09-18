@@ -1,11 +1,19 @@
-import { NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
+
+import { NextResponse, NextRequest } from 'next/server';
 import { TaxonomyModel } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
 import { v4 as uuidv4 } from 'uuid';
-import { withAura, withSilice, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withSilice, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedTaxonomies } from '@/lib/cache/taxonomy.cache';
+import { z } from 'zod';
 
-export const dynamic = 'force-dynamic';
+// 🛡️ Schéma de validation Zod pour la création d'un tag taxonomique
+const CreateTaxonomySchema = z.object({
+  name: z.string().min(1, "Le nom est requis."),
+  domain: z.string().min(1, "Le domaine est requis."),
+  type: z.string().min(1, "Le type est requis."),
+}).passthrough();
 
 const STATIC_TAXONOMIES = {
   categories: [
@@ -38,11 +46,17 @@ const STATIC_TAXONOMIES = {
 // ==========================================
 // GET : Découverte des Taxonomies (Public)
 // ==========================================
-export const GET = withSilice(async (req: Request, _context: ApiContext) => {
+export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => {
   try {
-    const { searchParams } = new URL(req.url);
-    const domain = searchParams.get('domain') || undefined;
-    const type = searchParams.get('type') || undefined;
+    let url: URL;
+    try {
+      url = new URL(req.url);
+    } catch {
+      return NextResponse.json({ success: false, error: "URL de requête invalide." }, { status: 400 });
+    }
+
+    const domain = url.searchParams.get('domain') || undefined;
+    const type = url.searchParams.get('type') || undefined;
     const tags = await getCachedTaxonomies(domain, type);
     
     return NextResponse.json({ 
@@ -50,28 +64,35 @@ export const GET = withSilice(async (req: Request, _context: ApiContext) => {
        data: tags,
       ...STATIC_TAXONOMIES 
     }, { status: 200 });
-  } catch (error: any) {
-    console.error("  Fracture lors de la lecture taxonomie :", error);
-    return NextResponse.json({ error: "Échec de lecture des taxonomies." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'TAXONOMY GET ERROR');
   }
 });
 
 // ==========================================
 // POST : Sédimentation d'un Tag (Privé)
 // ==========================================
-export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const body = await req.json();
-    const { name, domain, type } = body;
-    if (!name || !domain || !type) {
-      return NextResponse.json({ error: "Données incomplètes." }, { status: 400 });
+    let rawBody: unknown;
+    try {
+      rawBody = await req.json();
+    } catch {
+      return NextResponse.json({ success: false, error: "Corps de requête illisible." }, { status: 400 });
     }
 
-    const existing = await TaxonomyModel.findOne({ 
+    const validation = CreateTaxonomySchema.safeParse(rawBody);
+    if (!validation.success) {
+      return NextResponse.json({ success: false, error: "Données incomplètes ou invalides.", details: validation.error.flatten() }, { status: 400 });
+    }
+
+    const { name, domain, type } = validation.data;
+
+    const existing = (await TaxonomyModel.findOne({ 
        name: { $regex: new RegExp(`^${name.trim()}$`, 'i') }, 
        domain 
-     }).lean();
-     
+    }).lean()) as { uid?: string; [key: string]: unknown } | null;
+       
     if (existing) {
       return NextResponse.json({ success: true, data: existing, message: "Tag existant." }, { status: 200 });
     }
@@ -88,8 +109,7 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     // 💥 BOOM ! Invalidation cache
     revalidateTag('taxonomy');
     return NextResponse.json({ success: true, data: newTag, message: "✨ Tag sédimenté !" }, { status: 201 });
-  } catch (error: any) {
-    console.error("  Erreur création tag :", error);
-    return NextResponse.json({ error: error.message || "Erreur interne." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'TAXONOMY POST ERROR');
   }
 });

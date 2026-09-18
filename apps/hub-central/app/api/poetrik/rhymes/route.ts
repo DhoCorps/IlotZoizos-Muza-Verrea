@@ -1,15 +1,15 @@
-// app/api/poetrik/rhymes/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { getNeo4jSession } from '@ilot/infrastructure';
-import { withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
+import type { ManagedTransaction, Result } from 'neo4j-driver';
 
 // -------------------------------------------------------------------------
 // GET : Interroger le Graphe Neo4j pour trouver les rimes d'un mot
 // -------------------------------------------------------------------------
 export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContext, _currentUser?: OiseauUser) => {
-  let session;
+  let session: ManagedTransaction | any = null;
   try {
     const url = new URL(req.url);
     const wordUid = url.searchParams.get('uid');
@@ -32,7 +32,7 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
       MATCH (w)-[r:RHYMES_WITH]-(rhyme:Word)
     `;
 
-    const params: any = {
+    const params: Record<string, unknown> = {
       wordUid: wordUid || null,
       wordText: wordText || null,
       rhymeType: rhymeType || null
@@ -56,21 +56,20 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
 
     const result = await session.run(cypher, params);
 
-    const rhymes = result.records.map((record: any) => ({
+    const rhymes = result.records.map((record: Record<string, unknown> | any) => ({
       uid: record.get('uid'),
       word: record.get('word'),
       languageCode: record.get('languageCode'),
       phoneticIpa: record.get('phoneticIpa'),
-      syllableCount: record.get('syllableCount')?.toNumber ? record.get('syllableCount').toNumber() : record.get('syllableCount'),
+      syllableCount: typeof record.get('syllableCount')?.toNumber === 'function' ? record.get('syllableCount').toNumber() : record.get('syllableCount'),
       rhymeType: record.get('rhymeType'),
       matchScore: record.get('matchScore')
     }));
 
     return NextResponse.json({ success: true, data: rhymes }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("  [POETRIK RHYMES GET ERROR] :", error);
-    return NextResponse.json({ error: error.message || "Erreur interne lors de la traversée des rimes." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'POETRIK RHYMES GET ERROR');
   } finally {
     if (session) {
       try { await session.close(); } catch {}

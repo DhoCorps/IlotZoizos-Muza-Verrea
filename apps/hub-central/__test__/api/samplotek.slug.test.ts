@@ -3,20 +3,25 @@ import { DELETE } from '@/app/api/samplotek/[slug]/route';
 import { SampleModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { storageService } from '@/modules/storage/storage.service';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
 vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser;
     if (!mockUser || !mockUser.uid) {
       return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
     }
     return await handler(req, context, mockUser);
   },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -31,26 +36,22 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 });
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
-
-declare global {
-  var __mockUser: any;
-}
 
 describe('API SamploTek - Suppression d’un sample ([slug])', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
-    vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as any);
+    vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as unknown as Awaited<ReturnType<typeof storageService.deleteFile>>);
   });
 
   it('🔴 doit rejeter (401) si l’Oiseau n’est pas connecté', async () => {
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
-    const req = new Request('http://localhost/api/samplotek/samp_123', { method: 'DELETE' });
-    const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'samp_123' }) });
+    const req = new NextRequest('http://localhost/api/samplotek/samp_123', { method: 'DELETE' });
+    const res = await DELETE(req, { params: Promise.resolve({ slug: 'samp_123' }) });
 
     expect(res.status).toBe(401);
   });
@@ -62,10 +63,10 @@ describe('API SamploTek - Suppression d’un sample ([slug])', () => {
       uid: 'samp_123',
       authorUid: 'owner_bird',
       storageKey: 'hub-central/sample.mp3'
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-    const req = new Request('http://localhost/api/samplotek/samp_123', { method: 'DELETE' });
-    const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'samp_123' }) });
+    const req = new NextRequest('http://localhost/api/samplotek/samp_123', { method: 'DELETE' });
+    const res = await DELETE(req, { params: Promise.resolve({ slug: 'samp_123' }) });
 
     expect(res.status).toBe(403);
     expect(storageService.deleteFile).not.toHaveBeenCalled();
@@ -80,10 +81,10 @@ describe('API SamploTek - Suppression d’un sample ([slug])', () => {
       slug: 'kick-lourd',
       authorUid: 'owner_bird',
       storageKey: 'hub-central/sample.mp3'
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-    const req = new Request('http://localhost/api/samplotek/kick-lourd', { method: 'DELETE' });
-    const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'kick-lourd' }) });
+    const req = new NextRequest('http://localhost/api/samplotek/kick-lourd', { method: 'DELETE' });
+    const res = await DELETE(req, { params: Promise.resolve({ slug: 'kick-lourd' }) });
     const json = await res.json();
 
     expect(res.status).toBe(200);

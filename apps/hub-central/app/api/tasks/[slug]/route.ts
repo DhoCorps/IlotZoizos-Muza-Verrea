@@ -1,14 +1,14 @@
-import { NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
+
+import { NextResponse, NextRequest } from 'next/server';
 import { getNeo4jSession, TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure'; 
 import { TaskOrchestrator } from '@ilot/shared-core';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedTaskDetails } from '@/lib/cache/tasks.cache';
 import { z } from 'zod';
-
-export const dynamic = 'force-dynamic';
 
 // ==========================================
 // 🛡️ SCHÉMA DE VALIDATION ZOD (Anti Mass Assignment - PATCH / POST Subtask)
@@ -31,7 +31,7 @@ const UpdateTaskSchema = z.object({
     targetEntityUid: z.string().optional(),
   }).optional(),
   documents: z.array(z.any()).optional(),
-});
+}).passthrough();
 
 const SubTaskSchema = z.object({
   title: z.string().min(1, "Le titre de la sous-tâche est requis."),
@@ -47,6 +47,11 @@ const SubTaskSchema = z.object({
     targetModule: z.string().optional(),
     targetEntityUid: z.string().optional(),
   }).optional(),
+}).passthrough();
+
+const TaskActionSchema = z.object({
+  action: z.literal('CREATE_SUBTASK'),
+  data: SubTaskSchema,
 });
 
 async function getTaskCapabilities(userUid: string, taskUid: string): Promise<string[]> {
@@ -75,7 +80,7 @@ async function getTaskCapabilities(userUid: string, taskUid: string): Promise<st
     const projectCaps = record.get('projectCaps') || [];
     const teamDefaultCaps = record.get('teamDefaultCaps') || [];
     const teamRel = record.get('teamRel');
-    let compiledCaps = [...new Set([...projectCaps, ...teamDefaultCaps])];
+    const compiledCaps = [...new Set([...projectCaps, ...teamDefaultCaps])] as string[];
     if (isDirectlyInvolved) {
         if (!compiledCaps.includes(CAPABILITIES.TASK.READ)) compiledCaps.push(CAPABILITIES.TASK.READ);
         if (!compiledCaps.includes(CAPABILITIES.TASK.UPDATE)) compiledCaps.push(CAPABILITIES.TASK.UPDATE);
@@ -103,76 +108,79 @@ async function getTaskCapabilities(userUid: string, taskUid: string): Promise<st
 // ==========================================
 // GET : Ausculter un Atome spécifique
 // ==========================================
-export const GET = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
-  const resolvedParams = await context.params;
-  const rawSlug = resolvedParams?.slug;
-  const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-  
-  if (!identifier) {
-    return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
-  }
-
-  // 🔍 Résolution unifiée via le cache ou notre helper centralisé
-  let data = await getCachedTaskDetails(identifier, currentUser.uid, getTaskCapabilities);
-  if (!data || !data.task) {
-    const resolvedTask: any = await findEntityBySlugOrUid(TaskModel, identifier);
-    if (resolvedTask) {
-      data = await getCachedTaskDetails(resolvedTask.uid, currentUser.uid, getTaskCapabilities);
+export const GET = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
+  try {
+    const resolvedParams = await context.params;
+    const rawSlug = resolvedParams?.slug;
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+    
+    if (!identifier) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
-  }
 
-  if (!data || !data.task) {
-    return NextResponse.json({ error: "Atome non trouvé dans la silice." }, { status: 404 });
-  }
+    // 🔍 Résolution unifiée via le cache ou notre helper centralisé
+    let data = await getCachedTaskDetails(identifier, currentUser.uid, getTaskCapabilities);
+    if (!data || !data.task) {
+      const resolvedTask = (await findEntityBySlugOrUid(TaskModel, identifier)) as { uid?: string; [key: string]: unknown } | null;
+      if (resolvedTask?.uid) {
+        data = await getCachedTaskDetails(resolvedTask.uid, currentUser.uid, getTaskCapabilities);
+      }
+    }
 
-  const { task, caps } = data;
-  if (!caps.includes(CAPABILITIES.TASK.READ) && !currentUser.capabilities?.includes('*')) {
-      return NextResponse.json({ error: "L'accès à cet Atome t'est refusé." }, { status: 403 });
+    if (!data || !data.task) {
+      return NextResponse.json({ error: "Atome non trouvé dans la silice." }, { status: 404 });
+    }
+
+    const { task, caps } = data;
+    if (!caps.includes(CAPABILITIES.TASK.READ) && !currentUser.capabilities?.includes('*')) {
+        return NextResponse.json({ error: "L'accès à cet Atome t'est refusé." }, { status: 403 });
+    }
+    return NextResponse.json({ ...task, myCapabilities: caps }, { status: 200 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "TASK GET ERROR");
   }
-  return NextResponse.json({ ...task, myCapabilities: caps }, { status: 200 });
 });
 
 // ==========================================
 // POST : Actions sur un Atome (Sous-tâche)
 // ==========================================
-export const POST = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
-  const resolvedParams = await context.params;
-  const rawSlug = resolvedParams?.slug;
-  const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-
-  if (!identifier) {
-    return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
-  }
-
-  const taskEntity: any = await findEntityBySlugOrUid(TaskModel, identifier);
-  const targetUid = taskEntity?.uid || identifier;
-
-  const caps = await getTaskCapabilities(currentUser.uid, targetUid);
-  if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !currentUser.capabilities?.includes('*')) {
-      return NextResponse.json({ error: "Aura insuffisante pour agir sur cet Atome." }, { status: 403 });
-  }
-
-  let body;
+export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
-  }
+    const resolvedParams = await context.params;
+    const rawSlug = resolvedParams?.slug;
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-  const { action, data } = body;
-  
-  if (action === 'CREATE_SUBTASK') {
-    const validationResult = SubTaskSchema.safeParse(data);
-    if (!validationResult.success) {
-      const errorMessage = validationResult.error.issues.map(e => e.message).join(', ');
-      return NextResponse.json({ error: `Données de sous-tâche invalides : ${errorMessage}` }, { status: 400 });
+    if (!identifier) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
+    const taskEntity = (await findEntityBySlugOrUid(TaskModel, identifier)) as { uid?: string; slug?: string; projectUid?: string; [key: string]: unknown } | null;
+    const targetUid = taskEntity?.uid || identifier;
+
+    const caps = await getTaskCapabilities(currentUser.uid, targetUid);
+    if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !currentUser.capabilities?.includes('*')) {
+        return NextResponse.json({ error: "Aura insuffisante pour agir sur cet Atome." }, { status: 403 });
+    }
+
+    let rawBody: unknown;
+    try {
+      rawBody = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
+    }
+
+    const validation = TaskActionSchema.safeParse(rawBody);
+    if (!validation.success) {
+      return NextResponse.json({ error: "Mouvement ou données de sous-tâche invalides.", details: validation.error.flatten() }, { status: 400 });
+    }
+
+    const { data } = validation.data;
+    
     try {
       const taskOrch = new TaskOrchestrator();
       const signature: ActionSignature = { actorUid: currentUser.uid, capabilities: caps };
       const newSubTask = await taskOrch.fosterTask({
-        ...validationResult.data,
+        ...data,
         projectUid: taskEntity?.projectUid,
         parentUid: targetUid
       }, signature);
@@ -181,109 +189,121 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
       if (taskEntity?.uid) revalidateTag(`task-${taskEntity.uid}`);
       if (taskEntity?.slug) revalidateTag(`task-${taskEntity.slug}`);
       return NextResponse.json(newSubTask, { status: 201 });
-    } catch (orchErr: any) {
-      console.error("  [TASK ORCHESTRATOR SUBTASK ERROR]", orchErr);
-      const status = orchErr.statusCode || orchErr.status || 500;
-      return NextResponse.json({ error: orchErr.message || "Échec de fondation de sous-atome." }, { status });
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      console.error("  [TASK ORCHESTRATOR SUBTASK ERROR]", err);
+      const status = err.statusCode || err.status || 500;
+      return NextResponse.json({ error: err.message || "Échec de fondation de sous-atome." }, { status });
     }
+  } catch (error: unknown) {
+    return handleRouteError(error, "TASK POST ERROR");
   }
-  return NextResponse.json({ error: "Mouvement inconnu sur cet Atome." }, { status: 400 });
 });
 
 // ==========================================
 // PATCH : Mutation d'un Atome
 // ==========================================
-export const PATCH = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
-  const resolvedParams = await context.params;
-  const rawSlug = resolvedParams?.slug;
-  const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-
-  if (!identifier) {
-    return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
-  }
-
-  const taskEntity: any = await findEntityBySlugOrUid(TaskModel, identifier);
-  const targetUid = taskEntity?.uid || identifier;
-
-  const caps = await getTaskCapabilities(currentUser.uid, targetUid);
-  if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !currentUser.capabilities?.includes('*')) {
-      return NextResponse.json({ error: "Tu ne peux pas faire muter cet Atome." }, { status: 403 });
-  }
-
-  let rawBody;
+export const PATCH = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    rawBody = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
+    const resolvedParams = await context.params;
+    const rawSlug = resolvedParams?.slug;
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+    if (!identifier) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
+
+    const taskEntity = (await findEntityBySlugOrUid(TaskModel, identifier)) as { uid?: string; slug?: string; [key: string]: unknown } | null;
+    const targetUid = taskEntity?.uid || identifier;
+
+    const caps = await getTaskCapabilities(currentUser.uid, targetUid);
+    if (!caps.includes(CAPABILITIES.TASK.UPDATE) && !currentUser.capabilities?.includes('*')) {
+        return NextResponse.json({ error: "Tu ne peux pas faire muter cet Atome." }, { status: 403 });
+    }
+
+    let rawBody: unknown;
+    try {
+      rawBody = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
+    }
+
+    const validationResult = UpdateTaskSchema.safeParse(rawBody);
+    if (!validationResult.success) {
+      const errorMessage = validationResult.error.issues.map(e => e.message).join(', ');
+      return NextResponse.json({ error: `Données de mutation invalides : ${errorMessage}` }, { status: 400 });
+    }
+
+    const signature: ActionSignature = {
+        actorUid: currentUser.uid,
+        capabilities: caps
+    };
+
+    let updatedTask;
+    try {
+      const taskOrch = new TaskOrchestrator();
+       updatedTask = await taskOrch.updateTask(targetUid, validationResult.data, signature);
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      console.error("  [TASK ORCHESTRATOR UPDATE ERROR]", err);
+      const status = err.statusCode || err.status || 500;
+      return NextResponse.json({ error: err.message || "Échec de la mutation de l'Atome." }, { status });
+    }
+
+    revalidateTag('tasks');
+    revalidateTag(`task-${identifier}`);
+    if (taskEntity?.uid) revalidateTag(`task-${taskEntity.uid}`);
+    if (taskEntity?.slug) revalidateTag(`task-${taskEntity.slug}`);
+
+    return NextResponse.json(updatedTask, { status: 200 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "TASK PATCH ERROR");
   }
-
-  const validationResult = UpdateTaskSchema.safeParse(rawBody);
-  if (!validationResult.success) {
-    const errorMessage = validationResult.error.issues.map(e => e.message).join(', ');
-    return NextResponse.json({ error: `Données de mutation invalides : ${errorMessage}` }, { status: 400 });
-  }
-
-  const signature: ActionSignature = {
-      actorUid: currentUser.uid,
-      capabilities: caps
-  };
-
-  let updatedTask;
-  try {
-    const taskOrch = new TaskOrchestrator();
-     updatedTask = await taskOrch.updateTask(targetUid, validationResult.data, signature);
-  } catch (orchErr: any) {
-    console.error("  [TASK ORCHESTRATOR UPDATE ERROR]", orchErr);
-    const status = orchErr.statusCode || orchErr.status || 500;
-    return NextResponse.json({ error: orchErr.message || "Échec de la mutation de l'Atome." }, { status });
-  }
-
-  revalidateTag('tasks');
-  revalidateTag(`task-${identifier}`);
-  if (taskEntity?.uid) revalidateTag(`task-${taskEntity.uid}`);
-  if (taskEntity?.slug) revalidateTag(`task-${taskEntity.slug}`);
-
-  return NextResponse.json(updatedTask, { status: 200 });
 });
 
 // ==========================================
 // DELETE : Désintégration d'un Atome
 // ==========================================
-export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
-  const resolvedParams = await context.params;
-  const rawSlug = resolvedParams?.slug;
-  const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-
-  if (!identifier) {
-    return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
-  }
-
-  const taskEntity: any = await findEntityBySlugOrUid(TaskModel, identifier);
-  const targetUid = taskEntity?.uid || identifier;
-
-  const caps = await getTaskCapabilities(currentUser.uid, targetUid);
-  if (!caps.includes(CAPABILITIES.TASK.DELETE) && !currentUser.capabilities?.includes('*')) {
-      return NextResponse.json({ error: "La désintégration de cet Atome requiert plus d'aura." }, { status: 403 });
-  }
-
-  const signature: ActionSignature = {
-      actorUid: currentUser.uid,
-      capabilities: caps
-  };
-
+export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const taskOrch = new TaskOrchestrator();
-     await taskOrch.disintegrateTask(targetUid, signature);
-  } catch (orchErr: any) {
-    console.error("  [TASK ORCHESTRATOR DISINTEGRATE ERROR]", orchErr);
-    const status = orchErr.statusCode || orchErr.status || 500;
-    return NextResponse.json({ error: orchErr.message || "Échec du rituel de désintégration." }, { status });
+    const resolvedParams = await context.params;
+    const rawSlug = resolvedParams?.slug;
+    const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
+
+    if (!identifier) {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
+
+    const taskEntity = (await findEntityBySlugOrUid(TaskModel, identifier)) as { uid?: string; slug?: string; [key: string]: unknown } | null;
+    const targetUid = taskEntity?.uid || identifier;
+
+    const caps = await getTaskCapabilities(currentUser.uid, targetUid);
+    if (!caps.includes(CAPABILITIES.TASK.DELETE) && !currentUser.capabilities?.includes('*')) {
+        return NextResponse.json({ error: "La désintégration de cet Atome requiert plus d'aura." }, { status: 403 });
+    }
+
+    const signature: ActionSignature = {
+        actorUid: currentUser.uid,
+        capabilities: caps
+    };
+
+    try {
+      const taskOrch = new TaskOrchestrator();
+       await taskOrch.disintegrateTask(targetUid, signature);
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      console.error("  [TASK ORCHESTRATOR DISINTEGRATE ERROR]", err);
+      const status = err.statusCode || err.status || 500;
+      return NextResponse.json({ error: err.message || "Échec du rituel de désintégration." }, { status });
+    }
+
+    revalidateTag('tasks');
+    revalidateTag(`task-${identifier}`);
+    if (taskEntity?.uid) revalidateTag(`task-${taskEntity.uid}`);
+    if (taskEntity?.slug) revalidateTag(`task-${taskEntity.slug}`);
+
+    return NextResponse.json({ message: "Atome rendu à la poussière du Nexus." }, { status: 200 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "TASK DELETE ERROR");
   }
-
-  revalidateTag('tasks');
-  revalidateTag(`task-${identifier}`);
-  if (taskEntity?.uid) revalidateTag(`task-${taskEntity.uid}`);
-  if (taskEntity?.slug) revalidateTag(`task-${taskEntity.slug}`);
-
-  return NextResponse.json({ message: "Atome rendu à la poussière du Nexus." }, { status: 200 });
 });

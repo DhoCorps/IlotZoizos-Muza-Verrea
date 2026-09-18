@@ -2,16 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PUT, DELETE } from '@/app/api/letrin/sprites/[slug]/route';
 import { LetterSpriteModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
 vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => async (req: any, context: any) => {
+  withSilice: (handler: Function) => async (req: NextRequest, context: unknown) => {
     return await handler(req, context);
   },
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser;
     if (!mockUser || !mockUser.uid) {
       return NextResponse.json({ error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
@@ -21,7 +21,7 @@ vi.mock('@/lib/api-guards', () => ({
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 vi.mock('next/cache', () => ({
@@ -42,19 +42,14 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       findOneAndUpdate: vi.fn(() => ({ lean: mockLean })),
       findOneAndDelete: vi.fn(),
     },
-    // Mock simplifié et direct pour éviter les problèmes de `lean`
     findEntityBySlugOrUid: vi.fn(),
   };
 });
 
-declare global {
-  var __mockUser: any;
-}
-
 describe('API Letr\'In Sprite Slug - Gestion d\'une police spécifique', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   // =========================================================================
@@ -64,10 +59,10 @@ describe('API Letr\'In Sprite Slug - Gestion d\'une police spécifique', () => {
     it('doit renvoyer une erreur 404 si la police est introuvable', async () => {
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
-      const req = new Request('http://localhost/api/letrin/sprites/inconnue');
+      const req = new NextRequest('http://localhost/api/letrin/sprites/inconnue');
       const context = { params: Promise.resolve({ slug: 'inconnue' }) };
 
-      const res = await GET(req as any, context);
+      const res = await GET(req, context);
       const json = await res.json();
 
       expect(res.status).toBe(404);
@@ -77,12 +72,12 @@ describe('API Letr\'In Sprite Slug - Gestion d\'une police spécifique', () => {
     it('doit renvoyer la police avec succès (200)', async () => {
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
         uid: 's_1', slug: 'cyberfont', name: 'CyberFont' 
-      } as any);
+      });
 
-      const req = new Request('http://localhost/api/letrin/sprites/cyberfont');
+      const req = new NextRequest('http://localhost/api/letrin/sprites/cyberfont');
       const context = { params: Promise.resolve({ slug: 'cyberfont' }) };
 
-      const res = await GET(req as any, context);
+      const res = await GET(req, context);
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -95,15 +90,15 @@ describe('API Letr\'In Sprite Slug - Gestion d\'une police spécifique', () => {
   // =========================================================================
   describe('PUT /api/letrin/sprites/[slug]', () => {
     it('🔴 doit rejeter (401) si l\'oiseau n\'est pas connecté', async () => {
-      delete (global as any).__mockUser;
+      delete global.__mockUser;
 
-      const req = new Request('http://localhost/api/letrin/sprites/cyberfont', {
+      const req = new NextRequest('http://localhost/api/letrin/sprites/cyberfont', {
         method: 'PUT',
         body: JSON.stringify({ name: 'CyberFont V2' })
       });
       const context = { params: Promise.resolve({ slug: 'cyberfont' }) };
 
-      const res = await PUT(req as any, context);
+      const res = await PUT(req, context);
       expect(res.status).toBe(401);
     });
 
@@ -112,36 +107,34 @@ describe('API Letr\'In Sprite Slug - Gestion d\'une police spécifique', () => {
 
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
         uid: 's_1', slug: 'cyberfont', name: 'CyberFont', authorUid: 'bird_owner' 
-      } as any);
+      });
 
-      const req = new Request('http://localhost/api/letrin/sprites/cyberfont', {
+      const req = new NextRequest('http://localhost/api/letrin/sprites/cyberfont', {
         method: 'PUT',
         body: JSON.stringify({ name: 'Hack' })
       });
       const context = { params: Promise.resolve({ slug: 'cyberfont' }) };
 
-      const res = await PUT(req as any, context);
+      const res = await PUT(req, context);
       expect(res.status).toBe(403);
     });
 
     it('🟢 doit muter la police avec succès (200) et invalider le cache', async () => {
       global.__mockUser = { uid: 'bird_1', capabilities: [] };
       
-      // 1er appel: Vérification de souveraineté
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
         uid: 's_1', slug: 'cyberfont', name: 'CyberFont', authorUid: 'bird_1' 
-      } as any);
+      });
       
-      // Retour de la mutation
       mockLean.mockResolvedValueOnce({ uid: 's_1', slug: 'cyberfont', name: 'CyberFont V2', authorUid: 'bird_1' });
 
-      const req = new Request('http://localhost/api/letrin/sprites/cyberfont', {
+      const req = new NextRequest('http://localhost/api/letrin/sprites/cyberfont', {
         method: 'PUT',
         body: JSON.stringify({ name: 'CyberFont V2' })
       });
       const context = { params: Promise.resolve({ slug: 'cyberfont' }) };
 
-      const res = await PUT(req as any, context);
+      const res = await PUT(req, context);
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -157,14 +150,14 @@ describe('API Letr\'In Sprite Slug - Gestion d\'une police spécifique', () => {
   // =========================================================================
   describe('DELETE /api/letrin/sprites/[slug]', () => {
     it('🔴 doit rejeter (401) si l\'oiseau n\'est pas connecté', async () => {
-      delete (global as any).__mockUser;
+      delete global.__mockUser;
 
-      const req = new Request('http://localhost/api/letrin/sprites/cyberfont', {
+      const req = new NextRequest('http://localhost/api/letrin/sprites/cyberfont', {
         method: 'DELETE',
       });
       const context = { params: Promise.resolve({ slug: 'cyberfont' }) };
 
-      const res = await DELETE(req as any, context);
+      const res = await DELETE(req, context);
       expect(res.status).toBe(401);
     });
 
@@ -173,14 +166,14 @@ describe('API Letr\'In Sprite Slug - Gestion d\'une police spécifique', () => {
 
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
         uid: 's_1', slug: 'cyberfont', authorUid: 'bird_owner' 
-      } as any);
+      });
 
-      const req = new Request('http://localhost/api/letrin/sprites/cyberfont', {
+      const req = new NextRequest('http://localhost/api/letrin/sprites/cyberfont', {
         method: 'DELETE',
       });
       const context = { params: Promise.resolve({ slug: 'cyberfont' }) };
 
-      const res = await DELETE(req as any, context);
+      const res = await DELETE(req, context);
       expect(res.status).toBe(403);
     });
 
@@ -189,18 +182,18 @@ describe('API Letr\'In Sprite Slug - Gestion d\'une police spécifique', () => {
       
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
         uid: 's_1', slug: 'cyberfont', authorUid: 'bird_1' 
-      } as any);
+      });
       
       vi.mocked(LetterSpriteModel.findOneAndDelete).mockResolvedValueOnce({ 
         uid: 's_1', slug: 'cyberfont', authorUid: 'bird_1' 
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof LetterSpriteModel.findOneAndDelete>>);
 
-      const req = new Request('http://localhost/api/letrin/sprites/cyberfont', {
+      const req = new NextRequest('http://localhost/api/letrin/sprites/cyberfont', {
         method: 'DELETE',
       });
       const context = { params: Promise.resolve({ slug: 'cyberfont' }) };
 
-      const res = await DELETE(req as any, context);
+      const res = await DELETE(req, context);
       const json = await res.json();
 
       expect(res.status).toBe(200);

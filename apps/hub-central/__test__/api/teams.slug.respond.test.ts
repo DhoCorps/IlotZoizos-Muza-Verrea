@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/teams/[slug]/respond/route';
-import { getServerSession } from 'next-auth/next';
 import { TeamModel, findEntityBySlugOrUid, getNeo4jSession } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
+import { NextRequest, NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
@@ -11,8 +11,19 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser) {
+      return NextResponse.json({ success: false, error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
+    }
+    return await handler(req, context, mockUser);
+  },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -33,7 +44,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 
 vi.mock('@ilot/shared-core', () => ({
   TransactionManager: {
-    execute: vi.fn(async (_label, callback) => {
+    execute: vi.fn(async (_label: string, callback: Function) => {
       const mockMongoSession = {};
       const mockNeoTx = { run: vi.fn().mockResolvedValue(true) };
       return await callback(mockMongoSession, mockNeoTx);
@@ -42,8 +53,16 @@ vi.mock('@ilot/shared-core', () => ({
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
+
+declare global {
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
+}
 
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
@@ -51,18 +70,18 @@ vi.mock('@/lib/slugify', () => ({
 describe('Route API : Réponse au Pacte d\'Adhésion (POST /api/teams/[slug]/respond)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   it('doit rejeter (401) si l\'utilisateur n\'a pas d\'Aura', async () => {
-    vi.mocked(getServerSession).mockResolvedValue(null);
+    delete global.__mockUser;
 
-    const req = new Request('http://localhost/api/teams/mon-nid/respond', {
+    const req = new NextRequest('http://localhost/api/teams/mon-nid/respond', {
       method: 'POST',
       body: JSON.stringify({ action: 'ACCEPT' }),
     });
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-nid' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'mon-nid' }) });
     const json = await response.json();
 
     expect(response.status).toBe(401);
@@ -70,28 +89,26 @@ describe('Route API : Réponse au Pacte d\'Adhésion (POST /api/teams/[slug]/res
   });
 
   it('doit rejeter (404) si aucune invitation n\'existe pour cet oiseau sur ce nid', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'u-123', capabilities: [] }
-    } as any);
+    global.__mockUser = { uid: 'u-123', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 't-1',
       slug: 'mon-nid',
       name: 'Nid'
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
     // Neo4j renvoie 0 enregistrement (pas d'INVITED_TO)
     vi.mocked(getNeo4jSession).mockReturnValue({
       run: vi.fn().mockResolvedValue({ records: [] }),
       close: vi.fn().mockResolvedValue(true),
-    } as any);
+    } as unknown as ReturnType<typeof getNeo4jSession>);
 
-    const req = new Request('http://localhost/api/teams/mon-nid/respond', {
+    const req = new NextRequest('http://localhost/api/teams/mon-nid/respond', {
       method: 'POST',
       body: JSON.stringify({ action: 'ACCEPT' }),
     });
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-nid' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'mon-nid' }) });
     const json = await response.json();
 
     expect(response.status).toBe(404); // 🛡️ Vérification du passage au code 404 sémantique
@@ -100,15 +117,13 @@ describe('Route API : Réponse au Pacte d\'Adhésion (POST /api/teams/[slug]/res
   });
 
   it('doit réussir (200) l\'acceptation du pacte, exécuter la transaction et invalider le cache', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'u-123', capabilities: [] }
-    } as any);
+    global.__mockUser = { uid: 'u-123', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 't-1',
       slug: 'mon-nid',
       name: 'Nid Céleste'
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
     // Neo4j trouve bien l'invitation
     vi.mocked(getNeo4jSession).mockReturnValue({
@@ -116,14 +131,14 @@ describe('Route API : Réponse au Pacte d\'Adhésion (POST /api/teams/[slug]/res
         records: [{ get: (k: string) => k === 'caps' ? ['READ'] : [] }]
       }),
       close: vi.fn().mockResolvedValue(true),
-    } as any);
+    } as unknown as ReturnType<typeof getNeo4jSession>);
 
-    const req = new Request('http://localhost/api/teams/mon-nid/respond', {
+    const req = new NextRequest('http://localhost/api/teams/mon-nid/respond', {
       method: 'POST',
       body: JSON.stringify({ action: 'ACCEPT' }),
     });
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'mon-nid' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'mon-nid' }) });
     const json = await response.json();
 
     expect(response.status).toBe(200);

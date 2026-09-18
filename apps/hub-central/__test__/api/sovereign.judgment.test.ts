@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/sovereign/judgment/route';
 import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { CanopyJudgeEngine } from '@ilot/shared-core';
+import { NextRequest, NextResponse } from 'next/server';
 
 // Mock global de l'infrastructure
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -23,12 +24,17 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 // Mock des gardiens d'API (`withAura`)
 let mockUserCapabilities: string[] = ['*'];
 vi.mock('@/lib/api-guards', () => ({
-    withAura: (handler: any) => {
-        return async (req: Request, context: any) => {
+    withAura: (handler: Function) => {
+        return async (req: NextRequest, context: unknown) => {
             const mockCurrentUser = { uid: 'architect_1', capabilities: mockUserCapabilities };
             return await handler(req, context, mockCurrentUser);
         };
     },
+    handleRouteError: (error: unknown, context: string) => {
+        const err = error as Error;
+        console.error(`[${context}]`, err);
+        return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
 }));
 
 vi.mock('next/cache', () => ({
@@ -36,11 +42,17 @@ vi.mock('next/cache', () => ({
 }));
 
 describe('POST /api/sovereign/judgment (Le Tribunal de la Canopée)', () => {
-    let mockTargetOiseau: any;
+    let mockTargetOiseau: {
+        uid: string;
+        isBanned: boolean;
+        ifvScore: number;
+        profileStatus: string;
+        bannedFingerprint: string;
+        save: ReturnType<typeof vi.fn>;
+    };
 
     beforeEach(() => {
         vi.clearAllMocks();
-        delete (global as any).__mockUser;
         mockUserCapabilities = ['*'];
 
         mockTargetOiseau = {
@@ -59,13 +71,13 @@ describe('POST /api/sovereign/judgment (Le Tribunal de la Canopée)', () => {
     it('🔴 doit rejeter avec une erreur 403 si l oiseau n a pas l aura d Architecte (*)', async () => {
         mockUserCapabilities = ['some:other:capability'];
 
-        const req = new Request('http://localhost/api/sovereign/judgment', {
+        const req = new NextRequest('http://localhost/api/sovereign/judgment', {
             method: 'POST',
             body: JSON.stringify({ targetUid: 'bird_target_99', action: 'JUDGE' }),
             headers: { 'Content-Type': 'application/json' }
-        }) as unknown as import('next/server').NextRequest;
+        });
 
-        const response = await POST(req, { params: {} } as any);
+        const response = await POST(req, { params: Promise.resolve({}) });
         const json = await response.json();
 
         expect(response.status).toBe(403);
@@ -74,15 +86,15 @@ describe('POST /api/sovereign/judgment (Le Tribunal de la Canopée)', () => {
     });
 
     it('🟢 doit prononcer le bannissement éternel si le profil est jugé indésirable', async () => {
-        vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockTargetOiseau);
+        vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockTargetOiseau as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-        const req = new Request('http://localhost/api/sovereign/judgment', {
+        const req = new NextRequest('http://localhost/api/sovereign/judgment', {
             method: 'POST',
             body: JSON.stringify({ targetUid: 'bird_target_99', action: 'JUDGE' }),
             headers: { 'Content-Type': 'application/json' }
-        }) as unknown as import('next/server').NextRequest;
+        });
 
-        const response = await POST(req, { params: {} } as any);
+        const response = await POST(req, { params: Promise.resolve({}) });
         const json = await response.json();
 
         expect(response.status).toBe(200);
@@ -95,15 +107,15 @@ describe('POST /api/sovereign/judgment (Le Tribunal de la Canopée)', () => {
 
     it('🟢 doit accorder le pardon souverain et lever le bannissement si l action est PARDON', async () => {
         mockTargetOiseau.isBanned = true;
-        vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockTargetOiseau);
+        vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockTargetOiseau as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-        const req = new Request('http://localhost/api/sovereign/judgment', {
+        const req = new NextRequest('http://localhost/api/sovereign/judgment', {
             method: 'POST',
             body: JSON.stringify({ targetUid: 'bird_target_99', action: 'PARDON' }),
             headers: { 'Content-Type': 'application/json' }
-        }) as unknown as import('next/server').NextRequest;
+        });
 
-        const response = await POST(req, { params: {} } as any);
+        const response = await POST(req, { params: Promise.resolve({}) });
         const json = await response.json();
 
         expect(response.status).toBe(200);
@@ -117,13 +129,13 @@ describe('POST /api/sovereign/judgment (Le Tribunal de la Canopée)', () => {
     it('🔴 doit renvoyer une erreur 404 si la cible du jugement est introuvable', async () => {
         vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
-        const req = new Request('http://localhost/api/sovereign/judgment', {
+        const req = new NextRequest('http://localhost/api/sovereign/judgment', {
             method: 'POST',
             body: JSON.stringify({ targetUid: 'bird_target_99', action: 'JUDGE' }),
             headers: { 'Content-Type': 'application/json' }
-        }) as unknown as import('next/server').NextRequest;
+        });
 
-        const response = await POST(req, { params: {} } as any);
+        const response = await POST(req, { params: Promise.resolve({}) });
         const json = await response.json();
 
         expect(response.status).toBe(404);

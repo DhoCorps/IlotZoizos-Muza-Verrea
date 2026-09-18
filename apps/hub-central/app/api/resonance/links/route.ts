@@ -4,17 +4,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ResonanceOrchestrator } from '@ilot/shared-core';
 import { WeaveLinkSchema, ActionSignature, EntityLabel, ResonanceType } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 
 /**
  * 🕸️ POST : Tissage d'un pont transdisciplinaire de résonance dans le Graphe
  */
 export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let rawBody;
+    let rawBody: unknown;
     try {
       rawBody = await req.json();
-    } catch (parseErr) {
+    } catch {
       return NextResponse.json({ error: "Le chant (requête) est illisible." }, { status: 400 });
     }
 
@@ -26,42 +26,44 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       );
     }
 
+    const validatedData = validation.data;
+
     const signature: ActionSignature = {
       actorUid: currentUser.uid,
       capabilities: currentUser.capabilities || []
     };
 
-    let result;
+    let result: unknown;
     try {
       // 🕸️ APPEL STATIQUE DIRECT (Tissage de la résonance inter-domaines)
       result = await ResonanceOrchestrator.weaveCrossDomainLink(
-        validation.data.sourceUid,
-        validation.data.sourceLabel as EntityLabel,
-        validation.data.targetUid,
-        validation.data.targetLabel as EntityLabel,
-        validation.data.relationType as ResonanceType,
+        validatedData.sourceUid,
+        validatedData.sourceLabel as EntityLabel,
+        validatedData.targetUid,
+        validatedData.targetLabel as EntityLabel,
+        validatedData.relationType as ResonanceType,
         signature
       );
-    } catch (neoErr: any) {
-      console.error("🌋 [NEO4J WEAVE FORGE ERROR] :", neoErr);
-      const status = neoErr.status || neoErr.statusCode || 500;
-      return NextResponse.json({ error: neoErr.message || "Le Graphe a rejeté le tissage." }, { status });
+    } catch (neoErr: unknown) {
+      const err = neoErr as { status?: number; statusCode?: number; message?: string };
+      console.error("🌋 [NEO4J WEAVE FORGE ERROR] :", err);
+      const status = err.status || err.statusCode || 500;
+      return NextResponse.json({ error: err.message || "Le Graphe a rejeté le tissage." }, { status });
     }
 
     // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
     // On purge le tag global des liens et les tags spécifiques des deux entités reliées
     revalidateTag('resonance-links');
-    revalidateTag(`entity-${validation.data.sourceUid}`);
-    revalidateTag(`entity-${validation.data.targetUid}`);
+    revalidateTag(`entity-${validatedData.sourceUid}`);
+    revalidateTag(`entity-${validatedData.targetUid}`);
 
     return NextResponse.json({
       success: true,
-      message: `Pont transdisciplinaire [${validation.data.relationType}] forgé avec succès dans le Graphe !`,
+      message: `Pont transdisciplinaire [${validatedData.relationType}] forgé avec succès dans le Graphe !`,
       data: result
     }, { status: 201 });
 
-  } catch (error: any) {
-    console.error("🌋 Fracture globale lors du tissage de liens :", error);
-    return NextResponse.json({ error: error.message || "La tempête a brisé le pont." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'RESONANCE LINKS POST ERROR');
   }
 });

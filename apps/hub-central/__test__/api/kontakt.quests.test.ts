@@ -2,16 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/kontakt/quests/route';
 import { JobQuestModel } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
 vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => async (req: any, context: any) => {
+  withSilice: (handler: Function) => async (req: NextRequest, context: unknown) => {
     return await handler(req, context);
   },
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser;
     if (!mockUser || !mockUser.uid) {
       return NextResponse.json({ error: "Oiseau non identifié. Publication refusée." }, { status: 401 });
@@ -21,12 +21,12 @@ vi.mock('@/lib/api-guards', () => ({
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
-  unstable_cache: vi.fn((cb) => cb),
+  unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
@@ -44,14 +44,10 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-declare global {
-  var __mockUser: any;
-}
-
 describe('API Kontakt Job Quests - Gestion des quêtes de recrutement', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   // =========================================================================
@@ -62,10 +58,10 @@ describe('API Kontakt Job Quests - Gestion des quêtes de recrutement', () => {
       sort: vi.fn().mockReturnValue({
         lean: vi.fn().mockResolvedValue([{ uid: 'quest_1', title: 'Quête Fullstack' }]),
       }),
-    } as any);
+    } as unknown as ReturnType<typeof JobQuestModel.find>);
 
-    const req = new Request('http://localhost/api/kontakt/quests');
-    const res = await GET(req as any, {});
+    const req = new NextRequest('http://localhost/api/kontakt/quests');
+    const res = await GET(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -78,14 +74,14 @@ describe('API Kontakt Job Quests - Gestion des quêtes de recrutement', () => {
   // 🚀 TESTS POST (Publication)
   // =========================================================================
   it('🔴 doit rejeter la publication (401) si l\'oiseau n\'est pas connecté', async () => {
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
-    const req = new Request('http://localhost/api/kontakt/quests', {
+    const req = new NextRequest('http://localhost/api/kontakt/quests', {
       method: 'POST',
-      body: JSON.stringify({ title: 'Nouvelle Quête' })
+      body: JSON.stringify({ title: 'Nouvelle Quête', description: 'Test desc' })
     });
 
-    const res = await POST(req as any, {});
+    const res = await POST(req, { params: Promise.resolve({}) });
     expect(res.status).toBe(401);
   });
 
@@ -99,14 +95,14 @@ describe('API Kontakt Job Quests - Gestion des quêtes de recrutement', () => {
       status: 'ACTIVE'
     };
 
-    vi.mocked(JobQuestModel.create).mockResolvedValueOnce(mockCreatedQuest as any);
+    vi.mocked(JobQuestModel.create).mockResolvedValueOnce(mockCreatedQuest as unknown as Awaited<ReturnType<typeof JobQuestModel.create>>);
 
-    const req = new Request('http://localhost/api/kontakt/quests', {
+    const req = new NextRequest('http://localhost/api/kontakt/quests', {
       method: 'POST',
       body: JSON.stringify({ title: 'Développeur Matrix', description: 'Cherche mage Neo4j' })
     });
 
-    const res = await POST(req as any, {});
+    const res = await POST(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(201);

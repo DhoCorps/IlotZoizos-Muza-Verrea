@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/graph/context/route';
-import { getNeo4jSession } from '@ilot/infrastructure';
+import { NextRequest } from 'next/server';
 
 const mockRun = vi.fn();
 const mockClose = vi.fn().mockResolvedValue(true);
@@ -14,11 +14,16 @@ vi.mock('@ilot/infrastructure', () => ({
 }));
 
 vi.mock('next/cache', () => ({
-  unstable_cache: vi.fn((cb) => cb),
+  unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
 vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
+  withSilice: (handler: Function) => handler,
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 describe('API Graph - Contexte relationnel (GET /api/graph/context)', () => {
@@ -27,8 +32,8 @@ describe('API Graph - Contexte relationnel (GET /api/graph/context)', () => {
   });
 
   it('✅ doit retourner des tableaux vides si aucun uid n’est fourni', async () => {
-    const req = new Request('http://localhost:3000/api/graph/context');
-    const res = await GET(req);
+    const req = new NextRequest('http://localhost:3000/api/graph/context');
+    const res = await GET(req, { params: Promise.resolve({}) });
     const data = await res.json();
 
     expect(res.status).toBe(200);
@@ -50,8 +55,8 @@ describe('API Graph - Contexte relationnel (GET /api/graph/context)', () => {
       ]
     });
 
-    const req = new Request('http://localhost:3000/api/graph/context?uid=uid-root');
-    const res = await GET(req);
+    const req = new NextRequest('http://localhost:3000/api/graph/context?uid=uid-root');
+    const res = await GET(req, { params: Promise.resolve({}) });
     const data = await res.json();
 
     expect(res.status).toBe(200);
@@ -64,13 +69,12 @@ describe('API Graph - Contexte relationnel (GET /api/graph/context)', () => {
   it('🔥 doit gérer les erreurs de la matrice Neo4j avec élégance (500)', async () => {
     mockRun.mockRejectedValueOnce(new Error('Neo4j disconnected'));
 
-    const req = new Request('http://localhost:3000/api/graph/context?uid=uid-root');
-    const res = await GET(req);
+    const req = new NextRequest('http://localhost:3000/api/graph/context?uid=uid-root');
+    const res = await GET(req, { params: Promise.resolve({}) });
     const data = await res.json();
 
     expect(res.status).toBe(500);
-    expect(data.nodes).toEqual([]);
-    expect(data.links).toEqual([]);
+    expect(data.success).toBe(false);
     expect(mockClose).toHaveBeenCalled();
   });
 });

@@ -3,22 +3,28 @@ import { GET, POST } from '@/app/api/resonance/echoes/route';
 import { ResonanceModel } from '@ilot/infrastructure';
 import { ResonanceOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
+import { NextRequest, NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
 // -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
-  unstable_cache: vi.fn((cb) => cb), // Exécution immédiate pour le test
+  unstable_cache: vi.fn((cb: Function) => cb), // Exécution immédiate pour le test
   revalidateTag: vi.fn(),
 }));
 
 // Neutralisation des gardes d'API pour les tests unitaires
 vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
-  withAura: (handler: any) => async (req: any, context: any) => {
-    const mockUser = { id: '1', uid: 'u-123', capabilities: ['*'] };
+  withSilice: (handler: Function) => handler,
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const mockUser = global.__mockUser || { id: '1', uid: 'u-123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
   },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
@@ -41,13 +47,13 @@ vi.mock('@ilot/shared-core', () => ({
 describe('Route API : Resonance Echoes (GET / POST /api/resonance/echoes)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   describe('GET - Écouter les résonances', () => {
     it('🔴 doit rejeter (400) si le paramètre targetUid est absent', async () => {
-      const req = new Request('http://localhost/api/resonance/echoes');
-      const res = await GET(req as any, {});
+      const req = new NextRequest('http://localhost/api/resonance/echoes');
+      const res = await GET(req, { params: Promise.resolve({}) });
       const json = await res.json();
 
       expect(res.status).toBe(400);
@@ -61,10 +67,10 @@ describe('Route API : Resonance Echoes (GET / POST /api/resonance/echoes)', () =
             lean: vi.fn().mockResolvedValue([{ uid: 'echo-1', content: 'Murmure...' }]),
           }),
         }),
-      } as any);
+      } as unknown as ReturnType<typeof ResonanceModel.find>);
 
-      const req = new Request('http://localhost/api/resonance/echoes?targetUid=task-1');
-      const res = await GET(req as any, {});
+      const req = new NextRequest('http://localhost/api/resonance/echoes?targetUid=task-1');
+      const res = await GET(req, { params: Promise.resolve({}) });
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -75,24 +81,28 @@ describe('Route API : Resonance Echoes (GET / POST /api/resonance/echoes)', () =
 
   describe('POST - Propager un Écho', () => {
     it('🔴 doit rejeter (400) si le corps de la requête est malformé', async () => {
-      const req = new Request('http://localhost/api/resonance/echoes', {
+      const req = new NextRequest('http://localhost/api/resonance/echoes', {
         method: 'POST',
         body: JSON.stringify({ invalid: 'schema' }),
       });
 
-      const res = await POST(req as any, {});
+      const res = await POST(req, { params: Promise.resolve({}) });
       expect(res.status).toBe(400);
     });
 
     it('🟢 doit propager un écho, l\'inscrire dans le Graphe et la Silice, et invalider le cache (201)', async () => {
+      global.__mockUser = { id: '1', uid: 'u-123', capabilities: ['*'] };
+
       vi.mocked(ResonanceOrchestrator.addSocialEcho).mockResolvedValueOnce({
+        success: true,
         echoUid: 'echo-new-1',
-        status: 'propagated',
-      } as any);
+        content: 'Bel écho !',
+        type: 'TEXT',
+      } as unknown as Awaited<ReturnType<typeof ResonanceOrchestrator.addSocialEcho>>);
 
       vi.mocked(ResonanceModel.create).mockResolvedValueOnce([
         { uid: 'echo-new-1', content: 'Bel écho !' },
-      ] as any);
+      ] as unknown as Awaited<ReturnType<typeof ResonanceModel.create>>);
 
       const payload = {
         targetUid: 'task-1',
@@ -101,12 +111,12 @@ describe('Route API : Resonance Echoes (GET / POST /api/resonance/echoes)', () =
         content: 'Bel écho !',
       };
 
-      const req = new Request('http://localhost/api/resonance/echoes', {
+      const req = new NextRequest('http://localhost/api/resonance/echoes', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
 
-      const res = await POST(req as any, {});
+      const res = await POST(req, { params: Promise.resolve({}) });
       const json = await res.json();
 
       expect(res.status).toBe(201);

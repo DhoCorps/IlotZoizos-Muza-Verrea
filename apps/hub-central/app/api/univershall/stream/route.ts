@@ -1,8 +1,7 @@
-// app/api/univershall/stream/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
-import { withSilice, ApiContext } from '@/lib/api-guards';
+import { withSilice, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedUniversHallStream } from '@/lib/cache/univershall.cache';
 
 // -------------------------------------------------------------------------
@@ -11,9 +10,12 @@ import { getCachedUniversHallStream } from '@/lib/cache/univershall.cache';
 export const GET = withSilice(async (_req: NextRequest, _context: ApiContext) => {
   try {
     const streamItems = await getCachedUniversHallStream();
+    const safeItems = Array.isArray(streamItems) ? streamItems : [];
 
-    // Optionnel : un léger brassage déterministe ou dynamique pour la diversité du flux
-    const shuffledStream = [...streamItems].sort(() => Math.random() - 0.5);
+    // Brassage uniquement si le flux possède plusieurs éléments
+    const shuffledStream = safeItems.length > 1 
+      ? [...safeItems].sort(() => Math.random() - 0.5) 
+      : [...safeItems];
 
     return NextResponse.json({
       success: true,
@@ -21,11 +23,7 @@ export const GET = withSilice(async (_req: NextRequest, _context: ApiContext) =>
       count: shuffledStream.length
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("  [UNIVERS'HALL STREAM GET ERROR] :", error);
-    return NextResponse.json({ 
-      success: false, 
-      error: error.message || "Erreur interne lors du tissage du flux transversal." 
-    }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "UNIVERSHALL STREAM GET FATAL ERROR");
   }
 });

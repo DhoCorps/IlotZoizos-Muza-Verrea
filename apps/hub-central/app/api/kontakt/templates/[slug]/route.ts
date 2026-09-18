@@ -7,6 +7,7 @@ import { revalidateTag } from 'next/cache';
 import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { IlotError } from '@ilot/shared-core';
 import { getCachedTemplateDetail } from '@/lib/cache/kontakt.cache';
+import { handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
 // 🛡️ Schéma Zod strict pour éviter les vulnérabilités d'assignation de masse (Mass Assignment)
@@ -16,11 +17,20 @@ const UpdateCVTemplateSchema = z.object({
   priceShards: z.number().min(0).optional(),
   barterAccepted: z.boolean().optional(),
   letrinFontFamily: z.string().optional(),
-  blocks: z.array(z.any()).optional(),
+  blocks: z.array(z.unknown()).optional(),
   previewUrl: z.string().url().nullable().optional(),
 });
 
-export const GET = withSilice(async (_req: Request, context: ApiContext) => {
+type UpdateCVTemplateInput = z.infer<typeof UpdateCVTemplateSchema>;
+
+interface CVTemplateDocument {
+  uid: string;
+  slug?: string;
+  title?: string;
+  [key: string]: unknown;
+}
+
+export const GET = withSilice(async (_req: NextRequest, context: ApiContext) => {
   try {
     let resolvedParams;
     try {
@@ -28,7 +38,7 @@ export const GET = withSilice(async (_req: Request, context: ApiContext) => {
       if (resolvedParams instanceof Promise) {
         resolvedParams = await resolvedParams;
       }
-    } catch (err) {
+    } catch {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
     const rawSlug = resolvedParams?.slug;
@@ -38,34 +48,31 @@ export const GET = withSilice(async (_req: Request, context: ApiContext) => {
     }
 
     // Tentative via le cache, puis repli sur le helper unifié
-    let template: any = await getCachedTemplateDetail(identifier);
+    let template = (await getCachedTemplateDetail(identifier)) as CVTemplateDocument | null;
     if (!template) {
-      template = await findEntityBySlugOrUid(CVTemplateModel, identifier);
+      template = (await findEntityBySlugOrUid(CVTemplateModel, identifier)) as CVTemplateDocument | null;
     }
 
     if (!template) {
       return NextResponse.json({ error: 'Parchemin introuvable dans la matrice.' }, { status: 404 });
     }
     return NextResponse.json({ success: true, data: template }, { status: 200 });
-  } catch (error: any) {
-    console.error("🔥 [KONTAKT TEMPLATE GET ERROR] :", error);
-    const status = error instanceof IlotError ? error.status : 500;
-    const message = error instanceof IlotError ? error.message : 'Erreur interne du serveur.';
-    return NextResponse.json({ error: message }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'KONTAKT TEMPLATE GET ERROR');
   }
 });
 
-export const PUT = withAura(async (req: Request, context: ApiContext, _currentUser: OiseauUser) => {
+export const PUT = withAura(async (req: NextRequest, context: ApiContext, _currentUser: OiseauUser) => {
   try {
     let resolvedParams;
-    let body;
+    let body: unknown;
     try {
       resolvedParams = await context.params;
       if (resolvedParams instanceof Promise) {
         resolvedParams = await resolvedParams;
       }
       body = await req.json();
-    } catch (err) {
+    } catch {
       return NextResponse.json({ error: 'Requête ou paramètres invalides.' }, { status: 400 });
     }
     const rawSlug = resolvedParams?.slug;
@@ -79,19 +86,19 @@ export const PUT = withAura(async (req: Request, context: ApiContext, _currentUs
     if (!validation.success) {
       return NextResponse.json({ error: 'Données de mutation corrompues.', details: validation.error.flatten() }, { status: 400 });
     }
-    const sanitizedData = validation.data;
+    const sanitizedData: UpdateCVTemplateInput = validation.data;
 
     // 🔍 Recherche unifiée pour trouver l'entité par slug ou UID avant mise à jour
-    const targetTemplate: any = await findEntityBySlugOrUid(CVTemplateModel, identifier, { lean: false });
+    const targetTemplate = (await findEntityBySlugOrUid(CVTemplateModel, identifier, { lean: false })) as CVTemplateDocument | null;
     if (!targetTemplate) {
       return NextResponse.json({ error: 'Parchemin introuvable dans la matrice.' }, { status: 404 });
     }
 
-    const updatedTemplate = await CVTemplateModel.findOneAndUpdate(
+    const updatedTemplate = (await CVTemplateModel.findOneAndUpdate(
       { uid: targetTemplate.uid }, 
       { $set: sanitizedData }, 
       { new: true }
-    ).lean();
+    ).lean()) as CVTemplateDocument | null;
 
     if (!updatedTemplate) {
       return NextResponse.json({ error: 'Parchemin introuvable dans la matrice.' }, { status: 404 });
@@ -100,11 +107,11 @@ export const PUT = withAura(async (req: Request, context: ApiContext, _currentUs
     revalidateTag('cv-templates');
     revalidateTag('kontakt-templates');
     revalidateTag(`template-${identifier}`);
-    if ((updatedTemplate as any).slug) {
-      revalidateTag(`template-${(updatedTemplate as any).slug}`);
+    if (updatedTemplate.slug) {
+      revalidateTag(`template-${updatedTemplate.slug}`);
     }
-    if ((updatedTemplate as any).uid) {
-      revalidateTag(`template-${(updatedTemplate as any).uid}`);
+    if (updatedTemplate.uid) {
+      revalidateTag(`template-${updatedTemplate.uid}`);
     }
 
     return NextResponse.json({
@@ -112,15 +119,12 @@ export const PUT = withAura(async (req: Request, context: ApiContext, _currentUs
       message: 'Le parchemin a muté avec succès.',
       data: updatedTemplate
     }, { status: 200 });
-  } catch (error: any) {
-    console.error("🔥 [KONTAKT TEMPLATE PUT ERROR] :", error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
-    const message = error instanceof IlotError ? error.message : 'Erreur lors de la mise à jour.';
-    return NextResponse.json({ error: message }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'KONTAKT TEMPLATE PUT ERROR');
   }
 });
 
-export const DELETE = withAura(async (_req: Request, context: ApiContext, _currentUser: OiseauUser) => {
+export const DELETE = withAura(async (_req: NextRequest, context: ApiContext, _currentUser: OiseauUser) => {
   try {
     let resolvedParams;
     try {
@@ -128,7 +132,7 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, _curre
       if (resolvedParams instanceof Promise) {
         resolvedParams = await resolvedParams;
       }
-    } catch (err) {
+    } catch {
       return NextResponse.json({ error: 'Paramètres invalides.' }, { status: 400 });
     }
     const rawSlug = resolvedParams?.slug;
@@ -138,7 +142,7 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, _curre
     }
 
     // 🔍 Utilisation de notre helper unifié pour cibler la suppression
-    const targetTemplate: any = await findEntityBySlugOrUid(CVTemplateModel, identifier);
+    const targetTemplate = (await findEntityBySlugOrUid(CVTemplateModel, identifier)) as CVTemplateDocument | null;
     if (!targetTemplate) {
       return NextResponse.json({ error: 'Parchemin introuvable pour dissolution.' }, { status: 404 });
     }
@@ -157,10 +161,7 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, _curre
       success: true,
       message: `Le template [${identifier}] a été désintégré de la matrice.`
     }, { status: 200 });
-  } catch (error: any) {
-    console.error("🔥 [KONTAKT TEMPLATE DELETE ERROR] :", error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || 500);
-    const message = error instanceof IlotError ? error.message : 'Erreur lors de la suppression.';
-    return NextResponse.json({ error: message }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'KONTAKT TEMPLATE DELETE ERROR');
   }
 });

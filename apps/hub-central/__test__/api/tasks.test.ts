@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET, POST } from '../../app/api/tasks/route';
+import { GET, POST } from '@/app/api/tasks/route';
 import { TaskModel, ProjectModel, getNeo4jSession } from '@ilot/infrastructure';
+import { NextRequest, NextResponse } from 'next/server';
 
 // 🛡️ Mocks globaux
 vi.mock('@ilot/infrastructure', () => ({
@@ -23,16 +24,21 @@ vi.mock('@ilot/shared-core', () => {
     };
 });
 
-// 🛡️ Simulation du decorateur withAura pour injecter un utilisateur valide
+// 🛡️ Simulation du decorateur withAura pour injecter un utilisateur valide et handleRouteError
 vi.mock('@/lib/api-guards', () => ({
-    withAura: (handler: any) => async (req: Request, context: any) => {
+    withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
         const currentUser = { uid: 'bird_123', capabilities: ['*'] };
         return handler(req, context, currentUser);
     },
+    handleRouteError: (error: unknown, context: string) => {
+        const err = error as Error;
+        console.error(`[${context}]`, err);
+        return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
 }));
 
 vi.mock('next/cache', () => ({
-    unstable_cache: (fn: any) => fn,
+    unstable_cache: (fn: Function) => fn,
     revalidateTag: vi.fn(),
 }));
 
@@ -41,12 +47,12 @@ describe('Route API : Atomes (Tasks) /api/tasks', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        delete (global as any).__mockUser;
+        delete global.__mockUser;
         mockNeoSession = {
             run: vi.fn().mockResolvedValue({ records: [] }),
             close: vi.fn().mockResolvedValue(undefined),
         };
-        vi.mocked(getNeo4jSession).mockReturnValue(mockNeoSession as any);
+        vi.mocked(getNeo4jSession).mockReturnValue(mockNeoSession as unknown as ReturnType<typeof getNeo4jSession>);
     });
 
     it('🟢 GET : doit renvoyer les tâches avec succès', async () => {
@@ -54,11 +60,11 @@ describe('Route API : Atomes (Tasks) /api/tasks', () => {
             sort: vi.fn().mockReturnValue({
                 lean: vi.fn().mockResolvedValue([{ uid: 'task_1', title: 'Tâche Test' }])
             })
-        } as any);
+        } as unknown as ReturnType<typeof TaskModel.find>);
 
-        const req = new Request('http://localhost:3000/api/tasks');
+        const req = new NextRequest('http://localhost:3000/api/tasks');
 
-        const res = await GET(req as any, {} as any);
+        const res = await GET(req, { params: Promise.resolve({}) });
         const data = await res.json();
 
         expect(res.status).toBe(200);
@@ -69,15 +75,15 @@ describe('Route API : Atomes (Tasks) /api/tasks', () => {
     it('🟢 POST : doit créer un nouvel atome/tâche si autorisé et validé par Zod', async () => {
         vi.mocked(ProjectModel.findOne).mockReturnValue({
             lean: vi.fn().mockResolvedValue({ uid: 'proj_123', creatorUid: 'bird_123' })
-        } as any);
+        } as unknown as ReturnType<typeof ProjectModel.findOne>);
 
-        const req = new Request('http://localhost:3000/api/tasks', {
+        const req = new NextRequest('http://localhost:3000/api/tasks', {
             method: 'POST',
             body: JSON.stringify({ projectUid: 'proj_123', title: 'Nouvel Atome' }),
             headers: { 'Content-Type': 'application/json' },
         });
 
-        const res = await POST(req as any, {} as any);
+        const res = await POST(req, { params: Promise.resolve({}) });
         const data = await res.json();
 
         expect(res.status).toBe(201);

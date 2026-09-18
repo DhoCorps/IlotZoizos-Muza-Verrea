@@ -1,30 +1,43 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { PaymentTokenizationOrchestrator } from '@ilot/shared-core';
-import { IlotError } from '@ilot/shared-core';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { revalidateTag } from 'next/cache';
+import { z } from 'zod';
 
 const paymentOrchestrator = new PaymentTokenizationOrchestrator();
+
+// 🛡️ Schéma Zod pour sécuriser la liaison du profil de paiement
+const WalletTokenizeSchema = z.object({
+  externalCustomerId: z.string().min(1, "L'identifiant client externe est requis."),
+  defaultPaymentMethodId: z.string().min(1, "Le moyen de paiement par défaut est requis."),
+});
+
+type WalletTokenizeInput = z.infer<typeof WalletTokenizeSchema>;
 
 // ==========================================
 // 💳 POST : Liaison de Profil de Paiement Externe
 // ==========================================
-export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let body;
+    let body: unknown;
     try {
       body = await req.json();
-    } catch (parseErr) {
+    } catch {
       return NextResponse.json({ success: false, error: 'Paramètres de tokenisation illisibles.' }, { status: 400 });
     }
 
-    const { externalCustomerId, defaultPaymentMethodId } = body;
-    
-    if (!externalCustomerId || !defaultPaymentMethodId) {
-      return NextResponse.json({ success: false, error: 'Paramètres de tokenisation manquants.' }, { status: 400 });
+    const validationResult = WalletTokenizeSchema.safeParse(body);
+    if (!validationResult.success) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Paramètres de tokenisation manquants ou invalides.', 
+        details: validationResult.error.flatten() 
+      }, { status: 400 });
     }
+
+    const validatedData: WalletTokenizeInput = validationResult.data;
 
     const signature = {
       actorUid: currentUser.uid,
@@ -34,8 +47,8 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     const result = await paymentOrchestrator.linkExternalPaymentProfile(
       {
         userUid: currentUser.uid,
-        externalCustomerId,
-        defaultPaymentMethodId
+        externalCustomerId: validatedData.externalCustomerId,
+        defaultPaymentMethodId: validatedData.defaultPaymentMethodId
       },
       signature
     );
@@ -47,12 +60,7 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
 
     return NextResponse.json(result, { status: 201 });
 
-  } catch (error: any) {
-    console.error('[API Payment Wallet Error] :', error);
-    const statusCode = error instanceof IlotError ? error.status : 500;
-    return NextResponse.json(
-      { success: false, error: error.message || 'Erreur interne de la matrice de paiement.' },
-      { status: statusCode }
-    );
+  } catch (error: unknown) {
+    return handleRouteError(error, 'API PAYMENT WALLET ERROR');
   }
 });

@@ -3,15 +3,15 @@ import { POST, GET } from '@/app/api/letrin/sprites/route';
 import { LetterSpriteModel } from '@ilot/infrastructure';
 import { getCachedFonts } from '@/lib/cache/letrin.cache';
 import { revalidateTag } from 'next/cache';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
 vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withSilice: (handler: Function) => handler,
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser || { uid: 'u-123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
   },
@@ -35,22 +35,18 @@ vi.mock('@ilot/shared-core', () => ({
   },
 }));
 
-declare global {
-  var __mockUser: any;
-}
-
 describe('API Letr\'In Sprites (GET / POST) avec Sceau SHA-256', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   it('GET - doit recenser les polices mises en cache', async () => {
     // 🎯 Forçage de la résolution du mock pour ce test précis
-    vi.mocked(getCachedFonts).mockResolvedValueOnce([{ uid: 'font_1', name: 'Test Font' }] as any);
+    vi.mocked(getCachedFonts).mockResolvedValueOnce([{ uid: 'font_1', name: 'Test Font' }] as unknown as Awaited<ReturnType<typeof getCachedFonts>>);
 
     const req = new NextRequest('http://localhost/api/letrin/sprites');
-    const res = await GET(req, {} as any);
+    const res = await GET(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -62,12 +58,12 @@ describe('API Letr\'In Sprites (GET / POST) avec Sceau SHA-256', () => {
 
     vi.mocked(LetterSpriteModel.findOne).mockReturnValue({
       lean: vi.fn().mockResolvedValue(null),
-    } as any);
+    } as unknown as ReturnType<typeof LetterSpriteModel.findOne>);
 
-    vi.mocked(LetterSpriteModel.create).mockImplementation((doc: any) => Promise.resolve({
-      ...doc,
+    vi.mocked(LetterSpriteModel.create).mockImplementation((doc: unknown) => Promise.resolve({
+      ...(doc as Record<string, unknown>),
       _id: 'mongo_id_abc',
-    }) as any);
+    }) as unknown as ReturnType<typeof LetterSpriteModel.create>);
 
     const reqData = {
       name: 'Police Canopée',
@@ -75,12 +71,12 @@ describe('API Letr\'In Sprites (GET / POST) avec Sceau SHA-256', () => {
       glyphs: [{ char: 'A', pixels: [] }]
     };
 
-    const req = {
-      json: async () => reqData,
-      headers: { get: () => '127.0.0.1' },
-    } as unknown as NextRequest;
+    const req = new NextRequest('http://localhost/api/letrin/sprites', {
+      method: 'POST',
+      body: JSON.stringify(reqData)
+    });
 
-    const res = await POST(req, {} as any);
+    const res = await POST(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(201);

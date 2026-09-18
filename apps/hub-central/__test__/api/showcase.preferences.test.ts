@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '../../app/api/showcase/preferences/route';
+import { POST } from '@/app/api/showcase/preferences/route';
 import { UniversalMediaModel } from '@ilot/infrastructure';
+import { NextRequest, NextResponse } from 'next/server';
 
 // 🛡️ MOCK GLOBAL : Empêche Next.js de paniquer sur le cache
 vi.mock('next/cache', () => ({
@@ -9,7 +10,7 @@ vi.mock('next/cache', () => ({
 
 // 🛡️ MOCK INTELLIGENT DE L'INFRASTRUCTURE
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
-  const actual: any = await importOriginal();
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
   return {
     ...actual, // Garde "connectToDatabase" et le reste intacts !
     UniversalMediaModel: {
@@ -18,29 +19,34 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-// 🛡️ MOCK DU GARDE D'AURA
+// 🛡️ MOCK DU GARDE D'AURA ET DE LA GESTION D'ERREUR
 vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
-    // Simule un oiseau connecté avec l'UID canonique 'bird_alpha'
-    return handler(req, context, { uid: 'bird_alpha', capabilities: ['*'] });
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const mockUser = global.__mockUser || { uid: 'bird_alpha', capabilities: ['*'] };
+    return await handler(req, context, mockUser);
   },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 describe('POST /api/showcase/preferences - Route API de Configuration Granulaire', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   it('doit mettre à jour les préférences de consentement avec succès (200)', async () => {
-    vi.mocked(UniversalMediaModel.updateMany).mockResolvedValue({ modifiedCount: 1 } as any);
+    vi.mocked(UniversalMediaModel.updateMany).mockResolvedValue({ modifiedCount: 1 } as unknown as Awaited<ReturnType<typeof UniversalMediaModel.updateMany>>);
 
-    const req = new Request('http://localhost/api/showcase/preferences', {
+    const req = new NextRequest('http://localhost/api/showcase/preferences', {
       method: 'POST',
       body: JSON.stringify({ consentForShowcase: true, sourceApp: 'DHO' })
     });
 
-    const response = await POST(req, {} as any);
+    const response = await POST(req, { params: Promise.resolve({}) });
     const data = await response.json();
 
     expect(response.status).toBe(200);
@@ -55,12 +61,12 @@ describe('POST /api/showcase/preferences - Route API de Configuration Granulaire
   });
 
   it('doit retourner une erreur 400 si le corps de requête est illisible', async () => {
-    const req = new Request('http://localhost/api/showcase/preferences', {
+    const req = new NextRequest('http://localhost/api/showcase/preferences', {
       method: 'POST'
       // Body intentionnellement omis
     });
 
-    const response = await POST(req, {} as any);
+    const response = await POST(req, { params: Promise.resolve({}) });
     const data = await response.json();
 
     expect(response.status).toBe(400);
@@ -72,12 +78,12 @@ describe('POST /api/showcase/preferences - Route API de Configuration Granulaire
     // Simule un crash de la base de données
     vi.mocked(UniversalMediaModel.updateMany).mockRejectedValue(new Error('Erreur Silice MongoDB'));
 
-    const req = new Request('http://localhost/api/showcase/preferences', {
+    const req = new NextRequest('http://localhost/api/showcase/preferences', {
       method: 'POST',
       body: JSON.stringify({ consentForShowcase: false })
     });
 
-    const response = await POST(req, {} as any);
+    const response = await POST(req, { params: Promise.resolve({}) });
     const data = await response.json();
 
     expect(response.status).toBe(500);

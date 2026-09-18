@@ -1,41 +1,41 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { OiseauModel } from '@ilot/infrastructure';
 import { unstable_cache } from 'next/cache';
-import { withSilice, ApiContext } from '@/lib/api-guards';
+import { withSilice, ApiContext, handleRouteError } from '@/lib/api-guards';
 
-// 🧠 CACHE SÉCURISÉ : Mise en cache standard du Hall of Fame (60s)
-async function getCachedLeaderboard() {
-  const fetcher = async () => {
-    return await OiseauModel.find({ 
-      profileStatus: 'RESPECTABLE',
-      isBanned: { $ne: true }
-    })
-      .sort({ ifvScore: -1, createdAt: 1 })
-      .limit(20)
-      .select('uid pseudo nickname ifvScore profileStatus avatarUrl createdAt')
-      .lean();
-  };
-
-  return await unstable_cache(
-    fetcher,
-    ['sovereign-leaderboard-respectable'],
-    { revalidate: 60, tags: ['leaderboard', 'respectable-birds'] }
+// 🧠 CACHE : Récupération du Hall of Fame (Leaderboard de la Canopée)
+const getCachedLeaderboard = () => {
+  return unstable_cache(
+    async () => {
+      return await OiseauModel.find({
+        profileStatus: 'RESPECTABLE',
+        isBanned: { $ne: true }
+      })
+        .sort({ ifvScore: -1 })
+        .limit(20)
+        .select('uid pseudo avatarUrl ifvScore profileStatus')
+        .lean();
+    },
+    ['sovereign-leaderboard'],
+    { revalidate: 300, tags: ['users', 'leaderboard'] }
   )();
-}
+};
 
 // ==========================================
-// 🏆 GET : Consulter le Hall of Fame de la Canopée (Public / Silice)
+// 🏆 GET : Le Hall of Fame (Leaderboard - Public / Silice)
 // ==========================================
-export const GET = withSilice(async (_req: Request, _context: ApiContext) => {
+export const GET = withSilice(async (_req: NextRequest, _context: ApiContext) => {
   try {
-    const eliteBirds = await getCachedLeaderboard();
-    return NextResponse.json({ success: true, leaderboard: eliteBirds }, { status: 200 });
+    const leaderboard = await getCachedLeaderboard();
+
+    return NextResponse.json({
+      success: true,
+      leaderboard
+    }, { status: 200 });
 
   } catch (error: unknown) {
-    const err = error as Error;
-    console.error("🔥 [LEADERBOARD GET ERROR] :", err);
-    return NextResponse.json({ success: false, error: err.message || "Échec de la lecture du panthéon." }, { status: 500 });
+    return handleRouteError(error, 'LEADERBOARD GET ERROR');
   }
 });

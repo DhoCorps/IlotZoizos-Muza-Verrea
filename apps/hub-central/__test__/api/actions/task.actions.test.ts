@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { completePomodoroAction, deleteTaskAction, updateTaskStatusAction } from '@/app/actions/task.actions';
-import { TaskOrchestrator } from '@ilot/shared-core';
+import { completePomodoroAction, deleteTaskAction, updateTaskStatusAction, createTaskAction } from '@/app/actions/task.actions';
 import { getServerSession } from "next-auth/next";
-import { getNeo4jSession } from '@ilot/infrastructure';
 import { revalidatePath } from 'next/cache';
 
 // 🎭 Mocks
@@ -46,11 +44,32 @@ describe('Tasks Server Actions', () => {
     vi.clearAllMocks();
   });
 
+  describe('createTaskAction', () => {
+    it('🟢 doit créer un atome avec succès', async () => {
+      vi.mocked(getServerSession).mockResolvedValueOnce({
+        user: { uid: 'user_123', capabilities: ['*'] }
+      } as unknown as Awaited<ReturnType<typeof getServerSession>>);
+
+      const res = await createTaskAction({ 
+        projectUid: 'proj_1', 
+        content: { 
+          title: 'Nouvel Atome',
+          tags: [],
+          attachments: []
+        } 
+      });
+
+      expect(res.success).toBe(true);
+      expect((res.data as { uid: string }).uid).toBe('task_new');
+      expect(revalidatePath).toHaveBeenCalledWith('/tom-hat-toes');
+    });
+  });
+
   describe('completePomodoroAction', () => {
     it('🟢 doit valider un cycle Pomodoro via le TaskOrchestrator avec succès', async () => {
       vi.mocked(getServerSession).mockResolvedValueOnce({
         user: { uid: 'user_123', capabilities: ['*'] }
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof getServerSession>>);
 
       const res = await completePomodoroAction('task_abc');
 
@@ -73,7 +92,7 @@ describe('Tasks Server Actions', () => {
     it('🟢 doit mettre à jour le statut d\'un atome avec succès', async () => {
       vi.mocked(getServerSession).mockResolvedValueOnce({
         user: { uid: 'user_123', capabilities: ['*'] }
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof getServerSession>>);
 
       const res = await updateTaskStatusAction('task_abc', 'DONE');
 
@@ -86,7 +105,7 @@ describe('Tasks Server Actions', () => {
     it('🟢 doit dissoudre un atome via l\'orchestrateur', async () => {
       vi.mocked(getServerSession).mockResolvedValueOnce({
         user: { uid: 'user_123', capabilities: ['*'] }
-      } as any);
+      } as unknown as Awaited<ReturnType<typeof getServerSession>>);
 
       const res = await deleteTaskAction('task_abc');
 

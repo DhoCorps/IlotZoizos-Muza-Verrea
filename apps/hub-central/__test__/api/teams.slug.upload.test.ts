@@ -11,21 +11,26 @@ vi.mock('next/cache', () => ({ revalidateTag: vi.fn() }));
 
 // Mocks unifiés des api-guards
 vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser || { uid: 'u-123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
   },
-  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: any) => async (req: any, context: any) => {
+  withRateLimit: (_actionKey: string, _max: number, _window: number, handler: Function) => async (req: NextRequest, context: unknown) => {
     const rateLimitResult = await checkRateLimit(_actionKey, _max, _window);
     if (rateLimitResult && rateLimitResult.allowed === false) {
       return NextResponse.json({ success: false, message: "Trop de requêtes." }, { status: 429 });
     }
     return await handler(req, context);
   },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, message: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
-  const actual: any = await importOriginal();
+  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
   return {
     ...actual,
     TeamModel: {
@@ -41,31 +46,35 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 vi.mock('@/modules/security/rateLimiter', () => ({ checkRateLimit: vi.fn().mockResolvedValue({ allowed: true }) }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 declare global {
-  var __mockUser: any;
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
 }
 
 describe('Route API : Nid Artefacts & Sceau Cryptographique (POST / DELETE)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     vi.spyOn(storageService, 'generateKey').mockReturnValue('mock-key');
-    vi.spyOn(storageService, 'uploadFile').mockResolvedValue({ publicUrl: 'https://cdn.ilot/file.jpg', key: 'mock-key' } as any);
+    vi.spyOn(storageService, 'uploadFile').mockResolvedValue({ publicUrl: 'https://cdn.ilot/file.jpg', key: 'mock-key' } as unknown as Awaited<ReturnType<typeof storageService.uploadFile>>);
     vi.spyOn(storageService, 'extractKeyFromUrl').mockImplementation((url: string) => {
       if (url.includes('etranger')) return 'foreign-key';
       return 'mock-key';
     });
-    vi.spyOn(storageService, 'deleteFile').mockResolvedValue(true as any);
+    vi.spyOn(storageService, 'deleteFile').mockResolvedValue(true as unknown as Awaited<ReturnType<typeof storageService.deleteFile>>);
 
     vi.mocked(TeamModel.findOneAndUpdate).mockReturnValue({
       lean: vi.fn().mockResolvedValue({ uid: 't-1', documents: [] }),
-    } as any);
+    } as unknown as ReturnType<typeof TeamModel.findOneAndUpdate>);
 
-    vi.mocked(TeamModel.updateOne).mockResolvedValue({ modifiedCount: 1 } as any);
+    vi.mocked(TeamModel.updateOne).mockResolvedValue({ modifiedCount: 1 } as unknown as Awaited<ReturnType<typeof TeamModel.updateOne>>);
   });
 
   it('POST - doit téléverser un fichier, sceller le SHA-256 et valider l\'autorisation', async () => {
@@ -74,22 +83,22 @@ describe('Route API : Nid Artefacts & Sceau Cryptographique (POST / DELETE)', ()
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 't-1',
       slug: 't-1'
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
     vi.mocked(getNeo4jSession).mockReturnValue({
       run: vi.fn().mockResolvedValue({ records: [{ get: () => [CAPABILITIES.FILE.UPLOAD] }] }),
       close: vi.fn(),
-    } as any);
+    } as unknown as ReturnType<typeof getNeo4jSession>);
 
     const formData = new FormData();
     formData.append('file', new Blob(['test-contenu-nid'], { type: 'image/jpeg' }), 'test.jpg');
 
     const req = {
       headers: { get: () => '127.0.0.1' },
-      formData: async () => formData,
+      formData: vi.fn().mockResolvedValue(formData),
     } as unknown as NextRequest;
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 't-1' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 't-1' }) });
     const data = await response.json();
 
     expect(response.status).toBe(201);
@@ -109,19 +118,19 @@ describe('Route API : Nid Artefacts & Sceau Cryptographique (POST / DELETE)', ()
       uid: 't-1',
       slug: 't-1',
       documents: [{ url: 'https://cdn.ilot/file.jpg' }]
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
     vi.mocked(getNeo4jSession).mockReturnValue({
       run: vi.fn().mockResolvedValue({ records: [{ get: () => [CAPABILITIES.FILE.BURN] }] }),
       close: vi.fn(),
-    } as any);
+    } as unknown as ReturnType<typeof getNeo4jSession>);
 
-    const req = new Request('http://localhost', { 
+    const req = new NextRequest('http://localhost/api/teams/t-1/upload', { 
         method: 'DELETE', 
         body: JSON.stringify({ key: 'https://cdn.ilot/document-etranger.jpg' }) 
-    }) as unknown as NextRequest;
+    });
 
-    const response = await DELETE(req as any, { params: Promise.resolve({ slug: 't-1' }) });
+    const response = await DELETE(req, { params: Promise.resolve({ slug: 't-1' }) });
     const data = await response.json();
 
     expect(response.status).toBe(403);
@@ -137,19 +146,19 @@ describe('Route API : Nid Artefacts & Sceau Cryptographique (POST / DELETE)', ()
       uid: 't-1',
       slug: 't-1',
       documents: [{ url: 'https://cdn.ilot/file.jpg' }]
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
     vi.mocked(getNeo4jSession).mockReturnValue({
       run: vi.fn().mockResolvedValue({ records: [{ get: () => [CAPABILITIES.FILE.BURN] }] }),
       close: vi.fn(),
-    } as any);
+    } as unknown as ReturnType<typeof getNeo4jSession>);
 
-    const req = new Request('http://localhost', { 
+    const req = new NextRequest('http://localhost/api/teams/t-1/upload', { 
         method: 'DELETE', 
         body: JSON.stringify({ key: 'https://cdn.ilot/file.jpg' }) 
-    }) as unknown as NextRequest;
+    });
 
-    const response = await DELETE(req as any, { params: Promise.resolve({ slug: 't-1' }) });
+    const response = await DELETE(req, { params: Promise.resolve({ slug: 't-1' }) });
     expect(response.status).toBe(200);
     expect(findEntityBySlugOrUid).toHaveBeenCalledWith(TeamModel, 't-1');
     expect(storageService.deleteFile).toHaveBeenCalled();

@@ -76,7 +76,24 @@ export async function createTaskAction(data: Partial<ITask> & { projectUid: stri
     const signature: ActionSignature = { actorUid: userUid, capabilities: caps };
     const taskOrch = new TaskOrchestrator();
 
-    const result = await taskOrch.fosterTask(data, signature);
+    // 🛡️ Normalisation complète et sécurisée (null -> undefined) pour respecter FosterTaskPayload sans `any`
+    const payload: Parameters<typeof taskOrch.fosterTask>[0] = {
+      ...data,
+      dates: data.dates ? {
+        ...data.dates,
+        scheduledAt: data.dates.scheduledAt === null ? undefined : data.dates.scheduledAt,
+        deadline: data.dates.deadline === null ? undefined : data.dates.deadline,
+        createdAt: data.dates.createdAt,
+        updatedAt: data.dates.updatedAt,
+      } : undefined,
+      connections: data.connections ? {
+        ...data.connections,
+        targetModule: data.connections.targetModule === null ? undefined : data.connections.targetModule,
+        targetEntityUid: data.connections.targetEntityUid === null ? undefined : data.connections.targetEntityUid,
+      } : undefined
+    };
+
+    const result = await taskOrch.fosterTask(payload, signature);
 
     revalidatePath('/tom-hat-toes');
     return { success: true, data: JSON.parse(JSON.stringify(result)) };

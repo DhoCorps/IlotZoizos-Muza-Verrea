@@ -1,30 +1,47 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { KomptaPaymentOrchestrator } from '@ilot/shared-core';
-import { IlotError } from '@ilot/shared-core';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { revalidateTag } from 'next/cache';
+import { z } from 'zod';
 
 const komptaOrchestrator = new KomptaPaymentOrchestrator();
+
+// 🛡️ Schéma Zod pour sécuriser la transaction marchande
+const TransactionSchema = z.object({
+  transactionUid: z.string().min(1, "L'identifiant de transaction est requis."),
+  recipientUid: z.string().min(1, "Le destinataire est requis."),
+  amountCents: z.number().positive("Le montant doit être positif."),
+  currency: z.string().optional(),
+  storeUid: z.string().optional(),
+  description: z.string().optional(),
+});
+
+type TransactionInput = z.infer<typeof TransactionSchema>;
 
 // ==========================================
 // 🛍️ POST : Transaction Marchande (Le Chapeau)
 // ==========================================
-export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let body;
+    let body: unknown;
     try {
       body = await req.json();
-    } catch (parseErr) {
+    } catch {
       return NextResponse.json({ success: false, error: 'Paramètres de transaction illisibles.' }, { status: 400 });
     }
 
-    const { transactionUid, recipientUid, amountCents, currency, storeUid, description } = body;
-    
-    if (!transactionUid || !recipientUid || !amountCents) {
-      return NextResponse.json({ success: false, error: 'Paramètres de transaction manquants.' }, { status: 400 });
+    const validationResult = TransactionSchema.safeParse(body);
+    if (!validationResult.success) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Paramètres de transaction manquants ou invalides.', 
+        details: validationResult.error.flatten() 
+      }, { status: 400 });
     }
+
+    const validatedData: TransactionInput = validationResult.data;
 
     const signature = {
       actorUid: currentUser.uid,
@@ -33,14 +50,14 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
 
     const result = await komptaOrchestrator.executeStoreTransaction(
       {
-        transactionUid,
+        transactionUid: validatedData.transactionUid,
         buyerUid: currentUser.uid,
-        recipientUid,
-        amountCents,
-        currency: currency || 'EUR',
-        storeUid,
+        recipientUid: validatedData.recipientUid,
+        amountCents: validatedData.amountCents,
+        currency: validatedData.currency || 'EUR',
+        storeUid: validatedData.storeUid,
         sourcePage: 'floating_chapeau',
-        description
+        description: validatedData.description
       },
       signature
     );
@@ -49,19 +66,14 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     revalidateTag('kompta-ledger');
     revalidateTag('user-wallet');
     revalidateTag(`user-wallet-${currentUser.uid}`);
-    revalidateTag(`user-wallet-${recipientUid}`);
-    if (storeUid) {
-      revalidateTag(`store-products-${storeUid}`);
+    revalidateTag(`user-wallet-${validatedData.recipientUid}`);
+    if (validatedData.storeUid) {
+      revalidateTag(`store-products-${validatedData.storeUid}`);
     }
 
     return NextResponse.json(result, { status: 201 });
 
-  } catch (error: any) {
-    console.error('[API Transaction Error] :', error);
-    const statusCode = error instanceof IlotError ? error.status : 500;
-    return NextResponse.json(
-      { success: false, error: error.message || 'Erreur lors de la transaction du Chapeau.' },
-      { status: statusCode }
-    );
+  } catch (error: unknown) {
+    return handleRouteError(error, 'API TRANSACTION ERROR');
   }
 });

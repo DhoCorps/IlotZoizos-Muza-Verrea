@@ -1,19 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/users/[slug]/resonance/route';
-import { getServerSession } from 'next-auth/next';
 import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { ResonanceOrchestrator, TaskResonanceOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
+import { NextRequest, NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
 // -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
-}));
-
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -31,8 +27,32 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 });
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
+
+// Mock unifié de l'api-guard
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const mockCurrentUser = global.__mockUser;
+    if (!mockCurrentUser) {
+      return NextResponse.json({ success: false, error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
+    }
+    return await handler(req, context, mockCurrentUser);
+  },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+}));
+
+declare global {
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
+}
 
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
@@ -40,26 +60,26 @@ vi.mock('@/lib/slugify', () => ({
 describe('Route API : Résonance (POST /[slug]/resonance)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur les prototypes des orchestrateurs
-    vi.spyOn(ResonanceOrchestrator, 'weaveResonance').mockResolvedValue(true as any);
-    vi.spyOn(ResonanceOrchestrator, 'severResonance').mockResolvedValue(true as any);
+    vi.spyOn(ResonanceOrchestrator, 'weaveResonance').mockResolvedValue(true as unknown as Awaited<ReturnType<typeof ResonanceOrchestrator.weaveResonance>>);
+    vi.spyOn(ResonanceOrchestrator, 'severResonance').mockResolvedValue(true as unknown as Awaited<ReturnType<typeof ResonanceOrchestrator.severResonance>>);
 
     vi.spyOn(TaskResonanceOrchestrator.prototype, 'processUserTaskResonance').mockResolvedValue({
       score: 100,
-    } as any);
+    } as unknown as Awaited<ReturnType<TaskResonanceOrchestrator['processUserTaskResonance']>>);
   });
 
   it('doit rejeter (401) si l\'utilisateur n\'a pas d\'Aura', async () => {
-    vi.mocked(getServerSession).mockResolvedValue(null);
+    delete global.__mockUser;
 
-    const req = new Request('http://localhost/api/users/cible-123/resonance', {
+    const req = new NextRequest('http://localhost/api/users/cible-123/resonance', {
       method: 'POST',
       body: JSON.stringify({ action: 'WEAVE', type: 'FOLLOWS_GLOBAL' }),
     });
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'cible-123' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'cible-123' }) });
     const json = await response.json();
 
     expect(response.status).toBe(401);
@@ -67,16 +87,14 @@ describe('Route API : Résonance (POST /[slug]/resonance)', () => {
   });
 
   it('doit rejeter (400) si l\'oiseau tente de résonner avec lui-même', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'moi-même', capabilities: [] }
-    } as any);
+    global.__mockUser = { uid: 'moi-même', capabilities: [] };
 
-    const req = new Request('http://localhost/api/users/moi-même/resonance', {
+    const req = new NextRequest('http://localhost/api/users/moi-même/resonance', {
       method: 'POST',
       body: JSON.stringify({ action: 'WEAVE', type: 'FOLLOWS_GLOBAL' }),
     });
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'moi-même' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'moi-même' }) });
     const json = await response.json();
 
     expect(response.status).toBe(400);
@@ -84,21 +102,19 @@ describe('Route API : Résonance (POST /[slug]/resonance)', () => {
   });
 
   it('doit réussir (200) un abonnement WEAVE, mettre à jour les compteurs et invalider le cache', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'source-uid', capabilities: [] }
-    } as any);
+    global.__mockUser = { uid: 'source-uid', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 'target-uid',
       slug: 'cible-slug',
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-    const req = new Request('http://localhost/api/users/cible-slug/resonance', {
+    const req = new NextRequest('http://localhost/api/users/cible-slug/resonance', {
       method: 'POST',
       body: JSON.stringify({ action: 'WEAVE', type: 'FOLLOWS_GLOBAL' }),
     });
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'cible-slug' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'cible-slug' }) });
     const json = await response.json();
 
     expect(response.status).toBe(200);
@@ -116,21 +132,19 @@ describe('Route API : Résonance (POST /[slug]/resonance)', () => {
   });
 
   it('doit réussir (200) une rupture SEVER et décrémenter les compteurs', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'source-uid', capabilities: [] }
-    } as any);
+    global.__mockUser = { uid: 'source-uid', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 'target-uid',
       slug: 'cible-slug',
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-    const req = new Request('http://localhost/api/users/cible-slug/resonance', {
+    const req = new NextRequest('http://localhost/api/users/cible-slug/resonance', {
       method: 'POST',
       body: JSON.stringify({ action: 'SEVER', type: 'FOLLOWS_GLOBAL' }),
     });
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'cible-slug' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'cible-slug' }) });
     const json = await response.json();
 
     expect(response.status).toBe(200);
@@ -146,16 +160,14 @@ describe('Route API : Résonance (POST /[slug]/resonance)', () => {
   });
 
   it('doit exécuter le mode calcul par défaut si aucune action WEAVE/SEVER n\'est fournie', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'source-uid', capabilities: [] }
-    } as any);
+    global.__mockUser = { uid: 'source-uid', capabilities: [] };
 
-    const req = new Request('http://localhost/api/users/cible-slug/resonance', {
+    const req = new NextRequest('http://localhost/api/users/cible-slug/resonance', {
       method: 'POST',
       body: JSON.stringify({}), // Pas d'action WEAVE ou SEVER
     });
 
-    const response = await POST(req as any, { params: Promise.resolve({ slug: 'cible-slug' }) });
+    const response = await POST(req, { params: Promise.resolve({ slug: 'cible-slug' }) });
     const json = await response.json();
 
     expect(response.status).toBe(200);

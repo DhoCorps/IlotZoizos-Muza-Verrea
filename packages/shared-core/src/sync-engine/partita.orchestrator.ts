@@ -26,26 +26,27 @@ export interface FosterPartitaPayload {
   format?: string;
   tuning?: string;
   authorUid: string;
-  status?: 'DRAFT' | 'RELEASED' | 'ARCHIVED';
+  status?: 'DRAFT' | 'RELEASED' | 'ARCHIVED' | string; // 👈 Élargi pour accepter le type de la route ou string arbitraire
   tags?: string[];
   connections?: {
     relatedProjects?: string[];
   };
   merchLink?: {
     productId?: string;
-  };
+  } | null;
   media?: Record<string, unknown>;
   settings?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 export interface UpdatePartitaPayload {
   title?: string;
   content?: string;
-  status?: 'DRAFT' | 'RELEASED' | 'ARCHIVED';
+  status?: 'DRAFT' | 'RELEASED' | 'ARCHIVED' | string;
   instrument?: string;
   merchLink?: {
     productId?: string;
-  };
+  } | null; // 👈 Ajout de | null pour s'aligner sur Zod
   [key: string]: unknown;
 }
 

@@ -1,10 +1,10 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { PartitaOrchestrator } from '@ilot/shared-core';
-import { ActionSignature } from '@ilot/types';
+import { ActionSignature, IPartita } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
-import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedPartitas } from '@/lib/cache/partita.cache';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
 import { z } from 'zod';
@@ -40,12 +40,14 @@ const CreatePartitaSchema = z.object({
   }).optional()
 });
 
+type CreatePartitaInput = z.infer<typeof CreatePartitaSchema>;
+
 // ==========================================
 // GET : Le Catalogue des Partitions (Public / Optionnel Aura)
 // ==========================================
-export const GET = withOptionalAura(async (req: Request, _context: ApiContext, currentUser?: OiseauUser) => {
+export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContext, currentUser?: OiseauUser) => {
   try {
-    let url;
+    let url: URL;
     try {
       url = new URL(req.url);
     } catch {
@@ -57,18 +59,17 @@ export const GET = withOptionalAura(async (req: Request, _context: ApiContext, c
     const partitions = await getCachedPartitas(userUid, filterInstrument, filterStatus);
     const safePartitions = JSON.parse(JSON.stringify(partitions || []));
     return NextResponse.json(safePartitions, { status: 200 });
-  } catch (error: any) {
-    console.error("  Erreur globale GET Partitions:", error);
-    return NextResponse.json({ error: "Erreur interne du serveur." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'PARTITIONS GET ERROR');
   }
 });
 
 // ==========================================
 // POST : Fondation d'une Partition avec Sceau SHA-256 (Strictement Privé / Aura)
 // ==========================================
-export const POST = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let rawBody;
+    let rawBody: unknown;
     try {
       rawBody = await req.json();
     } catch {
@@ -82,7 +83,7 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       return NextResponse.json({ error: `Données de partition invalides : ${errorMessage}` }, { status: 400 });
     }
 
-    const validatedData = validationResult.data;
+    const validatedData: CreatePartitaInput = validationResult.data;
 
     // 🪡 Génération du Sceau Cryptographique (SHA-256) d'Antériorité de la composition musicale
     const canonicalContent = JSON.stringify({
@@ -101,7 +102,7 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       capabilities: currentUser.capabilities || []
     };
 
-    let result: any;
+    let result: { success?: boolean; status?: string; mongo?: IPartita | Record<string, unknown> };
     try {
       const partitaOrch = new PartitaOrchestrator();
       const dataToForge = { 
@@ -112,29 +113,31 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
         copyrightClaimed: true
       };
       result = await partitaOrch.fosterPartita(dataToForge, signature);
-    } catch (orchErr: any) {
-      console.error("  [PARTITA ORCHESTRATOR POST ERROR] :", orchErr);
-      const status = orchErr.statusCode || orchErr.status || 500;
-      return NextResponse.json({ error: orchErr.message || "L'îlot repousse cette partition." }, { status });
+    } catch (orchErr: unknown) {
+      const err = orchErr as { statusCode?: number; status?: number; message?: string };
+      console.error("  [PARTITA ORCHESTRATOR POST ERROR] :", err);
+      const status = err.statusCode || err.status || 500;
+      return NextResponse.json({ error: err.message || "L'îlot repousse cette partition." }, { status });
     }
-          
+         
     revalidateTag('partitas');
     revalidateTag(`partitas-user-${currentUser.uid}`);
     revalidateTag(`partitas-user-public`);
 
+    const mongoDoc = (result?.mongo || {}) as Record<string, unknown>;
+
     const finalResponse = {
-      success: result.success,
-      status: result.status,
-      uid: result.mongo?.uid,
-      title: result.mongo?.title,
-      mongo: result.mongo,
+      success: result?.success,
+      status: result?.status,
+      uid: mongoDoc.uid,
+      title: mongoDoc.title,
+      mongo: result?.mongo,
       digitalSignature,
       timestampedAt
     };
 
     return NextResponse.json(finalResponse, { status: 201 });
-  } catch (error: any) {
-    console.error("  Erreur globale POST Partitions :", error);
-    return NextResponse.json({ error: "Erreur interne du serveur." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'PARTITIONS POST ERROR');
   }
 });

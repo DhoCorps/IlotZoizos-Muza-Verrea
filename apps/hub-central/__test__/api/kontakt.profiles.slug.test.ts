@@ -2,14 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PUT, DELETE } from '@/app/api/kontakt/profiles/[slug]/route';
 import { KontaktProfileModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
 vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => handler,
-  withAura: (handler: any) => async (req: any, ctx: any) => {
+  withSilice: (handler: Function) => handler,
+  withAura: (handler: Function) => async (req: NextRequest, ctx: unknown) => {
     const mockUser = global.__mockUser || { uid: 'bird_owner', capabilities: [] };
     if (!mockUser.uid) {
       return NextResponse.json({ error: "Accès refusé." }, { status: 401 });
@@ -18,11 +18,11 @@ vi.mock('@/lib/api-guards', () => ({
   },
 }));
 
-vi.mock('@/lib/slugify', () => ({ slugify: vi.fn((val) => val) }));
+vi.mock('@/lib/slugify', () => ({ slugify: vi.fn((val: string) => val) }));
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
-  unstable_cache: vi.fn((cb) => cb),
+  unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -39,14 +39,12 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-declare global {
-  var __mockUser: any;
-}
+global.__mockUser = { uid: 'bird_owner', capabilities: [] };
 
 describe('API Kontakt Profiles [slug] - GET, PUT, DELETE', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   describe('GET - Auscultation du Profil', () => {
@@ -55,10 +53,10 @@ describe('API Kontakt Profiles [slug] - GET, PUT, DELETE', () => {
         uid: 'kontakt_1',
         slug: 'dev-matrix',
         professionalTitle: 'Dev Matrix'
-      } as any);
+      });
 
-      const req = new Request('http://localhost/api/kontakt/profiles/dev-matrix');
-      const res = await GET(req as any, { params: Promise.resolve({ slug: 'dev-matrix' }) } as any);
+      const req = new NextRequest('http://localhost/api/kontakt/profiles/dev-matrix');
+      const res = await GET(req, { params: Promise.resolve({ slug: 'dev-matrix' }) });
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -70,8 +68,8 @@ describe('API Kontakt Profiles [slug] - GET, PUT, DELETE', () => {
     it('🔴 doit renvoyer (404) si le profil est introuvable', async () => {
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
-      const req = new Request('http://localhost/api/kontakt/profiles/inconnu');
-      const res = await GET(req as any, { params: Promise.resolve({ slug: 'inconnu' }) } as any);
+      const req = new NextRequest('http://localhost/api/kontakt/profiles/inconnu');
+      const res = await GET(req, { params: Promise.resolve({ slug: 'inconnu' }) });
       const json = await res.json();
 
       expect(res.status).toBe(404);
@@ -87,14 +85,14 @@ describe('API Kontakt Profiles [slug] - GET, PUT, DELETE', () => {
         uid: 'kontakt_1',
         slug: 'dev-matrix',
         userUid: 'bird_owner'
-      } as any);
+      });
 
-      const req = new Request('http://localhost/api/kontakt/profiles/dev-matrix', {
+      const req = new NextRequest('http://localhost/api/kontakt/profiles/dev-matrix', {
         method: 'PUT',
         body: JSON.stringify({ professionalTitle: 'Hacked' })
       });
 
-      const res = await PUT(req as any, { params: Promise.resolve({ slug: 'dev-matrix' }) } as any);
+      const res = await PUT(req, { params: Promise.resolve({ slug: 'dev-matrix' }) });
       expect(res.status).toBe(403);
     });
 
@@ -102,19 +100,19 @@ describe('API Kontakt Profiles [slug] - GET, PUT, DELETE', () => {
       global.__mockUser = { uid: 'bird_owner', capabilities: [] };
 
       vi.mocked(findEntityBySlugOrUid)
-        .mockResolvedValueOnce({ uid: 'kontakt_1', slug: 'dev-matrix', userUid: 'bird_owner' } as any) // Pour cibler le profil
-        .mockResolvedValueOnce(null); // Pour la vérification de collision de slug
+        .mockResolvedValueOnce({ uid: 'kontakt_1', slug: 'dev-matrix', userUid: 'bird_owner' })
+        .mockResolvedValueOnce(null);
 
       vi.mocked(KontaktProfileModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'kontakt_1', slug: 'nouveau-titre', professionalTitle: 'Nouveau Titre' })
-      } as any);
+      } as unknown as ReturnType<typeof KontaktProfileModel.findOneAndUpdate>);
 
-      const req = new Request('http://localhost/api/kontakt/profiles/dev-matrix', {
+      const req = new NextRequest('http://localhost/api/kontakt/profiles/dev-matrix', {
         method: 'PUT',
         body: JSON.stringify({ professionalTitle: 'Nouveau Titre' })
       });
 
-      const res = await PUT(req as any, { params: Promise.resolve({ slug: 'dev-matrix' }) } as any);
+      const res = await PUT(req, { params: Promise.resolve({ slug: 'dev-matrix' }) });
       const json = await res.json();
 
       expect(res.status).toBe(200);
@@ -132,12 +130,14 @@ describe('API Kontakt Profiles [slug] - GET, PUT, DELETE', () => {
         uid: 'kontakt_1',
         slug: 'dev-matrix',
         userUid: 'bird_owner'
-      } as any);
+      });
 
-      vi.mocked(KontaktProfileModel.deleteOne).mockResolvedValueOnce({ deletedCount: 1 } as any);
-
-      const req = new Request('http://localhost/api/kontakt/profiles/dev-matrix', { method: 'DELETE' });
-      const res = await DELETE(req as any, { params: Promise.resolve({ slug: 'dev-matrix' }) } as any);
+    vi.mocked(KontaktProfileModel.deleteOne).mockResolvedValueOnce({
+      acknowledged: true,
+      deletedCount: 1,
+    } as any);
+      const req = new NextRequest('http://localhost/api/kontakt/profiles/dev-matrix', { method: 'DELETE' });
+      const res = await DELETE(req, { params: Promise.resolve({ slug: 'dev-matrix' }) });
       const json = await res.json();
 
       expect(res.status).toBe(200);

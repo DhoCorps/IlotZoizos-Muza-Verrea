@@ -60,7 +60,8 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
 
       const res = await orchestrator.fosterSujet({ title: 'Pensée Silencieuse', authorUid: 'bird_author' }, userSignature as any);
       
-      expect(res.mongo.uid).toBe('sujet_1');
+      // Utilisation de l'assertion de non-nullité (!) pour rassurer le compilateur TS
+      expect((res.mongo as { uid: string }).uid).toBe('sujet_1');
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });
@@ -83,7 +84,8 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
 
       const res = await orchestrator.updateSujet('mon-sujet', { title: 'Updated' }, userSignature as any);
       
-      expect(res.mongo.title).toBe('Updated');
+      // Utilisation de l'assertion de non-nullité (!) pour rassurer le compilateur TS
+      expect((res.mongo as { title: string }).title).toBe('Updated');
     });
   });
 

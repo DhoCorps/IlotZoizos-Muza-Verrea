@@ -3,11 +3,19 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { MessageModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { attachmentRegistry } from '@ilot/shared-core';
-import { SendMessageBodySchema } from '@ilot/types';
+import { SendMessageBodySchema, SendMessageBody } from '@ilot/types';
 import { randomUUID } from 'crypto';
 import { revalidateTag } from 'next/cache';
-import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedMessages } from '@/lib/cache/messages.cache';
+
+interface OiseauProfileDocument {
+  uid: string;
+  slug?: string;
+  isBanned?: boolean;
+  profileStatus?: string;
+  [key: string]: unknown;
+}
 
 // ==========================================
 // GET : Écouter les messages d'un salon (Public / Optionnel Aura)
@@ -26,9 +34,7 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
     const messages = await getCachedMessages(conversationSlug, limit, before);
     return NextResponse.json(messages, { status: 200 });
   } catch (error: unknown) {
-    const err = error as Error;
-    console.error("  [MESSAGES GET ERROR] :", err);
-    return NextResponse.json({ error: "La tempête a brouillé l'écoute des messages." }, { status: 500 });
+    return handleRouteError(error, 'MESSAGES GET ERROR');
   }
 });
 
@@ -40,7 +46,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     const senderSlug = currentUser.slug || currentUser.uid;
 
     // 🛡️ Suture de Souveraineté : Utilisation du helper unifié pour attraper le profil même via un slug personnalisé
-    const oiseauProfile = await findEntityBySlugOrUid(OiseauModel, senderSlug) as Record<string, any> | null;
+    const oiseauProfile = (await findEntityBySlugOrUid(OiseauModel, senderSlug)) as OiseauProfileDocument | null;
     
     if (oiseauProfile && (oiseauProfile.isBanned || oiseauProfile.profileStatus === 'INDESIRABLE')) {
       return NextResponse.json({ 
@@ -63,12 +69,17 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       );
     }
 
-    const { conversationSlug, content, rawAttachments, replyToSlug } = validation.data;
+    const typedValidationData = validation.data as SendMessageBody & { rawAttachments?: Array<{ sourceType: string; entitySlug: string }> };
+    const conversationSlug = typedValidationData.conversationSlug;
+    const content = typedValidationData.content;
+    const rawAttachments = typedValidationData.rawAttachments || [];
+    const replyToSlug = typedValidationData.replyToSlug || null;
+
     if (!content.trim() && rawAttachments.length === 0) {
       return NextResponse.json({ error: "Un message ne peut pas être entièrement vide." }, { status: 400 });
     }
 
-    const resolvedAttachments: any[] = [];
+    const resolvedAttachments: unknown[] = [];
     for (const raw of rawAttachments) {
       try {
         const fullAttachment = await attachmentRegistry.resolve(raw.sourceType, raw.entitySlug);
@@ -99,8 +110,6 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       message: newMessage
     }, { status: 201 });
   } catch (error: unknown) {
-    const err = error as Error;
-    console.error("  [MESSAGES POST ERROR] :", err);
-    return NextResponse.json({ error: err.message || "Impossible de propager le message." }, { status: 500 });
+    return handleRouteError(error, 'MESSAGES POST ERROR');
   }
 });

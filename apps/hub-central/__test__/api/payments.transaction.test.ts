@@ -1,23 +1,41 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/payments/transaction/route';
-import { getServerSession } from 'next-auth/next';
 import { KomptaPaymentOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
+import { NextResponse, NextRequest } from 'next/server';
 
-// 1. Mocks de NextAuth et du Cache Next.js
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
-}));
-
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
+// -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
-  unstable_cache: vi.fn((fn) => fn),
+  unstable_cache: vi.fn((fn: Function) => fn),
 }));
+
+// Mock souverain aligné sur notre standard de gardes d'API (`withAura`)
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser || !mockUser.uid) {
+      return NextResponse.json({ error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
+    }
+    return await handler(req, context, mockUser);
+  },
+}));
+
+// 🛡️ Déclaration globale standardisée et flexible de __mockUser
+declare global {
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
+}
 
 describe('API Payments Transaction - POST /api/payments/transaction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct de executeStoreTransaction sur le prototype
     vi.spyOn(KomptaPaymentOrchestrator.prototype, 'executeStoreTransaction').mockResolvedValue({
@@ -25,13 +43,13 @@ describe('API Payments Transaction - POST /api/payments/transaction', () => {
       transactionUid: 'tx_test_chapeau_001',
       newBuyerBalance: 8500,
       newRecipientBalance: 6500,
-    } as any);
+    } as unknown as Awaited<ReturnType<KomptaPaymentOrchestrator['executeStoreTransaction']>>);
   });
 
   it('doit rejeter (401) si l\'oiseau n\'est pas authentifié', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce(null);
+    delete global.__mockUser;
 
-    const req = new Request('http://localhost:3000/api/payments/transaction', {
+    const req = new NextRequest('http://localhost:3000/api/payments/transaction', {
       method: 'POST',
       body: JSON.stringify({
         transactionUid: 'tx_1',
@@ -40,20 +58,17 @@ describe('API Payments Transaction - POST /api/payments/transaction', () => {
       }),
     });
 
-    const res = await POST(req);
+    const res = await POST(req, { params: Promise.resolve({}) });
     const data = await res.json();
 
     expect(res.status).toBe(401);
-    // Vérification du message standardisé de notre garde "withAura"
     expect(data.error).toBe("Le Nexus est invisible aux étrangers.");
   });
 
   it('doit réussir (201), exécuter la transaction marchande et invalider le cache', async () => {
-    vi.mocked(getServerSession).mockResolvedValueOnce({
-      user: { name: 'Oiseau Acheteur', email: 'buyer@ilot.fr', uid: 'bird_buyer_123' },
-    } as any);
+    global.__mockUser = { uid: 'bird_buyer_123', capabilities: [] };
 
-    const req = new Request('http://localhost:3000/api/payments/transaction', {
+    const req = new NextRequest('http://localhost:3000/api/payments/transaction', {
       method: 'POST',
       body: JSON.stringify({
         transactionUid: 'tx_test_chapeau_001',
@@ -65,7 +80,7 @@ describe('API Payments Transaction - POST /api/payments/transaction', () => {
       }),
     });
 
-    const res = await POST(req);
+    const res = await POST(req, { params: Promise.resolve({}) });
     const data = await res.json();
 
     expect(res.status).toBe(201);

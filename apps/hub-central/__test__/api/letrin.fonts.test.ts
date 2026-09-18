@@ -9,10 +9,10 @@ import { NextResponse, NextRequest } from 'next/server';
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
 vi.mock('@/lib/api-guards', () => ({
-  withSilice: (handler: any) => async (req: any, context: any) => {
+  withSilice: (handler: Function) => async (req: NextRequest, context: unknown) => {
     return await handler(req, context);
   },
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser;
     if (!mockUser || !mockUser.uid) {
       return NextResponse.json({ error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
@@ -23,7 +23,7 @@ vi.mock('@/lib/api-guards', () => ({
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
-  unstable_cache: vi.fn((cb) => cb),
+  unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
 // 🎯 Mock explicite de la fonction de cache des projets de polices
@@ -44,24 +44,20 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-declare global {
-  var __mockUser: any;
-}
-
 describe('API Letr\'In Font Projects - Gestion des projets de polices avec Sceau SHA-256', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   // =========================================================================
   // 🔍 TESTS GET (Recensement)
   // =========================================================================
   it('🟢 doit récupérer la liste des projets avec succès (200)', async () => {
-    vi.mocked(getCachedFontProjects).mockResolvedValueOnce([{ _id: 'proj_1', name: 'Matrix Font' }] as any);
+    vi.mocked(getCachedFontProjects).mockResolvedValueOnce([{ _id: 'proj_1', name: 'Matrix Font' }] as unknown as Awaited<ReturnType<typeof getCachedFontProjects>>);
 
     const req = new NextRequest('http://localhost/api/letrin/fonts');
-    const res = await GET(req as any, {});
+    const res = await GET(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -74,14 +70,14 @@ describe('API Letr\'In Font Projects - Gestion des projets de polices avec Sceau
   // 🚀 TESTS POST (Sédimentation & Sceau SHA-256)
   // =========================================================================
   it('🔴 doit rejeter l’envoi si l’oiseau n’est pas connecté (401)', async () => {
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
     const req = new NextRequest('http://localhost/api/letrin/fonts', {
       method: 'POST',
       body: JSON.stringify({ name: 'Matrix Font' })
     });
 
-    const res = await POST(req as any, {});
+    const res = await POST(req, { params: Promise.resolve({}) });
     expect(res.status).toBe(401);
   });
 
@@ -93,14 +89,14 @@ describe('API Letr\'In Font Projects - Gestion des projets de polices avec Sceau
       name: 'Matrix Font'
     };
 
-    vi.mocked(FontProject.create).mockResolvedValueOnce(mockCreatedProject as any);
+    vi.mocked(FontProject.create).mockResolvedValueOnce(mockCreatedProject as unknown as Awaited<ReturnType<typeof FontProject.create>>);
 
     const req = new NextRequest('http://localhost/api/letrin/fonts', {
       method: 'POST',
       body: JSON.stringify({ name: 'Matrix Font' })
     });
 
-    const res = await POST(req as any, {});
+    const res = await POST(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(201);

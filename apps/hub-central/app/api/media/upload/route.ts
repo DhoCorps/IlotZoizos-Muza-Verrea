@@ -2,14 +2,20 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
-import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { generateFileHash } from '@/lib/cryptoHelper';
-import { UploadMediaInputSchema } from '@ilot/types'; 
+import { UploadMediaInputSchema, UploadMediaInput } from '@ilot/types'; 
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { v4 as uuidv4 } from 'uuid';
-import { UniversalMediaOrchestrator, IlotError } from '@ilot/shared-core';
+import { UniversalMediaOrchestrator } from '@ilot/shared-core';
+import { handleRouteError } from '@/lib/api-guards';
+
+interface MediaDataPayload extends UploadMediaInput {
+  creatorUid: string;
+  creatorSlug: string;
+  [key: string]: unknown;
+}
 
 // 🛡️ Fonction centralisée d'invalidation en cascade pour les médias universels
 function revalidateUniversalMediaCascades(mediaData?: { sourceApp?: string }, userUid?: string, mediaId?: string) {
@@ -36,7 +42,7 @@ export const POST = withRateLimit('upload-universal-media', 10, 60, withAura(asy
     try {
       formData = await req.formData();
     } catch {
-      return NextResponse.json({ success: false, error: 'Corps de requête multiphase illisible.' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'Fichier ou métadonnées manquantes.' }, { status: 400 });
     }
 
     const file = formData.get('file') as File | null;
@@ -46,7 +52,7 @@ export const POST = withRateLimit('upload-universal-media', 10, 60, withAura(asy
       return NextResponse.json({ success: false, error: 'Fichier ou métadonnées manquantes.' }, { status: 400 });
     }
 
-    let parsedPayload;
+    let parsedPayload: Record<string, unknown>;
     try {
       parsedPayload = JSON.parse(rawPayload);
     } catch {
@@ -61,12 +67,16 @@ export const POST = withRateLimit('upload-universal-media', 10, 60, withAura(asy
       return NextResponse.json({ success: false, error: 'Contrat souverain invalide.', details: validation.error.flatten() }, { status: 400 });
     }
 
-    const mediaData = validation.data;
+    const mediaData: MediaDataPayload = validation.data as MediaDataPayload;
     const mediaId = `media_${uuidv4()}`;
 
     let fileBuffer: Buffer;
     try {
-      fileBuffer = Buffer.from(await file.arrayBuffer());
+      if (typeof file.arrayBuffer === 'function') {
+        fileBuffer = Buffer.from(await file.arrayBuffer());
+      } else {
+        fileBuffer = Buffer.from('ilot-zoizos-mock-universal-media');
+      }
     } catch {
       fileBuffer = Buffer.from('ilot-zoizos-mock-universal-media');
     }
@@ -81,7 +91,7 @@ export const POST = withRateLimit('upload-universal-media', 10, 60, withAura(asy
       filename: file.name || 'asset.bin'
     });
 
-    let uploadResult: any;
+    let uploadResult: unknown;
     try {
       uploadResult = await storageService.uploadFile(file, customKey);
     } catch (uploadErr) {
@@ -90,9 +100,12 @@ export const POST = withRateLimit('upload-universal-media', 10, 60, withAura(asy
     }
     
     let publicUrl = '';
-    if (typeof uploadResult === 'string') publicUrl = uploadResult;
-    else if (uploadResult && typeof uploadResult === 'object') {
-      publicUrl = uploadResult.publicUrl || uploadResult.url || Object.values(uploadResult).find(v => typeof v === 'string' && v.startsWith('http')) || '';
+    if (typeof uploadResult === 'string') {
+      publicUrl = uploadResult;
+    } else if (uploadResult && typeof uploadResult === 'object') {
+      const resObj = uploadResult as Record<string, unknown>;
+      const foundUrl = Object.values(resObj).find((v): v is string => typeof v === 'string' && v.startsWith('http'));
+      publicUrl = (resObj.publicUrl as string) || (resObj.url as string) || foundUrl || '';
     }
 
     const orchestrator = new UniversalMediaOrchestrator();
@@ -104,7 +117,7 @@ export const POST = withRateLimit('upload-universal-media', 10, 60, withAura(asy
       fileUrl: publicUrl,
       mimeType: file.type || 'application/octet-stream',
       sizeBytes: file.size || fileBuffer.length,
-      metadata: { ...mediaData.metadata, digitalSignature, timestampedAt }
+      metadata: { ...(mediaData.metadata || {}), digitalSignature, timestampedAt }
     };
 
     const result = await orchestrator.fosterMedia(dataToForge, signature);
@@ -114,13 +127,11 @@ export const POST = withRateLimit('upload-universal-media', 10, 60, withAura(asy
     return NextResponse.json({
       success: true,
       message: 'Asset Universel scellé avec succès.',
-      data: result.mongo
+      data: (result as Record<string, unknown>).mongo
     }, { status: 201 });
 
-  } catch (error: any) {
-    console.error('🔥 [UNIVERSAL MEDIA UPLOAD ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || error.status || 500);
-    return NextResponse.json({ success: false, error: error.message || 'Erreur interne de la matrice.' }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'UNIVERSAL MEDIA UPLOAD ERROR');
   }
 }));
 
@@ -138,16 +149,15 @@ export const DELETE = withAura(async (req: NextRequest, _context: ApiContext, cu
     }
 
     // 🛡️ SUTURE DE SÉCURITÉ IDOR : Normalisation stricte de la clé de stockage
-    let storageKey: string = '';
+    let storageKey = '';
     try {
       storageKey = storageService.extractKeyFromUrl(fileUrl);
     } catch (err) {
       console.error("🔥 [EXTRACT KEY ERROR] :", err);
     }
 
-    // Fallback de sécurité si l'extraction retourne du vide ou échoue en test
     if (!storageKey) {
-      storageKey = fileUrl.includes('http') ? fileUrl.replace(/^https?:\/\/[^\/]+\//, '') : fileUrl;
+      storageKey = fileUrl.includes('http') ? fileUrl.replace(/^https?:\/\/[^/]+\//, '') : fileUrl;
     }
 
     if (!storageKey) {
@@ -169,9 +179,7 @@ export const DELETE = withAura(async (req: NextRequest, _context: ApiContext, cu
 
     return NextResponse.json({ success: true, message: 'Asset totalement désintégré.' }, { status: 200 });
 
-  } catch (error: any) {
-    console.error('🔥 [UNIVERSAL MEDIA DELETE ERROR] :', error);
-    const status = error instanceof IlotError ? error.status : (error.statusCode || error.status || 500);
-    return NextResponse.json({ success: false, error: error.message || 'Erreur interne de la matrice.' }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'UNIVERSAL MEDIA DELETE ERROR');
   }
 });

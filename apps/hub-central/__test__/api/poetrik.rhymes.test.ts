@@ -1,8 +1,7 @@
-// app/api/poetrik/rhymes/__tests__/route.test.ts
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/poetrik/rhymes/route';
 import { getNeo4jSession } from '@ilot/infrastructure';
+import { NextRequest, NextResponse } from 'next/server';
 
 // 1. On mocke l'infrastructure en exportant aussi connectToDatabase pour satisfaire api-guards
 vi.mock('@ilot/infrastructure', () => ({
@@ -10,12 +9,19 @@ vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock('@lib/api-guards', () => ({
-  withOptionalAura: (handler: any) => handler,
+vi.mock('@/lib/api-guards', () => ({
+  withOptionalAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    return await handler(req, context, global.__mockUser);
+  },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 describe('API Route /api/poetrik/rhymes', () => {
-  let mockNeoSession: any;
+  let mockNeoSession: { run: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -23,12 +29,12 @@ describe('API Route /api/poetrik/rhymes', () => {
       run: vi.fn(),
       close: vi.fn().mockResolvedValue(true),
     };
-    vi.mocked(getNeo4jSession).mockReturnValue(mockNeoSession);
+    vi.mocked(getNeo4jSession).mockReturnValue(mockNeoSession as unknown as ReturnType<typeof getNeo4jSession>);
   });
 
   it('doit rejeter (400) si ni uid ni word ne sont fournis', async () => {
-    const req = new Request('http://localhost/api/poetrik/rhymes');
-    const res = await GET(req as any, {} as any);
+    const req = new NextRequest('http://localhost/api/poetrik/rhymes');
+    const res = await GET(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(400);
@@ -53,8 +59,8 @@ describe('API Route /api/poetrik/rhymes', () => {
       ]
     });
 
-    const req = new Request('http://localhost/api/poetrik/rhymes?word=oiseau');
-    const res = await GET(req as any, {} as any);
+    const req = new NextRequest('http://localhost/api/poetrik/rhymes?word=oiseau');
+    const res = await GET(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(200);

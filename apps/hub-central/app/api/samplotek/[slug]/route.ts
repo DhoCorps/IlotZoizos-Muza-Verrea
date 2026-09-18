@@ -1,17 +1,25 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
 import { SampleModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { IlotError } from '@ilot/shared-core';
+
+interface ISampleEntity {
+  uid: string;
+  slug?: string;
+  authorUid?: string;
+  storageKey?: string;
+  [key: string]: unknown;
+}
 
 // ==========================================
 // 🗑️ DELETE : Dissoudre/Désintégrer un sample de SamploTek
 // ==========================================
-export const DELETE = withAura(async (_req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const DELETE = withAura(async (_req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     let resolvedParams;
     try {
@@ -28,7 +36,7 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, curren
     }
 
     // 🔍 Résolution unifiée par slug ou UID via notre helper centralisé
-    const sample: any = await findEntityBySlugOrUid(SampleModel, identifier);
+    const sample = (await findEntityBySlugOrUid(SampleModel, identifier)) as ISampleEntity | null;
     if (!sample) {
       return NextResponse.json({ error: "Sample introuvable dans la matrice." }, { status: 404 });
     }
@@ -54,7 +62,9 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, curren
 
     // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('samples');
-    revalidateTag(`samples-user-${sample.authorUid}`);
+    if (sample.authorUid) {
+      revalidateTag(`samples-user-${sample.authorUid}`);
+    }
     revalidateTag(`sample-${identifier}`);
     revalidateTag(`sample-${sample.uid}`);
     if (sample.slug) {
@@ -66,9 +76,10 @@ export const DELETE = withAura(async (_req: Request, context: ApiContext, curren
       message: "Le sample a été réduit en cendres et purgé du Nexus." 
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 [SAMPLETEK DELETE FATAL ERROR] :", error);
-    const status = error instanceof IlotError ? error.status : 500;
-    return NextResponse.json({ error: error.message || "Erreur interne du serveur." }, { status });
+  } catch (error: unknown) {
+    if (error instanceof IlotError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    return handleRouteError(error, 'SAMPLETEK DELETE FATAL ERROR');
   }
 });

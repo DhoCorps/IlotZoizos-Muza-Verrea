@@ -1,44 +1,49 @@
-import { NextResponse } from 'next/server';
-import { OiseauModel } from "@ilot/infrastructure";
-import { OiseauOrchestrator } from "@ilot/shared-core";
-import { revalidateTag } from 'next/cache';
-import { withAura, withSilice, OiseauUser, ApiContext } from '@/lib/api-guards';
-import { getCachedOiseaux } from '@/lib/cache/users.cache';
-
 export const dynamic = 'force-dynamic';
+
+import { NextResponse, NextRequest } from 'next/server';
+import { OiseauModel } from "@ilot/infrastructure";
+import { OiseauOrchestrator, OiseauSyncResult } from "@ilot/shared-core";
+import { revalidateTag } from 'next/cache';
+import { withAura, withSilice, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
+import { getCachedOiseaux } from '@/lib/cache/users.cache';
 
 // -------------------------------------------------------------------------
 // GET : Recensement des Oiseaux (Volière Publique)
 // -------------------------------------------------------------------------
-export const GET = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const GET = withAura(async (req: NextRequest, _context: ApiContext, _currentUser: OiseauUser) => {
   try {
-    const { searchParams } = new URL(req.url);
-    const search = searchParams.get('search');
+    let url: URL;
+    try {
+      url = new URL(req.url);
+    } catch {
+      return NextResponse.json({ success: false, error: "URL de requête invalide." }, { status: 400 });
+    }
+
+    const search = url.searchParams.get('search');
     
     const users = await getCachedOiseaux(search);
     
     return NextResponse.json(users, { status: 200 });
-  } catch (error) {
-    console.error("  Erreur lors du recensement des oiseaux :", error);
-    return NextResponse.json({ error: "Le Nexus n'a pas pu lister les oiseaux." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "USERS LIST GET FATAL ERROR");
   }
 });
 
 // -------------------------------------------------------------------------
 // POST : Éclosion d'un Oiseau (Inscription)
 // -------------------------------------------------------------------------
-export const POST = withSilice(async (req: Request, _context: ApiContext) => {
+export const POST = withSilice(async (req: NextRequest, _context: ApiContext) => {
   try {
-    let body;
+    let body: { email?: string; pseudo?: string; password?: string; frequenceHEX?: string; [key: string]: unknown };
     try {
       body = await req.json();
-    } catch (e) {
-      return NextResponse.json({ error: "L'oeuf est muet : Corps de requête invalide" }, { status: 400 });
+    } catch {
+      return NextResponse.json({ success: false, error: "L'oeuf est muet : Corps de requête invalide" }, { status: 400 });
     }
 
-    if (!body.email || !body.pseudo || !body.password) {
+    if (!body?.email || !body?.pseudo || !body?.password) {
       return NextResponse.json(
-        { error: "L'oeuf est incomplet (Email, Pseudo et Mot de passe requis)." },
+        { success: false, error: "L'oeuf est incomplet (Email, Pseudo et Mot de passe requis)." },
         { status: 400 }
       );
     }
@@ -49,27 +54,29 @@ export const POST = withSilice(async (req: Request, _context: ApiContext) => {
 
     if (existingUser) {
       return NextResponse.json(
-        { error: "Cet oiseau chante déjà dans une autre cage (Email ou Pseudo déjà pris)." },
+        { success: false, error: "Cet oiseau chante déjà dans une autre cage (Email ou Pseudo déjà pris)." },
         { status: 409 }
       );
     }
 
     // ORCHESTRATION
-    let syncResult;
+    let syncResult: OiseauSyncResult;
     try {
       const orchestrator = new OiseauOrchestrator();
       syncResult = await orchestrator.fosterOiseau({
         email: body.email,
         pseudo: body.pseudo,
         password: body.password,
-        frequenceHEX: body.frequenceHEX || '#8b9dc3'
+        frequenceHEX: body.frequenceHEX || '#2D3748' // Le gris bleuté ou bleuish grey pour des raisons écologiques !
       });
-    } catch (orchErr: any) {
-      console.error("  [OISEAU ORCHESTRATOR ERROR]", orchErr);
-      const status = orchErr.statusCode || orchErr.status || 500;
-      return NextResponse.json({ error: orchErr.message || "L'oeuf a été brisé lors de l'éclosion." }, { status });
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      console.error("  [OISEAU ORCHESTRATOR ERROR]", err);
+      const status = err.statusCode || err.status || 500;
+      return NextResponse.json({ success: false, error: err.message || "L'oeuf a été brisé lors de l'éclosion." }, { status });
     }
-    const nouvelOiseau = syncResult.mongo || syncResult;
+
+    const nouvelOiseau = (syncResult.mongo as { uid?: string; slug?: string; [key: string]: unknown }) || (syncResult as { uid?: string; slug?: string; [key: string]: unknown });
 
     // BOOM ! Invalidation de cache de la volière
     revalidateTag('users');
@@ -80,8 +87,7 @@ export const POST = withSilice(async (req: Request, _context: ApiContext) => {
       uid: nouvelOiseau.uid,
       slug: nouvelOiseau.slug
     }, { status: 201 });
-  } catch (error: any) {
-    console.error("  Erreur d'éclosion :", error);
-    return NextResponse.json({ error: "L'oeuf a été brisé lors de l'éclosion." }, { status: 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, "USERS FOSTER POST FATAL ERROR");
   }
 });

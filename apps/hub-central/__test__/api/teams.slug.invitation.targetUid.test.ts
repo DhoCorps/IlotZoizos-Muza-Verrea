@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DELETE } from '@/app/api/teams/[slug]/invitations/[targetUid]/route';
-import { getServerSession } from 'next-auth/next';
 import { TeamModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
+import { NextRequest, NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT
@@ -12,8 +12,19 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
-vi.mock('next-auth/next', () => ({
-  getServerSession: vi.fn(),
+vi.mock('@/lib/api-guards', () => ({
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const mockUser = global.__mockUser;
+    if (!mockUser) {
+      return NextResponse.json({ success: false, error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
+    }
+    return await handler(req, context, mockUser);
+  },
+  handleRouteError: (error: unknown, context: string) => {
+    const err = error as Error;
+    console.error(`[${context}]`, err);
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -31,7 +42,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 
 vi.mock('@ilot/shared-core', () => ({
   TransactionManager: {
-    execute: vi.fn(async (_label, callback) => {
+    execute: vi.fn(async (_label: string, callback: Function) => {
       const mockMongoSession = {};
       const mockNeoTx = { run: vi.fn().mockResolvedValue({ records: [1] }) };
       return await callback(mockMongoSession, mockNeoTx);
@@ -40,8 +51,16 @@ vi.mock('@ilot/shared-core', () => ({
 }));
 
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((val) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
+
+declare global {
+  var __mockUser: {
+    uid: string;
+    capabilities: string[];
+    [key: string]: unknown;
+  } | undefined;
+}
 
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
@@ -49,17 +68,17 @@ vi.mock('@/lib/slugify', () => ({
 describe('Route API : Révocation d\'invitation (DELETE /api/teams/[slug]/invitations/[targetUid])', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   it('doit rejeter (401) si l\'utilisateur n\'a pas d\'Aura', async () => {
-    vi.mocked(getServerSession).mockResolvedValue(null);
+    delete global.__mockUser;
 
-    const req = new Request('http://localhost/api/teams/mon-nid/invitations/target-123', {
+    const req = new NextRequest('http://localhost/api/teams/mon-nid/invitations/target-123', {
       method: 'DELETE',
     });
 
-    const response = await DELETE(req as any, { 
+    const response = await DELETE(req, { 
       params: Promise.resolve({ slug: 'mon-nid', targetUid: 'target-123' }) 
     });
     const json = await response.json();
@@ -69,21 +88,19 @@ describe('Route API : Révocation d\'invitation (DELETE /api/teams/[slug]/invita
   });
 
   it('doit rejeter (403) si l\'utilisateur n\'est ni propriétaire du Nid ni Architecte', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'simple-user', capabilities: [] }
-    } as any);
+    global.__mockUser = { uid: 'simple-user', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 't-1',
       slug: 'mon-nid',
       ownerUid: 'other-owner'
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-    const req = new Request('http://localhost/api/teams/mon-nid/invitations/target-123', {
+    const req = new NextRequest('http://localhost/api/teams/mon-nid/invitations/target-123', {
       method: 'DELETE',
     });
 
-    const response = await DELETE(req as any, { 
+    const response = await DELETE(req, { 
       params: Promise.resolve({ slug: 'mon-nid', targetUid: 'target-123' }) 
     });
     const json = await response.json();
@@ -94,21 +111,19 @@ describe('Route API : Révocation d\'invitation (DELETE /api/teams/[slug]/invita
   });
 
   it('doit réussir (200) la révocation si l\'utilisateur est le propriétaire du Nid et invalider le cache', async () => {
-    vi.mocked(getServerSession).mockResolvedValue({
-      user: { uid: 'owner-uid', capabilities: [] }
-    } as any);
+    global.__mockUser = { uid: 'owner-uid', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 't-1',
       slug: 'mon-nid',
       ownerUid: 'owner-uid'
-    } as any);
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-    const req = new Request('http://localhost/api/teams/mon-nid/invitations/target-123', {
+    const req = new NextRequest('http://localhost/api/teams/mon-nid/invitations/target-123', {
       method: 'DELETE',
     });
 
-    const response = await DELETE(req as any, { 
+    const response = await DELETE(req, { 
       params: Promise.resolve({ slug: 'mon-nid', targetUid: 'target-123' }) 
     });
     const json = await response.json();

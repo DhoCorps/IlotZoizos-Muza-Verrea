@@ -1,14 +1,13 @@
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { SujetOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, withOptionalAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedSujetDetails } from '@/lib/cache/sujets.cache';
-import { IlotError } from '@ilot/shared-core';
 import { z } from 'zod';
 
 // 🛡️ Schéma de validation Zod strict pour interdire l'assignation de masse sur les champs sensibles
@@ -19,20 +18,12 @@ const UpdateSujetSchema = z.object({
   category: z.string().optional(),
   tags: z.array(z.string()).optional(),
   mediaUrl: z.string().url().nullable().optional(),
-});
-
-// 🛡️ Utilitaire interne de normalisation des erreurs HTTP
-function handleRouteError(error: any, defaultMessage: string) {
-  console.error("🔥 [SUJETS ROUTE ERROR] :", error);
-  const status = error instanceof IlotError ? error.status : (error.statusCode || error.status || 500);
-  const message = error instanceof IlotError || error.message ? error.message : defaultMessage;
-  return NextResponse.json({ error: message }, { status });
-}
+}).passthrough();
 
 // ==========================================
 // GET : Ausculter un sujet spécifique
 // ==========================================
-export const GET = withOptionalAura(async (req: Request, context: ApiContext, currentUser?: OiseauUser) => {
+export const GET = withOptionalAura(async (req: NextRequest, context: ApiContext, currentUser?: OiseauUser) => {
   try {
     const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = resolvedParams?.slug;
@@ -62,15 +53,15 @@ export const GET = withOptionalAura(async (req: Request, context: ApiContext, cu
       return NextResponse.json({ error: "Ce monologue intime t'est fermé." }, { status: 403 });
     }
     return NextResponse.json(sujet, { status: 200 });
-  } catch (error: any) {
-    return handleRouteError(error, "Erreur interne lors de l'auscultation du sujet.");
+  } catch (error: unknown) {
+    return handleRouteError(error, "SUJET GET ERROR");
   }
 });
 
 // ==========================================
 // PUT : Mutation du Sujet (Sécurisée par Zod)
 // ==========================================
-export const PUT = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const PUT = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = resolvedParams?.slug;
@@ -92,15 +83,15 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
       return NextResponse.json({ error: "Tu ne peux modifier que tes propres monologues." }, { status: 403 });
     }
 
-    let body;
+    let rawBody: unknown;
     try {
-      body = await req.json();
-    } catch (parseErr) {
+      rawBody = await req.json();
+    } catch {
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
     // 🛡️ Validation et assainissement stricts via Zod (bloque le Mass Assignment)
-    const validation = UpdateSujetSchema.safeParse(body);
+    const validation = UpdateSujetSchema.safeParse(rawBody);
     if (!validation.success) {
       return NextResponse.json({ error: "Données de mutation invalides.", details: validation.error.flatten() }, { status: 400 });
     }
@@ -113,25 +104,25 @@ export const PUT = withAura(async (req: Request, context: ApiContext, currentUse
         { $set: sanitizedData },
         { new: true }
       ).lean();
-    } catch (updateErr: any) {
-      throw new IlotError("Échec de la mutation du sujet dans la Silice.", "500");
+    } catch {
+      return NextResponse.json({ error: "Échec de la mutation du sujet dans la Silice." }, { status: 500 });
     }
-         
+          
     revalidateTag('sujets');
     revalidateTag(`sujet-${identifier}`);
     if (sujet.uid) revalidateTag(`sujet-${sujet.uid}`);
     if (sujet.slug) revalidateTag(`sujet-${sujet.slug}`);
 
     return NextResponse.json({ success: true, data: updatedSujet }, { status: 200 });
-  } catch (error: any) {
-    return handleRouteError(error, "Erreur interne lors de la mutation du sujet.");
+  } catch (error: unknown) {
+    return handleRouteError(error, "SUJET PUT ERROR");
   }
 });
 
 // ==========================================
 // DELETE : Désintégration / Suppression du Sujet
 // ==========================================
-export const DELETE = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = resolvedParams?.slug;
@@ -165,10 +156,12 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
       } else {
         await SujetModel.deleteOne({ uid: sujet.uid });
       }
-    } catch (orchErr: any) {
-      throw orchErr;
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      const status = err.status || err.statusCode || 500;
+      return NextResponse.json({ error: err.message || "Erreur lors de la désintégration." }, { status });
     }
-         
+          
     revalidateTag('sujets');
     revalidateTag(`sujet-${identifier}`);
     if (sujet.uid) revalidateTag(`sujet-${sujet.uid}`);
@@ -178,7 +171,7 @@ export const DELETE = withAura(async (req: Request, context: ApiContext, current
        success: true,
        message: "Le monologue a été réduit en cendres. Les liens dans le Graphe sont rompus."
     }, { status: 200 });
-  } catch (error: any) {
-    return handleRouteError(error, "Erreur interne lors de la suppression du sujet.");
+  } catch (error: unknown) {
+    return handleRouteError(error, "SUJET DELETE ERROR");
   }
 });

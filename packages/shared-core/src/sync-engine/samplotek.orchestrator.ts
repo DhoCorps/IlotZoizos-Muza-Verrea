@@ -37,6 +37,7 @@ export interface ExportProjectPayload {
     permissions?: {
       allowShowcase?: boolean;
       allowRadio?: boolean;
+      allowBlindTest?: boolean; // 🛡️ Ajout indispensable ici pour stopper l'erreur TypeScript
     };
     [key: string]: unknown;
   };

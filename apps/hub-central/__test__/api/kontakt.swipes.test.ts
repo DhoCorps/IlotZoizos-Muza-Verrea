@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/kontakt/swipes/route';
 import { KontaktOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
 vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockUser = global.__mockUser;
     if (!mockUser || !mockUser.uid) {
       return NextResponse.json({ error: "Le Nexus est invisible aux étrangers." }, { status: 401 });
@@ -27,37 +27,33 @@ vi.mock('@ilot/shared-core', () => ({
   })),
 }));
 
-declare global {
-  var __mockUser: any;
-}
-
 describe('API Kontakt Swipes - Enregistrement des affinités', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
   });
 
   it('doit rejeter (401) si l\'oiseau n\'est pas connecté', async () => {
-    delete (global as any).__mockUser;
+    delete global.__mockUser;
 
-    const req = new Request('http://localhost/api/kontakt/swipes', {
+    const req = new NextRequest('http://localhost/api/kontakt/swipes', {
       method: 'POST',
       body: JSON.stringify({ targetUid: 'target_1', action: 'LIKE' })
     });
 
-    const res = await POST(req as any, {});
+    const res = await POST(req, { params: Promise.resolve({}) });
     expect(res.status).toBe(401);
   });
 
   it('doit rejeter (400) si les paramètres de swipe sont incomplets', async () => {
     global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
-    const req = new Request('http://localhost/api/kontakt/swipes', {
+    const req = new NextRequest('http://localhost/api/kontakt/swipes', {
       method: 'POST',
       body: JSON.stringify({ targetUid: 'target_1' }) // action manquant
     });
 
-    const res = await POST(req as any, {});
+    const res = await POST(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(400);
@@ -71,14 +67,14 @@ describe('API Kontakt Swipes - Enregistrement des affinités', () => {
     const registerSwipeMock = vi.fn().mockResolvedValueOnce(mockSwipeResult);
     vi.mocked(KontaktOrchestrator).mockImplementationOnce(() => ({
       registerSwipe: registerSwipeMock,
-    } as any));
+    } as unknown as KontaktOrchestrator));
 
-    const req = new Request('http://localhost/api/kontakt/swipes', {
+    const req = new NextRequest('http://localhost/api/kontakt/swipes', {
       method: 'POST',
       body: JSON.stringify({ targetUid: 'target_2', action: 'LIKE' })
     });
 
-    const res = await POST(req as any, {});
+    const res = await POST(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(200);

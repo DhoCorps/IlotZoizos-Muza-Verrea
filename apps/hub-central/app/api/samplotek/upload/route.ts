@@ -5,7 +5,7 @@ import { SampleUploadSchema } from '@ilot/types';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { revalidateTag } from 'next/cache';
-import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withRateLimit, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { v4 as uuidv4 } from 'uuid';
 import { generateFileHash } from '@/lib/cryptoHelper';
 import { SamplotekOrchestrator } from '@ilot/shared-core';
@@ -26,7 +26,7 @@ function revalidateSamplotekCascades(userUid?: string, sampleUid?: string) {
 // ==========================================
 // 🎵 POST : Ingestion et scellement d'un sample audio
 // ==========================================
-export const POST = withRateLimit('upload-sample', 10, 60, withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withRateLimit('upload-sample', 10, 60, withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
     // 2. Extraction du FormData
     let formData: FormData;
@@ -79,7 +79,7 @@ export const POST = withRateLimit('upload-sample', 10, 60, withAura(async (req: 
       filename: file.name || 'sample.mp3',
     });
 
-    let uploadResult: any;
+    let uploadResult: unknown;
     try {
       uploadResult = await storageService.uploadFile(file, customKey);
     } catch (uploadErr) {
@@ -87,26 +87,34 @@ export const POST = withRateLimit('upload-sample', 10, 60, withAura(async (req: 
       return NextResponse.json({ success: false, error: 'Échec du téléversement dans le Nexus R2.' }, { status: 500 });
     }
 
-    const publicUrl = typeof uploadResult === 'string' ? uploadResult : (uploadResult?.publicUrl || uploadResult?.url || 'https://mock-url.com/sample.mp3');
-    const storageKey = uploadResult?.key || customKey;
+    const resObj = uploadResult as { publicUrl?: string; url?: string; key?: string } | string;
+    const publicUrl = typeof resObj === 'string' ? resObj : (resObj?.publicUrl || resObj?.url || 'https://mock-url.com/sample.mp3');
+    const storageKey = (typeof resObj === 'object' && resObj !== null && 'key' in resObj ? resObj.key : undefined) || customKey;
 
     // 6. Transfert de responsabilité à l'Orchestrateur (qui associe l'auteur via currentUser.uid)
     const orchestrator = new SamplotekOrchestrator();
-    const result = await orchestrator.fosterSample({
-      uid: sampleUid,
-      title: data.title,
-      audioUrl: publicUrl,
-      storageKey: storageKey,
-      tempoBpm: data.tempoBpm,
-      musicalKey: data.musicalKey,
-      style: data.style,
-      permissions: {
-        allowRadio: data.allowRadio,
-        allowBlindTest: data.allowBlindTest,
-        allowShowcase: data.allowShowcase,
-      },
-      digitalSignature
-    }, { actorUid: currentUser.uid, capabilities: currentUser.capabilities || [] });
+    let result: Awaited<ReturnType<SamplotekOrchestrator['fosterSample']>>;
+    try {
+      result = await orchestrator.fosterSample({
+        uid: sampleUid,
+        title: data.title,
+        audioUrl: publicUrl,
+        storageKey: storageKey,
+        tempoBpm: data.tempoBpm,
+        musicalKey: data.musicalKey,
+        style: data.style,
+        permissions: {
+          allowRadio: data.allowRadio,
+          allowBlindTest: data.allowBlindTest,
+          allowShowcase: data.allowShowcase,
+        },
+        digitalSignature
+      }, { actorUid: currentUser.uid, capabilities: currentUser.capabilities || [] });
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      const status = err.status || err.statusCode || 500;
+      return NextResponse.json({ success: false, error: err.message || "L'Orchestrateur a rejeté le sample." }, { status });
+    }
 
     // 7. Invalidation globale et centralisée en cascade
     revalidateSamplotekCascades(currentUser.uid, sampleUid);
@@ -117,8 +125,7 @@ export const POST = withRateLimit('upload-sample', 10, 60, withAura(async (req: 
       data: result.mongo
     }, { status: 201 });
 
-  } catch (error: any) {
-    console.error('🔥 [SAMPLE UPLOAD ERROR] :', error);
-    return NextResponse.json({ success: false, error: error.message || 'Erreur interne du serveur.' }, { status: error.status || 500 });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'SAMPLE UPLOAD ERROR');
   }
 }));

@@ -1,16 +1,16 @@
-import { NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
+
+import { NextResponse, NextRequest } from 'next/server';
 import { TaskIrrigationOrchestrator } from '@ilot/shared-core';
 import { TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
-
-export const dynamic = 'force-dynamic';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 
 /**
  * 💧 POST : Déclenchement de l'Irrigation de la Sève sur un Atome (Tâche)
  */
-export const POST = withAura(async (req: Request, context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     // 1. Résolution des paramètres de route avec gestion d'erreur robuste
     let resolvedParams;
@@ -28,9 +28,9 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
     }
 
     // 🔍 2. Résolution unifiée de la tâche par slug ou UID via le helper centralisé
-    let task: any;
+    let task: { uid?: string; slug?: string; [key: string]: unknown } | null;
     try {
-      task = await findEntityBySlugOrUid(TaskModel, identifier);
+      task = (await findEntityBySlugOrUid(TaskModel, identifier)) as typeof task;
     } catch (err) {
       console.error("🔥 [TASK FIND ERROR]", err);
       return NextResponse.json({ error: "Erreur lors de la lecture de la Silice." }, { status: 500 });
@@ -50,12 +50,13 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
     let result;
     try {
       const orchestrator = new TaskIrrigationOrchestrator();
-      result = await orchestrator.processTaskIrrigation(task.uid, signature);
-    } catch (orchErr: any) {
-      console.error("🌋 [TASK ORCHESTRATOR IRRIGATION ERROR] : Échec de l'orchestration de la sève", orchErr);
-      const status = orchErr.status || orchErr.statusCode || 500;
+      result = await orchestrator.processTaskIrrigation(task.uid || identifier, signature);
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      console.error("🌋 [TASK ORCHESTRATOR IRRIGATION ERROR] : Échec de l'orchestration de la sève", err);
+      const status = err.status || err.statusCode || 500;
       return NextResponse.json(
-        { error: orchErr.message || "Erreur interne de la sève." }, 
+        { error: err.message || "Erreur interne de la sève." }, 
         { status }
       );
     }
@@ -68,11 +69,7 @@ export const POST = withAura(async (req: Request, context: ApiContext, currentUs
 
     return NextResponse.json(result, { status: 200 });
 
-  } catch (error: any) {
-    console.error("🔥 Fracture globale lors de l'irrigation :", error);
-    return NextResponse.json(
-      { error: "Erreur interne globale lors de l'irrigation de l'atome." }, 
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    return handleRouteError(error, "TASK IRRIGATION FATAL ERROR");
   }
 });
