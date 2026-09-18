@@ -1,10 +1,10 @@
-// Fichier : __test__/api/kompta.ledger.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '../../app/api/kompta/ledger/route';
 import { LedgerEntryModel } from '@ilot/infrastructure';
+import { NextRequest } from 'next/server';
 
 vi.mock('@/lib/api-guards', () => ({
-  withAura: (handler: any) => async (req: any, context: any) => {
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     return handler(req, context, { uid: 'bird_test_123', capabilities: ['*'] });
   },
 }));
@@ -12,7 +12,6 @@ vi.mock('@/lib/api-guards', () => ({
 describe('GET /api/kompta/ledger', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete (global as any).__mockUser;
   });
 
   it('doit retourner le grand livre et calculer les métriques exactes', async () => {
@@ -26,10 +25,10 @@ describe('GET /api/kompta/ledger', () => {
       sort: vi.fn().mockReturnValue({
         lean: vi.fn().mockResolvedValue(mockEntries),
       }),
-    } as any);
+    } as unknown as ReturnType<typeof LedgerEntryModel.find>);
 
-    const req = new Request('http://localhost/api/kompta/ledger');
-    const res = await GET(req, {} as any);
+    const req = new NextRequest('http://localhost/api/kompta/ledger');
+    const res = await GET(req, { params: Promise.resolve({}) });
     const json = await res.json();
 
     expect(res.status).toBe(200);

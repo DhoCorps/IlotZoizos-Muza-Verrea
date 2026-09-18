@@ -1,26 +1,34 @@
-// Fichier : app/api/kompta/ledger/route.ts
 export const dynamic = 'force-dynamic';
 
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { LedgerEntryModel } from '@ilot/infrastructure';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { handleRouteError } from '@/lib/api-guards'; // Assure l'uniformité de nos erreurs
+
+interface LedgerEntryDocument {
+  type: 'CREDIT' | 'DEBIT';
+  amountCents: number;
+  [key: string]: unknown;
+}
 
 // ==========================================
 // 📒 GET : Consulter le Grand Livre (Strictement Privé / Aura)
 // ==========================================
-export const GET = withAura(async (req: Request, _context: ApiContext, currentUser: OiseauUser) => {
+export const GET = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
     // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
     const userUid = currentUser.uid;
 
     // Récupérer tout le grand livre de l'oiseau chronologiquement
-    const entries = await LedgerEntryModel.find({ ownerUid: userUid }).sort({ createdAt: -1 }).lean();
+    const entries = (await LedgerEntryModel.find({ ownerUid: userUid })
+      .sort({ createdAt: -1 })
+      .lean()) as unknown as LedgerEntryDocument[];
 
     // Calculer les métriques financières en temps réel
     let totalCreditsCents = 0;
     let totalDebitsCents = 0;
 
-    entries.forEach((entry: any) => {
+    entries.forEach((entry) => {
       if (entry.type === 'CREDIT') totalCreditsCents += entry.amountCents;
       if (entry.type === 'DEBIT') totalDebitsCents += entry.amountCents;
     });
@@ -38,9 +46,7 @@ export const GET = withAura(async (req: Request, _context: ApiContext, currentUs
       }
     }, { status: 200 });
 
-  } catch (error: any) {
-    console.error('🔥 [KOMPTA LEDGER ERROR] :', error);
-    const status = error.status || error.statusCode || 500;
-    return NextResponse.json({ success: false, error: error.message || 'Erreur lors de la lecture du grand livre.' }, { status });
+  } catch (error: unknown) {
+    return handleRouteError(error, 'KOMPTA LEDGER ERROR');
   }
 });
