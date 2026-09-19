@@ -6,9 +6,10 @@ import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, withRateLimit, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
-import { IlotError } from '@ilot/shared-core';
+import { IlotError, SujetOrchestrator } from '@ilot/shared-core';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
 import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { ActionSignature } from '@ilot/types';
 
 // 🛡️ Fonction centralisée d'invalidation en cascade pour les Sujets (Abyss)
 function revalidateSujetCascades(sujet: { slug?: string; uid?: string }) {
@@ -133,11 +134,13 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
     const resObj = uploadResult as { key?: string } | null;
     const storageKey = resObj?.key || structuredKey;
 
-    // Mise à jour de la Silice avec l'URL du média ancré
-    await SujetModel.updateOne(
-      { uid: targetSujet.uid },
-      { $set: { mediaUrl: publicUrl } }
-    );
+    // 🛡️ Délégation de la mise à jour au SujetOrchestrator pour garantir l'intégrité (Silice + Graphe)
+    const signature: ActionSignature = {
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
+    };
+    const sujetOrch = new SujetOrchestrator();
+    await sujetOrch.updateSujet(targetSujet.uid as string, { mediaUrl: publicUrl }, signature);
 
     // 💥 Invalidation globale et centralisée en cascade
     revalidateSujetCascades(targetSujet);
@@ -233,11 +236,13 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       return NextResponse.json({ error: "Échec de la désintégration de l'artefact dans le Nexus." }, { status: 500 });
     }
 
-    // Nettoyage de l'attribut média en base
-    await SujetModel.updateOne(
-      { uid: targetSujet.uid },
-      { $set: { mediaUrl: null } }
-    );
+    // 🛡️ Nettoyage de l'attribut média via le SujetOrchestrator
+    const signature: ActionSignature = {
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
+    };
+    const sujetOrch = new SujetOrchestrator();
+    await sujetOrch.updateSujet(targetSujet.uid as string, { mediaUrl: null }, signature);
 
     // 💥 Invalidation globale et centralisée en cascade
     revalidateSujetCascades(targetSujet);

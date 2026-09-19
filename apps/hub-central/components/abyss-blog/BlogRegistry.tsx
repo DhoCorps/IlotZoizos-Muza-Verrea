@@ -1,4 +1,3 @@
-// apps/hub-central/components/abyss/blog.registry.tsx
 'use client';
 
 import React from 'react';

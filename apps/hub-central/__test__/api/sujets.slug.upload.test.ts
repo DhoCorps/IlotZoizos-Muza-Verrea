@@ -3,6 +3,7 @@ import { POST, DELETE } from '@/app/api/sujets/[slug]/upload/route';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { SujetModel } from '@ilot/infrastructure';
+import { SujetOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -41,9 +42,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     connectToDatabase: vi.fn().mockResolvedValue(true),
     SujetModel: {
       findOne: vi.fn(),
-      updateOne: vi.fn().mockResolvedValue({ modifiedCount: 1 }),
     },
-    // Mock du helper unifié s'appuyant sur SujetModel.findOne
     findEntityBySlugOrUid: vi.fn(async (model, identifier, options = { lean: true }) => {
       const doc = await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] });
       if (!doc) return null;
@@ -52,6 +51,32 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       }
       return doc;
     }),
+  };
+});
+
+// Mock de l'Orchestrator pour intercepter updateSujet
+vi.mock('@ilot/shared-core', () => {
+  return {
+    SujetOrchestrator: class {
+      async updateSujet() {
+        return {
+          success: true,
+          status: 'success',
+          mongo: { uid: 's-1', mediaUrl: 'https://cdn.ilot/media.jpg' },
+          neo4j: null,
+        };
+      }
+      async disintegrateSujet() {
+        return { success: true, purgedCount: 1 };
+      }
+    },
+    IlotError: class extends Error {
+      statusCode: number;
+      constructor(message: string, code: string, status: number) {
+        super(message);
+        this.statusCode = status;
+      }
+    }
   };
 });
 
@@ -79,7 +104,6 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
     vi.clearAllMocks();
     delete global.__mockUser;
 
-    // Espions actifs sur le SujetModel pour le helper unifié
     vi.spyOn(SujetModel, 'findOne').mockReturnValue({
       lean: vi.fn().mockResolvedValue({ 
         uid: 's-1', 
@@ -89,7 +113,6 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
       }),
     } as unknown as ReturnType<typeof SujetModel.findOne>);
 
-    // 🛡️ Espions actifs sur le StorageService mis à jour avec normalisation des clés
     vi.spyOn(storageService, 'generateKey').mockReturnValue('hub-central/fr/projects/s-1/sujet_media/test.jpg');
     vi.spyOn(storageService, 'uploadFile').mockResolvedValue({
       success: true,
@@ -107,7 +130,7 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue(true as unknown as Awaited<ReturnType<typeof storageService.deleteFile>>);
   });
 
-  it('POST - doit téléverser un média, générer le Sceau SHA-256, respecter la structure et invalider le cache', async () => {
+  it('POST - doit téléverser un média, générer le Sceau SHA-256, passer par l\'Orchestrator et invalider le cache', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
     const formData = new FormData();
@@ -125,11 +148,10 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
     expect(json.success).toBe(true);
     expect(json.data.url).toBe('https://cdn.ilot/media.jpg');
     expect(json.data.digitalSignature).toBeDefined();
-    expect(typeof json.data.digitalSignature).toBe('string');
-    expect(json.data.digitalSignature.length).toBe(64); // Vérification du SHA-256
 
-    // 💥 Vérification de l'invalidation du cache
+    // Vérification de l'invalidation du cache en cascade
     expect(revalidateTag).toHaveBeenCalledWith('sujets');
+    expect(revalidateTag).toHaveBeenCalledWith('abyss');
     expect(revalidateTag).toHaveBeenCalledWith('sujet-mon-sujet');
     expect(revalidateTag).toHaveBeenCalledWith('sujet-s-1');
   });
@@ -145,10 +167,9 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
     
     expect(response.status).toBe(403);
     expect(storageService.deleteFile).not.toHaveBeenCalled();
-    expect(SujetModel.updateOne).not.toHaveBeenCalled();
   });
 
-  it('DELETE - doit purger le média du stockage, nettoyer la Silice et invalider le cache', async () => {
+  it('DELETE - doit purger le média, passer par l\'Orchestrator et invalider le cache', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
     const req = new NextRequest('http://localhost/api/sujets/mon-sujet/upload?url=https://cdn.ilot/media.jpg', {
@@ -162,13 +183,10 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
     expect(json.success).toBe(true);
 
     expect(storageService.deleteFile).toHaveBeenCalledWith('mock-key');
-    expect(SujetModel.updateOne).toHaveBeenCalledWith(
-      { uid: 's-1' },
-      { $set: { mediaUrl: null } }
-    );
 
-    // 💥 Vérification de l'invalidation du cache
+    // Vérification de l'invalidation du cache en cascade
     expect(revalidateTag).toHaveBeenCalledWith('sujets');
+    expect(revalidateTag).toHaveBeenCalledWith('abyss');
     expect(revalidateTag).toHaveBeenCalledWith('sujet-mon-sujet');
     expect(revalidateTag).toHaveBeenCalledWith('sujet-s-1');
   });

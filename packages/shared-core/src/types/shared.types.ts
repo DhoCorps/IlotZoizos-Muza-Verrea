@@ -467,7 +467,7 @@ export interface CineMaxMakeMoveRequest extends BaseMakeMoveRequest {
     payload?: {
         answer?: string;
         difficulty?: CineMaxDifficulty;
-        movieTitle?: string; // <-- Ajouté pour corriger l'erreur du buzzer
+        movieTitle?: string;
     };
 }
 
@@ -507,7 +507,6 @@ export interface WikiOracleMakeMoveRequest extends BaseMakeMoveRequest {
     answer: string;
 }
 
-// 🎬🎨🚀🎲 Mise à jour des options de création de salon pour inclure Plum'Zee et WikiOracle
 export interface CreateRoomRequest {
     username: string;
     gameType: GameType;
@@ -549,11 +548,11 @@ export interface JoinRoomRequest {
     username: string;
 }
 
-class AttachmentRegistry {
+export class AttachmentRegistry {
   private resolvers = new Map<AttachmentSourceType, AttachmentResolver>();
 
   /**
-   * Enregistre un module pour qu'il devienne attachable dans les messages
+   * Enregistre un module (Blog, Poésie, Chanson, Police, etc.) pour qu'il devienne attachable dans les messages
    */
   public register(sourceType: AttachmentSourceType, resolver: AttachmentResolver) {
     this.resolvers.set(sourceType, resolver);

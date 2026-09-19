@@ -50,6 +50,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
+    // 1. Validation Zod en amont
     const validation = FosterSujetSchema.safeParse(rawBody);
     if (!validation.success) {
       return NextResponse.json({ error: "Un Sujet nécessite un nom et une substance (contenu).", details: validation.error.flatten() }, { status: 400 });
@@ -62,6 +63,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
 
     let result;
     try {
+      // 2. Délégation totale à l'Orchestrator pour la double écriture atomique
       const sujetOrch = new SujetOrchestrator();
       const dataToForge = { ...validation.data, authorUid: currentUser.uid };
       result = await sujetOrch.fosterSujet(dataToForge, signature);
@@ -71,10 +73,12 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       const status = err.statusCode || err.status || 500;
       return NextResponse.json({ error: err.message || "L'îlot repousse ce fragment de pensée." }, { status });
     }
-          
+         
+    // 3. Invalidation rigoureuse du cache en cascade
     revalidateTag('sujets');
     revalidateTag(`sujets-user-${currentUser.uid}`);
     revalidateTag(`sujets-user-public`);
+    
     return NextResponse.json(result, { status: 201 });
   } catch (error: unknown) {
     return handleRouteError(error, "SUJET POST ERROR");

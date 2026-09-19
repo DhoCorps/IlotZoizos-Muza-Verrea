@@ -59,7 +59,7 @@ export const GET = withOptionalAura(async (req: NextRequest, context: ApiContext
 });
 
 // ==========================================
-// PUT : Mutation du Sujet (Sécurisée par Zod)
+// PUT : Mutation du Sujet (Déléguée à l'Orchestrator)
 // ==========================================
 export const PUT = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
@@ -69,18 +69,6 @@ export const PUT = withAura(async (req: NextRequest, context: ApiContext, curren
 
     if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
-    }
-
-    // 🔍 Recherche unifiée pour récupérer le sujet par slug ou UID
-    const sujet: any = await findEntityBySlugOrUid(SujetModel, identifier);
-    if (!sujet) {
-      return NextResponse.json({ error: "Sujet introuvable." }, { status: 404 });
-    }
-
-    const isAuthor = sujet.authorUid === currentUser.uid;
-    const isArchitect = currentUser.capabilities?.includes('*');
-    if (!isAuthor && !isArchitect) {
-      return NextResponse.json({ error: "Tu ne peux modifier que tes propres monologues." }, { status: 403 });
     }
 
     let rawBody: unknown;
@@ -95,26 +83,31 @@ export const PUT = withAura(async (req: NextRequest, context: ApiContext, curren
     if (!validation.success) {
       return NextResponse.json({ error: "Données de mutation invalides.", details: validation.error.flatten() }, { status: 400 });
     }
-    const sanitizedData = validation.data;
 
-    let updatedSujet;
+    const signature: ActionSignature = {
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
+    };
+
+    let result;
     try {
-      updatedSujet = await SujetModel.findOneAndUpdate(
-        { uid: sujet.uid },
-        { $set: sanitizedData },
-        { new: true }
-      ).lean();
-    } catch {
-      return NextResponse.json({ error: "Échec de la mutation du sujet dans la Silice." }, { status: 500 });
+      // 🔄 Délégation de la mise à jour au SujetOrchestrator (Silice + Neo4j)
+      const sujetOrch = new SujetOrchestrator();
+      result = await sujetOrch.updateSujet(identifier, validation.data, signature);
+    } catch (orchErr: unknown) {
+      const err = orchErr as { status?: number; statusCode?: number; message?: string };
+      const status = err.statusCode || err.status || 500;
+      return NextResponse.json({ error: err.message || "Échec de la mutation du sujet dans le Nexus." }, { status });
     }
-          
+         
     revalidateTag('sujets');
     revalidateTag(`sujet-${identifier}`);
-    if (sujet.uid) revalidateTag(`sujet-${sujet.uid}`);
-    if (sujet.slug) revalidateTag(`sujet-${sujet.slug}`);
+    if (result.mongo?.uid) revalidateTag(`sujet-${result.mongo.uid}`);
+    if (result.mongo?.slug) revalidateTag(`sujet-${result.mongo.slug}`);
 
-    return NextResponse.json({ success: true, data: updatedSujet }, { status: 200 });
+    return NextResponse.json({ success: true, data: result.mongo }, { status: 200 });
   } catch (error: unknown) {
+    console.error("💥 ERREUR EXACTE DANS PUT :", error); // <-- Ajoute cette ligne
     return handleRouteError(error, "SUJET PUT ERROR");
   }
 });
@@ -161,7 +154,7 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       const status = err.status || err.statusCode || 500;
       return NextResponse.json({ error: err.message || "Erreur lors de la désintégration." }, { status });
     }
-          
+         
     revalidateTag('sujets');
     revalidateTag(`sujet-${identifier}`);
     if (sujet.uid) revalidateTag(`sujet-${sujet.uid}`);

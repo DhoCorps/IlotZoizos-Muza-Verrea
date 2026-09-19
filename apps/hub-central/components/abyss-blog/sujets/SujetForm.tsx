@@ -1,10 +1,10 @@
-// apps/hub-central/components/abyss-blog/sujets/SujetForm.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Type, FileAudio, LayoutGrid, Upload, Music, ShieldCheck, ShoppingBag, Loader2, Sparkles } from 'lucide-react';
-import { RequireCapability } from '../../auth/RequireCapability'; 
+import { RequireCapability } from '@/components/auth/RequireCapability'; // 🛡️ CORRECTION : Import absolu robuste
 import { CAPABILITIES } from '@ilot/types';
+import { useQuery } from '@tanstack/react-query'; // 🛡️ CORRECTION : Alignement architectural
 
 interface SujetFormProps {
   initialData?: any;
@@ -29,23 +29,22 @@ export function SujetForm({
   const [uploadingFile, setUploadingFile] = useState(false);
   const isEdit = !!initialData;
 
-  const [sujetCategories, setSujetCategories] = useState<{ value: string; label: string }[]>([
+  // 🌀 SUTURE REACT QUERY : Mise en cache des taxonomies pour éviter les fetchs redondants à chaque ouverture de modale
+  const { data: sujetCategories = [
     { value: 'MONOLOGUE', label: 'Monologue' },
     { value: 'POETRY', label: 'Poésie' },
     { value: 'TUTORIAL', label: 'Tutoriel' },
     { value: 'TRACK_NOTE', label: 'Note de Piste' }
-  ]);
-
-  useEffect(() => {
-    fetch('/api/taxonomy')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && data.sujetCategories) {
-          setSujetCategories(data.sujetCategories);
-        }
-      })
-      .catch(() => {});
-  }, []);
+  ] } = useQuery({
+    queryKey: ['taxonomy', 'sujets'],
+    queryFn: async () => {
+      const res = await fetch('/api/taxonomy');
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.success && data.sujetCategories ? data.sujetCategories : null;
+    },
+    staleTime: 1000 * 60 * 60, // Garder en cache pendant 1h
+  });
 
   // Générateur de slug automatique basé sur le titre
   const generateSlug = (text: string) => {
@@ -67,6 +66,7 @@ export function SujetForm({
       setLoading(false);
       return;
     }
+    
     const formData = new FormData(formElement);
     const selectedProjects = Array.from(formData.getAll('relatedProjects'));
     const titleValue = formData.get('title')?.toString() || '';
@@ -276,7 +276,7 @@ export function SujetForm({
         <div className="space-y-3">
           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Forme (Taxonomie)</label>
           <select name="category" defaultValue={initialData?.category || "MONOLOGUE"} className="w-full bg-black/40 border border-white/10 p-3 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]">
-            {sujetCategories.map(cat => (
+            {(sujetCategories || []).map((cat: any) => (
               <option key={cat.value} value={cat.value}>{cat.label}</option>
             ))}
           </select>

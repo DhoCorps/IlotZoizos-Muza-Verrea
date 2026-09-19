@@ -47,7 +47,6 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
     });
 
     it('🟢 doit forger un sujet dans MongoDB et Neo4j avec succès', async () => {
-      // 🛠️ Correction du mock pour supporter le chaînage .session(...).lean()
       vi.mocked(SujetModel.findOne).mockReturnValue({
         session: vi.fn().mockReturnValue({
           lean: vi.fn().mockResolvedValueOnce(null)
@@ -58,33 +57,31 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
         { uid: 'sujet_1', title: 'Pensée Silencieuse', slug: 'pensee-silencieuse', authorUid: 'bird_author' }
       ] as any);
 
-      const res = await orchestrator.fosterSujet({ title: 'Pensée Silencieuse', authorUid: 'bird_author' }, userSignature as any);
+      const res = await orchestrator.fosterSujet({ title: 'Pensée Silencieuse', authorUid: 'bird_author', connections: { relatedProjects: [] } }, userSignature as any);
       
-      // Utilisation de l'assertion de non-nullité (!) pour rassurer le compilateur TS
       expect((res.mongo as { uid: string }).uid).toBe('sujet_1');
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('updateSujet', () => {
-    it('🔴 doit rejeter (404) si le sujet est introuvable (par uid ou slug)', async () => {
+    it('🔴 doit rejeter (404) si le sujet est introuvable', async () => {
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
       await expect(
         orchestrator.updateSujet('inconnu', {}, adminSignature as any)
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit mettre à jour un sujet par son slug ou son uid avec succès', async () => {
+    it('🟢 doit mettre à jour un sujet avec succès', async () => {
       const mockSujet = { uid: 'sujet_1', slug: 'mon-sujet', authorUid: 'bird_author' };
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockSujet as any);
-           
+            
       vi.mocked(SujetModel.findOneAndUpdate).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce({ ...mockSujet, title: 'Updated' })
       } as any);
 
       const res = await orchestrator.updateSujet('mon-sujet', { title: 'Updated' }, userSignature as any);
       
-      // Utilisation de l'assertion de non-nullité (!) pour rassurer le compilateur TS
       expect((res.mongo as { title: string }).title).toBe('Updated');
     });
   });
@@ -99,14 +96,16 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit désintégrer le sujet avec succès si l\'acteur est l\'auteur', async () => {
-      const mockSujet = { uid: 'sujet_1', slug: 'mon-sujet', authorUid: 'bird_author' };
+    it('🟢 doit désintégrer le sujet avec succès et nettoyer les médias S3 si la DB a réussi', async () => {
+      const mockSujet = { uid: 'sujet_1', slug: 'mon-sujet', authorUid: 'bird_author', media: { coverImageUrl: 'http://s3/img.jpg' } };
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockSujet as any);
       vi.mocked(SujetModel.deleteOne).mockResolvedValueOnce({ deletedCount: 1 } as any);
 
       const res = await orchestrator.disintegrateSujet('mon-sujet', userSignature as any);
       
       expect(res.success).toBe(true);
+      // Vérifie que le service S3 a bien été appelé APRÈS la transaction
+      expect(mockStorageManager.deleteFile).toHaveBeenCalledWith('key_http://s3/img.jpg');
     });
   });
 });

@@ -1,7 +1,6 @@
-// apps/hub-central/app/[locale]/(inceptions)/abyss-blog/[slug]/page.tsx
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { 
   Loader2, ArrowLeft, Play, Pause, Music, Layers, 
@@ -20,17 +19,18 @@ export default function AbyssBlogPostPage() {
   const queryClient = useQueryClient();
 
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [newComment, setNewComment] = useState('');
-  
-  // 🧩 État du widget universel
   const [isWidgetOpen, setWidgetOpen] = useState(false);
+  
+  // 🛡️ CORRECTION : Utilisation de useRef pour le cycle de vie Audio (évite les fuites mémoire / memory leaks)
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // 🌀 SUTURE REACT QUERY : Récupération parallélisée du sujet et de ses échos
   const { data: allSujets = [], isLoading: loadingSujet } = useQuery({
     queryKey: ['sujets'],
     queryFn: async () => {
       const res = await fetch('/api/sujets');
+      if (!res.ok) throw new Error("Échec du chargement");
       return res.json();
     }
   });
@@ -48,6 +48,7 @@ export default function AbyssBlogPostPage() {
     queryKey: ['echoes', sujet?.uid],
     queryFn: async () => {
       const res = await fetch(`/api/resonance/echoes?targetUid=${sujet.uid}`);
+      if (!res.ok) throw new Error("Échec du chargement des échos");
       return res.json();
     },
     enabled: !!sujet?.uid
@@ -68,22 +69,37 @@ export default function AbyssBlogPostPage() {
       queryClient.invalidateQueries({ queryKey: ['echoes', sujet?.uid] });
       setNewComment('');
       toast.success("Écho propagé.");
+    },
+    onError: (err: Error) => {
+      toast.error(`Erreur : ${err.message}`);
     }
   });
 
+  // 🛡️ CORRECTION : Gestion saine du cycle de vie du lecteur Audio natif
   useEffect(() => {
     if (sujet?.media?.audioTrackUrl) {
-      const audio = new Audio(sujet.media.audioTrackUrl);
-      audio.onended = () => setIsPlayingAudio(false);
-      setAudioElement(audio);
-      return () => audio.pause();
+      audioRef.current = new Audio(sujet.media.audioTrackUrl);
+      audioRef.current.onended = () => setIsPlayingAudio(false);
+      
+      return () => {
+        if (audioRef.current) {
+          audioRef.current.pause();
+          audioRef.current.src = ""; // Force le Garbage Collector du navigateur
+          audioRef.current = null;
+        }
+      };
     }
-  }, [sujet]);
+  }, [sujet?.media?.audioTrackUrl]);
 
   const toggleAudio = () => {
-    if (!audioElement) return;
-    if (isPlayingAudio) { audioElement.pause(); setIsPlayingAudio(false); }
-    else { audioElement.play(); setIsPlayingAudio(true); }
+    if (!audioRef.current) return;
+    if (isPlayingAudio) { 
+      audioRef.current.pause(); 
+      setIsPlayingAudio(false); 
+    } else { 
+      audioRef.current.play(); 
+      setIsPlayingAudio(true); 
+    }
   };
 
   // 🧩 Transformation du Sujet en Média Universel pour l'OmniActionWidget
@@ -105,7 +121,7 @@ export default function AbyssBlogPostPage() {
   }, [sujet]);
 
   if (loadingSujet || loadingEchoes) {
-    return <div className="min-h-[70vh] flex items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-[#E5484D]" /></div>;
+    return <div data-testid="loader" className="min-h-[70vh] flex items-center justify-center"><Loader2 className="w-10 h-10 animate-spin text-[#E5484D]" /></div>;
   }
 
   if (!sujet) {
@@ -124,7 +140,6 @@ export default function AbyssBlogPostPage() {
           <ArrowLeft size={14} /> Revenir au Flux
         </button>
 
-        {/* 🧩 Bouton d'ouverture du Widget */}
         <button 
           onClick={() => setWidgetOpen(true)} 
           className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl text-xs font-bold text-slate-200 transition-all flex items-center gap-2 shadow-lg"
@@ -159,7 +174,7 @@ export default function AbyssBlogPostPage() {
                 <p className="text-[10px] font-mono text-slate-400 truncate max-w-[200px]">{sujet.media.audioTrackUrl}</p>
               </div>
             </div>
-            <button onClick={toggleAudio} className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black uppercase text-xs rounded-xl transition-all flex items-center gap-2">
+            <button onClick={toggleAudio} data-testid="audio-toggle-btn" className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black uppercase text-xs rounded-xl transition-all flex items-center gap-2">
               {isPlayingAudio ? <><Pause size={14} /> Silence</> : <><Play size={14} /> Écouter</>}
             </button>
           </div>
@@ -177,7 +192,7 @@ export default function AbyssBlogPostPage() {
         </div>
 
         <form onSubmit={(e) => { e.preventDefault(); echoMutation.mutate({ targetUid: sujet.uid, targetLabel: 'Sujet', echoType: 'TEXT', content: newComment }); }} className="p-6 bg-black/40 border border-white/10 rounded-2xl space-y-4">
-          <textarea value={newComment} onChange={(e) => setNewComment(e.target.value)} className="w-full bg-black/60 border border-white/10 p-4 rounded-xl text-sm text-slate-200 outline-none focus:border-[#E5484D] min-h-[100px]" required />
+          <textarea value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Ajouter un écho..." className="w-full bg-black/60 border border-white/10 p-4 rounded-xl text-sm text-slate-200 outline-none focus:border-[#E5484D] min-h-[100px]" required />
           <div className="flex justify-end">
             <button type="submit" disabled={echoMutation.isPending} className="px-6 py-3 bg-[#E5484D] text-white font-black uppercase text-xs rounded-xl flex items-center gap-2">
               {echoMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Propager
@@ -198,7 +213,6 @@ export default function AbyssBlogPostPage() {
         </div>
       </section>
 
-      {/* 🧩 Rendu du Prisme d'Interaction */}
       {universalMediaItem && (
         <OmniActionWidget 
           media={universalMediaItem}

@@ -53,14 +53,18 @@ vi.mock('@ilot/infrastructure', () => ({
 describe('Route API : Bibliothèque & Sujets (GET / POST /api/sujets)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete global.__mockUser;
+    delete (global as any).__mockUser;
 
     // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de SujetOrchestrator
     vi.spyOn(SujetOrchestrator.prototype, 'fosterSujet').mockResolvedValue({
       success: true,
-      uid: 'sujet-new',
-      title: 'Nouvelle Pensée',
-    } as unknown as Awaited<ReturnType<SujetOrchestrator['fosterSujet']>>);
+      status: 'success',
+      mongo: {
+        uid: 'sujet-new',
+        title: 'Nouvelle Pensée',
+      } as any,
+      neo4j: null,
+    });
   });
 
   describe('GET - Consultation de la Bibliothèque', () => {
@@ -138,11 +142,13 @@ describe('Route API : Bibliothèque & Sujets (GET / POST /api/sujets)', () => {
       const json = await response.json();
 
       expect(response.status).toBe(201);
-      expect(json.uid).toBe('sujet-new');
+      // L'orchestrateur renvoie l'objet enveloppé `{ success, status, mongo, neo4j }`
+      expect(json.mongo.uid).toBe('sujet-new');
 
       // 💥 Vérification de l'invalidation chirurgicale du cache
       expect(revalidateTag).toHaveBeenCalledWith('sujets');
       expect(revalidateTag).toHaveBeenCalledWith('sujets-user-u-123');
+      expect(revalidateTag).toHaveBeenCalledWith('sujets-user-public');
     });
   });
 });

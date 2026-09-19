@@ -63,11 +63,30 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-vi.mock('@ilot/shared-core', () => ({
-  SujetOrchestrator: vi.fn().mockImplementation(() => ({
-    disintegrateSujet: vi.fn().mockResolvedValue(true),
-  })),
-}));
+vi.mock('@ilot/shared-core', () => {
+  return {
+    SujetOrchestrator: class {
+      async updateSujet() {
+        return {
+          success: true,
+          status: 'success',
+          mongo: { uid: 's-1', title: 'Titre Modifié', slug: 'mon-sujet' },
+          neo4j: null,
+        };
+      }
+      async disintegrateSujet() {
+        return { success: true, purgedCount: 1 };
+      }
+    },
+    IlotError: class extends Error {
+      statusCode: number;
+      constructor(message: string, code: string, status: number) {
+        super(message);
+        this.statusCode = status;
+      }
+    }
+  };
+});
 
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
@@ -121,24 +140,21 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
   });
 
   describe('PUT - Mutation du Sujet', () => {
-    it('doit réussir (200) si l\'utilisateur est l\'auteur, valide via Zod et invalide le cache', async () => {
+    it('doit réussir (200) si l\'utilisateur passe par l\'Orchestrator, valide via Zod et invalide le cache', async () => {
       vi.mocked(getServerSession).mockResolvedValue({
         user: { uid: 'u-owner', capabilities: [] }
       } as unknown as Awaited<ReturnType<typeof getServerSession>>);
 
-      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      // 🛠️ CORRECTION : mockResolvedValue (et non Once) pour couvrir les 2 appels (route + orchestrator)
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValue({
         uid: 's-1',
         slug: 'mon-sujet',
         authorUid: 'u-owner',
       } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
-      vi.mocked(SujetModel.findOneAndUpdate).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 's-1', title: 'Titre Modifié' }),
-      } as unknown as ReturnType<typeof SujetModel.findOneAndUpdate>);
-
       const req = new NextRequest('http://localhost/api/sujets/mon-sujet', {
         method: 'PUT',
-        body: JSON.stringify({ title: 'Titre Modifié', authorUid: 'fake-hack' }), // authorUid sera ignoré ou filtré par le design
+        body: JSON.stringify({ title: 'Titre Modifié' }),
       });
 
       const response = await PUT(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
@@ -146,7 +162,6 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
 
       expect(response.status).toBe(200);
       expect(json.success).toBe(true);
-      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(SujetModel, 'mon-sujet');
 
       // 💥 Vérification de l'invalidation du cache
       expect(revalidateTag).toHaveBeenCalledWith('sujets');

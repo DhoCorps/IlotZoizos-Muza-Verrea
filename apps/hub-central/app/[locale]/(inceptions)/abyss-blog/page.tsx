@@ -1,4 +1,3 @@
-// apps/hub-central/app/[locale]/(inceptions)/abyss-blog/page.tsx
 'use client';
 
 import { useState } from 'react';
@@ -10,64 +9,33 @@ import {
 import { SujetForm } from '@/components/abyss-blog/sujets/SujetForm';
 import ResonanceButton from '@/components/resonance/ResonanceButton';
 import { OmniActionWidget } from '@/components/widget/OmniActionWidget';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 import { IUniversalMediaItem } from '@ilot/types';
+
+// 🛡️ SUTURE ARCHITECTURALE : Importation du Hook Fabrique centralisé
+import { useAbyssBlog } from '@/hooks/useAbyssBlog'; 
 
 export default function AbyssBlogDashboard() {
   const queryClient = useQueryClient();
+  
+  // 🌀 Consommation centralisée de la donnée (Plus aucun fetch manuel ici)
+  const { sujets, projects, loading, deleteSujet } = useAbyssBlog();
+
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
-  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSujet, setEditingSujet] = useState<any>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // 🧩 État du widget universel
   const [activeMediaForWidget, setActiveMediaForWidget] = useState<IUniversalMediaItem | null>(null);
 
-  // 🌀 SUTURE REACT QUERY : Récupération automatique des sujets et projets en cache
-  const { data: sujets = [], isLoading: sujetsLoading } = useQuery({
-    queryKey: ['sujets'],
-    queryFn: async () => {
-      const res = await fetch('/api/sujets');
-      if (!res.ok) throw new Error("Échec de la récupération des sujets");
-      const data = await res.json();
-      return Array.isArray(data) ? data : (data.data || data.sujets || []);
-    }
-  });
-
-  const { data: projects = [], isLoading: projectsLoading } = useQuery({
-    queryKey: ['projects'],
-    queryFn: async () => {
-      const res = await fetch('/api/projects');
-      if (!res.ok) throw new Error("Échec de la récupération des projets");
-      const data = await res.json();
-      return Array.isArray(data) ? data : (data.data || data.projects || []);
-    }
-  });
-
-  const loading = sujetsLoading || projectsLoading;
-
-  // 🌀 SUTURE REACT QUERY : Mutation pour la dissolution d'un monologue
-  const deleteMutation = useMutation({
-    mutationFn: async (uid: string) => {
-      const res = await fetch(`/api/sujets/${uid}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error("Échec de la désintégration du monologue");
-      return uid;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sujets'] });
-      toast.success("Monologue dissous dans le néant.");
-    },
-    onError: (err: any) => {
-      console.error("🔥 Erreur lors de la désintégration :", err);
-      toast.error(`Ineptie technique : ${err.message}`);
-    }
-  });
-
-  const handleDelete = async (uid: string) => {
+  const handleDelete = (uid: string) => {
     if (!confirm("Es-tu sûr de vouloir dissoudre ce monologue dans le néant ?")) return;
-    deleteMutation.mutate(uid);
+    setDeletingId(uid);
+    deleteSujet(uid, {
+      onSettled: () => setDeletingId(null)
+    });
   };
 
   const handleOpenCreate = () => {
@@ -135,6 +103,7 @@ export default function AbyssBlogDashboard() {
         <div className="flex items-center gap-4 z-10">
           <button 
             onClick={handleOpenCreate}
+            data-testid="btn-create-sujet"
             className="px-6 py-4 bg-[#E5484D] hover:bg-[#c43d41] text-white font-black uppercase text-xs rounded-2xl shadow-[0_0_20px_rgba(229,72,77,0.3)] hover:scale-[1.02] transition-all flex items-center gap-2"
           >
             <Plus size={16} /> Nouveau Monologue
@@ -173,7 +142,7 @@ export default function AbyssBlogDashboard() {
 
       {/* 📜 LISTE DES SUJETS (GRILLE) */}
       {loading ? (
-        <div className="min-h-[40vh] flex items-center justify-center">
+        <div data-testid="loader" className="min-h-[40vh] flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-[#E5484D]" />
         </div>
       ) : (
@@ -249,6 +218,7 @@ export default function AbyssBlogDashboard() {
 
                     <button 
                       onClick={() => handleOpenEdit(sujet)}
+                      data-testid={`btn-edit-${sujetKey}`}
                       className="p-2.5 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl border border-white/10 transition-all"
                       title="Ajuster"
                     >
@@ -257,11 +227,12 @@ export default function AbyssBlogDashboard() {
 
                     <button 
                       onClick={() => handleDelete(sujetKey)}
-                      disabled={deleteMutation.isPending}
+                      disabled={deletingId === sujetKey}
+                      data-testid={`btn-delete-${sujetKey}`}
                       className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl border border-red-500/20 transition-all disabled:opacity-50"
                       title="Dissoudre"
                     >
-                      {deleteMutation.isPending && deleteMutation.variables === sujetKey ? (
+                      {deletingId === sujetKey ? (
                         <Loader2 size={14} className="animate-spin" />
                       ) : (
                         <Trash2 size={14} />

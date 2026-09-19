@@ -1,17 +1,13 @@
-// 1. Import par défaut de l'objet global
 import mongoose from 'mongoose';
-
-// 2. Import séparé pour les types (zéro impact au runtime)
 import type { Document, Model, Types } from 'mongoose';
-
-// 3. Extraction propre des constructeurs d'exécution
 const { Schema, model, models } = mongoose;
 
 import { v4 as uuidv4 } from 'uuid';
 import { ISujet, SujetCategorySchema, SujetStatusSchema } from '@ilot/types'; 
 
-export interface ISujetDocument extends Omit<ISujet, '_id'>, Document {
+export interface ISujetDocument extends Omit<ISujet, '_id' | 'publishedAt'>, Document {
   _id: Types.ObjectId;
+  publishedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -29,15 +25,17 @@ const SujetSchema = new Schema<ISujetDocument>(
     // --- IDENTITÉ & CONTENU ---
     title: { type: String, required: true, trim: true },
     slug: { type: String, required: true, unique: true, index: true },
+    subtitle: { type: String, trim: true },
+    excerpt: { type: String, trim: true, maxlength: 300 },
     content: { type: String, required: true },
     
-    // 🪡 NOUVEAUX CHAMPS LITTÉRAIRES
+    // --- CHAMPS LITTÉRAIRES ---
     lyrics: { type: String },
     copyright: { type: String },
 
     authorUid: { type: String, required: true, index: true },
 
-    // --- VIBRATION & ÉTAT ---
+    // --- VIBRATION, TEMPS & ÉTAT ---
     category: {
       type: String,
       enum: SujetCategorySchema.options,
@@ -51,32 +49,55 @@ const SujetSchema = new Schema<ISujetDocument>(
     },
     tags: [{ type: String, index: true }],
 
-    // --- LE TISSU CONNECTEUR ---
+    publishedAt: { type: Date },
+    readingTimeMinutes: { type: Number, default: 1 },
+
+    // --- 🔍 OPTIMISATION SEO (Mutualisé) ---
+    seo: {
+      metaTitle: { type: String, maxlength: 60 },
+      metaDescription: { type: String, maxlength: 160 },
+      ogImageUrl: { type: String },
+      canonicalUrl: { type: String }
+    },
+
+    // --- 🌐 LE TISSU CONNECTEUR (Graph & Cross-Links) ---
     connections: {
       relatedProjects: [{ type: String }],
       relatedTasks: [{ type: String }],
       relatedProducts: [{ type: String }],
-      relatedGames: [{ type: String }]
+      relatedGames: [{ type: String }],
+      crossLinks: [{
+        entityType: { 
+          type: String, 
+          enum: ['BLOG', 'PROJECT', 'FONT', 'SPRITE', 'PROFILE', 'GAME'],
+          required: true 
+        },
+        entityId: { type: String, required: true },
+        label: { type: String }
+      }]
     },
 
-    // 🛍️ SUTURE E-COMMERCE MONGODB
+    // 🛍️ SUTURE E-COMMERCE
     merchLink: {
       productId: { type: String },
       sku: { type: String },
       displayMode: { type: String, default: 'card' }
     },
 
-    // --- MÉDIAS & ANCRAGES SENSORIELS ---
+    // --- 🖼️ MÉDIAS (Accessibilité SEO) ---
     media: {
       coverImageUrl: { type: String },
-      audioTrackUrl: { type: String } 
+      coverImageAlt: { type: String },
+      audioTrackUrl: { type: String },
+      audioTitle: { type: String }
     },
 
-    // --- GOUVERNANCE & MODÉRATION ---
+    // --- GOUVERNANCE & SOUVERAINETÉ ---
     settings: {
       allowComments: { type: Boolean, default: true },
       allowEmojiReactions: { type: Boolean, default: true },
-      isAgeRestricted: { type: Boolean, default: false }
+      isAgeRestricted: { type: Boolean, default: false },
+      alchemicalTransmuted: { type: Boolean, default: false }
     },
 
     // --- STATISTIQUES ---

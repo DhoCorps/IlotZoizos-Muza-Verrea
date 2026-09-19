@@ -4,9 +4,8 @@ import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
-import { ensureUniqueSlug } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
+import { ensureUniqueSlug } from '../utils/orchestrator.engine'; 
 
-// Interface d'injection pour isoler le shared-core du service de stockage externe de l'application
 interface IStorageManager {
   deleteFile(key: string): Promise<unknown>;
   extractKeyFromUrl(url: string): string;
@@ -61,8 +60,7 @@ const generateSlug = (text: string): string => {
 
 /**
  * ✍️ SUJET ORCHESTRATOR
- * Gère la sédimentation d'une pensée dans la Silice et son tissage dans le Graphe.
- * Phase 2 : Utilisation d'un index strict sur l'auteur canonique dans Neo4j et unicité atomique anti-concurrence.
+ * Gère la sédimentation d'une pensée dans la Silice (MongoDB) et son tissage dans le Graphe (Neo4j).
  */
 export class SujetOrchestrator {
   private storageService: IStorageManager;
@@ -89,7 +87,6 @@ export class SujetOrchestrator {
       const sujetUid = data.uid || `sujet_${randomUUID()}`;
       const title = data.title || "Monologue sans nom";
       
-      // Sécurisation atomique de l'unicité du slug via l'utilitaire global
       const baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
       const finalSlug = await ensureUniqueSlug(SujetModel, baseSlug, mongoSession);
 
@@ -115,7 +112,7 @@ export class SujetOrchestrator {
         }
       };
 
-      // 1. SILICE (MongoDB) avec gestion de secours E11000 et typage strict ISujet
+      // 1. SILICE (MongoDB)
       let newSujet: ISujet;
       try {
         const created = await SujetModel.create([newSujetData], { session: mongoSession });
@@ -128,7 +125,9 @@ export class SujetOrchestrator {
         throw err;
       }
 
-      // 2. GRAPHE (Neo4j) - MATCH indexé strict sur l'auteur canonique et horodatage synchronisé
+      // 2. GRAPHE (Neo4j)
+      // 🛠️ CORRECTION BUG NEO4J : Remplacement des UNWIND hasardeux par des FOREACH natifs.
+      // Cela évite de crasher la requête si les tableaux de relations sont vides.
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (s:Sujet { 
@@ -143,27 +142,22 @@ export class SujetOrchestrator {
         CREATE (u)-[:WROTE]->(s)
 
         WITH s
-        UNWIND (CASE WHEN size($relatedProjects) = 0 THEN [null] ELSE $relatedProjects END) AS pUid
-        FOREACH (_ IN CASE WHEN pUid IS NOT NULL THEN [1] ELSE [] END |
+        FOREACH (pUid IN $relatedProjects |
           MERGE (p:Project {uid: pUid})
           MERGE (s)-[:ILLUMINATES]->(p)
         )
 
         WITH s
-        UNWIND (CASE WHEN size($relatedTasks) = 0 THEN [null] ELSE $relatedTasks END) AS tUid
-        FOREACH (_ IN CASE WHEN tUid IS NOT NULL THEN [1] ELSE [] END |
+        FOREACH (tUid IN $relatedTasks |
           MERGE (t:Task {uid: tUid})
           MERGE (s)-[:DETAILS]->(t)
         )
 
         WITH s
-        CALL {
-          WITH s
-          WITH s WHERE $productId IS NOT NULL
+        FOREACH (_ IN CASE WHEN $productId IS NOT NULL THEN [1] ELSE [] END |
           MERGE (prod:Product {uid: $productId})
           MERGE (s)-[:OFFERS_PRODUCT]->(prod)
-          RETURN count(*) as relCount
-        }
+        )
 
         RETURN s
       `;
@@ -188,17 +182,12 @@ export class SujetOrchestrator {
         throw new IlotError("Échec du tissage : Auteur introuvable dans le Graphe.", "NOT_FOUND", 404);
       }
 
-      return {
-        success: true,
-        status: 'success',
-        mongo: newSujet,
-        neo4j: neoResult
-      };
+      return { success: true, status: 'success', mongo: newSujet, neo4j: neoResult };
     });
   }
 
   /**
-   * MUTATION : METTRE À JOUR UN SUJET (Résolution Silice via findEntityBySlugOrUid -> Propagation Graphe)
+   * MUTATION : METTRE À JOUR UN SUJET
    */
   async updateSujet(sujetIdentifier: string, updates: UpdateSujetPayload, signature: ActionSignature): Promise<SujetSyncResult> {
     const existing = await findEntityBySlugOrUid(SujetModel, sujetIdentifier) as ISujet | null;
@@ -224,7 +213,8 @@ export class SujetOrchestrator {
       ).lean() as unknown as ISujet;
 
       let neoResult = null;
-      if (updates.status || updates.category || updates.title || updates.merchLink) {
+      if (updates.status || updates.category || updates.title || updates.merchLink !== undefined) {
+        // 🛠️ CORRECTION NEO4J : Optimisation du nettoyage et de la création de la relation OFFERS_PRODUCT
         neoResult = await neo4jTx.run(`
           MATCH (s:Sujet { uid: $sujetUid })
           SET s.title = coalesce($title, s.title),
@@ -237,13 +227,10 @@ export class SujetOrchestrator {
           FOREACH (_ IN CASE WHEN $productId IS NULL AND r IS NOT NULL THEN [1] ELSE [] END | DELETE r)
           
           WITH s
-          CALL {
-            WITH s
-            WITH s WHERE $productId IS NOT NULL
+          FOREACH (_ IN CASE WHEN $productId IS NOT NULL THEN [1] ELSE [] END |
             MERGE (newProd:Product {uid: $productId})
             MERGE (s)-[:OFFERS_PRODUCT]->(newProd)
-            RETURN count(*) as rc
-          }
+          )
 
           RETURN s
         `, { 
@@ -256,12 +243,7 @@ export class SujetOrchestrator {
         });
       }
 
-      return {
-        success: true,
-        status: 'success',
-        mongo: updatedSujet,
-        neo4j: neoResult
-      };
+      return { success: true, status: 'success', mongo: updatedSujet, neo4j: neoResult };
     });
   }
 
@@ -277,19 +259,40 @@ export class SujetOrchestrator {
       throw new IlotError("Seul l'auteur ou le système peut brûler ce texte.", "FORBIDDEN", 403);
     }
 
-    return await TransactionManager.execute("Désintégration de Sujet", async (mongoSession, neo4jTx) => {
-      const media = existing.media as { coverImageUrl?: string; audioTrackUrl?: string } | undefined;
-      if (media?.coverImageUrl) {
-        try { await this.storageService.deleteFile(this.storageService.extractKeyFromUrl(media.coverImageUrl)); } catch {}
-      }
-      if (media?.audioTrackUrl) {
-        try { await this.storageService.deleteFile(this.storageService.extractKeyFromUrl(media.audioTrackUrl)); } catch {}
-      }
-
+    // 1. Transaction Base de données stricte
+    const result = await TransactionManager.execute("Désintégration de Sujet", async (mongoSession, neo4jTx) => {
       await neo4jTx.run(`MATCH (s:Sujet { uid: $sujetUid }) DETACH DELETE s`, { sujetUid: existing.uid });
       await SujetModel.deleteOne({ uid: existing.uid }, { session: mongoSession });
 
       return { success: true, purgedCount: 1 };
     });
+
+    // 🛠️ SÉCURITÉ DES DONNÉES : On supprime les médias UNIQUEMENT si la transaction DB a réussi.
+    // Cela évite de créer des médias orphelins ou de perdre des données en cas de rollback de la DB.
+    // 🛠️ SÉCURITÉ DES DONNÉES : On supprime les médias UNIQUEMENT si la transaction DB a réussi.
+    if (result.success) {
+      const media = existing.media as { coverImageUrl?: string; audioTrackUrl?: string } | undefined;
+      const deletePromises = [];
+      
+      const safeDelete = async (url: string) => {
+        try {
+          const key = this.storageService.extractKeyFromUrl(url);
+          await this.storageService.deleteFile(key);
+        } catch (error) {
+          console.warn(`[Orchestrator] Échec non-bloquant de la purge du média S3/R2 pour l'URL: ${url}`);
+        }
+      };
+
+      if (media?.coverImageUrl) {
+        deletePromises.push(safeDelete(media.coverImageUrl));
+      }
+      if (media?.audioTrackUrl) {
+        deletePromises.push(safeDelete(media.audioTrackUrl));
+      }
+      
+      await Promise.all(deletePromises);
+    }
+
+    return result;
   }
 }

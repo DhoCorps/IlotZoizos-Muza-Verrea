@@ -1,32 +1,34 @@
-// apps/hub-central/components/sujets/SujetCard.tsx
 'use client';
 
-import { useState } from 'react';
 import { FileText, Loader2, Trash2, Edit3, MessageCircle, Play, Eye } from 'lucide-react';
-import { ISujet, CAPABILITIES } from '@ilot/types';
+import { ISujet } from '@ilot/types';
 
 interface SujetCardProps {
   sujet: ISujet;
   onEdit: (uid: string) => void;
   onDelete?: (uid: string) => void;
+  isDeleting?: boolean; // 🛡️ L'état de suppression est désormais dicté par le parent (React Query)
   currentUserUid: string;
   myCapabilities?: string[];
 }
 
-export function SujetCard({ sujet, onEdit, onDelete, currentUserUid, myCapabilities = [] }: SujetCardProps) {
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  // Souveraineté : Est-ce mon monologue ou suis-je l'Architecte ?
+export function SujetCard({ 
+  sujet, 
+  onEdit, 
+  onDelete, 
+  isDeleting = false, 
+  currentUserUid, 
+  myCapabilities = [] 
+}: SujetCardProps) {
+  
   const isMine = sujet.authorUid === currentUserUid;
   const isArchitect = myCapabilities.includes('*');
   const canEdit = isMine || isArchitect;
 
-  const handleDelete = async (e: React.MouseEvent) => {
+  const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirm("Anéantir ce monologue ? Les échos dans le Graphe seront tranchés.")) return;
-    setIsDeleting(true);
-    if (onDelete) await onDelete(sujet.uid);
-    setIsDeleting(false); // Si on ne détruit pas le composant
+    if (onDelete) onDelete(sujet.uid);
   };
 
   return (
@@ -35,7 +37,6 @@ export function SujetCard({ sujet, onEdit, onDelete, currentUserUid, myCapabilit
         sujet.status === 'PUBLISHED' ? 'border-l-emerald-500 bg-emerald-500/5' : 'border-l-[#E5484D]'
       }`}>
         
-        {/* EN-TÊTE : Titre et Actions */}
         <div className="flex justify-between items-start mb-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -51,7 +52,6 @@ export function SujetCard({ sujet, onEdit, onDelete, currentUserUid, myCapabilit
             <h3 className="text-xl font-bold uppercase tracking-tight text-white">{sujet.title}</h3>
           </div>
 
-          {/* ACTIONS SOUVERAINES */}
           {canEdit && (
             <div className="flex gap-2">
               <button 
@@ -73,12 +73,10 @@ export function SujetCard({ sujet, onEdit, onDelete, currentUserUid, myCapabilit
           )}
         </div>
 
-        {/* CORPS : Extrait du monologue */}
         <p className="text-sm text-slate-400 line-clamp-3 mb-6 italic border-l-2 border-white/5 pl-3">
           "{sujet.content}"
         </p>
 
-        {/* PIED DE CARTE : Médias et Connexions */}
         <div className="flex items-center justify-between border-t border-white/5 pt-4 text-slate-500 text-xs font-mono">
           <div className="flex gap-4">
             {sujet.media?.audioTrackUrl && (
@@ -93,7 +91,6 @@ export function SujetCard({ sujet, onEdit, onDelete, currentUserUid, myCapabilit
             )}
           </div>
           
-          {/* Statistiques de Résonance */}
           <div className="flex gap-3">
              <div className="flex items-center gap-1" title="Vues">
                 <Eye size={12} /> <span>{sujet.resonance?.views || 0}</span>

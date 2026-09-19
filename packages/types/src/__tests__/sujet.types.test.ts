@@ -1,80 +1,94 @@
 import { describe, it, expect } from 'vitest';
-import { SujetSchema } from '../models/sujet.types';
+import { SujetSchema, SujetCategorySchema, SujetStatusSchema } from '../models/sujet.types';
 
-describe('SujetSchema - Validation du Nœud de Pensée (tom§hat§toes)', () => {
-  const validSujet = {
-    uid: 'sujet-777',
-    title: 'Nouveaux Modèles - Réflexion',
-    slug: 'nouveaux-modeles-reflexion',
-    content: 'Une pensée brute capturée pendant la composition.',
-    lyrics: 'Ligne 1 des paroles...\nLigne 2...',
-    copyright: '© 2026 DhÖ. Tous droits réservés.',
-    authorUid: 'bird-alpha-123',
-    category: 'POETRY',
-    status: 'PUBLISHED',
-    tags: ['musique', 'fretless'],
-    connections: {
-      relatedProjects: ['proj-123'],
-      relatedTasks: [],
-      relatedProducts: [],
-      relatedGames: []
-    },
-    merchLink: {
-      productId: 'prod_999',
-      displayMode: 'card'
-    },
-    media: {
-      coverImageUrl: 'https://cdn.ilot.io/images/cover.png',
-      audioTrackUrl: 'https://cdn.ilot.io/audio/basse-fretless.mp3' 
-    },
-    settings: {
-      allowComments: true,
-      allowEmojiReactions: true,
-      isAgeRestricted: false
-    },
-    resonance: {
-      views: 42,
-      readsCompleted: 12
-    }
-  };
-
-  it('doit valider un Sujet complet avec ses paroles, son copyright et son lien marchand', () => {
-    const result = SujetSchema.safeParse(validSujet);
-    expect(result.success).toBe(true);
-  });
-
-  describe('L\'Identité Incompressible du Sujet', () => {
-    it('doit rejeter un Sujet sans titre (Identité inaudible)', () => {
-      const invalidTitle = { ...validSujet, title: '' };
-      const result = SujetSchema.safeParse(invalidTitle);
-      expect(result.success).toBe(false);
+describe('Schéma Zod : SujetSchema & Énumérations (DRY Edition)', () => {
+  
+  describe('Validations des Énumérations', () => {
+    it('valide les catégories autorisées', () => {
+      expect(SujetCategorySchema.parse('MONOLOGUE')).toBe('MONOLOGUE');
+      expect(SujetCategorySchema.parse('MANIFESTO')).toBe('MANIFESTO');
+      expect(() => SujetCategorySchema.parse('INCONNU')).toThrow();
     });
 
-    it('doit rejeter un Sujet sans contenu', () => {
-      const invalidContent = { ...validSujet, content: '' };
-      const result = SujetSchema.safeParse(invalidContent);
-      expect(result.success).toBe(false);
+    it('valide les statuts autorisés', () => {
+      expect(SujetStatusSchema.parse('DRAFT')).toBe('DRAFT');
+      expect(SujetStatusSchema.parse('PUBLISHED')).toBe('PUBLISHED');
+      expect(() => SujetStatusSchema.parse('DELETED')).toThrow();
     });
   });
 
-  describe('Valeurs par défaut et État d\'Origine', () => {
-    it('doit appliquer les valeurs par défaut à la naissance', () => {
-      const minimalSujet = {
-        uid: 'sujet-001',
-        title: 'Idée furtive',
-        slug: 'idee-furtive',
-        content: 'Je dois creuser cette piste pour le moteur de synchro.',
-        authorUid: 'bird-alpha-123'
+  describe('Validation du Schéma Principal (SujetSchema)', () => {
+    
+    const validBaseSujet = {
+      uid: 'sujet-uuid-123',
+      title: 'Chronique des Profondeurs',
+      slug: 'chronique-des-profondeurs',
+      content: 'Ceci est le corps du texte de test...',
+      authorUid: 'oiseau-uid-789'
+    };
+
+    it('valide un sujet minimal avec les valeurs par défaut', () => {
+      const result = SujetSchema.safeParse(validBaseSujet);
+      
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.category).toBe('MONOLOGUE');
+        expect(result.data.status).toBe('DRAFT');
+        expect(result.data.readingTimeMinutes).toBe(1);
+        expect(result.data.seo.metaDescription).toBeUndefined();
+        expect(result.data.connections.crossLinks).toEqual([]);
+      }
+    });
+
+    it('rejète un sujet si les champs obligatoires manquent', () => {
+      expect(SujetSchema.safeParse({ ...validBaseSujet, title: '' }).success).toBe(false);
+      expect(SujetSchema.safeParse({ ...validBaseSujet, slug: '' }).success).toBe(false);
+      expect(SujetSchema.safeParse({ ...validBaseSujet, content: '' }).success).toBe(false);
+    });
+
+    it('rejète une URL canonique invalide via le schéma partagé SEO', () => {
+      const invalidCanonical = {
+        ...validBaseSujet,
+        seo: { canonicalUrl: 'ce-n-est-pas-une-url' }
+      };
+      expect(SujetSchema.safeParse(invalidCanonical).success).toBe(false);
+    });
+
+    it('valide un sujet enrichi utilisant les briques mutualisées (SEO, CrossLinks, Médias)', () => {
+      const completeSujet = {
+        ...validBaseSujet,
+        subtitle: 'Une exploration des flux asynchrones',
+        excerpt: 'Résumé court pour les cartes du flux.',
+        publishedAt: '2026-06-06T12:00:00.000Z',
+        readingTimeMinutes: 3,
+        seo: {
+          metaTitle: 'Chronique des Profondeurs | Îlot',
+          metaDescription: 'Plonge dans ce monologue inédit au cœur de l’Îlot Zoizos.',
+          canonicalUrl: 'https://ilot-zoizos.com/abyss-blog/chronique-des-profondeurs'
+        },
+        connections: {
+          relatedProjects: [],
+          relatedTasks: [],
+          relatedProducts: [],
+          relatedGames: [],
+          crossLinks: [
+            { entityType: 'FONT', entityId: 'font-1', label: 'Police Letr\'In' }
+          ]
+        },
+        media: {
+          coverImageUrl: 'https://cdn.ilot/cover.jpg',
+          coverImageAlt: 'Illustration cybernétique'
+        }
       };
 
-      const result = SujetSchema.parse(minimalSujet);
-
-      expect(result.category).toBe('MONOLOGUE');
-      expect(result.status).toBe('DRAFT');
-      expect(result.tags).toEqual([]);
-      expect(result.lyrics).toBeUndefined();
-      expect(result.merchLink).toBeUndefined();
-      expect(result.resonance.views).toBe(0);
+      const result = SujetSchema.safeParse(completeSujet);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.connections.crossLinks).toHaveLength(1);
+        expect(result.data.seo.canonicalUrl).toBeDefined();
+        expect(result.data.media?.coverImageAlt).toBeDefined();
+      }
     });
+
   });
 });
