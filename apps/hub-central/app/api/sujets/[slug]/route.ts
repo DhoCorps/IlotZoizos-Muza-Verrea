@@ -2,8 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
-import { SujetOrchestrator, UpdateSujetPayload } from '@ilot/shared-core'; // <-- Ajout de l'import UpdateSujetPayload
-import { ActionSignature } from '@ilot/types';
+import { SujetOrchestrator, UpdateSujetPayload } from '@ilot/shared-core'; 
+import { ActionSignature, ISujet } from '@ilot/types'; // 🟢 CORRECTION : Ajout de l'import ISujet
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
@@ -11,7 +11,6 @@ import { getCachedSujetDetails } from '@/lib/cache/sujets.cache';
 import { z } from 'zod';
 
 // 🛡️ Schéma de validation Zod strict
-// 🟢 CORRECTION : Utilisation de z.enum() pour correspondre parfaitement à ISujet
 const UpdateSujetSchema = z.object({
   title: z.string().min(1, "Le titre est requis.").optional(),
   content: z.string().optional(),
@@ -37,10 +36,10 @@ export const GET = withOptionalAura(async (req: NextRequest, context: ApiContext
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 🔍 Tentative via le cache, puis repli sur le helper unifié
-    let sujet: any = await getCachedSujetDetails(identifier);
+    // 🔍 🟢 CORRECTION : Remplacement du "any" par "ISujet | null" avec assertion de type
+    let sujet: ISujet | null = (await getCachedSujetDetails(identifier)) as ISujet | null;
     if (!sujet) {
-      sujet = await findEntityBySlugOrUid(SujetModel, identifier);
+      sujet = (await findEntityBySlugOrUid(SujetModel, identifier)) as ISujet | null;
     }
 
     if (!sujet) {
@@ -98,7 +97,6 @@ export const PUT = withAura(async (req: NextRequest, context: ApiContext, curren
       // 🔄 Délégation de la mise à jour au SujetOrchestrator
       const sujetOrch = new SujetOrchestrator();
       
-      // 🟢 CORRECTION : Cast explicite pour apaiser l'analyseur TypeScript face au .passthrough()
       result = await sujetOrch.updateSujet(identifier, validation.data as UpdateSujetPayload, signature);
       
     } catch (orchErr: unknown) {

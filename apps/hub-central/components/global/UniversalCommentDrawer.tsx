@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { create } from 'zustand';
 import { CommentTargetType } from '@ilot/types';
