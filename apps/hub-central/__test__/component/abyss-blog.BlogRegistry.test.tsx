@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { blogRegistry } from '@/components/abyss-blog/BlogRegistry';
+import React from 'react';
 
 describe('Registre de Blocs : blogRegistry', () => {
   describe('Bloc : blog-header', () => {
@@ -20,7 +21,7 @@ describe('Registre de Blocs : blogRegistry', () => {
       expect(screen.getByText('Chronique des Profondeurs')).toBeDefined();
       expect(screen.getByText(/Réflexions sur les flux asynchrones/i)).toBeDefined();
       expect(screen.getByText(/Par Oiseau des Abysses/i)).toBeDefined();
-      expect(screen.getByText('Architecture')).toBeDefined();
+      expect(screen.getByText('TUTORIAL')).toBeDefined(); // 🟢 CORRECTION DU TEST ICI POUR MATCH AVEC L'ENUM
     });
 
     it('doit rendre le formulaire d\'édition (renderEditForm) et propager le changement', () => {

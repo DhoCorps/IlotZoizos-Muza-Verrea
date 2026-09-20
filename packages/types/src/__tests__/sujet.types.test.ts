@@ -34,9 +34,29 @@ describe('Schéma Zod : SujetSchema & Énumérations (DRY Edition)', () => {
       if (result.success) {
         expect(result.data.category).toBe('MONOLOGUE');
         expect(result.data.status).toBe('DRAFT');
-        expect(result.data.readingTimeMinutes).toBe(1);
+        expect(result.data.settings.allowPropagation).toBe(true); 
+        expect(result.data.propagation.uniquePasseurs).toBe(0); 
         expect(result.data.seo.metaDescription).toBeUndefined();
         expect(result.data.connections.crossLinks).toEqual([]);
+        expect(result.data.kosmicBoon.nextKosmicBoon).toBe(42);
+      }
+    });
+
+    it('valide un sujet avec un payload incomplet dans connections et génère les valeurs par défaut', () => {
+      // On force le type any pour simuler un payload incomplet venant du front
+      const partialConnectionsSujet: any = {
+        ...validBaseSujet,
+        connections: {
+          crossLinks: [{ entityType: 'LYRIKA', entityId: 'song-123', label: 'Morceau lié' }]
+        }
+      };
+
+      const result = SujetSchema.safeParse(partialConnectionsSujet);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.connections.crossLinks).toHaveLength(1);
+        // Zod a bien généré le tableau vide pour la clé manquante
+        expect(result.data.connections.relatedProjects).toEqual([]);
       }
     });
 
@@ -54,7 +74,7 @@ describe('Schéma Zod : SujetSchema & Énumérations (DRY Edition)', () => {
       expect(SujetSchema.safeParse(invalidCanonical).success).toBe(false);
     });
 
-    it('valide un sujet enrichi utilisant les briques mutualisées (SEO, CrossLinks, Médias)', () => {
+    it('valide un sujet enrichi utilisant les briques mutualisées (SEO, CrossLinks, Médias, KosmicBoon, Propagation)', () => {
       const completeSujet = {
         ...validBaseSujet,
         subtitle: 'Une exploration des flux asynchrones',
@@ -67,10 +87,6 @@ describe('Schéma Zod : SujetSchema & Énumérations (DRY Edition)', () => {
           canonicalUrl: 'https://ilot-zoizos.com/abyss-blog/chronique-des-profondeurs'
         },
         connections: {
-          relatedProjects: [],
-          relatedTasks: [],
-          relatedProducts: [],
-          relatedGames: [],
           crossLinks: [
             { entityType: 'FONT', entityId: 'font-1', label: 'Police Letr\'In' }
           ]
@@ -78,7 +94,17 @@ describe('Schéma Zod : SujetSchema & Énumérations (DRY Edition)', () => {
         media: {
           coverImageUrl: 'https://cdn.ilot/cover.jpg',
           coverImageAlt: 'Illustration cybernétique'
-        }
+        },
+        propagation: {
+          shareCount: 42,
+          uniquePasseurs: 10,
+          globalReach: 350
+        },
+        kosmicBoon: {
+          interactionCount: 5,
+          nextKosmicBoon: 42
+        },
+        lastCommentedAt: '2026-06-06T14:00:00.000Z'
       };
 
       const result = SujetSchema.safeParse(completeSujet);
@@ -87,8 +113,10 @@ describe('Schéma Zod : SujetSchema & Énumérations (DRY Edition)', () => {
         expect(result.data.connections.crossLinks).toHaveLength(1);
         expect(result.data.seo.canonicalUrl).toBeDefined();
         expect(result.data.media?.coverImageAlt).toBeDefined();
+        expect(result.data.propagation.globalReach).toBe(350);
+        expect(result.data.kosmicBoon.interactionCount).toBe(5);
+        expect(result.data.lastCommentedAt).toBeDefined();
       }
     });
-
   });
 });

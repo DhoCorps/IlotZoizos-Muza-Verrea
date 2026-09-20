@@ -62,7 +62,7 @@ vi.mock('@ilot/shared-core', () => {
         return {
           success: true,
           status: 'success',
-          mongo: { uid: 's-1', mediaUrl: 'https://cdn.ilot/media.jpg' },
+          mongo: { uid: 's-1', media: { coverImageUrl: 'https://cdn.ilot/media.jpg' } },
           neo4j: null,
         };
       }
@@ -109,7 +109,7 @@ describe('Route API : Abyss Upload & Delete Sujet Media & Sceau SHA-256 (POST / 
         uid: 's-1', 
         slug: 'mon-sujet', 
         authorUid: 'u-123',
-        mediaUrl: 'https://cdn.ilot/media.jpg' 
+        media: { coverImageUrl: 'https://cdn.ilot/media.jpg' }
       }),
     } as unknown as ReturnType<typeof SujetModel.findOne>);
 

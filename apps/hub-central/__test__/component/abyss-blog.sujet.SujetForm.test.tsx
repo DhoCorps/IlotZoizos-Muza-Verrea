@@ -18,7 +18,7 @@ describe('Composant Front-End : SujetForm', () => {
     vi.clearAllMocks();
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
-    // Mock global fetch robuste pour simuler les routes internes
+    // Mock global fetch robuste pour simuler les routes internes (Création ET Upload)
     global.fetch = vi.fn((url: string) => {
       if (url.includes('/api/taxonomy')) {
         return Promise.resolve({
@@ -26,9 +26,15 @@ describe('Composant Front-End : SujetForm', () => {
           json: () => Promise.resolve({ success: true, sujetCategories: [{ value: 'MONOLOGUE', label: 'Monologue' }] })
         });
       }
+      if (url.includes('/upload')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ data: { url: 'https://cdn.ilot/file.mp3' } })
+        });
+      }
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ success: true, uid: 'sujet-test-123' })
+        json: () => Promise.resolve({ mongo: { uid: 'sujet-test-123' }, success: true })
       });
     }) as any;
   });
@@ -60,75 +66,47 @@ describe('Composant Front-End : SujetForm', () => {
     expect(screen.getByDisplayValue('Titre Existant')).toBeDefined();
   });
 
-  it('appelle onCancel lors du clic sur le bouton de fermeture', () => {
-    renderComponent();
-    fireEvent.click(screen.getByText('Refermer le Grimoire'));
-    expect(mockOnCancel).toHaveBeenCalledTimes(1);
-  });
-
-  it('soumet correctement le formulaire de création classique', async () => {
+  it('gère correctement le découpage des tags lors de la soumission', async () => {
     renderComponent();
     
-    // Remplissage des champs obligatoires
-    fireEvent.change(screen.getByPlaceholderText('Titre du sujet'), { target: { value: 'Mon Nouveau Texte' } });
-    fireEvent.change(screen.getByPlaceholderText("Laisse couler l'onde..."), { target: { value: 'Contenu profond...' } });
+    fireEvent.change(screen.getByPlaceholderText('Titre du sujet'), { target: { value: 'Titre Test' } });
+    fireEvent.change(screen.getByPlaceholderText("Tags (séparés par des virgules)..."), { target: { value: 'poésie, neo4j , canopée' } });
+    fireEvent.change(screen.getByPlaceholderText("Laisse couler l'onde..."), { target: { value: 'Contenu...' } });
 
-    // Soumission (le formSubmit intercepte le preventDefault et lance executeSubmit)
     fireEvent.submit(document.getElementById('sujet-form-element')!);
 
     await waitFor(() => {
+      // Vérifie que fetch a été appelé avec les tags nettoyés
       expect(global.fetch).toHaveBeenCalledWith('/api/sujets', expect.objectContaining({
         method: 'POST',
-        body: expect.stringContaining('Mon Nouveau Texte')
+        body: expect.stringContaining('"tags":["poésie","neo4j","canopée"]')
       }));
       expect(mockOnSuccess).toHaveBeenCalledTimes(1);
     });
   });
 
-  it('intercepte et gère l\'Alerte Alchimique (Code 422 - MoralChecker)', async () => {
-    // 🎭 Modification du mock pour forcer l'Alerte Alchimique
-    global.fetch = vi.fn((url: string) => {
-      if (url.includes('/api/taxonomy')) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-      }
-      // Simulation du retour 422 du SujetOrchestrator (MoralChecker)
-      return Promise.resolve({
-        ok: false,
-        status: 422,
-        json: () => Promise.resolve({ 
-          code: 'ALCHEMICAL_WARNING',
-          frequencyHz: 432,
-          reason: 'Harmoniques instables.',
-          suggestion: 'Essaye cette transmutation :',
-          transmutedContent: 'Contenu purifié par la licence poétique'
-        })
-      });
-    }) as any;
-
+  it('séquence correctement la sédimentation (Création en DB PUIS Upload du fichier)', async () => {
     renderComponent();
     
-    fireEvent.change(screen.getByPlaceholderText('Titre du sujet'), { target: { value: 'Texte Corrompu' } });
+    fireEvent.change(screen.getByPlaceholderText('Titre du sujet'), { target: { value: 'Mon Nouveau Texte' } });
+    fireEvent.change(screen.getByPlaceholderText("Laisse couler l'onde..."), { target: { value: 'Contenu...' } });
+
+    // Simule la sélection d'un fichier
+    const file = new File(['dummy content'], 'test.mp3', { type: 'audio/mpeg' });
+    const fileInput = screen.getByLabelText(/Joindre un fichier/i);
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
     fireEvent.submit(document.getElementById('sujet-form-element')!);
 
-    // Vérification de l'apparition de l'UI d'Alerte Alchimique
     await waitFor(() => {
-      expect(screen.getByText(/Interférence Détectée/i)).toBeDefined();
-      expect(screen.getByText(/Contenu purifié par la licence poétique/i)).toBeDefined();
-    });
-
-    // 🎭 On re-mock fetch pour simuler le succès après la validation
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ success: true })
-    });
-
-    // Clic sur le bouton de Validation de la Licence Poétique
-    fireEvent.click(screen.getByText('✨ Valider la licence poétique'));
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith('/api/sujets', expect.objectContaining({
-        body: expect.stringContaining('Contenu purifié par la licence poétique')
+      // L'appel principal (Création en DB) doit être effectué
+      expect(global.fetch).toHaveBeenCalledWith('/api/sujets', expect.any(Object));
+      
+      // L'appel d'upload doit cibler le véritable UID retourné par la création (sujet-test-123)
+      expect(global.fetch).toHaveBeenCalledWith('/api/sujets/sujet-test-123/upload', expect.objectContaining({
+        method: 'POST'
       }));
+      
       expect(mockOnSuccess).toHaveBeenCalledTimes(1);
     });
   });

@@ -17,6 +17,8 @@ export function BlogSidebarPanel({
   onUpdateData,
   onClose
 }: BlogSidebarPanelProps) {
+  
+  // État vide : Aucun bloc n'est sélectionné sur le canevas
   if (!selectedBlock) {
     return (
       <div className="p-8 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl text-center space-y-4">
@@ -48,12 +50,14 @@ export function BlogSidebarPanel({
         <button 
           onClick={onClose} 
           className="p-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+          title="Fermer le panneau"
         >
           <X size={16} />
         </button>
       </div>
 
       <div className="space-y-4">
+        {/* Le formulaire injecté dynamiquement selon le type de bloc */}
         <EditFormComponent 
           data={selectedBlock.data} 
           onChange={(newData) => onUpdateData(selectedBlock.id, newData)} 

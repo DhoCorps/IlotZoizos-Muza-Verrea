@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { SujetModel } from '../../nosql/sujet.model'; // Ajuste le chemin relatif selon ton arborescence
+import { SujetModel } from '../../nosql/sujet.model';
 
-describe('Sujet Model (Ultimate Edition - SEO & Cross-Links)', () => {
+describe('Sujet Model (Ultimate Edition - SEO, Cross-Links & Propagation)', () => {
     
     it('🟢 doit valider un sujet conforme avec toutes ses valeurs requises, par défaut et auto-générées', () => {
         const validData = {
@@ -12,16 +12,19 @@ describe('Sujet Model (Ultimate Edition - SEO & Cross-Links)', () => {
         };
 
         const sujet = new SujetModel(validData);
-        expect(sujet.uid).toBeDefined(); // Auto-généré par uuidv4()
+        expect(sujet.uid).toBeDefined(); 
         expect(sujet.title).toBe('Le Chant des Sélénites');
         expect(sujet.slug).toBe('le-chant-des-selenites');
         expect(sujet.content).toBe('Réflexion profonde sur la nature de la Silice et de la Canopée.');
         expect(sujet.authorUid).toBe('bird_writer_77');
-        expect(sujet.category).toBe('MONOLOGUE'); // Valeur par défaut
-        expect(sujet.status).toBe('DRAFT');      // Valeur par défaut
-        expect(sujet.readingTimeMinutes).toBe(1); // Valeur par défaut
-        expect(sujet.settings.allowComments).toBe(true); // Valeur par défaut du sous-objet
+        expect(sujet.category).toBe('MONOLOGUE'); 
+        expect(sujet.status).toBe('DRAFT');      
+        expect(sujet.readingTimeMinutes).toBe(1); 
+        expect(sujet.settings.allowComments).toBe(true);
+        expect(sujet.settings.allowPropagation).toBe(true); // Vérification du module Propagation
         expect(sujet.connections.crossLinks).toEqual([]);
+        expect(sujet.propagation.shareCount).toBe(0); // Télémétrie initiale à 0
+        expect(sujet.kosmicBoon.nextKosmicBoon).toBe(42); 
     });
 
     it('🔴 doit rejeter un sujet si les champs obligatoires (title, slug, content, authorUid) manquent', () => {
@@ -42,8 +45,8 @@ describe('Sujet Model (Ultimate Edition - SEO & Cross-Links)', () => {
             slug: 'test',
             content: 'Contenu',
             authorUid: 'bird_1',
-            status: 'UNKNOWN_STATUS',    // Invalide
-            category: 'UNKNOWN_CATEGORY', // Invalide
+            status: 'UNKNOWN_STATUS',    
+            category: 'UNKNOWN_CATEGORY', 
         };
 
         const error = new SujetModel(invalidData).validateSync();
@@ -51,7 +54,7 @@ describe('Sujet Model (Ultimate Edition - SEO & Cross-Links)', () => {
         expect(error?.errors?.category).toBeDefined();
     });
 
-    it('🟢 doit valider un sujet riche intégrant le SEO, les cross-links, la date de publication et les attributs média', () => {
+    it('🟢 doit valider un sujet riche intégrant le SEO, les cross-links, la propagation, et les attributs média', () => {
         const richData = {
             title: 'Chronique des Profondeurs',
             slug: 'chronique-des-profondeurs',
@@ -60,7 +63,7 @@ describe('Sujet Model (Ultimate Edition - SEO & Cross-Links)', () => {
             content: 'Corps du texte...',
             authorUid: 'bird_1',
             readingTimeMinutes: 4,
-            publishedAt: new Date('2026-06-06T12:00:00.000Z'), // Test de la date éditoriale native
+            publishedAt: new Date('2026-06-06T12:00:00.000Z'), 
             seo: {
                 metaTitle: 'Chronique des Profondeurs | Îlot',
                 metaDescription: 'Plonge dans ce monologue inédit au cœur de l’Îlot Zoizos.',
@@ -69,7 +72,7 @@ describe('Sujet Model (Ultimate Edition - SEO & Cross-Links)', () => {
             connections: {
                 relatedProjects: ['proj-1'],
                 crossLinks: [
-                    { entityType: 'FONT', entityId: 'font-1', label: 'Letr\'In' }
+                    { entityType: 'LYRIKA', entityId: 'song-123', label: 'Morceau lié' }
                 ]
             },
             media: {
@@ -77,8 +80,19 @@ describe('Sujet Model (Ultimate Edition - SEO & Cross-Links)', () => {
                 coverImageAlt: 'Illustration cybernétique de l\'Abysse'
             },
             settings: {
-                alchemicalTransmuted: true
-            }
+                alchemicalTransmuted: true,
+                allowPropagation: false // L'auteur a bloqué le partage
+            },
+            propagation: {
+                shareCount: 15,
+                uniquePasseurs: 5,
+                globalReach: 120
+            },
+            kosmicBoon: {
+                interactionCount: 12,
+                nextKosmicBoon: 42
+            },
+            lastCommentedAt: new Date('2026-06-06T15:30:00.000Z')
         };
 
         const sujet = new SujetModel(richData);
@@ -88,9 +102,12 @@ describe('Sujet Model (Ultimate Edition - SEO & Cross-Links)', () => {
         expect(sujet.publishedAt).toBeInstanceOf(Date);
         expect(sujet.seo.metaTitle).toBe('Chronique des Profondeurs | Îlot');
         expect(sujet.connections.crossLinks).toHaveLength(1);
-        expect(sujet.connections.crossLinks[0].entityType).toBe('FONT');
+        expect(sujet.connections?.crossLinks?.[0]?.entityType).toBe('LYRIKA');
         expect(sujet.media?.coverImageAlt).toBeDefined();
         expect(sujet.settings.alchemicalTransmuted).toBe(true);
+        expect(sujet.settings.allowPropagation).toBe(false);
+        expect(sujet.propagation.globalReach).toBe(120);
+        expect(sujet.kosmicBoon.interactionCount).toBe(12);
     });
 
     it('🔴 doit rejeter un crossLink si son entityType est invalide', () => {
@@ -101,7 +118,7 @@ describe('Sujet Model (Ultimate Edition - SEO & Cross-Links)', () => {
             authorUid: 'bird_1',
             connections: {
                 crossLinks: [
-                    { entityType: 'INVALID_TYPE', entityId: '123' } // Type non autorisé dans l'Enum
+                    { entityType: 'INVALID_TYPE', entityId: '123' }
                 ]
             }
         };

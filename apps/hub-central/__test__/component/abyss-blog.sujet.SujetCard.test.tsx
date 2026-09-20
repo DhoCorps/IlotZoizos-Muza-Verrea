@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SujetCard } from '@/components/abyss-blog/sujets/SujetCard';
+import React from 'react';
 
+// 🟢 Ajout des tags dans le mock pour vérifier leur bon affichage
 const mockSujet = {
   uid: 's-123',
   title: 'La Forge de Test',
@@ -11,7 +13,8 @@ const mockSujet = {
   authorUid: 'u-auteur-1',
   resonance: { views: 42 },
   media: { audioTrackUrl: 'https://cdn.ilot/audio.mp3' },
-  connections: { relatedProjects: ['p-1'] }
+  connections: { relatedProjects: ['p-1'] },
+  tags: ['philosophie', 'neo4j', 'canopée']
 };
 
 describe('Composant Front-End : SujetCard', () => {
@@ -23,13 +26,18 @@ describe('Composant Front-End : SujetCard', () => {
     window.confirm = vi.fn(() => true);
   });
 
-  it('affiche les données structurelles du sujet', () => {
+  it('affiche les données structurelles du sujet, incluant les tags', () => {
     render(<SujetCard sujet={mockSujet as any} onEdit={mockOnEdit} currentUserUid="u-visiteur" />);
     
     expect(screen.getByText('La Forge de Test')).toBeDefined();
     expect(screen.getByText('MONOLOGUE')).toBeDefined();
     expect(screen.getByText('"Contenu du monologue de test..."')).toBeDefined();
     expect(screen.getByText('42')).toBeDefined();
+    
+    // 💥 Vérification du rendu des tags
+    expect(screen.getByText('#philosophie')).toBeDefined();
+    expect(screen.getByText('#neo4j')).toBeDefined();
+    expect(screen.getByText('#canopée')).toBeDefined();
   });
 
   it('affiche les contrôles souverains (Édition/Suppression) si l\'utilisateur est l\'Auteur', () => {

@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { Type, FileAudio, LayoutGrid, Upload, Music, ShieldCheck, ShoppingBag, Loader2, Sparkles } from 'lucide-react';
-import { RequireCapability } from '@/components/auth/RequireCapability'; // 🛡️ CORRECTION : Import absolu robuste
+import { Type, FileAudio, LayoutGrid, Upload, Music, ShieldCheck, ShoppingBag, Loader2, Sparkles, Hash } from 'lucide-react';
+import { RequireCapability } from '@/components/auth/RequireCapability';
 import { CAPABILITIES } from '@ilot/types';
-import { useQuery } from '@tanstack/react-query'; // 🛡️ CORRECTION : Alignement architectural
+import { useQuery } from '@tanstack/react-query';
 
 interface SujetFormProps {
   initialData?: any;
@@ -29,12 +29,12 @@ export function SujetForm({
   const [uploadingFile, setUploadingFile] = useState(false);
   const isEdit = !!initialData;
 
-  // 🌀 SUTURE REACT QUERY : Mise en cache des taxonomies pour éviter les fetchs redondants à chaque ouverture de modale
   const { data: sujetCategories = [
     { value: 'MONOLOGUE', label: 'Monologue' },
     { value: 'POETRY', label: 'Poésie' },
     { value: 'TUTORIAL', label: 'Tutoriel' },
-    { value: 'TRACK_NOTE', label: 'Note de Piste' }
+    { value: 'LORE', label: 'Lore & Mythes' },
+    { value: 'MANIFESTO', label: 'Manifeste' }
   ] } = useQuery({
     queryKey: ['taxonomy', 'sujets'],
     queryFn: async () => {
@@ -43,10 +43,9 @@ export function SujetForm({
       const data = await res.json();
       return data.success && data.sujetCategories ? data.sujetCategories : null;
     },
-    staleTime: 1000 * 60 * 60, // Garder en cache pendant 1h
+    staleTime: 1000 * 60 * 60,
   });
 
-  // Générateur de slug automatique basé sur le titre
   const generateSlug = (text: string) => {
     return text
       .toLowerCase()
@@ -73,45 +72,29 @@ export function SujetForm({
     const slug = initialData?.slug || generateSlug(titleValue) || `sujet-${Date.now()}`;
 
     try {
-      let audioTrackUrl = formData.get('audioTrackUrl')?.toString() || initialData?.media?.audioTrackUrl || null;
-
-      // 🌟 Upload direct optimisé via notre route API sécurisée basée sur le slug
-      if (selectedFile) {
-        setUploadingFile(true);
-        const uploadFormData = new FormData();
-        uploadFormData.append('file', selectedFile);
-
-        const uploadRes = await fetch(`/api/abyss/sujets/${slug}/upload`, {
-          method: 'POST',
-          body: uploadFormData,
-        });
-
-        const uploadResult = await uploadRes.json();
-        if (!uploadRes.ok) {
-          throw new Error(uploadResult.error || "Échec de la sédimentation du média sur Cloudflare R2.");
-        }
-
-        audioTrackUrl = uploadResult.data.url;
-        setUploadingFile(false);
-      }
+      // 🟢 Traitement des tags
+      const rawTags = formData.get('tags')?.toString();
+      const tags = rawTags ? rawTags.split(',').map(t => t.trim()).filter(Boolean) : undefined;
 
       const productId = formData.get('productId')?.toString();
+      
       const payload = {
         title: titleValue,
         slug: slug,
         content: overrideContent !== undefined ? overrideContent : formData.get('content')?.toString(),
-        lyrics: formData.get('lyrics')?.toString() || null,
-        copyright: formData.get('copyright')?.toString() || null,
+        lyrics: formData.get('lyrics')?.toString() || undefined,
+        copyright: formData.get('copyright')?.toString() || undefined,
         category: formData.get('category'),
         status: formData.get('status'),
         visibility: formData.get('visibility')?.toString() || 'PUBLIC',
+        tags: tags, // 🟢 Ajout des tags
         connections: {
           relatedProjects: selectedProjects
         },
         media: {
-          audioTrackUrl: audioTrackUrl
+          audioTrackUrl: formData.get('audioTrackUrl')?.toString() || undefined
         },
-        merchLink: productId ? { productId, displayMode: 'card' } : null
+        merchLink: productId ? { productId, displayMode: 'card' } : undefined
       };
 
       const url = isEdit ? `/api/sujets/${initialData.uid}` : '/api/sujets';
@@ -125,7 +108,6 @@ export function SujetForm({
 
       const responseData = await res.json();
 
-      // ✨ Interception de l'Alerte Alchimique (MoralChecker)
       if (res.status === 422 && responseData.code === 'ALCHEMICAL_WARNING') {
         setAlchemicalWarning(responseData);
         setLoading(false);
@@ -136,6 +118,27 @@ export function SujetForm({
         throw new Error(responseData.error || "La matrice a rejeté cette pensée.");
       }
       
+      // 🚨 CORRECTION CRITIQUE : L'upload se fait APRÈS la création en base, sur le véritable UID retourné.
+      if (selectedFile) {
+        setUploadingFile(true);
+        const uploadFormData = new FormData();
+        uploadFormData.append('file', selectedFile);
+
+        const targetUid = isEdit ? initialData.uid : (responseData.mongo?.uid || responseData.uid);
+
+        const uploadRes = await fetch(`/api/sujets/${targetUid}/upload`, {
+          method: 'POST',
+          body: uploadFormData,
+        });
+
+        const uploadResult = await uploadRes.json();
+        if (!uploadRes.ok) {
+          throw new Error(uploadResult.error || "Échec de la sédimentation du média sur Cloudflare R2.");
+        }
+
+        setUploadingFile(false);
+      }
+
       onSuccess();
     } catch (err: any) {
       console.error("🌊 Fracture lors de la sédimentation :", err);
@@ -160,7 +163,6 @@ export function SujetForm({
         </div>
       )}
 
-      {/* 🌀 PANNEAU DE LICENCE POÉTIQUE (ALCHEMICAL WARNING) */}
       {alchemicalWarning && (
         <div className="p-6 bg-[#05070A]/95 border border-[#E5484D]/40 rounded-2xl shadow-[0_0_40px_rgba(229,72,77,0.2)] space-y-4 animate-in fade-in duration-300">
           <div className="flex items-center gap-2">
@@ -198,7 +200,7 @@ export function SujetForm({
         </div>
       )}
 
-      {/* Titre et Contenu Brut */}
+      {/* Titre, Tags et Contenu Brut */}
       <div className="space-y-4">
         <h4 className="text-[10px] font-black text-[#E5484D] uppercase tracking-widest flex items-center gap-2">
           <Type size={12} /> {isEdit ? "Ajuster la Pensée" : "Nouveau Monologue"}
@@ -211,6 +213,17 @@ export function SujetForm({
           className="w-full bg-black/40 border border-white/10 p-4 rounded-xl text-white outline-none focus:border-[#E5484D] font-bold" 
           required 
         />
+        
+        {/* 🟢 Ajout du champ pour les Tags */}
+        <div className="flex items-center bg-black/40 border border-white/10 rounded-xl px-4 focus-within:border-[#E5484D] transition-colors">
+          <Hash size={14} className="text-slate-500 mr-2" />
+          <input 
+            name="tags" 
+            defaultValue={initialData?.tags?.join(', ')} 
+            placeholder="Tags (séparés par des virgules)..." 
+            className="w-full bg-transparent py-3.5 text-xs text-slate-300 outline-none font-mono" 
+          />
+        </div>
         
         <textarea 
           name="content" 

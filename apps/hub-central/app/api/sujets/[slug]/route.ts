@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
-import { SujetOrchestrator } from '@ilot/shared-core';
+import { SujetOrchestrator, UpdateSujetPayload } from '@ilot/shared-core'; // <-- Ajout de l'import UpdateSujetPayload
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
@@ -10,14 +10,18 @@ import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } 
 import { getCachedSujetDetails } from '@/lib/cache/sujets.cache';
 import { z } from 'zod';
 
-// 🛡️ Schéma de validation Zod strict pour interdire l'assignation de masse sur les champs sensibles
+// 🛡️ Schéma de validation Zod strict
+// 🟢 CORRECTION : Utilisation de z.enum() pour correspondre parfaitement à ISujet
 const UpdateSujetSchema = z.object({
   title: z.string().min(1, "Le titre est requis.").optional(),
   content: z.string().optional(),
-  status: z.string().optional(),
-  category: z.string().optional(),
+  status: z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]).optional(),
+  category: z.enum(["MONOLOGUE", "POETRY", "TUTORIAL", "LORE", "MANIFESTO"]).optional(),
   tags: z.array(z.string()).optional(),
-  mediaUrl: z.string().url().nullable().optional(),
+  media: z.object({
+    coverImageUrl: z.string().url("URL de couverture invalide.").optional(),
+    audioTrackUrl: z.string().url("URL audio invalide.").optional(),
+  }).nullable().optional(),
 }).passthrough();
 
 // ==========================================
@@ -78,7 +82,7 @@ export const PUT = withAura(async (req: NextRequest, context: ApiContext, curren
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
-    // 🛡️ Validation et assainissement stricts via Zod (bloque le Mass Assignment)
+    // 🛡️ Validation et assainissement stricts via Zod
     const validation = UpdateSujetSchema.safeParse(rawBody);
     if (!validation.success) {
       return NextResponse.json({ error: "Données de mutation invalides.", details: validation.error.flatten() }, { status: 400 });
@@ -91,9 +95,12 @@ export const PUT = withAura(async (req: NextRequest, context: ApiContext, curren
 
     let result;
     try {
-      // 🔄 Délégation de la mise à jour au SujetOrchestrator (Silice + Neo4j)
+      // 🔄 Délégation de la mise à jour au SujetOrchestrator
       const sujetOrch = new SujetOrchestrator();
-      result = await sujetOrch.updateSujet(identifier, validation.data, signature);
+      
+      // 🟢 CORRECTION : Cast explicite pour apaiser l'analyseur TypeScript face au .passthrough()
+      result = await sujetOrch.updateSujet(identifier, validation.data as UpdateSujetPayload, signature);
+      
     } catch (orchErr: unknown) {
       const err = orchErr as { status?: number; statusCode?: number; message?: string };
       const status = err.statusCode || err.status || 500;
@@ -107,7 +114,7 @@ export const PUT = withAura(async (req: NextRequest, context: ApiContext, curren
 
     return NextResponse.json({ success: true, data: result.mongo }, { status: 200 });
   } catch (error: unknown) {
-    console.error("💥 ERREUR EXACTE DANS PUT :", error); // <-- Ajoute cette ligne
+    console.error("💥 ERREUR EXACTE DANS PUT :", error);
     return handleRouteError(error, "SUJET PUT ERROR");
   }
 });
@@ -125,30 +132,15 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 🔍 Recherche unifiée pour cibler proprement le sujet
-    const sujet: any = await findEntityBySlugOrUid(SujetModel, identifier);
-    if (!sujet) {
-      return NextResponse.json({ error: "Sujet introuvable." }, { status: 404 });
-    }
-
-    const isAuthor = sujet.authorUid === currentUser.uid;
-    const isArchitect = currentUser.capabilities?.includes('*');
-    if (!isAuthor && !isArchitect) {
-      return NextResponse.json({ error: "Tu ne peux supprimer que tes propres monologues." }, { status: 403 });
-    }
-
     const signature: ActionSignature = {
       actorUid: currentUser.uid,
       capabilities: currentUser.capabilities || []
     };
 
     try {
+      // 🔄 Délégation totale : l'Orchestrateur vérifie l'existence, les droits, purge S3/R2 et Neo4j/Mongo.
       const sujetOrch = new SujetOrchestrator();
-      if (typeof sujetOrch.disintegrateSujet === 'function') {
-        await sujetOrch.disintegrateSujet(sujet.uid, signature);
-      } else {
-        await SujetModel.deleteOne({ uid: sujet.uid });
-      }
+      await sujetOrch.disintegrateSujet(identifier, signature);
     } catch (orchErr: unknown) {
       const err = orchErr as { status?: number; statusCode?: number; message?: string };
       const status = err.status || err.statusCode || 500;
@@ -157,8 +149,6 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
          
     revalidateTag('sujets');
     revalidateTag(`sujet-${identifier}`);
-    if (sujet.uid) revalidateTag(`sujet-${sujet.uid}`);
-    if (sujet.slug) revalidateTag(`sujet-${sujet.slug}`);
 
     return NextResponse.json({
        success: true,

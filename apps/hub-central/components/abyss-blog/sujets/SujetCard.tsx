@@ -73,9 +73,23 @@ export function SujetCard({
           )}
         </div>
 
-        <p className="text-sm text-slate-400 line-clamp-3 mb-6 italic border-l-2 border-white/5 pl-3">
+        <p className="text-sm text-slate-400 line-clamp-3 mb-3 italic border-l-2 border-white/5 pl-3">
           "{sujet.content}"
         </p>
+
+        {/* 🟢 Intégration du Système de Tags */}
+        {sujet.tags && sujet.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-6">
+            {sujet.tags.map((tag, idx) => (
+              <span key={idx} className="text-[9px] font-mono text-slate-500 bg-black/40 px-2 py-0.5 rounded border border-white/10 uppercase tracking-widest">
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Si aucun tag n'est présent, on garde un peu d'espacement pour le footer */}
+        {(!sujet.tags || sujet.tags.length === 0) && <div className="mb-6" />}
 
         <div className="flex items-center justify-between border-t border-white/5 pt-4 text-slate-500 text-xs font-mono">
           <div className="flex gap-4">

@@ -6,19 +6,22 @@ import {
   Type, Plus, Trash2, Edit3, BookOpen, Loader2, 
   Layers, Sparkles, Compass, Share2 
 } from 'lucide-react';
+import { useSession } from 'next-auth/react'; // 🟢 Ajout pour la sécurité visuelle
 import { SujetForm } from '@/components/abyss-blog/sujets/SujetForm';
 import ResonanceButton from '@/components/resonance/ResonanceButton';
 import { OmniActionWidget } from '@/components/widget/OmniActionWidget';
 import { useQueryClient } from '@tanstack/react-query';
 import { IUniversalMediaItem } from '@ilot/types';
-
-// 🛡️ SUTURE ARCHITECTURALE : Importation du Hook Fabrique centralisé
 import { useAbyssBlog } from '@/hooks/useAbyssBlog'; 
 
 export default function AbyssBlogDashboard() {
   const queryClient = useQueryClient();
+  const { data: session } = useSession(); // 🟢 Récupération de la session
   
-  // 🌀 Consommation centralisée de la donnée (Plus aucun fetch manuel ici)
+  const currentUserUid = (session?.user as any)?.uid;
+  const myCapabilities = (session?.user as any)?.capabilities || [];
+  const isArchitect = myCapabilities.includes('*');
+
   const { sujets, projects, loading, deleteSujet } = useAbyssBlog();
 
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -26,8 +29,6 @@ export default function AbyssBlogDashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSujet, setEditingSujet] = useState<any>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  // 🧩 État du widget universel
   const [activeMediaForWidget, setActiveMediaForWidget] = useState<IUniversalMediaItem | null>(null);
 
   const handleDelete = (uid: string) => {
@@ -150,6 +151,10 @@ export default function AbyssBlogDashboard() {
           {filteredSujets.map((sujet: any) => {
             const sujetKey = sujet.uid || sujet._id;
             const targetSlug = sujet.authorSlug || sujet.authorUid || 'dho';
+            
+            // 🟢 Vérification des droits souverains
+            const isMine = sujet.authorUid === currentUserUid;
+            const canEdit = isMine || isArchitect;
 
             return (
               <div 
@@ -179,6 +184,17 @@ export default function AbyssBlogDashboard() {
                   <p className="text-xs text-slate-400 font-sans line-clamp-3 leading-relaxed">
                     {sujet.content}
                   </p>
+
+                  {/* 🟢 Affichage des Tags */}
+                  {sujet.tags && sujet.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-2">
+                      {sujet.tags.map((tag: string, idx: number) => (
+                        <span key={idx} className="text-[9px] font-mono text-slate-500 bg-black/40 px-2 py-0.5 rounded border border-white/10 uppercase tracking-widest">
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-4 pt-4 border-t border-white/5">
@@ -216,28 +232,33 @@ export default function AbyssBlogDashboard() {
                       <Share2 size={14} />
                     </button>
 
-                    <button 
-                      onClick={() => handleOpenEdit(sujet)}
-                      data-testid={`btn-edit-${sujetKey}`}
-                      className="p-2.5 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl border border-white/10 transition-all"
-                      title="Ajuster"
-                    >
-                      <Edit3 size={14} />
-                    </button>
+                    {/* 🟢 Masquage strict si l'oiseau n'est pas l'auteur */}
+                    {canEdit && (
+                      <>
+                        <button 
+                          onClick={() => handleOpenEdit(sujet)}
+                          data-testid={`btn-edit-${sujetKey}`}
+                          className="p-2.5 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl border border-white/10 transition-all"
+                          title="Ajuster"
+                        >
+                          <Edit3 size={14} />
+                        </button>
 
-                    <button 
-                      onClick={() => handleDelete(sujetKey)}
-                      disabled={deletingId === sujetKey}
-                      data-testid={`btn-delete-${sujetKey}`}
-                      className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl border border-red-500/20 transition-all disabled:opacity-50"
-                      title="Dissoudre"
-                    >
-                      {deletingId === sujetKey ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Trash2 size={14} />
-                      )}
-                    </button>
+                        <button 
+                          onClick={() => handleDelete(sujetKey)}
+                          disabled={deletingId === sujetKey}
+                          data-testid={`btn-delete-${sujetKey}`}
+                          className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl border border-red-500/20 transition-all disabled:opacity-50"
+                          title="Dissoudre"
+                        >
+                          {deletingId === sujetKey ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <Trash2 size={14} />
+                          )}
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -255,7 +276,7 @@ export default function AbyssBlogDashboard() {
         </div>
       )}
 
-      {/* 🪟 MODALE DE CRÉATION / MUTATION (SujetForm) */}
+      {/* 🪟 MODALE DE CRÉATION / MUTATION */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 animate-in fade-in">
           <div className="w-full max-w-2xl bg-[#0A0D14] border border-white/10 rounded-3xl p-6 md:p-8 shadow-2xl relative space-y-6">

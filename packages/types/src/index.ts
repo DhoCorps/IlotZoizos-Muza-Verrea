@@ -31,6 +31,9 @@ export * from './models/univershall.types';
 export * from './core/kontrakt.types';
 export * from './core/economy.types';
 export * from './core/universalMedia.types';
+export * from './models/univershall.types';
+export * from './models/universalComment.types';
+export * from './models/propagation.types';
 
 export interface ActionSignature {
   actorUid: string;       

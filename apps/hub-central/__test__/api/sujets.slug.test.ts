@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PUT, DELETE } from '@/app/api/sujets/[slug]/route';
 import { getServerSession } from 'next-auth/next';
 import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
-import { SujetOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -63,6 +62,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
+// Mock complet du SujetOrchestrator
 vi.mock('@ilot/shared-core', () => {
   return {
     SujetOrchestrator: class {
@@ -100,7 +100,7 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
     it('doit autoriser (200) la lecture si le sujet est publié (visiteur anonyme)', async () => {
       vi.mocked(getServerSession).mockResolvedValue(null);
 
-      // Utilisation du helper unifié mocké
+      // Utilisation du helper unifié mocké pour le GET
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 's-1',
         slug: 'mon-sujet',
@@ -140,21 +140,14 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
   });
 
   describe('PUT - Mutation du Sujet', () => {
-    it('doit réussir (200) si l\'utilisateur passe par l\'Orchestrator, valide via Zod et invalide le cache', async () => {
+    it('doit réussir (200) en passant par l\'Orchestrator, valider via Zod et invalider le cache', async () => {
       vi.mocked(getServerSession).mockResolvedValue({
         user: { uid: 'u-owner', capabilities: [] }
       } as unknown as Awaited<ReturnType<typeof getServerSession>>);
 
-      // 🛠️ CORRECTION : mockResolvedValue (et non Once) pour couvrir les 2 appels (route + orchestrator)
-      vi.mocked(findEntityBySlugOrUid).mockResolvedValue({
-        uid: 's-1',
-        slug: 'mon-sujet',
-        authorUid: 'u-owner',
-      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
-
       const req = new NextRequest('http://localhost/api/sujets/mon-sujet', {
         method: 'PUT',
-        body: JSON.stringify({ title: 'Titre Modifié' }),
+        body: JSON.stringify({ title: 'Titre Modifié', media: { coverImageUrl: 'https://cdn.ilot/cover.jpg' } }),
       });
 
       const response = await PUT(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
@@ -170,16 +163,10 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
   });
 
   describe('DELETE - Désintégration du Sujet', () => {
-    it('doit réussir (200) si l\'utilisateur est l\'auteur et invalider le cache', async () => {
+    it('doit réussir (200) via l\'Orchestrateur et invalider le cache', async () => {
       vi.mocked(getServerSession).mockResolvedValue({
         user: { uid: 'u-owner', capabilities: [] }
       } as unknown as Awaited<ReturnType<typeof getServerSession>>);
-
-      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
-        uid: 's-1',
-        slug: 'mon-sujet',
-        authorUid: 'u-owner',
-      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
       const req = new NextRequest('http://localhost/api/sujets/mon-sujet', {
         method: 'DELETE',
@@ -190,7 +177,6 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
 
       expect(response.status).toBe(200);
       expect(json.success).toBe(true);
-      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(SujetModel, 'mon-sujet');
 
       // 💥 Vérification de l'invalidation du cache
       expect(revalidateTag).toHaveBeenCalledWith('sujets');

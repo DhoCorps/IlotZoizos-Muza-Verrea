@@ -11,7 +11,7 @@ export const blogRegistry: BlockRegistry = {
       title: 'Chronique des Profondeurs',
       subtitle: 'Réflexions sur les flux asynchrones et l’architecture des graphes.',
       author: 'Oiseau des Abysses',
-      category: 'Architecture'
+      category: 'TUTORIAL' // 🟢 CORRECTION : Remplacé "Architecture" par un Enum valide Zod
     },
     renderView: ({ data }) => (
       <div className="space-y-2">

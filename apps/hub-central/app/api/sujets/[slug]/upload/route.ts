@@ -24,12 +24,19 @@ function revalidateSujetCascades(sujet: { slug?: string; uid?: string }) {
   }
 }
 
+// 🟢 Typage local strict aligné sur ISujet['media']
+type SujetMediaLocal = {
+  coverImageUrl?: string;
+  audioTrackUrl?: string;
+  coverImageAlt?: string;
+  audioTitle?: string;
+};
+
 // ==========================================
 // 📤 POST : Téléversement de média pour un Sujet avec Sceau SHA-256
 // ==========================================
 export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 🛡️ 1. Résolution asynchrone sécurisée des paramètres de route
     const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
@@ -38,8 +45,7 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 🔍 3. Recherche unifiée pour récupérer le Sujet et valider son existence
-    let targetSujet: { uid?: string; authorUid?: string; slug?: string; [key: string]: unknown } | null;
+    let targetSujet: { uid?: string; authorUid?: string; slug?: string; media?: SujetMediaLocal; [key: string]: unknown } | null;
     try {
       targetSujet = (await findEntityBySlugOrUid(SujetModel, identifier)) as typeof targetSujet;
     } catch {
@@ -50,14 +56,12 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
       return NextResponse.json({ error: "Sujet introuvable." }, { status: 404 });
     }
 
-    // 🛡️ Contrôle d'accès (Auteur ou Architecte)
     const isAuthor = targetSujet.authorUid === currentUser.uid;
     const isArchitect = currentUser.capabilities?.includes('*');
     if (!isAuthor && !isArchitect) {
       return NextResponse.json({ error: 'Tu ne peux modifier que tes propres monologues.' }, { status: 403 });
     }
 
-    // 4. Récupération et validation du formulaire multipart
     let formData: FormData;
     try {
       formData = await req.formData();
@@ -71,7 +75,6 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
       return NextResponse.json({ error: 'Aucun média fourni.' }, { status: 400 });
     }
 
-    // 🪡 Génération du Sceau Cryptographique (SHA-256) d'Antériorité de manière blindée
     let fileBuffer: Buffer;
     try {
       if (typeof file.arrayBuffer === 'function') {
@@ -94,7 +97,6 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
     const digitalSignature = generateFileHash(fileBuffer);
     const timestampedAt = new Date();
 
-    // 5. Génération de la clé structurée via la méthode unifiée en utilisant le véritable UID
     let structuredKey: string;
     try {
       structuredKey = storageService.generateKey({
@@ -119,7 +121,6 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
       return NextResponse.json({ error: 'Échec du scellement du fichier dans le Nexus R2.' }, { status: 500 });
     }
 
-    // Résilience de l'URL publique
     let publicUrl = '';
     if (typeof uploadResult === 'string') {
       publicUrl = uploadResult;
@@ -134,15 +135,15 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
     const resObj = uploadResult as { key?: string } | null;
     const storageKey = resObj?.key || structuredKey;
 
-    // 🛡️ Délégation de la mise à jour au SujetOrchestrator pour garantir l'intégrité (Silice + Graphe)
     const signature: ActionSignature = {
       actorUid: currentUser.uid,
       capabilities: currentUser.capabilities || []
     };
     const sujetOrch = new SujetOrchestrator();
-    await sujetOrch.updateSujet(targetSujet.uid as string, { mediaUrl: publicUrl }, signature);
+    
+    const currentMedia = targetSujet.media || {};
+    await sujetOrch.updateSujet(targetSujet.uid as string, { media: { ...currentMedia, coverImageUrl: publicUrl } }, signature);
 
-    // 💥 Invalidation globale et centralisée en cascade
     revalidateSujetCascades(targetSujet);
 
     console.log(`📜 [Abyss] Média ancré pour le sujet [uid: ${targetSujet.uid}] : ${publicUrl}`);
@@ -168,7 +169,6 @@ export const POST = withRateLimit('upload-sujet-slug', 10, 60, withAura(async (r
 // ==========================================
 export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 🛡️ 1. Résolution asynchrone sécurisée des paramètres de route
     const resolvedParams = await Promise.resolve(context.params);
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
@@ -177,8 +177,7 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 🔍 2. Recherche unifiée pour valider les droits de suppression sur le Sujet
-    let targetSujet: { uid?: string; authorUid?: string; slug?: string; mediaUrl?: string; [key: string]: unknown } | null;
+    let targetSujet: { uid?: string; authorUid?: string; slug?: string; media?: SujetMediaLocal; [key: string]: unknown } | null;
     try {
       targetSujet = (await findEntityBySlugOrUid(SujetModel, identifier)) as typeof targetSujet;
     } catch {
@@ -189,14 +188,12 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       return NextResponse.json({ error: "Sujet introuvable." }, { status: 404 });
     }
 
-    // 🛡️ Contrôle d'accès
     const isAuthor = targetSujet.authorUid === currentUser.uid;
     const isArchitect = currentUser.capabilities?.includes('*');
     if (!isAuthor && !isArchitect) {
       return NextResponse.json({ error: 'Tu ne peux supprimer que tes propres monologues.' }, { status: 403 });
     }
 
-    // 3. Extraction de l'URL du fichier depuis les paramètres de recherche
     let fileUrl: string | null;
     try {
       const urlObj = new URL(req.url);
@@ -210,16 +207,19 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       return NextResponse.json({ error: "URL de l'artefact à purger manquante." }, { status: 400 });
     }
 
-    // 🛡️ SUTURE DE SÉCURITÉ IDOR : Normalisation et validation stricte par extraction de clés de stockage
-    if (!targetSujet.mediaUrl) {
+    if (!targetSujet.media?.coverImageUrl && !targetSujet.media?.audioTrackUrl) {
       return NextResponse.json({ error: "Souveraineté brisée : aucun média enregistré pour ce sujet." }, { status: 403 });
     }
 
-    let expectedKey: string;
+    let expectedKey: string | null = null;
     let providedKey: string;
     try {
-      expectedKey = storageService.extractKeyFromUrl(targetSujet.mediaUrl);
+      const coverKey = targetSujet.media?.coverImageUrl ? storageService.extractKeyFromUrl(targetSujet.media.coverImageUrl) : null;
+      const audioKey = targetSujet.media?.audioTrackUrl ? storageService.extractKeyFromUrl(targetSujet.media.audioTrackUrl) : null;
       providedKey = storageService.extractKeyFromUrl(fileUrl);
+
+      if (providedKey === coverKey) expectedKey = coverKey;
+      else if (providedKey === audioKey) expectedKey = audioKey;
     } catch {
       return NextResponse.json({ error: "Format d'URL d'artefact invalide." }, { status: 400 });
     }
@@ -228,7 +228,6 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       return NextResponse.json({ error: "Souveraineté brisée : cet artefact n'appartient pas à ce sujet." }, { status: 403 });
     }
 
-    // 4. Désintégration du fichier via la clé normalisée
     try {
       await storageService.deleteFile(expectedKey);
     } catch (deleteErr) {
@@ -236,15 +235,29 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       return NextResponse.json({ error: "Échec de la désintégration de l'artefact dans le Nexus." }, { status: 500 });
     }
 
-    // 🛡️ Nettoyage de l'attribut média via le SujetOrchestrator
     const signature: ActionSignature = {
       actorUid: currentUser.uid,
       capabilities: currentUser.capabilities || []
     };
-    const sujetOrch = new SujetOrchestrator();
-    await sujetOrch.updateSujet(targetSujet.uid as string, { mediaUrl: null }, signature);
+    
+    const currentMedia = targetSujet.media || {};
+    const updatedMedia: SujetMediaLocal = { ...currentMedia };
+    
+    if (updatedMedia.coverImageUrl && expectedKey === storageService.extractKeyFromUrl(updatedMedia.coverImageUrl)) {
+      updatedMedia.coverImageUrl = undefined;
+    }
+    if (updatedMedia.audioTrackUrl && expectedKey === storageService.extractKeyFromUrl(updatedMedia.audioTrackUrl)) {
+      updatedMedia.audioTrackUrl = undefined;
+    }
 
-    // 💥 Invalidation globale et centralisée en cascade
+    const hasRemainingMedia = !!updatedMedia.coverImageUrl || !!updatedMedia.audioTrackUrl;
+    
+    // 🟢 CORRECTION : TypeScript accepte `undefined` au lieu de `null` pour vider une propriété optionnelle
+    const finalMedia = hasRemainingMedia ? updatedMedia : undefined;
+
+    const sujetOrch = new SujetOrchestrator();
+    await sujetOrch.updateSujet(targetSujet.uid as string, { media: finalMedia }, signature);
+
     revalidateSujetCascades(targetSujet);
 
     console.log(`🗑️ [Abyss] Média purgé pour le sujet [uid: ${targetSujet.uid}]`);

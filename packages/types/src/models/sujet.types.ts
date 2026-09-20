@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { SeoMetadataSchema, CrossLinkSchema, SharedMediaSchema } from '../core/seo.types';
 
 // ==========================================
-// 1. ÉNUMÉRATIONS
+// 1. ÉNUMÉRATIONS & TYPES DE CONNEXIONS
 // ==========================================
 export const SujetCategorySchema = z.enum([
   'MONOLOGUE', 
@@ -17,6 +17,24 @@ export const SujetStatusSchema = z.enum([
   'PUBLISHED', 
   'ARCHIVED'
 ]);
+
+// Harmonisation complète des types d'entités pour le graphe (CrossLinks)
+export const ExtendedEntityTypeSchema = z.enum([
+  'BLOG', 
+  'PROJECT', 
+  'FONT', 
+  'SPRITE', 
+  'PROFILE', 
+  'GAME', 
+  'LYRIKA', 
+  'SAMPLOTEK', 
+  'BIBLIOTEK', 
+  'POETRIK'
+]);
+
+export const ExtendedCrossLinkSchema = CrossLinkSchema.extend({
+  entityType: ExtendedEntityTypeSchema
+});
 
 // ==========================================
 // 2. LE SCHÉMA PRINCIPAL ZOD (ULTIMATE & DRY EDITION)
@@ -48,13 +66,13 @@ export const SujetSchema = z.object({
   // --- 🔍 OPTIMISATION SEO (Mutualisé) ---
   seo: SeoMetadataSchema.default({}),
 
-  // --- 🌐 LE TISSU CONNECTEUR (Mutualisé) ---
+  // --- 🌐 LE TISSU CONNECTEUR (Mutualisé - Les defaults garantissent l'objet complet) ---
   connections: z.object({
     relatedProjects: z.array(z.string()).default([]),
     relatedTasks: z.array(z.string()).default([]),
     relatedProducts: z.array(z.string()).default([]),
     relatedGames: z.array(z.string()).default([]),
-    crossLinks: z.array(CrossLinkSchema).default([])
+    crossLinks: z.array(ExtendedCrossLinkSchema).default([])
   }).default({}),
 
   // 🛍️ SUTURE E-COMMERCE
@@ -67,19 +85,35 @@ export const SujetSchema = z.object({
   // --- 🖼️ MÉDIAS & ANCRAGES SENSORIELS (Mutualisé) ---
   media: SharedMediaSchema.optional(),
 
-  // --- GOUVERNANCE & MODÉRATION ---
+  // --- GOUVERNANCE & MODÉRATION (Mutualisé - Les defaults garantissent l'objet complet) ---
   settings: z.object({
     allowComments: z.boolean().default(true),
     allowEmojiReactions: z.boolean().default(true),
+    allowPropagation: z.boolean().default(true), 
     isAgeRestricted: z.boolean().default(false),
     alchemicalTransmuted: z.boolean().default(false)
   }).default({}),
 
-  // --- STATISTIQUES ---
+  // --- STATISTIQUES DE BASE ---
   resonance: z.object({
     views: z.number().default(0),
     readsCompleted: z.number().default(0)
-  }).default({})
+  }).default({}),
+
+  // --- 🌊 PROPAGATION & VIRALITÉ ORGANIQUE ---
+  propagation: z.object({
+    shareCount: z.number().default(0),
+    uniquePasseurs: z.number().default(0),
+    globalReach: z.number().default(0)
+  }).default({}),
+
+  // --- 🌟 EXTENSIONS KOSMIQUES (Commentaires, SEO Fraîcheur & Gacha Karmique) ---
+  kosmicBoon: z.object({
+    interactionCount: z.number().default(0),
+    nextKosmicBoon: z.number().default(42) 
+  }).default({}),
+
+  lastCommentedAt: z.string().datetime().optional(), 
 });
 
 export type ISujet = z.infer<typeof SujetSchema>;

@@ -4,6 +4,9 @@ import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
+// ==========================================
+// MOCKS (Inchiffrés et Sécurisés)
+// ==========================================
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
   return {
@@ -24,6 +27,9 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
+// ==========================================
+// TESTS : SUJET ORCHESTRATOR
+// ==========================================
 describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
   let orchestrator: SujetOrchestrator;
   const adminSignature = { actorUid: 'admin_1', capabilities: ['*'] };
@@ -42,11 +48,11 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
   describe('fosterSujet', () => {
     it('🔴 doit rejeter (403) si l\'Oiseau n\'est pas l\'auteur et n\'a pas la capacité root', async () => {
       await expect(
-        orchestrator.fosterSujet({ authorUid: 'other_bird' }, userSignature as any)
+        orchestrator.fosterSujet({ authorUid: 'other_bird', title: 'Test', content: 'Test' } as any, userSignature as any)
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit forger un sujet dans MongoDB et Neo4j avec succès', async () => {
+    it('🟢 doit forger un sujet dans MongoDB avec ses mécaniques (Gacha, Propagation) et tisser la toile Neo4j', async () => {
       vi.mocked(SujetModel.findOne).mockReturnValue({
         session: vi.fn().mockReturnValue({
           lean: vi.fn().mockResolvedValueOnce(null)
@@ -54,12 +60,28 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
       } as any);
 
       vi.mocked(SujetModel.create).mockResolvedValueOnce([
-        { uid: 'sujet_1', title: 'Pensée Silencieuse', slug: 'pensee-silencieuse', authorUid: 'bird_author' }
+        { 
+          uid: 'sujet_1', 
+          title: 'Pensée Silencieuse', 
+          slug: 'pensee-silencieuse', 
+          authorUid: 'bird_author', 
+          settings: { allowPropagation: true },
+          propagation: { shareCount: 0, uniquePasseurs: 0, globalReach: 0 },
+          kosmicBoon: { interactionCount: 0, nextKosmicBoon: 42 } 
+        }
       ] as any);
 
-      const res = await orchestrator.fosterSujet({ title: 'Pensée Silencieuse', authorUid: 'bird_author', connections: { relatedProjects: [] } }, userSignature as any);
+      const res = await orchestrator.fosterSujet({ 
+        title: 'Pensée Silencieuse', 
+        content: 'Du texte...',
+        authorUid: 'bird_author', 
+        connections: { crossLinks: [{ entityType: 'LYRIKA', entityId: 'song_123', label: 'Inspiration' }] }
+      }, userSignature as any);
       
       expect((res.mongo as { uid: string }).uid).toBe('sujet_1');
+      expect((res.mongo as any).kosmicBoon.nextKosmicBoon).toBe(42);
+      expect((res.mongo as any).settings.allowPropagation).toBe(true);
+      expect((res.mongo as any).propagation.shareCount).toBe(0);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });
@@ -104,7 +126,6 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
       const res = await orchestrator.disintegrateSujet('mon-sujet', userSignature as any);
       
       expect(res.success).toBe(true);
-      // Vérifie que le service S3 a bien été appelé APRÈS la transaction
       expect(mockStorageManager.deleteFile).toHaveBeenCalledWith('key_http://s3/img.jpg');
     });
   });

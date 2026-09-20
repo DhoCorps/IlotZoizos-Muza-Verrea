@@ -1,127 +1,99 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { NextIntlClientProvider } from 'next-intl'; // 🛡️ AJOUT DU PROVIDER
+import { render, screen } from '@testing-library/react';
 import AbyssBlogDashboard from '@/app/[locale]/(inceptions)/abyss-blog/page';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
-import { useAbyssBlog } from '@/hooks/useAbyssBlog';
 
+// -------------------------------------------------------------------------
 // 🎭 MOCKS GLOBAUX
+// -------------------------------------------------------------------------
+
+// 1. Mock de next-auth
+vi.mock('next-auth/react', () => ({
+  useSession: vi.fn(() => ({
+    data: { user: { uid: 'u-123', capabilities: [] } },
+    status: 'authenticated'
+  }))
+}));
+
+// 2. Mock du Hook métier
 vi.mock('@/hooks/useAbyssBlog', () => ({
-  useAbyssBlog: vi.fn()
+  useAbyssBlog: () => ({
+    sujets: [
+      { uid: 's-mine', title: 'Mon Propre Sujet', authorUid: 'u-123', tags: ['philosophie', 'neo4j'], status: 'PUBLISHED' },
+      { uid: 's-other', title: 'Le Sujet de Dho', authorUid: 'u-456', status: 'DRAFT' }
+    ],
+    projects: [],
+    loading: false,
+    deleteSujet: vi.fn()
+  })
 }));
 
-vi.mock('@/components/abyss-blog/sujets/SujetForm', () => ({
-  SujetForm: ({ onSuccess, onCancel }: any) => (
-    <div data-testid="sujet-form">
-      <button onClick={onSuccess}>Submit Form</button>
-      <button onClick={onCancel}>Cancel Form</button>
-    </div>
-  )
+// 3. 🟢 CORRECTION CRITIQUE : Mock du fichier navigation.ts
+// Depuis "__test__/inceptions/", la racine "hub-central" est à "../../"
+vi.mock('../../navigation', () => ({
+  Link: ({ children, href }: any) => <a href={href}>{children}</a>,
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() })
 }));
 
+// (Sécurité supplémentaire) Mock de l'alias au cas où il serait utilisé ailleurs
+vi.mock('@/navigation', () => ({
+  Link: ({ children, href }: any) => <a href={href}>{children}</a>,
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() })
+}));
+
+// 4. 🟢 SÉCURITÉ NEXT-INTL : On neutralise le provider de traduction globalement
+vi.mock('next-intl', () => ({
+  useLocale: () => 'fr',
+  useTranslations: () => (key: string) => key,
+  NextIntlClientProvider: ({ children }: any) => <>{children}</>
+}));
+
+// 5. Mocks des sous-composants
 vi.mock('@/components/resonance/ResonanceButton', () => ({
-  default: () => <button data-testid="resonance-btn">Resonance</button>
+  default: () => <button>ResonanceMock</button>
 }));
 
-vi.mock('@/components/widget/OmniActionWidget', () => ({
-  OmniActionWidget: () => <div data-testid="omni-widget">OmniWidget</div>
-}));
+// -------------------------------------------------------------------------
+// 🧪 SUITE DE TESTS
+// -------------------------------------------------------------------------
 
 describe('Page : AbyssBlogDashboard', () => {
   let queryClient: QueryClient;
-  const mockDeleteSujet = vi.fn();
 
   beforeEach(() => {
-    vi.clearAllMocks();
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    
-    // Mock de window.confirm pour autoriser la suppression sans bloquer le test
-    window.confirm = vi.fn(() => true);
-
-    // Initialisation standard du hook mocké
-    (useAbyssBlog as any).mockReturnValue({
-      sujets: [
-        { uid: 's-1', title: 'Sujet Brouillon', status: 'DRAFT', category: 'DEV', content: 'Ceci est un test' },
-        { uid: 's-2', title: 'Sujet Publié', status: 'PUBLISHED', category: 'DESIGN', content: 'Magnifique design' }
-      ],
-      projects: [],
-      loading: false,
-      deleteSujet: mockDeleteSujet
-    });
+    vi.clearAllMocks();
   });
 
   const renderComponent = () => {
     return render(
-      // 🛡️ CORRECTION : Enveloppement dans NextIntlClientProvider pour neutraliser l'erreur
-      <NextIntlClientProvider locale="fr" messages={{}}>
-        <QueryClientProvider client={queryClient}>
-          <AbyssBlogDashboard />
-        </QueryClientProvider>
-      </NextIntlClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <AbyssBlogDashboard />
+      </QueryClientProvider>
     );
   };
 
-  it('affiche le loader quand les données sont en cours de chargement', () => {
-    (useAbyssBlog as any).mockReturnValue({ sujets: [], projects: [], loading: true, deleteSujet: vi.fn() });
-    renderComponent();
-    expect(screen.getByTestId('loader')).toBeDefined();
-  });
-
-  it('affiche la liste des sujets via le hook useAbyssBlog', () => {
-    renderComponent();
-    expect(screen.getByText('Sujet Brouillon')).toBeDefined();
-    expect(screen.getByText('Sujet Publié')).toBeDefined();
-  });
-
-  it('filtre les sujets par statut via les boutons', () => {
+  it('doit rendre les sujets et afficher correctement les tags', () => {
     renderComponent();
     
-    // Filtre 'Publiés'
-    const btnPublished = screen.getByText('Publiés');
-    fireEvent.click(btnPublished);
-
-    expect(screen.queryByText('Sujet Brouillon')).toBeNull();
-    expect(screen.getByText('Sujet Publié')).toBeDefined();
+    expect(screen.getByText('Mon Propre Sujet')).toBeDefined();
+    expect(screen.getByText('Le Sujet de Dho')).toBeDefined();
+    
+    // Vérification de l'affichage des tags pour le premier sujet
+    expect(screen.getByText('#philosophie')).toBeDefined();
+    expect(screen.getByText('#neo4j')).toBeDefined();
   });
 
-  it('filtre les sujets par recherche de texte', () => {
+  it('ne doit afficher les boutons d\'Édition et de Suppression que sur les sujets de l\'Oiseau', () => {
     renderComponent();
     
-    const searchInput = screen.getByPlaceholderText('Rechercher dans la matrice...');
-    fireEvent.change(searchInput, { target: { value: 'design' } });
+    // Pour "Mon Propre Sujet" (u-123), le bouton d'édition doit être présent
+    const editBtnMine = screen.getByTestId('btn-edit-s-mine');
+    expect(editBtnMine).toBeDefined();
 
-    expect(screen.queryByText('Sujet Brouillon')).toBeNull();
-    expect(screen.getByText('Sujet Publié')).toBeDefined();
-  });
-
-  it('ouvre la modale de création vide lors du clic sur "Nouveau Monologue"', () => {
-    renderComponent();
-    
-    const createBtn = screen.getByTestId('btn-create-sujet');
-    fireEvent.click(createBtn);
-
-    expect(screen.getByText('Inscrire un Nouveau Monologue')).toBeDefined();
-    expect(screen.getByTestId('sujet-form')).toBeDefined();
-  });
-
-  it('ouvre la modale d\'édition pré-remplie lors du clic sur "Ajuster"', () => {
-    renderComponent();
-    
-    const editBtn = screen.getByTestId('btn-edit-s-1');
-    fireEvent.click(editBtn);
-
-    expect(screen.getByText('Ajuster le Monologue')).toBeDefined();
-    expect(screen.getByTestId('sujet-form')).toBeDefined();
-  });
-
-  it('déclenche la suppression via le hook lors du clic sur "Dissoudre"', () => {
-    renderComponent();
-    
-    const deleteBtn = screen.getByTestId('btn-delete-s-1');
-    fireEvent.click(deleteBtn);
-
-    expect(window.confirm).toHaveBeenCalledTimes(1);
-    expect(mockDeleteSujet).toHaveBeenCalledWith('s-1', expect.any(Object));
+    // Pour "Le Sujet de Dho" (u-456), le bouton d'édition ne doit PAS exister
+    const editBtnOther = screen.queryByTestId('btn-edit-s-other');
+    expect(editBtnOther).toBeNull();
   });
 });

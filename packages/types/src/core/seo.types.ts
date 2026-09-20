@@ -9,7 +9,7 @@ export const SeoMetadataSchema = z.object({
 });
 
 // --- 🌐 SCHEMA CROSS-LINKS PARTAGÉ (LE GRAPH) ---
-export const EntityTypeSchema = z.enum(['BLOG', 'PROJECT', 'FONT', 'SPRITE', 'PROFILE', 'GAME']);
+export const EntityTypeSchema = z.enum(['BLOG', 'PROJECT', 'FONT', 'SPRITE', 'PROFILE', 'GAME', 'LYRIKA', 'SAMPLOTEK', 'BIBLIOTEK', 'POETRIK']);
 
 export const CrossLinkSchema = z.object({
   entityType: EntityTypeSchema,

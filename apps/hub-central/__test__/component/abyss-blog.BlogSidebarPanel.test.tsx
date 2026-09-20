@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { BlogSidebarPanel } from '@/components/abyss-blog/BlogSideBarPanel';
 import { blogRegistry } from '@/components/abyss-blog/BlogRegistry';
+import React from 'react';
 
 describe('Composant Front-End : BlogSidebarPanel', () => {
   it('doit afficher l\'état vide si aucun bloc n\'est sélectionné', () => {
@@ -47,5 +48,31 @@ describe('Composant Front-End : BlogSidebarPanel', () => {
 
     fireEvent.change(inputTitle, { target: { value: 'Nouveau Titre' } });
     expect(handleUpdate).toHaveBeenCalledWith('block-1', expect.objectContaining({ title: 'Nouveau Titre' }));
+  });
+
+  it('doit appeler onClose lors du clic sur le bouton de fermeture', () => {
+    const mockBlock = {
+      id: 'block-1',
+      type: 'blog-header',
+      title: 'Bloc En-tête',
+      enabled: true,
+      layout: { x: 0, y: 0, w: 12, h: 2 },
+      data: {}
+    };
+
+    const handleClose = vi.fn();
+
+    render(
+      <BlogSidebarPanel 
+        selectedBlock={mockBlock} 
+        registry={blogRegistry} 
+        onUpdateData={vi.fn()} 
+        onClose={handleClose} 
+      />
+    );
+
+    const closeBtn = screen.getByTitle('Fermer le panneau');
+    fireEvent.click(closeBtn);
+    expect(handleClose).toHaveBeenCalledTimes(1);
   });
 });

@@ -18,41 +18,23 @@ export interface SujetSyncResult {
   neo4j: import('neo4j-driver').QueryResult | null;
 }
 
-export interface FosterSujetPayload {
-  uid?: string;
-  title?: string;
-  slug?: string;
-  content?: string;
-  lyrics?: string | null;
-  copyright?: string | null;
-  authorUid: string;
-  category?: string;
-  status?: string;
-  tags?: string[];
-  connections?: {
-    relatedProjects?: string[];
-    relatedTasks?: string[];
-    [key: string]: unknown;
-  };
-  merchLink?: {
-    productId?: string;
-    [key: string]: unknown;
-  } | null;
-  media?: Record<string, unknown>;
-  settings?: Record<string, unknown>;
-  [key: string]: unknown;
-}
+// Typage utilitaire pour autoriser des sous-objets partiels en entrée
+type DeepPartialConnections = Partial<ISujet['connections']>;
+type DeepPartialSettings = Partial<ISujet['settings']>;
+type DeepPartialKosmic = Partial<ISujet['kosmicBoon']>;
 
-export interface UpdateSujetPayload {
-  title?: string;
-  status?: string;
-  category?: string;
-  merchLink?: {
-    productId?: string | null;
-    [key: string]: unknown;
-  } | null;
-  [key: string]: unknown;
-}
+// Typage strict : On omet 'resonance' et 'propagation' qui sont gérées dynamiquement par le système
+export type FosterSujetPayload = Omit<Partial<ISujet>, 'resonance' | 'propagation' | 'connections' | 'settings' | 'kosmicBoon'> & {
+  authorUid: string;
+  title: string;     
+  content: string;
+  // On redéfinit explicitement ces objets comme partiels pour l'entrée
+  connections?: DeepPartialConnections;
+  settings?: DeepPartialSettings;
+  kosmicBoon?: DeepPartialKosmic;
+};
+
+export type UpdateSujetPayload = Partial<Omit<ISujet, 'uid' | 'authorUid' | 'resonance' | 'connections' | 'propagation'>>;
 
 const generateSlug = (text: string): string => {
   return text.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\-]+/g, '').replace(/\-\-+/g, '-');
@@ -85,31 +67,51 @@ export class SujetOrchestrator {
       const now = new Date();
       
       const sujetUid = data.uid || `sujet_${randomUUID()}`;
-      const title = data.title || "Monologue sans nom";
+      const title = data.title;
       
       const baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
       const finalSlug = await ensureUniqueSlug(SujetModel, baseSlug, mongoSession);
 
-      const newSujetData = {
+      // On prépare l'objet complet pour Mongo avec intégration de la Propagation et du Gacha
+      const newSujetData: Partial<ISujet> = {
         ...data,
         uid: sujetUid,
         title: title,
         slug: finalSlug,
         content: data.content || "",
-        lyrics: data.lyrics || null,
-        copyright: data.copyright || null,
+        lyrics: data.lyrics || undefined,
+        copyright: data.copyright || undefined,
         authorUid: signature.actorUid,
         category: data.category || 'MONOLOGUE',
         status: data.status || 'DRAFT',
         tags: data.tags || [],
-        connections: data.connections || {},
-        merchLink: data.merchLink || null,
-        media: data.media || {},
-        settings: data.settings || {},
-        dates: {
-          createdAt: now,
-          updatedAt: now
-        }
+        connections: {
+            relatedProjects: data.connections?.relatedProjects || [],
+            relatedTasks: data.connections?.relatedTasks || [],
+            relatedProducts: data.connections?.relatedProducts || [],
+            relatedGames: data.connections?.relatedGames || [],
+            crossLinks: data.connections?.crossLinks || []
+        },
+        merchLink: data.merchLink || undefined,
+        media: data.media || undefined,
+        settings: {
+            allowComments: true,
+            allowEmojiReactions: true,
+            allowPropagation: true, // Autorisation du partage par défaut
+            isAgeRestricted: false,
+            alchemicalTransmuted: false,
+            ...data.settings
+        },
+        propagation: {
+            shareCount: 0,
+            uniquePasseurs: 0,
+            globalReach: 0
+        },
+        kosmicBoon: {
+            interactionCount: data.kosmicBoon?.interactionCount || 0,
+            nextKosmicBoon: data.kosmicBoon?.nextKosmicBoon || 42
+        },
+        lastCommentedAt: data.lastCommentedAt || undefined
       };
 
       // 1. SILICE (MongoDB)
@@ -125,9 +127,7 @@ export class SujetOrchestrator {
         throw err;
       }
 
-      // 2. GRAPHE (Neo4j)
-      // 🛠️ CORRECTION BUG NEO4J : Remplacement des UNWIND hasardeux par des FOREACH natifs.
-      // Cela évite de crasher la requête si les tableaux de relations sont vides.
+      // 2. GRAPHE (Neo4j) - Le Tissu Universel (crossLinks)
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (s:Sujet { 
@@ -142,15 +142,10 @@ export class SujetOrchestrator {
         CREATE (u)-[:WROTE]->(s)
 
         WITH s
-        FOREACH (pUid IN $relatedProjects |
-          MERGE (p:Project {uid: pUid})
-          MERGE (s)-[:ILLUMINATES]->(p)
-        )
-
-        WITH s
-        FOREACH (tUid IN $relatedTasks |
-          MERGE (t:Task {uid: tUid})
-          MERGE (s)-[:DETAILS]->(t)
+        UNWIND (CASE WHEN size($crossLinks) > 0 THEN $crossLinks ELSE [null] END) AS link
+        FOREACH (_ IN CASE WHEN link IS NOT NULL THEN [1] ELSE [] END |
+          MERGE (target:Artifact { uid: link.entityId })
+          MERGE (s)-[:RELATES_TO { app: link.entityType, intent: coalesce(link.label, 'reference') }]->(target)
         )
 
         WITH s
@@ -162,9 +157,6 @@ export class SujetOrchestrator {
         RETURN s
       `;
 
-      const connections = newSujet.connections as { relatedProjects?: string[]; relatedTasks?: string[] } | undefined;
-      const merchLink = newSujet.merchLink as { productId?: string } | null | undefined;
-
       const neoResult = await neo4jTx.run(cypher, {
         actorUid: signature.actorUid,
         sujetUid: newSujet.uid,
@@ -172,9 +164,8 @@ export class SujetOrchestrator {
         slug: newSujet.slug,
         category: newSujet.category,
         status: newSujet.status,
-        relatedProjects: connections?.relatedProjects || [],
-        relatedTasks: connections?.relatedTasks || [],
-        productId: merchLink?.productId || null,
+        crossLinks: newSujet.connections?.crossLinks || [],
+        productId: newSujet.merchLink?.productId || null,
         now: now.toISOString()
       });
 
@@ -214,7 +205,6 @@ export class SujetOrchestrator {
 
       let neoResult = null;
       if (updates.status || updates.category || updates.title || updates.merchLink !== undefined) {
-        // 🛠️ CORRECTION NEO4J : Optimisation du nettoyage et de la création de la relation OFFERS_PRODUCT
         neoResult = await neo4jTx.run(`
           MATCH (s:Sujet { uid: $sujetUid })
           SET s.title = coalesce($title, s.title),
@@ -259,7 +249,6 @@ export class SujetOrchestrator {
       throw new IlotError("Seul l'auteur ou le système peut brûler ce texte.", "FORBIDDEN", 403);
     }
 
-    // 1. Transaction Base de données stricte
     const result = await TransactionManager.execute("Désintégration de Sujet", async (mongoSession, neo4jTx) => {
       await neo4jTx.run(`MATCH (s:Sujet { uid: $sujetUid }) DETACH DELETE s`, { sujetUid: existing.uid });
       await SujetModel.deleteOne({ uid: existing.uid }, { session: mongoSession });
@@ -267,9 +256,6 @@ export class SujetOrchestrator {
       return { success: true, purgedCount: 1 };
     });
 
-    // 🛠️ SÉCURITÉ DES DONNÉES : On supprime les médias UNIQUEMENT si la transaction DB a réussi.
-    // Cela évite de créer des médias orphelins ou de perdre des données en cas de rollback de la DB.
-    // 🛠️ SÉCURITÉ DES DONNÉES : On supprime les médias UNIQUEMENT si la transaction DB a réussi.
     if (result.success) {
       const media = existing.media as { coverImageUrl?: string; audioTrackUrl?: string } | undefined;
       const deletePromises = [];

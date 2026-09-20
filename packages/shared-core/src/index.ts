@@ -24,12 +24,12 @@ export * from './bloc-engine/UniversalBlockEngine';
 export { UniversalGridCanvas } from '../src/bloc-engine/UniversalGridCanvas';
 
 // --- 4. ECOMMERCE STORES ---
-export * from '../src/ecommerce/useCartStore';
-export * from '../src/ecommerce/useWishListStore';
+export * from './ecommerce/useCartStore';
+export * from './ecommerce/useWishListStore';
 export * from './sync-engine/revenueSplit.orchestrator';
 export * from './sync-engine/canopyEvolution.orchestrator';
-export * from '../src/sync-engine/canopySubsidy.orchestrator';
-export * from '../src/sync-engine/canopyCron.orchestrator';
+export * from './sync-engine/canopySubsidy.orchestrator';
+export * from './sync-engine/canopyCron.orchestrator';
 
 
 // --- 5. SYNCHRONISATION & ORCHESTRATEURS ---
@@ -118,7 +118,10 @@ export * from './sync-engine/komptaStats.orchestrator';
 
 export * from './sync-engine/showcase.orchestrator';
 
-export * from '../src/security/canopyJudgeEngine';
-export * from '../src/security/ipTracker';
+export * from './security/canopyJudgeEngine';
+export * from './security/ipTracker';
 
-export * from '../src/sync-engine/dqlRetry.orchestrator';
+export * from './sync-engine/dqlRetry.orchestrator';
+
+export * from './sync-engine/universalComment.orchestrator';
+export * from './sync-engine/propagation.orchestrator';
