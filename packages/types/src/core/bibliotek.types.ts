@@ -1,4 +1,8 @@
-// Types d'écrits riches et imaginatifs (extensibles)
+// ==========================================
+// 📚 TYPES & SCHÉMAS : BIBLIOTEK, GACHA & BARTER
+// ==========================================
+
+// Listes riches préétablies (extensibles)
 export type WritingTypeCode = 
   | 'roman' 
   | 'essai' 
@@ -16,9 +20,8 @@ export type WritingTypeCode =
   | 'traite' 
   | 'livre-artiste' 
   | 'manuel' 
-  | (string & {}); // Permet à l'Oiseau d'entrer n'importe quelle valeur personnalisée
+  | (string & {});
 
-// Styles et thématiques riches et imaginatifs (extensibles)
 export type WritingStyleCode = 
   | 'philosophie' 
   | 'science-fiction' 
@@ -39,4 +42,45 @@ export type WritingStyleCode =
   | 'satire' 
   | 'mythes-legendes' 
   | 'science-computing' 
-  | (string & {}); // Permet à l'Oiseau d'entrer un style libre
+  | (string & {});
+
+// 💎 Niveaux de rareté pour le Gacha Littéraire
+export type GachaTierCode = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
+
+// 🌐 Règles de droits issus du UniversalMediaSchema interfacées avec le Barter
+export interface UniversalMediaRights {
+  allowCommercial?: boolean;
+  allowBarter?: boolean;        // Autorise le troc de chapitres ou d'ouvrages
+  allowLending?: boolean;       // Autorise le prêt entre bibliothèques d'Oiseaux
+  transferable?: boolean;
+}
+
+// 💰 Interface financière et d'échange de l'ouvrage (Gacha & Barter)
+export interface LibraryBookEconomyMetadata {
+  priceCents: number;           // Valeur nominale en centimes
+  currency?: string;            // Ex: 'EUR', 'SILICE'
+  rights: UniversalMediaRights;
+  barterAllowed: boolean;       // Actif pour le module Barter
+  gachaTier: GachaTierCode;     // Rareté dans le Gacha Littéraire
+  isTradable: boolean;          // Éligible au marché secondaire de l'Îlot
+}
+
+// 📖 Structure complète d'un Ouvrage de la Bibliotek enrichie
+export interface ILibraryBookMediaEntity {
+  uid: string;
+  title: string;
+  slug: string;
+  authorUid: string;
+  authorSlug: string;
+  writingType: WritingTypeCode;
+  style: WritingStyleCode;
+  fileUrl: string;
+  coverUrl?: string | null;
+  digitalSignature: string;     // Sceau SHA-256 d'antériorité
+  timestampedAt: string | Date;
+  economy: LibraryBookMetadata;
+  createdAt: string | Date;
+}
+
+// Alias pour compatibilité avec le UniversalMediaSchema
+export type LibraryBookMetadata = LibraryBookEconomyMetadata;

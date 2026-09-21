@@ -5,13 +5,34 @@ import { toast } from 'sonner';
 import React from 'react';
 
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn() }
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() }
 }));
 
 const mockGetSelection = vi.fn();
 window.getSelection = mockGetSelection as any;
 
-describe('UI & Logique : PapierAncreReader (Liseuse Bibliotek)', () => {
+const mockSpeak = vi.fn();
+const mockCancel = vi.fn();
+const mockPause = vi.fn();
+const mockResume = vi.fn();
+
+Object.defineProperty(window, 'speechSynthesis', {
+  value: {
+    speak: mockSpeak,
+    cancel: mockCancel,
+    pause: mockPause,
+    resume: mockResume,
+  },
+  writable: true,
+});
+
+global.SpeechSynthesisUtterance = vi.fn().mockImplementation((text) => ({
+  text,
+  lang: 'fr-FR',
+  rate: 1.0,
+})) as any;
+
+describe('UI & Logique : PapierAncreReader (Liseuse Bibliotek & TTS Neurale)', () => {
   const defaultProps = {
     bookUid: 'book_123',
     title: 'Le Chant de la Silice',
@@ -33,15 +54,26 @@ describe('UI & Logique : PapierAncreReader (Liseuse Bibliotek)', () => {
     });
   });
 
-  it('🟢 doit rendre l\'interface de base avec les métadonnées et le bouton d\'abonnement', () => {
+  it('🟢 doit rendre l\'interface de base avec les métadonnées et les contrôles de synthèse vocale', () => {
     render(<PapierAncreReader {...defaultProps} />);
 
     expect(screen.getByText('Le Chant de la Silice')).toBeDefined();
     expect(screen.getByText(/Oiseau Solitaire/)).toBeDefined();
     expect(screen.getByText(/Ceci est le contenu immersif/)).toBeDefined();
     
-    // 🛠️ CORRECTION : On cherche directement le bouton d'abonnement par son texte réel ou son aria-label
+    expect(screen.getByTestId('tts-play-btn')).toBeDefined();
     expect(screen.getByRole('button', { name: /S'abonner/i })).toBeDefined();
+  });
+
+  it('🟢 doit déclencher la lecture audio du manuscrit au clic sur "Écouter"', () => {
+    render(<PapierAncreReader {...defaultProps} />);
+
+    const playBtn = screen.getByTestId('tts-play-btn');
+    fireEvent.click(playBtn);
+
+    expect(mockCancel).toHaveBeenCalled();
+    expect(mockSpeak).toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('Lecture audio'));
   });
 
   it('🟢 doit basculer en mode "Immersion Profonde" et masquer la barre d\'outils', () => {

@@ -9,7 +9,7 @@ import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } 
 import { z } from 'zod';
 
 // ==========================================
-// 🛡️ SCHÉMA DE VALIDATION ZOD (Anti Mass Assignment)
+// 🛡️ SCHÉMA DE VALIDATION ZOD (Anti Mass Assignment & Support Gacha/Barter)
 // ==========================================
 const CreateBookSchema = z.object({
   title: z.string().min(1, "Le titre est requis."),
@@ -19,6 +19,19 @@ const CreateBookSchema = z.object({
   slug: z.string().optional(),
   coverUrl: z.string().optional().nullable(),
   format: z.string().optional(),
+  economy: z.object({
+    priceCents: z.number().int().nonnegative().optional(),
+    currency: z.string().optional(),
+    barterAllowed: z.boolean().optional(),
+    gachaTier: z.enum(['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic']).optional(),
+    isTradable: z.boolean().optional(),
+    rights: z.object({
+      allowCommercial: z.boolean().optional(),
+      allowBarter: z.boolean().optional(),
+      allowLending: z.boolean().optional(),
+      transferable: z.boolean().optional(),
+    }).optional(),
+  }).optional(),
   settings: z.object({
     // 🪡 SUTURE : allowReadExchange devient optionnel avec un booléen par défaut (true)
     allowReadExchange: z.boolean().optional().default(true),
@@ -27,7 +40,7 @@ const CreateBookSchema = z.object({
 });
 
 // ==========================================
-// GET : Le Sanctuaire des Écrits Libres (Public / Optionnel Aura)
+// GET : Le Sanctuaire des Écrits Libres (Public / Optionnel Aura avec Pagination)
 // ==========================================
 export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContext, _currentUser?: OiseauUser) => {
   try {
@@ -42,15 +55,34 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
     const filterStyle = url.searchParams.get('style');
     const authorUid = url.searchParams.get('authorUid');
 
+    // 📄 Paramètres de pagination performante
+    const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '20', 10)));
+    const skip = (page - 1) * limit;
+
     const query: Record<string, unknown> = {};
     if (filterType && filterType !== 'ALL') query.writingType = filterType;
     if (filterStyle && filterStyle !== 'ALL') query.style = filterStyle;
     if (authorUid) query.authorUid = authorUid;
 
-    const books = await LibraryBookModel.find(query).sort({ createdAt: -1 }).lean();
+    // 🚀 Requêtes optimisées avec curseurs de pagination et comptage total
+    const [books, total] = await Promise.all([
+      LibraryBookModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      LibraryBookModel.countDocuments(query)
+    ]);
+
     const safeBooks = JSON.parse(JSON.stringify(books || []));
 
-    return NextResponse.json({ success: true, data: safeBooks }, { status: 200 });
+    return NextResponse.json({ 
+      success: true, 
+      data: safeBooks,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1
+      }
+    }, { status: 200 });
   } catch (error: unknown) {
     return handleRouteError(error, "Erreur interne du sanctuaire.");
   }
@@ -84,7 +116,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
 
     let result: BibliotekSyncResult;
     try {
-      // 🌿 L'Orchestrateur prend le relais : Sédimentation, Graphe, Sceau SHA-256 ET Canopée Tampon
+      // 🌿 L'Orchestrateur prend le relais : Sédimentation, Graphe, Sceau SHA-256, Barter ET Canopée Tampon
       const bibliotekOrch = new BibliotekOrchestrator();
       const dataToForge = { 
         ...validatedData, 

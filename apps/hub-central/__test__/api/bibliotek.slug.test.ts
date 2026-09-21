@@ -55,14 +55,12 @@ vi.mock('@ilot/shared-core', async (importOriginal) => {
 });
 
 declare global {
-  // 🛡️ Harmonisation stricte de la signature d'index globale de __mockUser
   var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
-// 🛡️ Typage ajusté pour s'adapter à la résolution asynchrone des params (Next.js 15)
 type RouteHandler = (req: NextRequest, ctx: { params: Promise<{ slug?: string | string[] }> }) => Promise<Response>;
 
-describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
+describe('API Bibliotek - Ouvrage Individuel ([slug]) & Économie Barter', () => {
   const getHandler = GET as unknown as RouteHandler;
   const putHandler = PUT as unknown as RouteHandler;
   const deleteHandler = DELETE as unknown as RouteHandler;
@@ -71,11 +69,15 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
     vi.clearAllMocks();
     delete global.__mockUser;
 
-    // Espionnage direct du prototype pour que l'instanciation fonctionne
     vi.spyOn(BibliotekOrchestrator.prototype, 'updateBook').mockResolvedValue({
       success: true,
       status: 'success',
-      mongo: { uid: 'book_999', slug: 'essai-sur-la-silice-mut', title: 'Titre Muté' },
+      mongo: { 
+        uid: 'book_999', 
+        slug: 'essai-sur-la-silice-mut', 
+        title: 'Titre Muté',
+        economy: { priceCents: 2500, gachaTier: 'legendary' }
+      },
       neo4j: {}
     } as unknown as Awaited<ReturnType<BibliotekOrchestrator['updateBook']>>);
 
@@ -115,7 +117,7 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
     expect(res.status).toBe(401);
   });
 
-  it('🟢 PUT : doit muter l’ouvrage avec succès (200) avec son UID canonique', async () => {
+  it('🟢 PUT : doit muter l’ouvrage avec succès (200) y compris ses métadonnées économiques Barter/Gacha', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
@@ -126,7 +128,13 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/essai-sur-la-silice', {
       method: 'PUT',
-      body: JSON.stringify({ title: 'Titre Muté' })
+      body: JSON.stringify({ 
+        title: 'Titre Muté',
+        economy: {
+          priceCents: 2500,
+          gachaTier: 'legendary'
+        }
+      })
     });
 
     const res = await putHandler(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
@@ -135,6 +143,8 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
     expect(json.mongo.title).toBe('Titre Muté');
+    expect(json.mongo.economy.priceCents).toBe(2500);
+    expect(json.mongo.economy.gachaTier).toBe('legendary');
     expect(BibliotekOrchestrator.prototype.updateBook).toHaveBeenCalledWith('book_canonique_123', expect.any(Object), expect.any(Object));
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek-essai-sur-la-silice');

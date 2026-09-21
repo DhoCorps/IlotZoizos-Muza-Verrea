@@ -19,7 +19,7 @@ const CreateAnnotationSchema = z.object({
 });
 
 // ==========================================
-// GET : Lister les Annotations de l'Oiseau
+// GET : Lister les Annotations de l'Oiseau (Avec Pagination)
 // ==========================================
 export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContext, currentUser?: OiseauUser) => {
   try {
@@ -27,13 +27,33 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
     try { url = new URL(req.url); } catch { return NextResponse.json({ success: false, error: "URL invalide." }, { status: 400 }); }
 
     const bookUid = url.searchParams.get('bookUid');
+
+    // 📄 Paramètres de pagination performante
+    const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '20', 10)));
+    const skip = (page - 1) * limit;
+
     const query: Record<string, unknown> = {};
     
     if (currentUser?.uid) query.authorUid = currentUser.uid;
     if (bookUid) query.bookUid = bookUid;
 
-    const annotations = await AnnotationModel.find(query).sort({ createdAt: -1 }).lean();
-    return NextResponse.json({ success: true, data: annotations }, { status: 200 });
+    // 🚀 Requêtes optimisées en parallèle avec skip, limit et comptage total
+    const [annotations, total] = await Promise.all([
+      AnnotationModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      AnnotationModel.countDocuments(query)
+    ]);
+
+    return NextResponse.json({ 
+      success: true, 
+      data: annotations,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1
+      }
+    }, { status: 200 });
   } catch (error: unknown) {
     return handleRouteError(error, "Erreur interne lors de la lecture des notes.");
   }

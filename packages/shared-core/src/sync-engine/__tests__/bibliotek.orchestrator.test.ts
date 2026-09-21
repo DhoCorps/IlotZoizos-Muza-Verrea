@@ -48,7 +48,7 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-describe('BibliotekOrchestrator - Sanctuaire des Écrits Libres & Sceau SHA-256', () => {
+describe('BibliotekOrchestrator - Sanctuaire, Sceau SHA-256 & Économie Barter', () => {
   let orchestrator: BibliotekOrchestrator;
   const userSignature: ActionSignature = { actorUid: 'oiseau-writer', capabilities: [] };
   const strangerSignature: ActionSignature = { actorUid: 'oiseau-intruder', capabilities: [] };
@@ -70,7 +70,7 @@ describe('BibliotekOrchestrator - Sanctuaire des Écrits Libres & Sceau SHA-256'
     orchestrator = new BibliotekOrchestrator(mockStorageManager, injectedNotificationOrchestrator);
   });
 
-  describe('fosterBook (Création, Sceau d\'antériorité & Canopée)', () => {
+  describe('fosterBook (Création avec métadonnées d\'économie Barter/Gacha)', () => {
     it('devrait rejeter la publication si l\'oiseau usurpe une identité', async () => {
       const data = { authorUid: 'oiseau-writer', title: 'Mon Roman', fileUrl: 'cdn://epub' };
       await expect(orchestrator.fosterBook(data, strangerSignature))
@@ -84,13 +84,17 @@ describe('BibliotekOrchestrator - Sanctuaire des Écrits Libres & Sceau SHA-256'
         .rejects.toThrow(IlotError);
     });
 
-    it('🟢 devrait fonder un ouvrage, forger le Sceau SHA-256, et envoyer un écho aux abonnés', async () => {
+    it('🟢 devrait fonder un ouvrage, intégrer l\'économie Gacha/Barter, et envoyer un écho aux abonnés', async () => {
       const data = { 
         title: 'Traité de Philosophie Sauvage', 
         authorUid: 'oiseau-writer', 
         writingType: 'essai',
         style: 'philosophie',
-        fileUrl: 'https://cdn.ilot/books/traite.epub' 
+        fileUrl: 'https://cdn.ilot/books/traite.epub',
+        economy: {
+          priceCents: 1500,
+          gachaTier: 'epic' as const
+        }
       };
 
       vi.mocked(LibraryBookModel.findOne).mockReturnValue({
@@ -104,11 +108,13 @@ describe('BibliotekOrchestrator - Sanctuaire des Écrits Libres & Sceau SHA-256'
         title: 'Traité de Philosophie Sauvage', 
         slug: 'traite-de-philosophie-sauvage',
         digitalSignature: 'mocked_hash',
+        economy: { priceCents: 1500, gachaTier: 'epic', barterAllowed: true },
         toObject: () => ({
           uid: 'book-999', 
           title: 'Traité de Philosophie Sauvage', 
           slug: 'traite-de-philosophie-sauvage',
-          digitalSignature: 'mocked_hash'
+          digitalSignature: 'mocked_hash',
+          economy: { priceCents: 1500, gachaTier: 'epic', barterAllowed: true }
         })
       }] as unknown as Awaited<ReturnType<typeof LibraryBookModel.create>>);
 
@@ -117,6 +123,10 @@ describe('BibliotekOrchestrator - Sanctuaire des Écrits Libres & Sceau SHA-256'
       expect(result.success).toBe(true);
       // @ts-ignore
       expect(result.mongo.uid).toBe('book-999');
+      // @ts-ignore
+      expect(result.mongo.economy.priceCents).toBe(1500);
+      // @ts-ignore
+      expect(result.mongo.economy.gachaTier).toBe('epic');
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
       // 🌿 Vérification de la notification dans la Canopée

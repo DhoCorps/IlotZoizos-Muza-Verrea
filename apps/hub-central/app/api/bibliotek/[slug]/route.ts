@@ -10,7 +10,7 @@ import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } 
 import { IlotError } from '@ilot/shared-core';
 import { z } from 'zod';
 
-// 🛡️ Schéma Zod strict pour interdire l'assignation de masse sur les ouvrages de Bibliotek
+// 🛡️ Schéma Zod strict pour interdire l'assignation de masse et supporter les métadonnées Gacha & Barter
 const UpdateLibraryBookSchema = z.object({
   title: z.string().min(1, "Le titre est requis.").optional(),
   description: z.string().optional(),
@@ -19,6 +19,19 @@ const UpdateLibraryBookSchema = z.object({
   fileUrl: z.string().url().optional(),
   coverUrl: z.string().url().nullable().optional(),
   copyrightClaimed: z.boolean().optional(),
+  economy: z.object({
+    priceCents: z.number().int().nonnegative().optional(),
+    currency: z.string().optional(),
+    barterAllowed: z.boolean().optional(),
+    gachaTier: z.enum(['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic']).optional(),
+    isTradable: z.boolean().optional(),
+    rights: z.object({
+      allowCommercial: z.boolean().optional(),
+      allowBarter: z.boolean().optional(),
+      allowLending: z.boolean().optional(),
+      transferable: z.boolean().optional(),
+    }).optional(),
+  }).optional(),
 });
 
 // ==========================================

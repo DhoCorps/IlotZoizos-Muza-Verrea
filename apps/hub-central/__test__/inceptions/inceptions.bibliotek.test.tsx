@@ -29,6 +29,11 @@ vi.mock('@/components/bibliotek/ScriptoriumEditor', () => ({
   )
 }));
 
+// Mock léger du widget de l'Oracle pour se concentrer sur la page principale
+vi.mock('@/components/bibliotek/OracleVerifierWidget', () => ({
+  OracleVerifierWidget: () => <div data-testid="mock-oracle-widget">Oracle Widget</div>
+}));
+
 describe('UI & Logique : BibliotekPage (Dashboard)', () => {
   let queryClient: QueryClient;
 
@@ -36,13 +41,12 @@ describe('UI & Logique : BibliotekPage (Dashboard)', () => {
     vi.clearAllMocks();
     global.fetch = vi.fn();
     
-    // 🛡️ Suture absolue : Un QueryClient configuré pour neutraliser la remontée des rejets asynchrones
     queryClient = new QueryClient({
       defaultOptions: { 
         queries: { retry: false },
         mutations: { 
           retry: false,
-          onError: () => {} // Capture l'erreur de mutation au niveau global du client pour éviter l'Unhandled Rejection
+          onError: () => {}
         } 
       }
     });
@@ -56,20 +60,22 @@ describe('UI & Logique : BibliotekPage (Dashboard)', () => {
     );
   };
 
-  it('🟢 doit rendre l\'en-tête de la Bibliotek et afficher les ouvrages depuis l\'API', async () => {
+  it('🟢 doit rendre l\'en-tête de la Bibliotek, l\'Oracle Widget et afficher les ouvrages depuis l\'API', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         success: true,
         data: [
           { uid: 'book_1', title: 'Le Chant des Oiseaux', writingType: 'roman', style: 'poetique', slug: 'chant-des-oiseaux', digitalSignature: 'abc123hash' }
-        ]
+        ],
+        pagination: { total: 1, page: 1, limit: 9, totalPages: 1 }
       })
     });
 
     renderWithClient(<BibliotekPage />);
 
     expect(screen.getByText('Bibliotek')).toBeDefined();
+    expect(screen.getByTestId('mock-oracle-widget')).toBeDefined();
     
     await waitFor(() => {
       expect(screen.getByText('Le Chant des Oiseaux')).toBeDefined();
@@ -82,7 +88,7 @@ describe('UI & Logique : BibliotekPage (Dashboard)', () => {
   it('🟢 doit mettre à jour les filtres et refetcher les données', async () => {
     (global.fetch as any).mockResolvedValue({
       ok: true,
-      json: async () => ({ success: true, data: [] })
+      json: async () => ({ success: true, data: [], pagination: { total: 0, page: 1, limit: 9, totalPages: 1 } })
     });
 
     renderWithClient(<BibliotekPage />);
@@ -102,7 +108,7 @@ describe('UI & Logique : BibliotekPage (Dashboard)', () => {
   it('🟢 doit ouvrir le Scriptorium, sédimenter un livre et invalider le cache', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ success: true, data: [] })
+      json: async () => ({ success: true, data: [], pagination: { total: 0, page: 1, limit: 9, totalPages: 1 } })
     });
 
     renderWithClient(<BibliotekPage />);
@@ -127,7 +133,7 @@ describe('UI & Logique : BibliotekPage (Dashboard)', () => {
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith('/api/bibliotek', expect.objectContaining({
         method: 'POST',
-        body: expect.stringContaining('Le Manifeste de la Silice')
+        body: expect.any(FormData)
       }));
 
       expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('hashcryptogr'));
@@ -138,7 +144,7 @@ describe('UI & Logique : BibliotekPage (Dashboard)', () => {
   it('🔴 doit afficher une erreur toast si la sédimentation échoue', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ success: true, data: [] })
+      json: async () => ({ success: true, data: [], pagination: { total: 0, page: 1, limit: 9, totalPages: 1 } })
     });
 
     renderWithClient(<BibliotekPage />);
@@ -152,7 +158,6 @@ describe('UI & Logique : BibliotekPage (Dashboard)', () => {
 
     const saveBtn = screen.getByText('Simuler Sauvegarde');
     
-    // On intercepte explicitement le rejet de la promesse de mutation pour satisfaire le test d'échec asynchrone
     const originalConsoleError = console.error;
     console.error = () => {};
 

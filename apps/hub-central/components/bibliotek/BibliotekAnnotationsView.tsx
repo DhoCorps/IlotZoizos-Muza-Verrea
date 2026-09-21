@@ -3,7 +3,7 @@
 
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BookOpen, Star, Calendar, Filter, Search, Trash2, ExternalLink, Loader2 } from 'lucide-react';
+import { BookOpen, Star, Calendar, Filter, Search, Trash2, Loader2, AlertTriangle, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 type SortCriteria = 'date' | 'importance' | 'book';
@@ -12,6 +12,10 @@ export function BibliotekAnnotationsView() {
   const [sortBy, setSortBy] = useState<SortCriteria>('date');
   const [filterBookUid, setFilterBookUid] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // 🛡️ État local pour la modale de confirmation moderne (remplacement de confirm())
+  const [annotationToDelete, setAnnotationToDelete] = useState<{ uid: string; bookTitle: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   // 🌀 SUTURE REACT QUERY : Récupération des notes de l'Oiseau
   const { data: annotations = [], isLoading, refetch } = useQuery({
@@ -69,20 +73,26 @@ export function BibliotekAnnotationsView() {
     return Array.from(map.entries()).map(([uid, title]) => ({ uid, title }));
   }, [annotations]);
 
-  const handleDeleteAnnotation = async (uid: string) => {
-    if (!confirm("Effacer définitivement cette note du Sanctuaire ?")) return;
+  // Exécution de la suppression après validation dans la modale moderne
+  const confirmDeleteAnnotation = async () => {
+    if (!annotationToDelete) return;
+
+    setIsDeleting(true);
     try {
-      const res = await fetch(`/api/bibliotek/annotations/${uid}`, { method: 'DELETE' });
+      const res = await fetch(`/api/bibliotek/annotations/${annotationToDelete.uid}`, { method: 'DELETE' });
       if (!res.ok) throw new Error("Échec de la suppression.");
       toast.success("Note dissoute dans le néant.");
+      setAnnotationToDelete(null);
       refetch();
     } catch (err: any) {
       toast.error(`Erreur : ${err.message}`);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   return (
-    <div className="max-w-5xl mx-auto p-6 md:p-10 space-y-8 bg-[#121417] text-[#E1E4E8] rounded-3xl border border-[#2A2E39] shadow-2xl font-serif">
+    <div className="max-w-5xl mx-auto p-6 md:p-10 space-y-8 bg-[#121417] text-[#E1E4E8] rounded-3xl border border-[#2A2E39] shadow-2xl font-serif relative">
       
       {/* En-tête */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-[#2A2E39] pb-6">
@@ -182,9 +192,10 @@ export function BibliotekAnnotationsView() {
                   </span>
 
                   <button
-                    onClick={() => handleDeleteAnnotation(item.uid)}
+                    onClick={() => setAnnotationToDelete({ uid: item.uid, bookTitle: item.bookTitle })}
                     className="text-[#8B949E] hover:text-[#E5484D] opacity-0 group-hover:opacity-100 transition-opacity ml-2"
                     title="Supprimer la note"
+                    data-testid={`delete-annot-${item.uid}`}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -205,6 +216,51 @@ export function BibliotekAnnotationsView() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 🛡️ Modale de confirmation moderne (remplacement de l'alerte native confirm()) */}
+      {annotationToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 font-sans animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-[#1A1D24] border border-[#2A2E39] rounded-3xl p-6 md:p-8 shadow-2xl relative space-y-6">
+            <div className="flex items-center justify-between pb-4 border-b border-[#2A2E39]">
+              <div className="flex items-center gap-2 text-amber-400">
+                <AlertTriangle size={20} />
+                <h3 className="text-sm font-black text-white uppercase tracking-widest">Dissoudre la note</h3>
+              </div>
+              <button 
+                onClick={() => setAnnotationToDelete(null)} 
+                className="text-xs text-[#8B949E] hover:text-white"
+                data-testid="cancel-delete-modal-x"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#C9D1D9] leading-relaxed">
+              Es-tu sûr(e) de vouloir effacer définitivement cette note liée à l'ouvrage <span className="font-bold text-white">&laquo; {annotationToDelete.bookTitle} &raquo;</span> du Sanctuaire ?
+            </p>
+
+            <div className="pt-4 flex justify-end gap-3">
+              <button 
+                type="button" 
+                onClick={() => setAnnotationToDelete(null)} 
+                className="px-4 py-2 bg-transparent text-[#8B949E] hover:text-white text-xs font-medium transition-colors"
+                data-testid="cancel-delete-btn"
+              >
+                Conserver
+              </button>
+              <button 
+                type="button" 
+                disabled={isDeleting}
+                onClick={confirmDeleteAnnotation} 
+                className="px-6 py-2.5 bg-[#E5484D] hover:bg-[#D43D42] text-white font-black uppercase text-xs rounded-xl shadow-lg transition-all flex items-center gap-2 disabled:opacity-50"
+                data-testid="confirm-delete-btn"
+              >
+                {isDeleting ? <Loader2 size={14} className="animate-spin" /> : 'Dissoudre'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -1,22 +1,23 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { Star, MessageSquarePlus, X, Loader2, Share2 } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Star, MessageSquarePlus, X, Loader2, Share2, Play, Pause, Square } from 'lucide-react';
 import { toast } from 'sonner';
 import { FollowButton } from '@/components/resonance/FollowButton';
 import { OmniActionWidget } from '@/components/widget/OmniActionWidget';
 import { IUniversalMediaItem } from '@ilot/types';
 
 interface PapierAncreReaderProps {
-  bookUid: string;       // Requis pour lier les annotations au livre
+  bookUid: string;
   title: string;
   author: string;
-  authorUid: string;     // Requis pour l'abonnement et le widget
+  authorUid: string;
   content: string;
   writingType?: string;
   style?: string;
-  coverUrl?: string;     // Pour la miniature du widget de partage
-  createdAt?: string;    // Pour les métadonnées du widget
+  coverUrl?: string;
+  createdAt?: string;
+  priceCents?: number;
   availableFonts?: { name: string; fontFamily: string }[];
   onProgress?: (progressPercentage: number) => void;
 }
@@ -33,6 +34,7 @@ export const PapierAncreReader: React.FC<PapierAncreReaderProps> = ({
   style = 'philosophie',
   coverUrl,
   createdAt,
+  priceCents = 0,
   availableFonts = [],
   onProgress,
 }) => {
@@ -43,6 +45,7 @@ export const PapierAncreReader: React.FC<PapierAncreReaderProps> = ({
   const [scrollProgress, setScrollProgress] = useState<number>(0);
 
   const [isWidgetOpen, setWidgetOpen] = useState<boolean>(false);
+  const [widgetDefaultTab, setWidgetDefaultTab] = useState<'RESONANCE' | 'COMMERCE' | 'SHARE'>('RESONANCE');
 
   const [selectedText, setSelectedText] = useState<string>('');
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
@@ -50,6 +53,75 @@ export const PapierAncreReader: React.FC<PapierAncreReaderProps> = ({
   const [commentInput, setCommentInput] = useState<string>('');
   const [importanceLevel, setImportanceLevel] = useState<number>(1);
   const [isSubmittingNote, setIsSubmittingNote] = useState<boolean>(false);
+
+  // 🔊 Synthèse Vocale Neurale (Text-to-Speech)
+  const [isPlayingAudio, setIsPlayingAudio] = useState<boolean>(false);
+  const [isPausedAudio, setIsPausedAudio] = useState<boolean>(false);
+  const [isSpeechSupported, setIsSpeechSupported] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      setIsSpeechSupported(true);
+    }
+    return () => {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  const handlePlaySpeech = () => {
+    if (!isSpeechSupported) {
+      toast.error("La synthèse vocale n'est pas supportée par ce navigateur.");
+      return;
+    }
+
+    const synth = window.speechSynthesis;
+
+    if (isPausedAudio) {
+      synth.resume();
+      setIsPausedAudio(false);
+      setIsPlayingAudio(true);
+      return;
+    }
+
+    if (isPlayingAudio) {
+      synth.pause();
+      setIsPlayingAudio(false);
+      setIsPausedAudio(true);
+      return;
+    }
+
+    synth.cancel();
+    const utteranceText = `${title}, par ${author}. ${content}`;
+    const utterance = new SpeechSynthesisUtterance(utteranceText);
+    utterance.lang = 'fr-FR';
+    utterance.rate = 1.0;
+
+    utterance.onend = () => {
+      setIsPlayingAudio(false);
+      setIsPausedAudio(false);
+    };
+
+    utterance.onerror = () => {
+      setIsPlayingAudio(false);
+      setIsPausedAudio(false);
+      toast.error("Erreur lors de la lecture audio.");
+    };
+
+    synth.speak(utterance);
+    setIsPlayingAudio(true);
+    setIsPausedAudio(false);
+    toast.success("🔊 Lecture audio du manuscrit en cours...");
+  };
+
+  const handleStopSpeech = () => {
+    if (!isSpeechSupported) return;
+    window.speechSynthesis.cancel();
+    setIsPlayingAudio(false);
+    setIsPausedAudio(false);
+    toast.info("Lecture audio interrompue.");
+  };
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -138,16 +210,21 @@ export const PapierAncreReader: React.FC<PapierAncreReaderProps> = ({
 
   const universalMediaItem: IUniversalMediaItem = useMemo(() => ({
     mediaId: bookUid,
-    sourceApp: 'BIBLIOTEK', // 🛠️ CORRECTION : Retour de 'BIBLIOTEK' tel qu'attendu par UniversalMediaType
+    sourceApp: 'BIBLIOTEK',
     ownerUid: authorUid,
     ownerSlug: author,
     title: title,
     mediaUrl: coverUrl || '',
     thumbnailUrl: coverUrl,
+    priceCents: priceCents,
     createdAt: createdAt ? new Date(createdAt) : new Date(),
     consentForShowcase: false,
     consentForMusicSync: false,
-  }), [bookUid, authorUid, author, title, coverUrl, createdAt]);
+    rights: {
+      allowBarter: true,
+      allowLending: true,
+    },
+  } as any), [bookUid, authorUid, author, title, coverUrl, createdAt, priceCents]);
 
   return (
     <div className={`min-h-screen transition-colors duration-500 ${themeStyles.bg} ${themeStyles.text} flex flex-col relative`}>
@@ -159,13 +236,37 @@ export const PapierAncreReader: React.FC<PapierAncreReaderProps> = ({
             <h1 className="text-sm font-bold tracking-wide">{title}</h1>
             <div className={`flex items-center gap-2 ${themeStyles.subtle}`}>
               <span>Par {author}</span>
-              {/* 🛠️ Le targetType="USER" est bien là pour le composant FollowButton */}
               {authorUid && <FollowButton targetUid={authorUid} targetType="USER" />}
               <span>• <span className="uppercase">{writingType}</span> / <span className="uppercase">{style}</span></span>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
+            
+            {isSpeechSupported && (
+              <div className={`flex items-center gap-1 bg-black/30 border ${themeStyles.border} rounded-lg p-1`}>
+                <button
+                  onClick={handlePlaySpeech}
+                  className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all font-bold ${isPlayingAudio ? 'bg-amber-500 text-black shadow-lg animate-pulse' : 'hover:bg-white/10 text-white'}`}
+                  title={isPlayingAudio ? "Mettre en pause la lecture" : isPausedAudio ? "Reprendre la lecture" : "Écouter le manuscrit"}
+                  data-testid="tts-play-btn"
+                >
+                  {isPlayingAudio ? <Pause size={14} /> : <Play size={14} />}
+                  <span>{isPlayingAudio ? 'Pause' : isPausedAudio ? 'Reprendre' : 'Écouter'}</span>
+                </button>
+                {(isPlayingAudio || isPausedAudio) && (
+                  <button
+                    onClick={handleStopSpeech}
+                    className="p-1.5 hover:bg-red-500/20 text-red-400 rounded-md transition-all"
+                    title="Arrêter l'écoute"
+                    data-testid="tts-stop-btn"
+                  >
+                    <Square size={14} />
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className={`flex rounded-lg border ${themeStyles.border} overflow-hidden p-0.5`}>
               <button onClick={() => setPalette('encre-chine')} className={`px-3 py-1.5 rounded-md transition-all ${palette === 'encre-chine' ? 'bg-[#30363D] text-white font-semibold' : themeStyles.subtle}`}>Encre de Chine</button>
               <button onClick={() => setPalette('crepuscule')} className={`px-3 py-1.5 rounded-md transition-all ${palette === 'crepuscule' ? 'bg-[#3D2C27] text-white font-semibold' : themeStyles.subtle}`}>Crépuscule</button>
@@ -184,8 +285,18 @@ export const PapierAncreReader: React.FC<PapierAncreReaderProps> = ({
               <button onClick={() => setFontSize((prev) => Math.min(28, prev + 2))} className={`px-2 py-1 rounded border ${themeStyles.border} hover:opacity-80`}>A+</button>
             </div>
 
-            <button onClick={() => setWidgetOpen(true)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${themeStyles.border} hover:bg-white/5 transition-all`}>
+            <button 
+              onClick={() => { setWidgetDefaultTab('RESONANCE'); setWidgetOpen(true); }} 
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border ${themeStyles.border} hover:bg-white/5 transition-all`}
+            >
               <Share2 size={14} /> Actions
+            </button>
+
+            <button 
+              onClick={() => { setWidgetDefaultTab('COMMERCE'); setWidgetOpen(true); }} 
+              className="px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
+            >
+              💎 Troc / Acquisition
             </button>
 
             <button onClick={() => setIsDeepImmersion(true)} className="bg-[#E5484D] hover:bg-[#D43D42] text-white px-3 py-1.5 rounded-lg font-medium transition-all shadow">
@@ -199,7 +310,7 @@ export const PapierAncreReader: React.FC<PapierAncreReaderProps> = ({
         <div className="h-full bg-[#E5484D] transition-all duration-200" style={{ width: `${scrollProgress}%` }} />
       </div>
 
-      <main onScroll={handleScroll} onMouseUp={handleMouseUp} className="flex-1 overflow-y-auto px-6 py-12 md:py-20 flex justify-center relative select-text">
+      <main onScroll={handleScroll} onMouseUp={handleMouseUp} className="flex-1 overflow-y-auto px-6 py-12 md:py-20 flex justify-center relative select-text" role="main">
         <article className="w-full max-w-2xl leading-relaxed space-y-6 transition-all duration-300" style={{ fontFamily: selectedFont, fontSize: `${fontSize}px` }}>
           {isDeepImmersion && (
             <button onClick={() => setIsDeepImmersion(false)} className="fixed top-6 right-6 opacity-30 hover:opacity-100 bg-[#21262D] text-white px-3 py-1.5 rounded-full text-xs font-sans transition-all z-50 shadow-lg">Quitter l'immersion ✕</button>
@@ -258,6 +369,9 @@ export const PapierAncreReader: React.FC<PapierAncreReaderProps> = ({
         media={universalMediaItem}
         isOpen={isWidgetOpen}
         onClose={() => setWidgetOpen(false)}
+        defaultTab={widgetDefaultTab}
+        onAcquire={(item) => toast.success(`Acquisition demandée pour : ${item.title}`)}
+        onProposeBarter={(item) => toast.success(`Proposition de troc lancée pour : ${item.title}`)}
       />
 
     </div>

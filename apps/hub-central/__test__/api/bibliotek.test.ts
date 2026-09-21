@@ -34,6 +34,7 @@ vi.mock('@/lib/api-guards', async (importOriginal) => {
 vi.mock('@ilot/infrastructure', () => ({
   LibraryBookModel: {
     find: vi.fn(),
+    countDocuments: vi.fn(),
   },
 }));
 
@@ -49,7 +50,6 @@ vi.mock('@ilot/shared-core', async (importOriginal) => {
 });
 
 declare global {
-  // 🛡️ Harmonisation stricte de la signature d'index pour correspondre à auth.user.update.test.ts
   var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
@@ -63,7 +63,6 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
     vi.clearAllMocks();
     delete global.__mockUser;
 
-    // Espionnage direct sur l'orchestrateur de Bibliotek
     vi.spyOn(BibliotekOrchestrator.prototype, 'fosterBook').mockResolvedValue({
       success: true,
       status: 'success',
@@ -72,19 +71,31 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
         title: 'Essai sur la Silice',
         digitalSignature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
         timestampedAt: new Date(),
+        economy: {
+          priceCents: 1500,
+          gachaTier: 'rare',
+          barterAllowed: true,
+          rights: { allowBarter: true }
+        }
       },
       neo4j: {}
     } as unknown as Awaited<ReturnType<BibliotekOrchestrator['fosterBook']>>);
   });
 
-  it('🟢 GET : doit lister les ouvrages de la bibliothèque', async () => {
+  it('🟢 GET : doit lister les ouvrages de la bibliothèque avec métadonnées de pagination', async () => {
     vi.mocked(LibraryBookModel.find).mockReturnValue({
       sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([{ uid: 'book_1', title: 'Le Livre des Sentiers' }])
+        skip: vi.fn().mockReturnValue({
+          limit: vi.fn().mockReturnValue({
+            lean: vi.fn().mockResolvedValue([{ uid: 'book_1', title: 'Le Livre des Sentiers' }])
+          })
+        })
       })
     } as unknown as ReturnType<typeof LibraryBookModel.find>);
 
-    const req = new NextRequest('http://localhost:3000/api/bibliotek?writingType=essai');
+    vi.mocked(LibraryBookModel.countDocuments).mockResolvedValue(1);
+
+    const req = new NextRequest('http://localhost:3000/api/bibliotek?writingType=essai&page=1&limit=10');
     const res = await getHandler(req, {});
     const json = await res.json();
 
@@ -92,6 +103,12 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
     expect(json.success).toBe(true);
     expect(json.data).toHaveLength(1);
     expect(json.data[0].title).toBe('Le Livre des Sentiers');
+    expect(json.pagination).toMatchObject({
+      total: 1,
+      page: 1,
+      limit: 10,
+      totalPages: 1
+    });
   });
 
   it('🔴 POST : doit rejeter (401) si l’Oiseau n’est pas connecté', async () => {
@@ -106,7 +123,7 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
     expect(res.status).toBe(401);
   });
 
-  it('🟢 POST : doit sédimenter l’ouvrage, forger le sceau et retourner (201)', async () => {
+  it('🟢 POST : doit sédimenter l’ouvrage, accepter les métadonnées Gacha/Barter et retourner (201)', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek', {
@@ -115,7 +132,12 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
         title: 'Essai sur la Silice', 
         fileUrl: 'https://cdn.ilot/books/essai.epub',
         writingType: 'essai',
-        style: 'philosophie'
+        style: 'philosophie',
+        economy: {
+          priceCents: 1500,
+          gachaTier: 'rare',
+          barterAllowed: true
+        }
       })
     });
 
@@ -125,6 +147,8 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
     expect(res.status).toBe(201);
     expect(json.success).toBe(true);
     expect(json.data.uid).toBe('book_new_123');
+    expect(json.data.economy.priceCents).toBe(1500);
+    expect(json.data.economy.gachaTier).toBe('rare');
     expect(json.digitalSignature).toHaveLength(64);
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek-public');

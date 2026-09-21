@@ -2,48 +2,57 @@
 'use client';
 
 import React, { useState } from 'react';
-import { BookOpen, Plus, Loader2, Compass, ShieldCheck, Feather, Sparkles, X, Filter } from 'lucide-react';
+import { BookOpen, Plus, Loader2, Compass, ShieldCheck, Feather, Sparkles, X, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ScriptoriumEditor } from '@/components/bibliotek/ScriptoriumEditor';
+import { OracleVerifierWidget } from '@/components/bibliotek/OracleVerifierWidget';
 
 export default function BibliotekPage() {
   const queryClient = useQueryClient();
   const [selectedType, setSelectedType] = useState<string>('ALL');
   const [selectedStyle, setSelectedStyle] = useState<string>('ALL');
   const [isScriptoriumOpen, setIsScriptoriumOpen] = useState<boolean>(false);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const limit = 9; // Nombre d'ouvrages par page pour préserver la Canopée
 
-  // 🌀 SUTURE REACT QUERY : Récupération des livres du Sanctuaire
-  const { data: books = [], isLoading } = useQuery({
-    queryKey: ['bibliotek-books', selectedType, selectedStyle],
+  // 🌀 SUTURE REACT QUERY : Récupération paginée des livres du Sanctuaire
+  const { data: queryResponse, isLoading } = useQuery({
+    queryKey: ['bibliotek-books', selectedType, selectedStyle, currentPage],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (selectedType !== 'ALL') params.append('writingType', selectedType);
       if (selectedStyle !== 'ALL') params.append('style', selectedStyle);
+      params.append('page', currentPage.toString());
+      params.append('limit', limit.toString());
       
       const res = await fetch(`/api/bibliotek?${params.toString()}`);
       if (!res.ok) throw new Error("Échec du recensement du Sanctuaire.");
       const json = await res.json();
-      return json.data || [];
+      return json; // Renvoie { success: true, data: [...], pagination: { total, page, limit, totalPages } }
     }
   });
 
-  // 🌀 SUTURE REACT QUERY : Mutation pour fonder un nouvel ouvrage (Scriptorium)
+  const books = queryResponse?.data || [];
+  const pagination = queryResponse?.pagination || { total: 0, page: 1, limit, totalPages: 1 };
+
+  // 🌀 SUTURE REACT QUERY : Mutation unifiée pour fonder un nouvel ouvrage avec vrai versement multipart (Scriptorium)
   const fosterBookMutation = useMutation({
     mutationFn: async (payload: { title: string; content: string; writingType: string; style: string }) => {
-      // Pour l'exemple d'atelier Scriptorium, on simule l'upload d'un fichier texte brut ou contenu direct converti en Blob/fileUrl
-      const fakeFileUrl = `https://cdn.ilot/sanctuary/${Date.now()}.txt`;
+      const blob = new Blob([payload.content], { type: 'text/plain;charset=utf-8' });
+      const file = new File([blob], `${payload.title.toLowerCase().replace(/[^a-z0-9]/g, '-') || 'manuscrit'}.txt`, { type: 'text/plain' });
+
+      const formData = new FormData();
+      formData.append('title', payload.title);
+      formData.append('writingType', payload.writingType);
+      formData.append('style', payload.style);
+      formData.append('format', 'scriptorium');
+      formData.append('file', file);
+      formData.append('assetType', 'manuscript');
       
       const res = await fetch('/api/bibliotek', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: payload.title,
-          fileUrl: fakeFileUrl,
-          format: 'scriptorium',
-          writingType: payload.writingType,
-          style: payload.style,
-        })
+        body: formData
       });
 
       const data = await res.json();
@@ -60,12 +69,11 @@ export default function BibliotekPage() {
     }
   });
 
-const handleSaveScriptorium = async (formData: { title: string; content: string; writingType: string; style: string }) => {
+  const handleSaveScriptorium = async (formData: { title: string; content: string; writingType: string; style: string }) => {
     try {
       await fosterBookMutation.mutateAsync(formData);
     } catch {
-      // L'erreur est gérée par le callback `onError` de la mutation (affichage du toast),
-      // le try/catch l'empêche simplement de remonter et de provoquer un rejet global non intercepté.
+      // Géré par onError
     }
   };
 
@@ -100,6 +108,9 @@ const handleSaveScriptorium = async (formData: { title: string; content: string;
         </div>
       </div>
 
+      {/* 🛡️ Intégration du Widget de l'Oracle du Sceau pour les visiteurs externes */}
+      <OracleVerifierWidget />
+
       {/* Filtres de navigation */}
       <div className="flex flex-wrap items-center gap-4 bg-black/30 p-4 border border-white/5 rounded-2xl">
         <div className="flex items-center gap-2 text-xs font-mono text-slate-400 mr-4">
@@ -108,7 +119,7 @@ const handleSaveScriptorium = async (formData: { title: string; content: string;
         
         <select
           value={selectedType}
-          onChange={(e) => setSelectedType(e.target.value)}
+          onChange={(e) => { setSelectedType(e.target.value); setCurrentPage(1); }}
           className="bg-black/60 border border-white/10 px-3 py-2 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]"
         >
           <option value="ALL">Tous les types d'écrits</option>
@@ -120,7 +131,7 @@ const handleSaveScriptorium = async (formData: { title: string; content: string;
 
         <select
           value={selectedStyle}
-          onChange={(e) => setSelectedStyle(e.target.value)}
+          onChange={(e) => { setSelectedStyle(e.target.value); setCurrentPage(1); }}
           className="bg-black/60 border border-white/10 px-3 py-2 rounded-xl text-xs text-white outline-none focus:border-[#E5484D]"
         >
           <option value="ALL">Tous les styles</option>
@@ -136,52 +147,77 @@ const handleSaveScriptorium = async (formData: { title: string; content: string;
           <Loader2 className="w-8 h-8 animate-spin text-[#E5484D]" />
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {books.map((book: any) => (
-            <div
-              key={book.uid}
-              className="p-6 bg-black/30 border border-white/5 rounded-3xl backdrop-blur-md flex flex-col justify-between space-y-6 hover:border-white/20 transition-all group shadow-lg"
-            >
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest bg-[#E5484D]/10 text-[#E5484D] border border-[#E5484D]/20">
-                    {book.writingType || 'Livre'}
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-500 uppercase">
-                    {book.style || 'Général'}
-                  </span>
+        <div className="space-y-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {books.map((book: any) => (
+              <div
+                key={book.uid}
+                className="p-6 bg-black/30 border border-white/5 rounded-3xl backdrop-blur-md flex flex-col justify-between space-y-6 hover:border-white/20 transition-all group shadow-lg"
+              >
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest bg-[#E5484D]/10 text-[#E5484D] border border-[#E5484D]/20">
+                      {book.writingType || 'Livre'}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-500 uppercase">
+                      {book.style || 'Général'}
+                    </span>
+                  </div>
+                  
+                  <h3 className="text-lg font-black uppercase text-white group-hover:text-[#E5484D] transition-colors line-clamp-1">
+                    {book.title}
+                  </h3>
+                  
+                  <p className="text-[10px] font-mono text-slate-500 truncate">
+                    Sceau : {book.digitalSignature ? `${book.digitalSignature.substring(0, 20)}...` : 'Non scellé'}
+                  </p>
                 </div>
-                
-                <h3 className="text-lg font-black uppercase text-white group-hover:text-[#E5484D] transition-colors line-clamp-1">
-                  {book.title}
-                </h3>
-                
-                <p className="text-[10px] font-mono text-slate-500 truncate">
-                  Sceau : {book.digitalSignature ? `${book.digitalSignature.substring(0, 20)}...` : 'Non scellé'}
+
+                <div className="pt-4 border-t border-white/5 flex items-center justify-between">
+                  <span className="text-[10px] font-mono text-slate-400 flex items-center gap-1">
+                    <ShieldCheck size={12} className="text-emerald-400" /> Copyright Protégé
+                  </span>
+                  
+                  <a
+                    href={`/bibliotek/${book.slug || book.uid}`}
+                    className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white font-mono text-[10px] uppercase font-bold rounded-xl border border-white/10 transition-all"
+                  >
+                    Ouvrir la Liseuse 📖
+                  </a>
+                </div>
+              </div>
+            ))}
+
+            {books.length === 0 && (
+              <div className="col-span-full py-20 text-center space-y-4 bg-black/20 border border-white/5 rounded-3xl">
+                <Compass className="w-10 h-10 mx-auto text-slate-600" />
+                <p className="text-xs font-mono uppercase tracking-widest text-slate-500">
+                  Aucun ouvrage trouvé dans le Sanctuaire pour cette fréquence.
                 </p>
               </div>
+            )}
+          </div>
 
-              <div className="pt-4 border-t border-white/5 flex items-center justify-between">
-                <span className="text-[10px] font-mono text-slate-400 flex items-center gap-1">
-                  <ShieldCheck size={12} className="text-emerald-400" /> Copyright Protégé
-                </span>
-                
-                <a
-                  href={`/bibliotek/${book.slug || book.uid}`}
-                  className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white font-mono text-[10px] uppercase font-bold rounded-xl border border-white/10 transition-all"
+          {/* 📄 Contrôles de Pagination */}
+          {pagination.totalPages > 1 && (
+            <div className="flex items-center justify-between bg-black/30 p-4 border border-white/5 rounded-2xl font-mono text-xs text-slate-400">
+              <span>Page {pagination.page} sur {pagination.totalPages} ({pagination.total} ouvrages)</span>
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={pagination.page <= 1}
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-xl disabled:opacity-30 text-white flex items-center gap-1 transition-all"
                 >
-                  Ouvrir la Liseuse 📖
-                </a>
+                  <ChevronLeft size={14} /> Précédent
+                </button>
+                <button
+                  disabled={pagination.page >= pagination.totalPages}
+                  onClick={() => setCurrentPage(prev => prev + 1)}
+                  className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-xl disabled:opacity-30 text-white flex items-center gap-1 transition-all"
+                >
+                  Suivant <ChevronRight size={14} />
+                </button>
               </div>
-            </div>
-          ))}
-
-          {books.length === 0 && (
-            <div className="col-span-full py-20 text-center space-y-4 bg-black/20 border border-white/5 rounded-3xl">
-              <Compass className="w-10 h-10 mx-auto text-slate-600" />
-              <p className="text-xs font-mono uppercase tracking-widest text-slate-500">
-                Aucun ouvrage trouvé dans le Sanctuaire pour cette fréquence.
-              </p>
             </div>
           )}
         </div>

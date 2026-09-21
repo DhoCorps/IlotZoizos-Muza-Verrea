@@ -1,6 +1,6 @@
 import { LibraryBookModel, ILibraryBook } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
-import { ActionSignature } from '@ilot/types';
+import { ActionSignature, LibraryBookEconomyMetadata } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
 import { generateSlug } from '../utils/string.engine';
@@ -21,6 +21,7 @@ export interface BibliotekSyncResult {
   mongo: ILibraryBook & {
     digitalSignature?: string;
     timestampedAt?: Date;
+    economy?: LibraryBookEconomyMetadata;
   };
   neo4j: any;
 }
@@ -36,6 +37,7 @@ export interface FosterBookPayload {
   fileUrl: string;
   coverUrl?: string | null;
   format?: string;
+  economy?: Partial<LibraryBookEconomyMetadata>; // 💎 Support du Gacha & Barter
   settings?: {
     allowReadExchange?: boolean;
     consentForShowcase?: boolean;
@@ -90,6 +92,21 @@ export class BibliotekOrchestrator {
       
       const now = new Date();
 
+      // 💎 Construction des métadonnées économiques par défaut (Barter & Gacha)
+      const defaultEconomy: LibraryBookEconomyMetadata = {
+        priceCents: data.economy?.priceCents ?? 0,
+        currency: data.economy?.currency ?? 'EUR',
+        rights: {
+          allowCommercial: data.economy?.rights?.allowCommercial ?? true,
+          allowBarter: data.economy?.rights?.allowBarter ?? true,
+          allowLending: data.economy?.rights?.allowLending ?? true,
+          transferable: data.economy?.rights?.transferable ?? true,
+        },
+        barterAllowed: data.economy?.barterAllowed ?? true,
+        gachaTier: data.economy?.gachaTier ?? 'common',
+        isTradable: data.economy?.isTradable ?? true,
+      };
+
       const newBookData = {
         uid: bookUid,
         title: title,
@@ -104,6 +121,7 @@ export class BibliotekOrchestrator {
         digitalSignature,
         timestampedAt: now,
         copyrightClaimed: true,
+        economy: defaultEconomy, // 💎 Synchronisation des propriétés financières et de troc
         settings: {
           allowReadExchange: data.settings?.allowReadExchange ?? true,
           consentForShowcase: data.settings?.consentForShowcase ?? true,
@@ -124,6 +142,9 @@ export class BibliotekOrchestrator {
             style: $style,
             format: $format,
             digitalSignature: $digitalSignature,
+            priceCents: $priceCents,
+            barterAllowed: $barterAllowed,
+            gachaTier: $gachaTier,
             createdAt: datetime($now)
         })
         CREATE (u)-[:WROTE]->(b)
@@ -141,6 +162,9 @@ export class BibliotekOrchestrator {
         style: newBook.style,
         format: newBook.format,
         digitalSignature: newBook.digitalSignature,
+        priceCents: defaultEconomy.priceCents,
+        barterAllowed: defaultEconomy.barterAllowed,
+        gachaTier: defaultEconomy.gachaTier,
         now: now.toISOString()
       });
 
@@ -209,7 +233,7 @@ export class BibliotekOrchestrator {
       ).lean() as unknown as ILibraryBook;
 
       let neoResult = null;
-      if (updates.title || updates.writingType || updates.style || updates.format) {
+      if (updates.title || updates.writingType || updates.style || updates.format || updates.economy) {
         // 🌿 Mise à jour du nœud et récupération des abonnés
         neoResult = await neo4jTx.run(`
           MATCH (b:LibraryBook { uid: $bookUid })

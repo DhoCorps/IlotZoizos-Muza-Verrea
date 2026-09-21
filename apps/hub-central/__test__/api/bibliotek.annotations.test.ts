@@ -38,6 +38,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     ...actual,
     AnnotationModel: {
       find: vi.fn(),
+      countDocuments: vi.fn(),
       create: vi.fn(),
     },
   };
@@ -66,18 +67,24 @@ describe('API Bibliotek - Annotations Globales (/annotations)', () => {
     });
   });
 
-  it('🟢 GET : doit lister toutes les notes de l\'Oiseau connecté', async () => {
+  it('🟢 GET : doit lister toutes les notes de l\'Oiseau connecté avec métadonnées de pagination', async () => {
     global.__mockUser = { uid: 'bird_reader', capabilities: [] };
 
     vi.mocked(AnnotationModel.find).mockReturnValue({
       sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([
-          { uid: 'annot_1', selectedText: 'Une belle phrase', bookUid: 'book_123' }
-        ])
+        skip: vi.fn().mockReturnValue({
+          limit: vi.fn().mockReturnValue({
+            lean: vi.fn().mockResolvedValue([
+              { uid: 'annot_1', selectedText: 'Une belle phrase', bookUid: 'book_123' }
+            ])
+          })
+        })
       })
     } as unknown as ReturnType<typeof AnnotationModel.find>);
 
-    const req = new NextRequest('http://localhost:3000/api/bibliotek/annotations');
+    vi.mocked(AnnotationModel.countDocuments).mockResolvedValue(1);
+
+    const req = new NextRequest('http://localhost:3000/api/bibliotek/annotations?page=1&limit=15');
     const res = await getHandler(req, {} as ApiContext);
     const json = await res.json();
 
@@ -85,6 +92,12 @@ describe('API Bibliotek - Annotations Globales (/annotations)', () => {
     expect(json.success).toBe(true);
     expect(json.data).toHaveLength(1);
     expect(json.data[0].bookUid).toBe('book_123');
+    expect(json.pagination).toMatchObject({
+      total: 1,
+      page: 1,
+      limit: 15,
+      totalPages: 1
+    });
   });
 
   it('🟢 POST : doit vérifier la résonance via l\'Orchestrateur et consigner la note (201)', async () => {
