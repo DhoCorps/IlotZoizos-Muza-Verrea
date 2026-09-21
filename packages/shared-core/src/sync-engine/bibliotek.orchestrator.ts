@@ -7,9 +7,8 @@ import { generateSlug } from '../utils/string.engine';
 import { generateFileHash } from '../utils/crypto.engine';
 import { findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { ensureUniqueSlug } from '../utils/orchestrator.engine'; 
-import { NotificationOrchestrator } from './notification.orchestrator'; // 🌿 Injection de la Canopée
+import { NotificationOrchestrator } from './notification.orchestrator';
 
-// Interface d'injection pour le service de stockage
 interface IStorageManager {
   deleteFile(key: string): Promise<unknown>;
   extractKeyFromUrl(url: string): string;
@@ -22,6 +21,7 @@ export interface BibliotekSyncResult {
     digitalSignature?: string;
     timestampedAt?: Date;
     economy?: LibraryBookEconomyMetadata;
+    status?: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
   };
   neo4j: any;
 }
@@ -34,24 +34,46 @@ export interface FosterBookPayload {
   authorSlug?: string;
   writingType?: string;
   style?: string;
+  status?: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
   fileUrl: string;
   coverUrl?: string | null;
   format?: string;
-  economy?: Partial<LibraryBookEconomyMetadata>; // 💎 Support du Gacha & Barter
+  economy?: Partial<LibraryBookEconomyMetadata>;
   settings?: {
     allowReadExchange?: boolean;
     consentForShowcase?: boolean;
   };
 }
 
+export interface EmotionalHighlightPayload {
+  selectedText: string;
+  emotion: string; // Ex: '<(:<'
+  comment?: string;
+}
+
+// 🛡️ Interface stricte pour éviter les erreurs de mock dans les tests
+export interface EmotionalHighlightResult {
+  success: boolean;
+  highlight: {
+    uid: string;
+    readerUid: string;
+    selectedText: string;
+    emotion: string;
+    comment?: string;
+    isScholarSealed: boolean;
+    createdAt: Date;
+  };
+  book: ILibraryBook;
+}
+
 /**
  * BIBLIOTEK ORCHESTRATOR
- * Gère la sédimentation des ouvrages littéraires, l'application du Sceau SHA-256 d'antériorité
- * et leur tissage dans le Graphe Neo4j, ainsi que l'alimentation de la Canopée Tampon.
+ * Gère la sédimentation des ouvrages, le Sceau SHA-256 d'antériorité, 
+ * le cycle de vie (Brouillons), les Surlignages Émotionnels et la Canopée.
  */
 export class BibliotekOrchestrator {
   private storageService: IStorageManager;
-  private notificationOrchestrator: NotificationOrchestrator; // 🌿 Le cerveau des notifications
+  private notificationOrchestrator: NotificationOrchestrator;
 
   constructor(customStorageService?: IStorageManager, notificationOrchestrator?: NotificationOrchestrator) {
     this.storageService = customStorageService || {
@@ -62,7 +84,7 @@ export class BibliotekOrchestrator {
   }
 
   /**
-   * 🧱 FONDATION : FORGER UN OUVRAGE (Livre / Manuscrit / Essai)
+   * 🧱 FONDATION : FORGER UN OUVRAGE
    */
   async fosterBook(data: FosterBookPayload, signature: ActionSignature): Promise<BibliotekSyncResult> {
     const isSelf = signature.actorUid === data.authorUid;
@@ -77,6 +99,7 @@ export class BibliotekOrchestrator {
     const txResult = await TransactionManager.execute("Fondation d'Ouvrage Bibliotek", async (mongoSession, neo4jTx) => {
       const bookUid = data.uid || `book_${randomUUID()}`;
       const title = data.title;
+      const publicationStatus = data.status || 'DRAFT';
 
       const baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
       const finalSlug = await ensureUniqueSlug(LibraryBookModel, baseSlug, mongoSession);
@@ -92,7 +115,6 @@ export class BibliotekOrchestrator {
       
       const now = new Date();
 
-      // 💎 Construction des métadonnées économiques par défaut (Barter & Gacha)
       const defaultEconomy: LibraryBookEconomyMetadata = {
         priceCents: data.economy?.priceCents ?? 0,
         currency: data.economy?.currency ?? 'EUR',
@@ -115,23 +137,23 @@ export class BibliotekOrchestrator {
         authorSlug: data.authorSlug || signature.actorUid,
         writingType: data.writingType || 'roman',
         style: data.style || 'philosophie',
+        status: publicationStatus,
         fileUrl: data.fileUrl,
         coverUrl: data.coverUrl || null,
         format: data.format || 'epub',
         digitalSignature,
         timestampedAt: now,
         copyrightClaimed: true,
-        economy: defaultEconomy, // 💎 Synchronisation des propriétés financières et de troc
+        economy: defaultEconomy,
+        emotionalHighlights: [],
         settings: {
           allowReadExchange: data.settings?.allowReadExchange ?? true,
           consentForShowcase: data.settings?.consentForShowcase ?? true,
         }
       };
 
-      // 1. Sédimentation dans la Silice (MongoDB)
       const [newBook] = await LibraryBookModel.create([newBookData], { session: mongoSession });
 
-      // 2. Tissage dans le Graphe (Neo4j) & 🌿 Récupération des abonnés
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (b:LibraryBook {
@@ -140,6 +162,7 @@ export class BibliotekOrchestrator {
             slug: $slug,
             writingType: $writingType,
             style: $style,
+            status: $status,
             format: $format,
             digitalSignature: $digitalSignature,
             priceCents: $priceCents,
@@ -160,6 +183,7 @@ export class BibliotekOrchestrator {
         slug: newBook.slug,
         writingType: newBook.writingType,
         style: newBook.style,
+        status: newBook.status,
         format: newBook.format,
         digitalSignature: newBook.digitalSignature,
         priceCents: defaultEconomy.priceCents,
@@ -180,8 +204,7 @@ export class BibliotekOrchestrator {
       };
     });
 
-    // 🌿 3. LA CANOPÉE TAMPON (Post-Transaction, non-bloquant)
-    if (txResult.success && txResult.neo4j) {
+    if (txResult.success && txResult.neo4j && data.status === 'PUBLISHED') {
       const records = txResult.neo4j.records;
       if (records.length > 0) {
         const followerUids = records[0].get('followerUids') || [];
@@ -195,7 +218,7 @@ export class BibliotekOrchestrator {
               type: 'NEW_BOOK',
               payload: {
                 title: "Nouvel Ouvrage dans le Sanctuaire",
-                message: `L'Oiseau a scellé un nouveau manuscrit : ${txResult.mongo?.title}`,
+                message: `L'Oiseau a publié un manuscrit scellé : ${txResult.mongo?.title}`,
                 targetUrl: `/bibliotek/${txResult.mongo?.slug}`,
                 targetUid: txResult.mongo?.uid,
                 targetType: 'BOOK'
@@ -210,7 +233,7 @@ export class BibliotekOrchestrator {
   }
 
   /**
-   * 🧬 MUTATION : METTRE À JOUR UN OUVRAGE
+   * 🧬 MUTATION : METTRE À JOUR UN OUVRAGE (et gérer la publication de brouillons)
    */
   async updateBook(bookIdentifier: string, updates: Record<string, unknown>, signature: ActionSignature): Promise<BibliotekSyncResult> {
     const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as ILibraryBook | null;
@@ -223,24 +246,27 @@ export class BibliotekOrchestrator {
       throw new IlotError("Tu ne peux modifier que tes propres ouvrages.", "FORBIDDEN", 403);
     }
 
+    const wasDraft = existing.status === 'DRAFT';
+    const isNowPublished = updates.status === 'PUBLISHED';
+
     const txResult = await TransactionManager.execute("Mutation d'Ouvrage Bibliotek", async (mongoSession, neo4jTx) => {
       const now = new Date();
       
       const updatedBook = await LibraryBookModel.findOneAndUpdate(
         { uid: existing.uid },
-        { $set: { ...updates, "dates.updatedAt": now } },
+        { $set: { ...updates, "updatedAt": now } },
         { new: true, session: mongoSession }
       ).lean() as unknown as ILibraryBook;
 
       let neoResult = null;
-      if (updates.title || updates.writingType || updates.style || updates.format || updates.economy) {
-        // 🌿 Mise à jour du nœud et récupération des abonnés
+      if (updates.title || updates.writingType || updates.style || updates.format || updates.status || updates.economy) {
         neoResult = await neo4jTx.run(`
           MATCH (b:LibraryBook { uid: $bookUid })
           SET b.title = coalesce($title, b.title),
               b.writingType = coalesce($writingType, b.writingType),
               b.style = coalesce($style, b.style),
               b.format = coalesce($format, b.format),
+              b.status = coalesce($status, b.status),
               b.updatedAt = datetime($now)
           WITH b
           MATCH (author:User { uid: $authorUid })
@@ -248,11 +274,12 @@ export class BibliotekOrchestrator {
           RETURN b, collect(DISTINCT follower.uid) AS followerUids
         `, {
           bookUid: existing.uid,
-          authorUid: existing.authorUid, // Requis pour cibler les followers
+          authorUid: existing.authorUid,
           title: updates.title || null,
           writingType: updates.writingType || null,
           style: updates.style || null,
           format: updates.format || null,
+          status: updates.status || null,
           now: now.toISOString()
         });
       }
@@ -265,33 +292,121 @@ export class BibliotekOrchestrator {
       };
     });
 
-    // 🌿 3. LA CANOPÉE TAMPON (Avertir d'une mise à jour majeure)
     if (txResult.success && txResult.neo4j) {
       const records = txResult.neo4j.records;
       if (records.length > 0) {
         const followerUids = records[0].get('followerUids') || [];
         
         if (followerUids.length > 0) {
-          Promise.allSettled(followerUids.map((uid: string) => 
-            this.notificationOrchestrator.fosterNotification({
-              recipientUid: uid,
-              senderUid: signature.actorUid,
-              category: 'SYSTEM',
-              type: 'UPDATED_BOOK',
-              payload: {
-                title: "Manuscrit retouché",
-                message: `L'Oiseau a apporté des modifications à l'ouvrage : ${txResult.mongo?.title}`,
-                targetUrl: `/bibliotek/${txResult.mongo?.slug}`,
-                targetUid: txResult.mongo?.uid,
-                targetType: 'BOOK'
-              }
-            }, signature)
-          )).catch(e => console.error("[Canopée Bibliotek] Erreur d'écho sur update:", e));
+          if (wasDraft && isNowPublished) {
+            Promise.allSettled(followerUids.map((uid: string) => 
+              this.notificationOrchestrator.fosterNotification({
+                recipientUid: uid,
+                senderUid: signature.actorUid,
+                category: 'TEXT',
+                type: 'NEW_BOOK',
+                payload: {
+                  title: "Nouveau Manuscrit Libéré",
+                  message: `L'Oiseau a achevé et publié son manuscrit : ${txResult.mongo?.title}`,
+                  targetUrl: `/bibliotek/${txResult.mongo?.slug}`,
+                  targetUid: txResult.mongo?.uid,
+                  targetType: 'BOOK'
+                }
+              }, signature)
+            )).catch(e => console.error("[Canopée Bibliotek] Erreur publication brouillon:", e));
+          } else if (updates.title || updates.content) {
+            Promise.allSettled(followerUids.map((uid: string) => 
+              this.notificationOrchestrator.fosterNotification({
+                recipientUid: uid,
+                senderUid: signature.actorUid,
+                category: 'SYSTEM',
+                type: 'UPDATED_BOOK',
+                payload: {
+                  title: "Manuscrit retouché",
+                  message: `Des modifications ont été apportées à : ${txResult.mongo?.title}`,
+                  targetUrl: `/bibliotek/${txResult.mongo?.slug}`,
+                  targetUid: txResult.mongo?.uid,
+                  targetType: 'BOOK'
+                }
+              }, signature)
+            )).catch(e => console.error("[Canopée Bibliotek] Erreur d'écho sur update:", e));
+          }
         }
       }
     }
 
     return txResult;
+  }
+
+  /**
+   * ✨ SURLIGNAGE ÉMOTIONNEL : Ajouter une fulgurance ciblée
+   */
+  async addEmotionalHighlight(bookIdentifier: string, payload: EmotionalHighlightPayload, signature: ActionSignature): Promise<EmotionalHighlightResult> {
+    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as ILibraryBook | null;
+    if (!existing) {
+      throw new IlotError("Ouvrage introuvable dans la Silice.", "NOT_FOUND", 404);
+    }
+
+    const highlightUid = `emo_${randomUUID()}`;
+    const newHighlight = {
+      uid: highlightUid,
+      readerUid: signature.actorUid,
+      selectedText: payload.selectedText,
+      emotion: payload.emotion,
+      comment: payload.comment,
+      isScholarSealed: false,
+      createdAt: new Date()
+    };
+
+    const updatedBook = await LibraryBookModel.findOneAndUpdate(
+      { uid: existing.uid },
+      { $push: { emotionalHighlights: newHighlight } },
+      { new: true }
+    ).lean() as unknown as ILibraryBook;
+
+    if (existing.authorUid !== signature.actorUid) {
+      await this.notificationOrchestrator.fosterNotification({
+        recipientUid: existing.authorUid,
+        senderUid: signature.actorUid,
+        category: 'RESONANCE',
+        type: 'EMOTIONAL_HIGHLIGHT',
+        payload: {
+          title: "Vibration Littéraire",
+          message: `Un Oiseau a vibré sur ce passage : "${payload.selectedText.substring(0, 30)}..."`,
+          targetUrl: `/bibliotek/${existing.slug}/studio`,
+          targetUid: existing.uid,
+          targetType: 'HIGHLIGHT'
+        }
+      }, { actorUid: 'system', capabilities: [] });
+    }
+
+    return { success: true, highlight: newHighlight, book: updatedBook };
+  }
+
+  /**
+   * 📜 SCEAU DE L'ÉRUDIT : Promouvoir/Rétrograder une note d'un lecteur
+   */
+  async toggleScholarSeal(bookIdentifier: string, highlightUid: string, isSealed: boolean, signature: ActionSignature) {
+    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as ILibraryBook | null;
+    if (!existing) {
+      throw new IlotError("Ouvrage introuvable.", "NOT_FOUND", 404);
+    }
+
+    if (existing.authorUid !== signature.actorUid && !signature.capabilities.includes('*')) {
+      throw new IlotError("Seul l'auteur de l'ouvrage peut décerner le Sceau de l'Érudit.", "FORBIDDEN", 403);
+    }
+
+    const updatedBook = await LibraryBookModel.findOneAndUpdate(
+      { uid: existing.uid, "emotionalHighlights.uid": highlightUid },
+      { $set: { "emotionalHighlights.$.isScholarSealed": isSealed } },
+      { new: true }
+    ).lean();
+
+    if (!updatedBook) {
+      throw new IlotError("Fulgurance introuvable dans cet ouvrage.", "NOT_FOUND", 404);
+    }
+
+    return { success: true, isScholarSealed: isSealed };
   }
 
   /**

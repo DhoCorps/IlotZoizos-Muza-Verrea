@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SeoMetadataSchema, CrossLinkSchema, SharedMediaSchema } from '../core/seo.types'; // Ajuste le chemin selon ton arborescence
+import { SeoMetadataSchema, CrossLinkSchema, SharedMediaSchema } from '../core/seo.types';
 
 describe('Schémas Partagés : SEO, CrossLinks & Médias (DRY Architecture)', () => {
   
@@ -9,12 +9,15 @@ describe('Schémas Partagés : SEO, CrossLinks & Médias (DRY Architecture)', ()
       expect(result.success).toBe(true);
     });
 
-    it('🟢 valide un bloc SEO complet et conforme', () => {
+    it('🟢 valide un bloc SEO complet enrichi pour les ouvrages (OpenGraph Book)', () => {
       const validSeo = {
         metaTitle: 'Titre de test SEO (60 car max)',
         metaDescription: 'Ceci est une description optimisée pour le moteur de recherche Google se situant entre 150 et 160 caractères.',
         ogImageUrl: 'https://cdn.ilot/og-image.jpg',
-        canonicalUrl: 'https://ilot-zoizos.com/ma-page'
+        canonicalUrl: 'https://ilot-zoizos.com/ma-page',
+        ogType: 'book',
+        articleAuthor: 'Oiseau_Plume',
+        publishedTime: new Date().toISOString()
       };
       const result = SeoMetadataSchema.safeParse(validSeo);
       expect(result.success).toBe(true);
@@ -63,11 +66,11 @@ describe('Schémas Partagés : SEO, CrossLinks & Médias (DRY Architecture)', ()
       const validMedia = {
         coverImageUrl: 'https://cdn.ilot/cover.png',
         coverImageAlt: 'Schéma vectoriel du graphe Neo4j',
+        audioTrackUrl: 'https://cdn.ilot/audio.mp3',
         audioTitle: 'Ambiance Abyssale'
       };
       const result = SharedMediaSchema.safeParse(validMedia);
       expect(result.success).toBe(true);
     });
   });
-
 });

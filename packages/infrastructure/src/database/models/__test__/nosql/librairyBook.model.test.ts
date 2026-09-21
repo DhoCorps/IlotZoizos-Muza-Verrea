@@ -11,28 +11,41 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-describe('Modèle Mongoose : LibraryBook (Bibliotek)', () => {
+describe('Modèle Mongoose : LibraryBook (Bibliotek, Gacha, Émotions & SEO)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('🟢 doit sédimenter un livre avec un type et un style standard ou personnalisé par l’Oiseau', async () => {
+  it('🟢 doit sédimenter un livre avec un type, style, statut de publication et des données SEO/Économiques', async () => {
     const mockBookData = {
       uid: 'book_123',
       title: 'Chroniques de la Canopée',
       slug: 'chroniques-de-la-canopee',
       authorUid: 'bird_1',
       authorSlug: 'oiseau-libre',
-      writingType: 'essai', // Type standard
-      style: 'cyber-philosophie-sauvage', // Style libre défini par l'Oiseau
+      writingType: 'essai',
+      style: 'cyber-philosophie-sauvage',
+      status: 'PUBLISHED',
       fileUrl: 'https://cdn.ilot/books/chroniques.epub',
       format: 'epub',
-      digitalSignature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', // SHA-256 simulé
+      digitalSignature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
       timestampedAt: new Date(),
       copyrightClaimed: true,
       settings: {
         allowReadExchange: true,
         consentForShowcase: true
+      },
+      seo: {
+        metaTitle: 'Chroniques de la Canopée',
+        ogType: 'book',
+        articleAuthor: 'oiseau-libre'
+      },
+      economy: {
+        priceCents: 1500,
+        barterAllowed: true,
+        gachaTier: 'epic',
+        isTradable: true,
+        rights: { allowBarter: true, allowLending: true }
       }
     };
 
@@ -45,36 +58,50 @@ describe('Modèle Mongoose : LibraryBook (Bibliotek)', () => {
 
     expect(createdBook).toBeDefined();
     expect(createdBook.title).toBe('Chroniques de la Canopée');
-    expect(createdBook.writingType).toBe('essai');
-    expect(createdBook.style).toBe('cyber-philosophie-sauvage'); // Validation de la liberté créative
-    expect(createdBook.digitalSignature).toHaveLength(64); // Vérification du Sceau SHA-256
-    expect(createdBook.copyrightClaimed).toBe(true);
+    expect(createdBook.status).toBe('PUBLISHED');
+    expect(createdBook.seo.ogType).toBe('book');
+    expect(createdBook.economy.gachaTier).toBe('epic');
+    expect(createdBook.digitalSignature).toHaveLength(64);
   });
 
-  it('🟢 doit accepter un type d’écrit entièrement libre inventé par l’Oiseau', async () => {
-    const customWritingBook = {
+  it('🟢 doit consigner un Surlignage Émotionnel ciblé avec signature et une Note d\'Érudit', async () => {
+    const bookWithHighlights = {
       uid: 'book_456',
       title: 'Fragments d’un Rêve Électrique',
       slug: 'fragments-dun-reve-electrique',
       authorUid: 'bird_1',
       authorSlug: 'oiseau-libre',
-      writingType: 'poeme-cyber-alchimique', // Valeur totalement libre
-      style: 'experimental-sombre',         // Valeur totalement libre
+      writingType: 'poeme-cyber-alchimique',
+      style: 'experimental-sombre',
+      status: 'DRAFT',
       fileUrl: 'https://cdn.ilot/books/fragments.txt',
       format: 'scriptorium',
       digitalSignature: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
       timestampedAt: new Date(),
+      emotionalHighlights: [
+        {
+          uid: 'emo_001',
+          readerUid: 'bird_reader_1',
+          selectedText: 'Le chant silencieux des étoiles, résonne dans la matrice.',
+          emotion: '<(:<',
+          comment: 'Cette fulgurance m\'a transpercé l\'esprit.',
+          isScholarSealed: true, // Promeut en Note d'Érudit
+          createdAt: new Date()
+        }
+      ]
     };
 
     vi.mocked(LibraryBookModel.create).mockResolvedValueOnce({
-      ...customWritingBook,
+      ...bookWithHighlights,
       _id: 'mongo_id_book_02'
     } as any);
 
-    const result = await LibraryBookModel.create(customWritingBook);
+    const result = await LibraryBookModel.create(bookWithHighlights);
 
     expect(result.writingType).toBe('poeme-cyber-alchimique');
-    expect(result.style).toBe('experimental-sombre');
+    expect(result.emotionalHighlights).toHaveLength(1);
+    expect(result.emotionalHighlights[0].emotion).toBe('<(:<');
+    expect(result.emotionalHighlights[0].isScholarSealed).toBe(true);
   });
 
   it('❌ doit échouer si le Sceau d’antériorité (digitalSignature) est absent', async () => {
@@ -83,7 +110,6 @@ describe('Modèle Mongoose : LibraryBook (Bibliotek)', () => {
       title: 'Livre sans sceau',
       slug: 'livre-sans-sceau',
       authorUid: 'bird_1',
-      // digitalSignature manquant intentionnellement
     };
 
     vi.mocked(LibraryBookModel.create).mockRejectedValueOnce(new Error('Validation failed: digitalSignature is required'));

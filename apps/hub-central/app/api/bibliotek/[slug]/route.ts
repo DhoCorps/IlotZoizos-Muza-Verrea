@@ -10,7 +10,7 @@ import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } 
 import { IlotError } from '@ilot/shared-core';
 import { z } from 'zod';
 
-// 🛡️ Schéma Zod strict pour interdire l'assignation de masse et supporter les métadonnées Gacha & Barter
+// 🛡️ Schéma Zod strict pour interdire l'assignation de masse et supporter les métadonnées Gacha, Barter & Statut
 const UpdateLibraryBookSchema = z.object({
   title: z.string().min(1, "Le titre est requis.").optional(),
   description: z.string().optional(),
@@ -19,6 +19,7 @@ const UpdateLibraryBookSchema = z.object({
   fileUrl: z.string().url().optional(),
   coverUrl: z.string().url().nullable().optional(),
   copyrightClaimed: z.boolean().optional(),
+  status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(), // 🟢 Ajout du cycle de vie
   economy: z.object({
     priceCents: z.number().int().nonnegative().optional(),
     currency: z.string().optional(),
@@ -61,7 +62,9 @@ export const GET = withOptionalAura(async (_req: NextRequest, context: ApiContex
     const sessionCaps = currentUser?.capabilities || [];
     const isMine = book.authorUid === userUid;
     const isArchitect = sessionCaps.includes('*');
-    const isPublic = book.copyrightClaimed !== undefined;
+    
+    // 🔒 Logique de visibilité : Les brouillons (DRAFT) et ARCHIVED sont réservés à l'auteur
+    const isPublic = book.status === 'PUBLISHED';
 
     if (!isPublic && !isMine && !isArchitect) {
       return NextResponse.json({ success: false, error: "Cet ouvrage intime t'est fermé." }, { status: 403 });

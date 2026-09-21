@@ -32,15 +32,17 @@ global.SpeechSynthesisUtterance = vi.fn().mockImplementation((text) => ({
   rate: 1.0,
 })) as any;
 
-describe('UI & Logique : PapierAncreReader (Liseuse Bibliotek & TTS Neurale)', () => {
-  const defaultProps = {
-    bookUid: 'book_123',
-    title: 'Le Chant de la Silice',
-    author: 'Oiseau Solitaire',
-    authorUid: 'author_456',
-    content: 'Ceci est le contenu immersif du manuscrit...',
-    writingType: 'Essai',
-    style: 'Philosophie',
+describe('UI & Logique : PapierAncreReader (Liseuse Bibliotek & Surlignage Émotionnel)', () => {
+  const defaultBookProp = {
+    book: {
+      uid: 'book_123',
+      title: 'Le Chant de la Silice',
+      authorSlug: 'Oiseau Solitaire',
+      authorUid: 'author_456',
+      content: 'Ceci est le contenu immersif du manuscrit...',
+      writingType: 'Essai',
+      style: 'Philosophie',
+    }
   };
 
   beforeEach(() => {
@@ -55,7 +57,7 @@ describe('UI & Logique : PapierAncreReader (Liseuse Bibliotek & TTS Neurale)', (
   });
 
   it('🟢 doit rendre l\'interface de base avec les métadonnées et les contrôles de synthèse vocale', () => {
-    render(<PapierAncreReader {...defaultProps} />);
+    render(<PapierAncreReader {...defaultBookProp} />);
 
     expect(screen.getByText('Le Chant de la Silice')).toBeDefined();
     expect(screen.getByText(/Oiseau Solitaire/)).toBeDefined();
@@ -66,7 +68,7 @@ describe('UI & Logique : PapierAncreReader (Liseuse Bibliotek & TTS Neurale)', (
   });
 
   it('🟢 doit déclencher la lecture audio du manuscrit au clic sur "Écouter"', () => {
-    render(<PapierAncreReader {...defaultProps} />);
+    render(<PapierAncreReader {...defaultBookProp} />);
 
     const playBtn = screen.getByTestId('tts-play-btn');
     fireEvent.click(playBtn);
@@ -77,7 +79,7 @@ describe('UI & Logique : PapierAncreReader (Liseuse Bibliotek & TTS Neurale)', (
   });
 
   it('🟢 doit basculer en mode "Immersion Profonde" et masquer la barre d\'outils', () => {
-    render(<PapierAncreReader {...defaultProps} />);
+    render(<PapierAncreReader {...defaultBookProp} />);
 
     const immersionBtn = screen.getByText(/Immersion Profonde/i);
     expect(immersionBtn).toBeDefined();
@@ -93,7 +95,7 @@ describe('UI & Logique : PapierAncreReader (Liseuse Bibliotek & TTS Neurale)', (
   });
 
   it('🟢 doit ouvrir le OmniActionWidget au clic sur "Actions"', () => {
-    render(<PapierAncreReader {...defaultProps} />);
+    render(<PapierAncreReader {...defaultBookProp} />);
 
     const actionBtn = screen.getByText(/Actions/i);
     fireEvent.click(actionBtn);
@@ -101,8 +103,8 @@ describe('UI & Logique : PapierAncreReader (Liseuse Bibliotek & TTS Neurale)', (
     expect(screen.getByTestId('close-widget-btn')).toBeDefined();
   });
 
-  it('🟢 doit afficher la bulle de surlignage lors d\'une sélection de texte valide', () => {
-    render(<PapierAncreReader {...defaultProps} />);
+  it('🟢 doit afficher la bulle de surlignage émotionnel lors d\'une sélection de texte valide', () => {
+    render(<PapierAncreReader {...defaultBookProp} />);
 
     mockGetSelection.mockReturnValue({
       isCollapsed: false,
@@ -116,16 +118,16 @@ describe('UI & Logique : PapierAncreReader (Liseuse Bibliotek & TTS Neurale)', (
     const mainContainer = screen.getByRole('main');
     fireEvent.mouseUp(mainContainer);
 
-    expect(screen.getByText(/Prendre une note/i)).toBeDefined();
+    expect(screen.getByText(/Vibrer sur ce passage/i)).toBeDefined();
   });
 
-  it('🟢 doit permettre de soumettre une annotation (Fulgurance) vers l\'API', async () => {
+  it('🟢 doit permettre de soumettre un Surlignage Émotionnel vers l\'API de l\'auteur', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ success: true, data: { uid: 'annot_123' } })
+      json: async () => ({ success: true, data: { uid: 'emo_123' } })
     });
 
-    render(<PapierAncreReader {...defaultProps} />);
+    render(<PapierAncreReader {...defaultBookProp} />);
 
     mockGetSelection.mockReturnValue({
       isCollapsed: false,
@@ -135,20 +137,20 @@ describe('UI & Logique : PapierAncreReader (Liseuse Bibliotek & TTS Neurale)', (
     });
     fireEvent.mouseUp(screen.getByRole('main'));
 
-    fireEvent.click(screen.getByText(/Prendre une note/i));
+    fireEvent.click(screen.getByText(/Vibrer sur ce passage/i));
     expect(screen.getByText(/“contenu immersif”/i)).toBeDefined();
 
-    const textarea = screen.getByPlaceholderText(/Pourquoi ce passage résonne-t-il/i);
-    fireEvent.change(textarea, { target: { value: 'Réflexion personnelle très profonde.' } });
+    const textarea = screen.getByPlaceholderText(/Partage ton écho avec l'auteur/i);
+    fireEvent.change(textarea, { target: { value: 'Une résonance magnifique.' } });
 
-    fireEvent.click(screen.getByText(/Sceller la note/i));
+    fireEvent.click(screen.getByText(/Diffuser l'écho/i));
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(`/api/bibliotek/book_123/annotations`, expect.objectContaining({
+      expect(global.fetch).toHaveBeenCalledWith(`/api/bibliotek/book_123/emotional-highlights`, expect.objectContaining({
         method: 'POST',
-        body: expect.stringContaining('Réflexion personnelle très profonde.')
+        body: expect.stringContaining('Une résonance magnifique.')
       }));
-      expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('Codex'));
+      expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('transmises à l\'auteur'));
     });
   });
 });

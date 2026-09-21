@@ -1,3 +1,5 @@
+import { ISeoMetadata } from './seo.types';
+
 // ==========================================
 // 📚 TYPES & SCHÉMAS : BIBLIOTEK, GACHA & BARTER
 // ==========================================
@@ -47,6 +49,9 @@ export type WritingStyleCode =
 // 💎 Niveaux de rareté pour le Gacha Littéraire
 export type GachaTierCode = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
 
+// 📜 Statuts de publication (Cycle de vie du Scriptorium vers la Bibliotek)
+export type PublicationStatusCode = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+
 // 🌐 Règles de droits issus du UniversalMediaSchema interfacées avec le Barter
 export interface UniversalMediaRights {
   allowCommercial?: boolean;
@@ -65,6 +70,18 @@ export interface LibraryBookEconomyMetadata {
   isTradable: boolean;          // Éligible au marché secondaire de l'Îlot
 }
 
+// ✨ Surlignage Émotionnel (Résonance ciblée)
+export interface IEmotionalHighlight {
+  uid?: string;
+  bookUid: string;              // L'ouvrage ciblé
+  authorUid: string;            // L'auteur qui reçoit l'écho
+  readerUid: string;            // L'Oiseau lecteur
+  selectedText: string;         // Le passage littéraire précis
+  emotion: string;              // La vibration (ex: '<(:<', '🔥', '💡')
+  comment?: string;             // Un mot ou une pensée optionnelle pour l'auteur
+  createdAt: string | Date;
+}
+
 // 📖 Structure complète d'un Ouvrage de la Bibliotek enrichie
 export interface ILibraryBookMediaEntity {
   uid: string;
@@ -74,12 +91,14 @@ export interface ILibraryBookMediaEntity {
   authorSlug: string;
   writingType: WritingTypeCode;
   style: WritingStyleCode;
+  status: PublicationStatusCode; // Cycle de vie
   fileUrl: string;
   coverUrl?: string | null;
-  digitalSignature: string;     // Sceau SHA-256 d'antériorité
+  digitalSignature: string;      // Sceau SHA-256 d'antériorité
   timestampedAt: string | Date;
-  economy: LibraryBookMetadata;
+  economy: LibraryBookEconomyMetadata;
   createdAt: string | Date;
+  seo?: ISeoMetadata;            // Métadonnées d'indexation irréprochable
 }
 
 // Alias pour compatibilité avec le UniversalMediaSchema

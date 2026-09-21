@@ -7,7 +7,7 @@ import { randomUUID } from 'crypto';
 export type FosterNotificationPayload = {
   recipientUid: string;
   senderUid?: string;
-  category: 'TEXT' | 'AUDIO' | 'VISUAL' | 'SOCIAL' | 'SYSTEM' | 'DIGEST';
+  category: 'TEXT' | 'AUDIO' | 'VISUAL' | 'SOCIAL' | 'SYSTEM' | 'DIGEST' | 'RESONANCE';
   type: string;
   payload: {
     title?: string;

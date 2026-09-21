@@ -9,7 +9,7 @@ import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } 
 import { z } from 'zod';
 
 // ==========================================
-// 🛡️ SCHÉMA DE VALIDATION ZOD (Anti Mass Assignment & Support Gacha/Barter)
+// 🛡️ SCHÉMA DE VALIDATION ZOD (Anti Mass Assignment & Statut de Publication)
 // ==========================================
 const CreateBookSchema = z.object({
   title: z.string().min(1, "Le titre est requis."),
@@ -19,6 +19,7 @@ const CreateBookSchema = z.object({
   slug: z.string().optional(),
   coverUrl: z.string().optional().nullable(),
   format: z.string().optional(),
+  status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(), // 🟢 Ajout du statut
   economy: z.object({
     priceCents: z.number().int().nonnegative().optional(),
     currency: z.string().optional(),
@@ -33,7 +34,6 @@ const CreateBookSchema = z.object({
     }).optional(),
   }).optional(),
   settings: z.object({
-    // 🪡 SUTURE : allowReadExchange devient optionnel avec un booléen par défaut (true)
     allowReadExchange: z.boolean().optional().default(true),
     consentForShowcase: z.boolean().optional()
   }).optional()
@@ -42,7 +42,7 @@ const CreateBookSchema = z.object({
 // ==========================================
 // GET : Le Sanctuaire des Écrits Libres (Public / Optionnel Aura avec Pagination)
 // ==========================================
-export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContext, _currentUser?: OiseauUser) => {
+export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContext, currentUser?: OiseauUser) => {
   try {
     let url: URL;
     try {
@@ -54,6 +54,7 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
     const filterType = url.searchParams.get('writingType');
     const filterStyle = url.searchParams.get('style');
     const authorUid = url.searchParams.get('authorUid');
+    const status = url.searchParams.get('status');
 
     // 📄 Paramètres de pagination performante
     const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
@@ -64,6 +65,19 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
     if (filterType && filterType !== 'ALL') query.writingType = filterType;
     if (filterStyle && filterStyle !== 'ALL') query.style = filterStyle;
     if (authorUid) query.authorUid = authorUid;
+
+    // 🔒 LOGIQUE DE VISIBILITÉ : Studio de l'auteur vs Vitrine publique
+    const isRequestingOwnStudio = currentUser && currentUser.uid === authorUid;
+    
+    if (isRequestingOwnStudio) {
+      // L'auteur peut filtrer ses brouillons ou archives depuis son Studio
+      if (status && status !== 'ALL') {
+        query.status = status;
+      }
+    } else {
+      // 🛡️ Garde-Fou : Le public ne voit QUE les œuvres validées/publiées
+      query.status = 'PUBLISHED';
+    }
 
     // 🚀 Requêtes optimisées avec curseurs de pagination et comptage total
     const [books, total] = await Promise.all([
@@ -100,7 +114,6 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       return NextResponse.json({ success: false, error: "Corps de requête illisible." }, { status: 400 });
     }
 
-    // Validation stricte par Zod pour éliminer tout risque de Mass Assignment
     const validationResult = CreateBookSchema.safeParse(rawBody);
     if (!validationResult.success) {
       const errorMessage = validationResult.error.issues.map(e => e.message).join(', ');
@@ -116,7 +129,6 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
 
     let result: BibliotekSyncResult;
     try {
-      // 🌿 L'Orchestrateur prend le relais : Sédimentation, Graphe, Sceau SHA-256, Barter ET Canopée Tampon
       const bibliotekOrch = new BibliotekOrchestrator();
       const dataToForge = { 
         ...validatedData, 

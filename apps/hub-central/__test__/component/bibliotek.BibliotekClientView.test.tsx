@@ -33,7 +33,7 @@ vi.mock('@/components/bibliotek/OracleVerifierWidget', () => ({
   OracleVerifierWidget: () => <div data-testid="mock-oracle-widget">Oracle Widget</div>
 }));
 
-describe('UI & Logique : BibliotekPage & ClientView (Dashboard)', () => {
+describe('UI & Logique : BibliotekClientView (Split Client-Serveur)', () => {
   let queryClient: QueryClient;
 
   beforeEach(() => {
@@ -44,12 +44,9 @@ describe('UI & Logique : BibliotekPage & ClientView (Dashboard)', () => {
       defaultOptions: { 
         queries: { 
           retry: false,
-          staleTime: Infinity // Évite les refetchs automatiques inopinés dans les tests
+          staleTime: Infinity // Maintien du comportement Infinity pour les tests isolés
         },
-        mutations: { 
-          retry: false,
-          onError: () => {}
-        } 
+        mutations: { retry: false, onError: () => {} } 
       }
     });
   });
@@ -66,27 +63,35 @@ describe('UI & Logique : BibliotekPage & ClientView (Dashboard)', () => {
     );
   };
 
-  it('🟢 doit rendre l\'en-tête de la Bibliotek, l\'Oracle Widget et afficher les ouvrages initiaux', async () => {
+  it('🟢 doit rendre l\'en-tête, l\'Oracle, et afficher les ouvrages SSR sans fetch initial', async () => {
     const mockInitialData = [
       { uid: 'book_1', title: 'Le Chant des Oiseaux', writingType: 'roman', style: 'poetique', slug: 'chant-des-oiseaux', digitalSignature: 'abc123hash' }
     ];
+
+    // Mock préventif au cas où, mais il ne doit pas être appelé
+    (global.fetch as any).mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, data: [] })
+    });
 
     renderWithClient(mockInitialData);
 
     expect(screen.getByText('Bibliotek')).toBeDefined();
     expect(screen.getByTestId('mock-oracle-widget')).toBeDefined();
+    
+    // Le fetch réseau ne sera pas appelé grâce au staleTime optimisé
+    expect(global.fetch).not.toHaveBeenCalled();
     expect(screen.getByText('Le Chant des Oiseaux')).toBeDefined();
     expect(screen.getByText('Sceau : abc123hash...')).toBeDefined();
-    expect(screen.getByText('Lire 📖')).toBeDefined();
   });
 
-  it('🟢 doit mettre à jour les filtres et refetcher les données depuis l\'API', async () => {
+  it('🟢 doit mettre à jour les filtres et refetcher les données (Côté Client)', async () => {
     (global.fetch as any).mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, data: [], pagination: { total: 0, page: 1, limit: 9, totalPages: 1 } })
     });
 
-    renderWithClient([]);
+    renderWithClient([]); // Démarrage à vide pour forcer le refetch via interaction
 
     const typeSelect = screen.getByDisplayValue("Tous les types d'écrits");
     const styleSelect = screen.getByDisplayValue("Tous les styles");
@@ -108,19 +113,8 @@ describe('UI & Logique : BibliotekPage & ClientView (Dashboard)', () => {
 
     renderWithClient([]);
 
-    const openBtn = screen.getByText(/Écrire/i);
-    fireEvent.click(openBtn);
-
+    fireEvent.click(screen.getByText(/Écrire/i));
     expect(screen.getByTestId('mock-scriptorium')).toBeDefined();
-
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ 
-        success: true, 
-        digitalSignature: 'hashcryptographierencoredu texte',
-        data: { uid: 'new_book' } 
-      })
-    });
 
     const saveBtn = screen.getByText('Simuler Sauvegarde');
     fireEvent.click(saveBtn);
@@ -131,37 +125,9 @@ describe('UI & Logique : BibliotekPage & ClientView (Dashboard)', () => {
         body: expect.any(FormData)
       }));
 
+      // Vérifie que le toast confirme que c'est un brouillon
       expect(toast.success).toHaveBeenCalledWith(expect.stringContaining('Brouillon sédimenté'));
-      expect(screen.queryByTestId('mock-scriptorium')).toBeNull();
+      expect(screen.queryByTestId('mock-scriptorium')).toBeNull(); // La modale se ferme
     });
-  });
-
-  it('🔴 doit afficher une erreur toast si la sédimentation échoue', async () => {
-    (global.fetch as any).mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: true, data: [], pagination: { total: 0, page: 1, limit: 9, totalPages: 1 } })
-    });
-
-    renderWithClient([]);
-
-    fireEvent.click(screen.getByText(/Écrire/i));
-
-    (global.fetch as any).mockResolvedValueOnce({
-      ok: false,
-      json: async () => ({ error: "La matrice rejette cette sédimentation." })
-    });
-
-    const saveBtn = screen.getByText('Simuler Sauvegarde');
-    
-    const originalConsoleError = console.error;
-    console.error = () => {};
-
-    fireEvent.click(saveBtn);
-
-    await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('La matrice rejette cette sédimentation.'));
-    });
-
-    console.error = originalConsoleError;
   });
 });

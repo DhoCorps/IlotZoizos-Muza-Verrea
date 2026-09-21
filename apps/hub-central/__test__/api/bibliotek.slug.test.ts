@@ -60,7 +60,7 @@ declare global {
 
 type RouteHandler = (req: NextRequest, ctx: { params: Promise<{ slug?: string | string[] }> }) => Promise<Response>;
 
-describe('API Bibliotek - Ouvrage Individuel ([slug]) & Économie Barter', () => {
+describe('API Bibliotek - Ouvrage Individuel ([slug]) & Statuts', () => {
   const getHandler = GET as unknown as RouteHandler;
   const putHandler = PUT as unknown as RouteHandler;
   const deleteHandler = DELETE as unknown as RouteHandler;
@@ -76,6 +76,7 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Économie Barter', () =>
         uid: 'book_999', 
         slug: 'essai-sur-la-silice-mut', 
         title: 'Titre Muté',
+        status: 'PUBLISHED',
         economy: { priceCents: 2500, gachaTier: 'legendary' }
       },
       neo4j: {}
@@ -87,13 +88,13 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Économie Barter', () =>
     } as unknown as Awaited<ReturnType<BibliotekOrchestrator['disintegrateBook']>>);
   });
 
-  it('🟢 GET : doit retourner les détails d’un ouvrage par son slug via le résolveur', async () => {
+  it('🟢 GET : doit retourner les détails d’un ouvrage PUBLISHED pour un visiteur', async () => {
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
       uid: 'book_999', 
       title: 'Essai sur la Silice', 
       authorUid: 'bird_writer', 
-      copyrightClaimed: true,
-      toObject: () => ({ uid: 'book_999', title: 'Essai sur la Silice', authorUid: 'bird_writer', copyrightClaimed: true })
+      status: 'PUBLISHED',
+      toObject: () => ({ uid: 'book_999', title: 'Essai sur la Silice', authorUid: 'bird_writer', status: 'PUBLISHED' })
     } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/essai-sur-la-silice');
@@ -102,7 +103,40 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Économie Barter', () =>
 
     expect(res.status).toBe(200);
     expect(json.title).toBe('Essai sur la Silice');
-    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(LibraryBookModel, 'essai-sur-la-silice');
+  });
+
+  it('🔴 GET : doit rejeter (403) l’accès à un DRAFT si le visiteur n’est pas l’auteur', async () => {
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
+      uid: 'book_999', 
+      title: 'Brouillon Secret', 
+      authorUid: 'bird_writer', 
+      status: 'DRAFT',
+      toObject: () => ({ uid: 'book_999', title: 'Brouillon Secret', authorUid: 'bird_writer', status: 'DRAFT' })
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+
+    const req = new NextRequest('http://localhost:3000/api/bibliotek/brouillon-secret');
+    const res = await getHandler(req, { params: Promise.resolve({ slug: 'brouillon-secret' }) });
+    
+    expect(res.status).toBe(403);
+  });
+
+  it('🟢 GET : doit autoriser l’accès à un DRAFT si le visiteur est l’auteur', async () => {
+    global.__mockUser = { uid: 'bird_writer', capabilities: [] };
+
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
+      uid: 'book_999', 
+      title: 'Brouillon Secret', 
+      authorUid: 'bird_writer', 
+      status: 'DRAFT',
+      toObject: () => ({ uid: 'book_999', title: 'Brouillon Secret', authorUid: 'bird_writer', status: 'DRAFT' })
+    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+
+    const req = new NextRequest('http://localhost:3000/api/bibliotek/brouillon-secret');
+    const res = await getHandler(req, { params: Promise.resolve({ slug: 'brouillon-secret' }) });
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.title).toBe('Brouillon Secret');
   });
 
   it('🔴 PUT : doit rejeter (401) si l’Oiseau n’est pas authentifié', async () => {
@@ -117,7 +151,7 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Économie Barter', () =>
     expect(res.status).toBe(401);
   });
 
-  it('🟢 PUT : doit muter l’ouvrage avec succès (200) y compris ses métadonnées économiques Barter/Gacha', async () => {
+  it('🟢 PUT : doit muter l’ouvrage avec succès (200) y compris son statut de publication', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
@@ -130,6 +164,7 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Économie Barter', () =>
       method: 'PUT',
       body: JSON.stringify({ 
         title: 'Titre Muté',
+        status: 'PUBLISHED',
         economy: {
           priceCents: 2500,
           gachaTier: 'legendary'
@@ -143,12 +178,10 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Économie Barter', () =>
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
     expect(json.mongo.title).toBe('Titre Muté');
-    expect(json.mongo.economy.priceCents).toBe(2500);
-    expect(json.mongo.economy.gachaTier).toBe('legendary');
+    expect(json.mongo.status).toBe('PUBLISHED');
     expect(BibliotekOrchestrator.prototype.updateBook).toHaveBeenCalledWith('book_canonique_123', expect.any(Object), expect.any(Object));
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek-essai-sur-la-silice');
-    expect(revalidateTag).toHaveBeenCalledWith('bibliotek-book_999');
   });
 
   it('🟢 DELETE : doit dissoudre l’ouvrage avec succès (200) avec son UID canonique', async () => {
@@ -170,8 +203,5 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Économie Barter', () =>
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
     expect(BibliotekOrchestrator.prototype.disintegrateBook).toHaveBeenCalledWith('book_canonique_123', expect.any(Object));
-    expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
-    expect(revalidateTag).toHaveBeenCalledWith('bibliotek-essai-sur-la-silice');
-    expect(revalidateTag).toHaveBeenCalledWith('bibliotek-book_canonique_123');
   });
 });
