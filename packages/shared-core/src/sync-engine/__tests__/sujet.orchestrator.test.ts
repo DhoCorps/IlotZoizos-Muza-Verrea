@@ -21,9 +21,24 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
+// 🌿 On mock le chef d'orchestre des notifications
+const mockFosterNotification = vi.fn().mockResolvedValue({ success: true });
+vi.mock('../notification.orchestrator', () => ({
+  NotificationOrchestrator: vi.fn().mockImplementation(() => ({
+    fosterNotification: mockFosterNotification
+  }))
+}));
+
+// On simule la transaction qui renvoie notre Noeud et la liste des abonnés (followerUids)
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (_name, cb) => cb('mock-mongo-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'node_mock' }] }) })),
+    execute: vi.fn(async (_name, cb) => cb('mock-mongo-session', { 
+      run: vi.fn().mockResolvedValue({ 
+        records: [{ 
+          get: (key: string) => key === 'followerUids' ? ['bird_follower_1'] : 'node_mock' 
+        }] 
+      }) 
+    })),
   },
 }));
 
@@ -42,7 +57,15 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    orchestrator = new SujetOrchestrator(mockStorageManager);
+    mockFosterNotification.mockClear();
+
+    // 🌿 L'astuce est ici : on crée un objet qui possède la fonction mockée
+    const injectedNotificationOrchestrator = {
+      fosterNotification: mockFosterNotification
+    } as any; 
+
+    // Et on l'injecte directement en second argument !
+    orchestrator = new SujetOrchestrator(mockStorageManager, injectedNotificationOrchestrator);
   });
 
   describe('fosterSujet', () => {
@@ -52,7 +75,7 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit forger un sujet dans MongoDB avec ses mécaniques (Gacha, Propagation) et tisser la toile Neo4j', async () => {
+    it('🟢 doit forger un sujet, tisser la toile Neo4j, ET envoyer un écho aux abonnés', async () => {
       vi.mocked(SujetModel.findOne).mockReturnValue({
         session: vi.fn().mockReturnValue({
           lean: vi.fn().mockResolvedValueOnce(null)
@@ -65,6 +88,7 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
           title: 'Pensée Silencieuse', 
           slug: 'pensee-silencieuse', 
           authorUid: 'bird_author', 
+          status: 'PUBLISHED', // 🌿 AJOUT : On valide que le texte sort de l'œuf
           settings: { allowPropagation: true },
           propagation: { shareCount: 0, uniquePasseurs: 0, globalReach: 0 },
           kosmicBoon: { interactionCount: 0, nextKosmicBoon: 42 } 
@@ -75,6 +99,7 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
         title: 'Pensée Silencieuse', 
         content: 'Du texte...',
         authorUid: 'bird_author', 
+        status: 'PUBLISHED', // 🌿 AJOUT : La requête stipule le statut final
         connections: { crossLinks: [{ entityType: 'LYRIKA', entityId: 'song_123', label: 'Inspiration' }] }
       }, userSignature as any);
       
@@ -83,8 +108,15 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
       expect((res.mongo as any).settings.allowPropagation).toBe(true);
       expect((res.mongo as any).propagation.shareCount).toBe(0);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
+
+      // 🌿 L'Écho est parti vers la Canopée !
+      expect(mockFosterNotification).toHaveBeenCalledTimes(1);
+      expect(mockFosterNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ recipientUid: 'bird_follower_1', type: 'NEW_SUJET' }), 
+        userSignature
+      );
     });
-  });
+  }); // <-- Il manquait cette accolade de fermeture !
 
   describe('updateSujet', () => {
     it('🔴 doit rejeter (404) si le sujet est introuvable', async () => {

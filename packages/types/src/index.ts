@@ -34,6 +34,8 @@ export * from './core/universalMedia.types';
 export * from './models/univershall.types';
 export * from './models/universalComment.types';
 export * from './models/propagation.types';
+export * from './core/notification.types';
+export * from './core/subscription.types';
 
 export interface ActionSignature {
   actorUid: string;       

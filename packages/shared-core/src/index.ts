@@ -61,6 +61,7 @@ export * from './sync-engine/poetrik.orchestrator';
 export * from './sync-engine/univershall.orchestrator';
 export * from './sync-engine/univershallPantheon.orchestrator';
 export * from './sync-engine/universalMedia.orchestrator';
+export * from './sync-engine/notification.orchestrator';
 
 // --- 6. JEUX (LOGIQUE & TYPES) ---
 

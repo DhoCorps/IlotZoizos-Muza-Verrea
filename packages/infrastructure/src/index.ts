@@ -89,4 +89,7 @@ export * from './database/models/nosql/univershallBeacon.model';
 export * from './database/utils/entityResolver';
 
 export * from './database/models/nosql/universalComment.model';
-export * from './database/models/nosql/propagation.model'
+export * from './database/models/nosql/propagation.model';
+
+export * from './database/models/nosql/notification.model';
+export * from './database/models/graph/subscription.graph';

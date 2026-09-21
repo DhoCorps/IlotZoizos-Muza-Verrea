@@ -34,7 +34,6 @@ const mockPause = vi.fn();
 describe('UI & Logique : AbyssBlogClientView', () => {
   let queryClient: QueryClient;
 
-  // 🟢 Ajout des tags au mock
   const mockSujet = {
     uid: 's-123',
     slug: 'mon-sujet-test',
@@ -79,7 +78,6 @@ describe('UI & Logique : AbyssBlogClientView', () => {
     expect(screen.getByText('Le contenu profond du sujet...')).toBeDefined();
     expect(screen.getByText('Premier écho SSR')).toBeDefined();
     
-    // 💥 Vérification de l'affichage des tags
     expect(screen.getByText('abysse')).toBeDefined();
     expect(screen.getByText('poésie')).toBeDefined();
 

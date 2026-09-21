@@ -5,6 +5,7 @@ import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
 import { ensureUniqueSlug } from '../utils/orchestrator.engine'; 
+import { NotificationOrchestrator } from './notification.orchestrator';
 
 interface IStorageManager {
   deleteFile(key: string): Promise<unknown>;
@@ -23,12 +24,10 @@ type DeepPartialConnections = Partial<ISujet['connections']>;
 type DeepPartialSettings = Partial<ISujet['settings']>;
 type DeepPartialKosmic = Partial<ISujet['kosmicBoon']>;
 
-// Typage strict : On omet 'resonance' et 'propagation' qui sont gérées dynamiquement par le système
 export type FosterSujetPayload = Omit<Partial<ISujet>, 'resonance' | 'propagation' | 'connections' | 'settings' | 'kosmicBoon'> & {
   authorUid: string;
   title: string;     
   content: string;
-  // On redéfinit explicitement ces objets comme partiels pour l'entrée
   connections?: DeepPartialConnections;
   settings?: DeepPartialSettings;
   kosmicBoon?: DeepPartialKosmic;
@@ -46,12 +45,14 @@ const generateSlug = (text: string): string => {
  */
 export class SujetOrchestrator {
   private storageService: IStorageManager;
+  private notificationOrchestrator: NotificationOrchestrator; // 🌿 Injection du cerveau de la Canopée
 
-  constructor(customStorageService?: IStorageManager) {
+  constructor(customStorageService?: IStorageManager, notificationOrchestrator?: NotificationOrchestrator) {
     this.storageService = customStorageService || {
       deleteFile: async () => ({ success: true }),
       extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
     };
+    this.notificationOrchestrator = notificationOrchestrator || new NotificationOrchestrator();
   }
   
   /**
@@ -63,7 +64,7 @@ export class SujetOrchestrator {
         throw new IlotError("Aura insuffisante pour parler à la place d'un autre.", "FORBIDDEN", 403);
     }
 
-    return await TransactionManager.execute("Fondation de Sujet", async (mongoSession, neo4jTx) => {
+    const txResult = await TransactionManager.execute("Fondation de Sujet", async (mongoSession, neo4jTx) => {
       const now = new Date();
       
       const sujetUid = data.uid || `sujet_${randomUUID()}`;
@@ -72,7 +73,6 @@ export class SujetOrchestrator {
       const baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
       const finalSlug = await ensureUniqueSlug(SujetModel, baseSlug, mongoSession);
 
-      // On prépare l'objet complet pour Mongo avec intégration de la Propagation et du Gacha
       const newSujetData: Partial<ISujet> = {
         ...data,
         uid: sujetUid,
@@ -97,7 +97,7 @@ export class SujetOrchestrator {
         settings: {
             allowComments: true,
             allowEmojiReactions: true,
-            allowPropagation: true, // Autorisation du partage par défaut
+            allowPropagation: true, 
             isAgeRestricted: false,
             alchemicalTransmuted: false,
             ...data.settings
@@ -127,7 +127,7 @@ export class SujetOrchestrator {
         throw err;
       }
 
-      // 2. GRAPHE (Neo4j) - Le Tissu Universel (crossLinks)
+      // 2. GRAPHE (Neo4j) - Le Tissu Universel
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (s:Sujet { 
@@ -141,20 +141,22 @@ export class SujetOrchestrator {
         })
         CREATE (u)-[:WROTE]->(s)
 
-        WITH s
+        WITH s, u
         UNWIND (CASE WHEN size($crossLinks) > 0 THEN $crossLinks ELSE [null] END) AS link
         FOREACH (_ IN CASE WHEN link IS NOT NULL THEN [1] ELSE [] END |
           MERGE (target:Artifact { uid: link.entityId })
           MERGE (s)-[:RELATES_TO { app: link.entityType, intent: coalesce(link.label, 'reference') }]->(target)
         )
 
-        WITH s
+        WITH DISTINCT s, u
         FOREACH (_ IN CASE WHEN $productId IS NOT NULL THEN [1] ELSE [] END |
           MERGE (prod:Product {uid: $productId})
           MERGE (s)-[:OFFERS_PRODUCT]->(prod)
         )
 
-        RETURN s
+        WITH DISTINCT s, u
+        OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(u)
+        RETURN s, collect(DISTINCT follower.uid) AS followerUids
       `;
 
       const neoResult = await neo4jTx.run(cypher, {
@@ -175,6 +177,34 @@ export class SujetOrchestrator {
 
       return { success: true, status: 'success', mongo: newSujet, neo4j: neoResult };
     });
+
+    // 🌿 3. LA CANOPÉE TAMPON (Post-Transaction, non-bloquant)
+    if (txResult.success && txResult.neo4j && txResult.mongo?.status === 'PUBLISHED') {
+      const records = txResult.neo4j.records;
+      if (records.length > 0) {
+        const followerUids = records[0].get('followerUids') || [];
+        
+        if (followerUids.length > 0) {
+          Promise.allSettled(followerUids.map((uid: string) => 
+            this.notificationOrchestrator.fosterNotification({
+              recipientUid: uid,
+              senderUid: signature.actorUid,
+              category: 'TEXT',
+              type: 'NEW_SUJET',
+              payload: {
+                title: "Nouvelle Pensée dans la matrice",
+                message: `L'Oiseau a sédimenté une nouvelle pensée : ${txResult.mongo?.title}`,
+                targetUrl: `/abyss-blog/${txResult.mongo?.slug}`,
+                targetUid: txResult.mongo?.uid,
+                targetType: 'SUJET'
+              }
+            }, signature)
+          )).catch(e => console.error("[Canopée] Erreur lors de la distribution des échos:", e));
+        }
+      }
+    }
+
+    return txResult;
   }
 
   /**
@@ -189,7 +219,12 @@ export class SujetOrchestrator {
       throw new IlotError("Tu ne peux modifier que tes propres pensées.", "FORBIDDEN", 403);
     }
 
-    return await TransactionManager.execute("Mutation de Sujet", async (mongoSession, neo4jTx) => {
+    // Détermine si on passe d'un statut non-publié à PUBLISHED
+    const wasPublished = existing.status === 'PUBLISHED';
+    const willBePublished = updates.status === 'PUBLISHED';
+    const justPublished = !wasPublished && willBePublished;
+
+    const txResult = await TransactionManager.execute("Mutation de Sujet", async (mongoSession, neo4jTx) => {
       const now = new Date();
 
       const finalUpdates = {
@@ -204,37 +239,70 @@ export class SujetOrchestrator {
       ).lean() as unknown as ISujet;
 
       let neoResult = null;
-      if (updates.status || updates.category || updates.title || updates.merchLink !== undefined) {
-        neoResult = await neo4jTx.run(`
-          MATCH (s:Sujet { uid: $sujetUid })
-          SET s.title = coalesce($title, s.title),
-              s.status = coalesce($status, s.status),
-              s.category = coalesce($category, s.category),
-              s.updatedAt = datetime($now)
-          
-          WITH s
-          OPTIONAL MATCH (s)-[r:OFFERS_PRODUCT]->(oldProd:Product)
-          FOREACH (_ IN CASE WHEN $productId IS NULL AND r IS NOT NULL THEN [1] ELSE [] END | DELETE r)
-          
-          WITH s
-          FOREACH (_ IN CASE WHEN $productId IS NOT NULL THEN [1] ELSE [] END |
-            MERGE (newProd:Product {uid: $productId})
-            MERGE (s)-[:OFFERS_PRODUCT]->(newProd)
-          )
+      // On met à jour le Graphe et on récupère les abonnés si on vient de publier ou si des méta importantes changent
+      const cypher = `
+        MATCH (s:Sujet { uid: $sujetUid })
+        SET s.title = coalesce($title, s.title),
+            s.status = coalesce($status, s.status),
+            s.category = coalesce($category, s.category),
+            s.updatedAt = datetime($now)
+        
+        WITH s
+        OPTIONAL MATCH (s)-[r:OFFERS_PRODUCT]->(oldProd:Product)
+        FOREACH (_ IN CASE WHEN $productId IS NULL AND r IS NOT NULL THEN [1] ELSE [] END | DELETE r)
+        
+        WITH s
+        FOREACH (_ IN CASE WHEN $productId IS NOT NULL THEN [1] ELSE [] END |
+          MERGE (newProd:Product {uid: $productId})
+          MERGE (s)-[:OFFERS_PRODUCT]->(newProd)
+        )
 
-          RETURN s
-        `, { 
-          sujetUid: existing.uid, 
-          title: updates.title || null,
-          status: updates.status || null, 
-          category: updates.category || null,
-          productId: updates.merchLink?.productId || null,
-          now: now.toISOString()
-        });
-      }
+        WITH s
+        MATCH (author:User { uid: $authorUid })
+        OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(author)
+        RETURN s, collect(DISTINCT follower.uid) AS followerUids
+      `;
+
+      neoResult = await neo4jTx.run(cypher, { 
+        sujetUid: existing.uid, 
+        authorUid: existing.authorUid,
+        title: updates.title || null,
+        status: updates.status || null, 
+        category: updates.category || null,
+        productId: updates.merchLink?.productId || null,
+        now: now.toISOString()
+      });
 
       return { success: true, status: 'success', mongo: updatedSujet, neo4j: neoResult };
     });
+
+    // 🌿 3. LA CANOPÉE TAMPON (Post-Mutation : Si le sujet vient d'être publié via une mise à jour de brouillon)
+    if (txResult.success && justPublished && txResult.neo4j) {
+      const records = txResult.neo4j.records;
+      if (records.length > 0) {
+        const followerUids = records[0].get('followerUids') || [];
+        
+        if (followerUids.length > 0) {
+          Promise.allSettled(followerUids.map((uid: string) => 
+            this.notificationOrchestrator.fosterNotification({
+              recipientUid: uid,
+              senderUid: signature.actorUid,
+              category: 'TEXT',
+              type: 'NEW_SUJET',
+              payload: {
+                title: "Pensée publiée dans la matrice",
+                message: `L'Oiseau a publié un nouveau monologue : ${txResult.mongo?.title}`,
+                targetUrl: `/abyss-blog/${txResult.mongo?.slug}`,
+                targetUid: txResult.mongo?.uid,
+                targetType: 'SUJET'
+              }
+            }, signature)
+          )).catch(e => console.error("[Canopée] Erreur lors de la distribution des échos sur update:", e));
+        }
+      }
+    }
+
+    return txResult;
   }
 
   /**

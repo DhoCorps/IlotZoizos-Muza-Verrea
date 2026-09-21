@@ -25,12 +25,14 @@ export type NotificationCategory = z.infer<typeof NotificationCategorySchema>;
  */
 export const NotificationPayloadSchema = z.object({
   title: z.string().optional(),
-  message: z.string().min(1, "Le message de l'alerte ne peut être vide."),
-  targetUrl: z.string().optional(), // Lien cliquable vers l'oeuvre ou le profil
+  
+  // On ajoute { required_error: ... } pour gérer l'absence totale du champ
+  message: z.string({ required_error: "Le message de l'alerte ne peut être vide." })
+            .min(1, "Le message de l'alerte ne peut être vide."),
+            
+  targetUrl: z.string().optional(),
   targetUid: z.string().uuid().optional(),
   targetType: z.string().optional(),
-  
-  // Clé magique pour le Digest : indique que cette carte résume X actions mineures
   groupedCount: z.number().int().min(1).optional(), 
 });
 

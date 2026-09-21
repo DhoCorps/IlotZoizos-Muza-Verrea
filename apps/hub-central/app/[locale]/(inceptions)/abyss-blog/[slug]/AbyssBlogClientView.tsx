@@ -69,7 +69,9 @@ export default function AbyssBlogClientView({ sujet, initialComments }: AbyssBlo
   useEffect(() => {
     if (sujet?.media?.audioTrackUrl) {
       audioRef.current = new Audio(sujet.media.audioTrackUrl);
-      audioRef.current.onended = () => setIsPlayingAudio(false);
+      if (audioRef.current) {
+        audioRef.current.onended = () => setIsPlayingAudio(false);
+      }
       
       return () => {
         if (audioRef.current) {
@@ -142,7 +144,6 @@ export default function AbyssBlogClientView({ sujet, initialComments }: AbyssBlo
               <span className="text-xs font-mono text-slate-500 flex items-center gap-1.5"><Calendar size={12} /> {new Date(sujet.createdAt).toLocaleDateString()}</span>
             </div>
             
-            {/* 🟢 Affichage des Tags sur la page de lecture */}
             {sujet.tags && sujet.tags.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {sujet.tags.map((tag: string, idx: number) => (
