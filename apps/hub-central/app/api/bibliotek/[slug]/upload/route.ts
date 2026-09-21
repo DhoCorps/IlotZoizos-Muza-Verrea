@@ -3,7 +3,6 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, NextRequest } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
 import { LibraryBookModel, findEntityBySlugOrUid, ILibraryBook } from '@ilot/infrastructure';
-import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, withRateLimit, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
@@ -25,10 +24,16 @@ function revalidateBibliotekCascades(book: { slug?: string; uid?: string }) {
 // ==========================================
 // POST : Verser un manuscrit ou une couverture sur le Nexus R2
 // ==========================================
-export const POST = withRateLimit('upload-bibliotek', 10, 60, withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
+export const POST = withRateLimit('upload-bibliotek', 10, 60, withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 🛡️ Résolution asynchrone sécurisée des paramètres de route
-    const resolvedParams = await Promise.resolve(context.params);
+    // 🛡️ Résolution asynchrone sécurisée des paramètres de route (Standard Next.js 15)
+    let resolvedParams: { slug?: string | string[] } | undefined;
+    try {
+      resolvedParams = await context.params;
+    } catch {
+      return NextResponse.json({ success: false, error: "Paramètres de route invalides." }, { status: 400 });
+    }
+
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
@@ -147,10 +152,16 @@ export const POST = withRateLimit('upload-bibliotek', 10, 60, withAura(async (re
 // ==========================================
 // DELETE : Désintégrer un artefact du Sanctuaire (Strictement Privé / Aura)
 // ==========================================
-export const DELETE = withAura(async (req: NextRequest | Request, context: ApiContext, currentUser: OiseauUser) => {
+export const DELETE = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     // 🛡️ Résolution asynchrone sécurisée des paramètres de route
-    const resolvedParams = await Promise.resolve(context.params);
+    let resolvedParams: { slug?: string | string[] } | undefined;
+    try {
+      resolvedParams = await context.params;
+    } catch {
+      return NextResponse.json({ success: false, error: "Paramètres de route invalides." }, { status: 400 });
+    }
+
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
     if (!identifier) {

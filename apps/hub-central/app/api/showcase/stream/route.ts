@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
-import { UniversalMediaType } from '@ilot/types';
+import { SourceApp } from '@ilot/types';
 import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedStream } from '@/lib/cache/showcase.cache';
 import { z } from 'zod';
@@ -27,7 +27,7 @@ export const GET = withAura(async (req: NextRequest, _context: ApiContext, curre
     const onlyTradable = url.searchParams.get('onlyTradable') === 'true';
 
     // Validation optionnelle ou typage des apps via Zod si nécessaire
-    const selectedApps = rawApps as UniversalMediaType[];
+    const selectedApps = rawApps as SourceApp[];
 
     const filters = {
       selectedApps,

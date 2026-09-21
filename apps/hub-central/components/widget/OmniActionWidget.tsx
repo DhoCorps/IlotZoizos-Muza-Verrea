@@ -1,4 +1,3 @@
-// apps/hub-central/components/omni-widget/OmniActionWidget.tsx
 'use client';
 
 import React, { useState } from 'react';
@@ -33,7 +32,7 @@ export const OmniActionWidget: React.FC<OmniActionWidgetProps> = ({
             {media.thumbnailUrl ? (
               <img src={media.thumbnailUrl} alt={media.title} className="w-16 h-16 rounded-lg object-cover border border-slate-700" />
             ) : (
-              <div className="w-16 h-16 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-500">
+              <div className="w-16 h-16 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-500 font-bold text-xs">
                 {media.sourceApp}
               </div>
             )}
@@ -45,7 +44,11 @@ export const OmniActionWidget: React.FC<OmniActionWidgetProps> = ({
               </span>
             </div>
           </div>
-          <button onClick={onClose} className="text-slate-500 hover:text-red-400 transition-colors">
+          <button 
+            data-testid="close-widget-btn" 
+            onClick={onClose} 
+            className="text-slate-500 hover:text-red-400 transition-colors"
+          >
             <X size={24} />
           </button>
         </div>
@@ -103,7 +106,6 @@ const TabButton = ({ active, onClick, icon, label }: any) => (
 const ResonanceModule = ({ mediaId }: { mediaId: string }) => (
   <div className="space-y-4">
     <p className="text-sm text-slate-400">Échos et vibrations de la canopée...</p>
-    {/* Ici viendrait la liste des commentaires et le champ de saisie relié à l'API ResonanceOrchestrator */}
   </div>
 );
 

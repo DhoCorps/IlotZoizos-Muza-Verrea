@@ -2,7 +2,9 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { AnnotationModel, LibraryBookModel, findEntityBySlugOrUid, ILibraryBook } from '@ilot/infrastructure';
+import { UniversalCommentOrchestrator } from '@ilot/shared-core'; // 🌟 Import de l'Orchestrateur
 import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
+import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { randomUUID } from 'crypto';
 import { revalidateTag } from 'next/cache';
@@ -73,7 +75,25 @@ export const POST = withAura(async (req: NextRequest, context: ApiContext, curre
     }
 
     const { selectedText, comment, importance, chapterReference } = validationResult.data;
+    const signature: ActionSignature = { actorUid: currentUser.uid, capabilities: currentUser.capabilities || [] };
 
+    // 🌟 1. PASSAGE PAR L'ORCHESTRATEUR UNIVERSEL
+    try {
+      const orchestrator = new UniversalCommentOrchestrator();
+      const formattedContent = `> ${selectedText}\n\n${comment || '*Fulgurance silencieuse.*'}`;
+      
+      await orchestrator.fosterComment({
+        targetUid: book.uid,
+        targetType: 'BOOK' as any,
+        content: formattedContent
+      }, signature);
+    } catch (orchErr: unknown) {
+      const errObj = orchErr as { statusCode?: number; status?: number; message?: string };
+      const status = errObj.statusCode || errObj.status || 500;
+      return NextResponse.json({ success: false, error: errObj.message || "La matrice rejette cette résonance." }, { status });
+    }
+
+    // 📖 2. CONSIGNATION DANS LE CODEX (Base de données locale)
     const annotationUid = `annot_${randomUUID()}`;
     const newAnnotation = await AnnotationModel.create({
       uid: annotationUid,

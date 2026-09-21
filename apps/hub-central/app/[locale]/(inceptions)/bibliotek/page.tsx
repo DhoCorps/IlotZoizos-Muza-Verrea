@@ -60,8 +60,13 @@ export default function BibliotekPage() {
     }
   });
 
-  const handleSaveScriptorium = async (formData: { title: string; content: string; writingType: string; style: string }) => {
-    await fosterBookMutation.mutateAsync(formData);
+const handleSaveScriptorium = async (formData: { title: string; content: string; writingType: string; style: string }) => {
+    try {
+      await fosterBookMutation.mutateAsync(formData);
+    } catch {
+      // L'erreur est gérée par le callback `onError` de la mutation (affichage du toast),
+      // le try/catch l'empêche simplement de remonter et de provoquer un rejet global non intercepté.
+    }
   };
 
   return (

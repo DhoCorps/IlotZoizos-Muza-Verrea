@@ -6,7 +6,8 @@ import { randomUUID } from 'crypto';
 import { generateSlug } from '../utils/string.engine';
 import { generateFileHash } from '../utils/crypto.engine';
 import { findEntityBySlugOrUid } from '@ilot/infrastructure';
-import { ensureUniqueSlug } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
+import { ensureUniqueSlug } from '../utils/orchestrator.engine'; 
+import { NotificationOrchestrator } from './notification.orchestrator'; // 🌿 Injection de la Canopée
 
 // Interface d'injection pour le service de stockage
 interface IStorageManager {
@@ -21,7 +22,7 @@ export interface BibliotekSyncResult {
     digitalSignature?: string;
     timestampedAt?: Date;
   };
-  neo4j: unknown;
+  neo4j: any;
 }
 
 export interface FosterBookPayload {
@@ -44,17 +45,18 @@ export interface FosterBookPayload {
 /**
  * BIBLIOTEK ORCHESTRATOR
  * Gère la sédimentation des ouvrages littéraires, l'application du Sceau SHA-256 d'antériorité
- * et leur tissage dans le Graphe Neo4j (via la recherche unifiée).
+ * et leur tissage dans le Graphe Neo4j, ainsi que l'alimentation de la Canopée Tampon.
  */
 export class BibliotekOrchestrator {
   private storageService: IStorageManager;
+  private notificationOrchestrator: NotificationOrchestrator; // 🌿 Le cerveau des notifications
 
-  constructor(customStorageService?: IStorageManager) {
-    // Par défaut (pour les tests), on injecte un mock silencieux
+  constructor(customStorageService?: IStorageManager, notificationOrchestrator?: NotificationOrchestrator) {
     this.storageService = customStorageService || {
       deleteFile: async () => ({ success: true }),
       extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
     };
+    this.notificationOrchestrator = notificationOrchestrator || new NotificationOrchestrator();
   }
 
   /**
@@ -70,15 +72,13 @@ export class BibliotekOrchestrator {
       throw new IlotError("Un ouvrage nécessite au moins un titre et une source sur le Nexus.", "BAD_REQUEST", 400);
     }
 
-    return await TransactionManager.execute("Fondation d'Ouvrage Bibliotek", async (mongoSession, neo4jTx) => {
+    const txResult = await TransactionManager.execute("Fondation d'Ouvrage Bibliotek", async (mongoSession, neo4jTx) => {
       const bookUid = data.uid || `book_${randomUUID()}`;
       const title = data.title;
 
-      // Sécurisation de l'unicité du slug dans la Silice via l'utilitaire global partagé
       const baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
       const finalSlug = await ensureUniqueSlug(LibraryBookModel, baseSlug, mongoSession);
 
-      // 🪡 Génération du Sceau Cryptographique (SHA-256) d'antériorité via l'utilitaire partagé
       const canonicalContent = JSON.stringify({
         title: title,
         authorUid: signature.actorUid,
@@ -88,7 +88,6 @@ export class BibliotekOrchestrator {
       });
       const digitalSignature = generateFileHash(canonicalContent);
       
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
       const newBookData = {
@@ -114,7 +113,7 @@ export class BibliotekOrchestrator {
       // 1. Sédimentation dans la Silice (MongoDB)
       const [newBook] = await LibraryBookModel.create([newBookData], { session: mongoSession });
 
-      // 2. Tissage dans le Graphe (Neo4j) avec MATCH strict sur l'auteur canonique et horodatage synchronisé
+      // 2. Tissage dans le Graphe (Neo4j) & 🌿 Récupération des abonnés
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (b:LibraryBook {
@@ -128,7 +127,9 @@ export class BibliotekOrchestrator {
             createdAt: datetime($now)
         })
         CREATE (u)-[:WROTE]->(b)
-        RETURN b
+        WITH b, u
+        OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(u)
+        RETURN b, collect(DISTINCT follower.uid) AS followerUids
       `;
 
       const neoResult = await neo4jTx.run(cypher, {
@@ -154,13 +155,40 @@ export class BibliotekOrchestrator {
         neo4j: neoResult
       };
     });
+
+    // 🌿 3. LA CANOPÉE TAMPON (Post-Transaction, non-bloquant)
+    if (txResult.success && txResult.neo4j) {
+      const records = txResult.neo4j.records;
+      if (records.length > 0) {
+        const followerUids = records[0].get('followerUids') || [];
+        
+        if (followerUids.length > 0) {
+          Promise.allSettled(followerUids.map((uid: string) => 
+            this.notificationOrchestrator.fosterNotification({
+              recipientUid: uid,
+              senderUid: signature.actorUid,
+              category: 'TEXT',
+              type: 'NEW_BOOK',
+              payload: {
+                title: "Nouvel Ouvrage dans le Sanctuaire",
+                message: `L'Oiseau a scellé un nouveau manuscrit : ${txResult.mongo?.title}`,
+                targetUrl: `/bibliotek/${txResult.mongo?.slug}`,
+                targetUid: txResult.mongo?.uid,
+                targetType: 'BOOK'
+              }
+            }, signature)
+          )).catch(e => console.error("[Canopée Bibliotek] Erreur lors de la distribution des échos:", e));
+        }
+      }
+    }
+
+    return txResult;
   }
 
   /**
    * 🧬 MUTATION : METTRE À JOUR UN OUVRAGE
    */
   async updateBook(bookIdentifier: string, updates: Record<string, unknown>, signature: ActionSignature): Promise<BibliotekSyncResult> {
-    // Utilisation de la recherche unifiée par Slug ou UID
     const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as ILibraryBook | null;
     if (!existing) {
       throw new IlotError("Ouvrage introuvable dans la Silice.", "NOT_FOUND", 404);
@@ -171,7 +199,7 @@ export class BibliotekOrchestrator {
       throw new IlotError("Tu ne peux modifier que tes propres ouvrages.", "FORBIDDEN", 403);
     }
 
-    return await TransactionManager.execute("Mutation d'Ouvrage Bibliotek", async (mongoSession, neo4jTx) => {
+    const txResult = await TransactionManager.execute("Mutation d'Ouvrage Bibliotek", async (mongoSession, neo4jTx) => {
       const now = new Date();
       
       const updatedBook = await LibraryBookModel.findOneAndUpdate(
@@ -182,6 +210,7 @@ export class BibliotekOrchestrator {
 
       let neoResult = null;
       if (updates.title || updates.writingType || updates.style || updates.format) {
+        // 🌿 Mise à jour du nœud et récupération des abonnés
         neoResult = await neo4jTx.run(`
           MATCH (b:LibraryBook { uid: $bookUid })
           SET b.title = coalesce($title, b.title),
@@ -189,9 +218,13 @@ export class BibliotekOrchestrator {
               b.style = coalesce($style, b.style),
               b.format = coalesce($format, b.format),
               b.updatedAt = datetime($now)
-          RETURN b
+          WITH b
+          MATCH (author:User { uid: $authorUid })
+          OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(author)
+          RETURN b, collect(DISTINCT follower.uid) AS followerUids
         `, {
           bookUid: existing.uid,
+          authorUid: existing.authorUid, // Requis pour cibler les followers
           title: updates.title || null,
           writingType: updates.writingType || null,
           style: updates.style || null,
@@ -207,13 +240,40 @@ export class BibliotekOrchestrator {
         neo4j: neoResult
       };
     });
+
+    // 🌿 3. LA CANOPÉE TAMPON (Avertir d'une mise à jour majeure)
+    if (txResult.success && txResult.neo4j) {
+      const records = txResult.neo4j.records;
+      if (records.length > 0) {
+        const followerUids = records[0].get('followerUids') || [];
+        
+        if (followerUids.length > 0) {
+          Promise.allSettled(followerUids.map((uid: string) => 
+            this.notificationOrchestrator.fosterNotification({
+              recipientUid: uid,
+              senderUid: signature.actorUid,
+              category: 'SYSTEM',
+              type: 'UPDATED_BOOK',
+              payload: {
+                title: "Manuscrit retouché",
+                message: `L'Oiseau a apporté des modifications à l'ouvrage : ${txResult.mongo?.title}`,
+                targetUrl: `/bibliotek/${txResult.mongo?.slug}`,
+                targetUid: txResult.mongo?.uid,
+                targetType: 'BOOK'
+              }
+            }, signature)
+          )).catch(e => console.error("[Canopée Bibliotek] Erreur d'écho sur update:", e));
+        }
+      }
+    }
+
+    return txResult;
   }
 
   /**
    * 🌋 DÉSINTRÉGRATION : PURGER UN OUVRAGE DU SANCTUAIRE
    */
   async disintegrateBook(bookIdentifier: string, signature: ActionSignature): Promise<{ success: boolean; purgedCount: number }> {
-    // Utilisation de la recherche unifiée par Slug ou UID
     const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as ILibraryBook | null;
     if (!existing) {
       throw new IlotError("Ouvrage introuvable.", "NOT_FOUND", 404);
@@ -229,7 +289,6 @@ export class BibliotekOrchestrator {
       if (existing.fileUrl) filesToDelete.push(this.storageService.extractKeyFromUrl(existing.fileUrl));
       if (existing.coverUrl) filesToDelete.push(this.storageService.extractKeyFromUrl(existing.coverUrl));
 
-      // ⚡ Parallélisation massive de la purge physique S3/R2
       await Promise.all(
         filesToDelete.map(async (key) => {
           try {
@@ -240,9 +299,7 @@ export class BibliotekOrchestrator {
         })
       );
 
-      // Détachement relationnel et suppression dans le Graphe
       await neo4jTx.run(`MATCH (b:LibraryBook { uid: $bookUid }) DETACH DELETE b`, { bookUid: existing.uid });
-      // Suppression dans la Silice
       await LibraryBookModel.deleteOne({ uid: existing.uid }, { session: mongoSession });
 
       return { success: true, purgedCount: 1 };

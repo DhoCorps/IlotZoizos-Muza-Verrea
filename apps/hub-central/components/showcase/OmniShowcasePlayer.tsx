@@ -4,14 +4,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, Play, Pause, SkipForward, Settings2, Share2, Music, Volume2, VolumeX, BookOpen, Disc } from 'lucide-react';
-import { IUniversalMediaItem, UniversalMediaType } from '@ilot/types';
+import { IUniversalMediaItem, SourceApp } from '@ilot/types';
 import { OmniActionWidget } from '../widget/OmniActionWidget';
 
 interface OmniShowcasePlayerProps {
   userUid: string;
 }
 
-const APPS_AVAILABLE: { id: UniversalMediaType; label: string }[] = [
+const APPS_AVAILABLE: { id: SourceApp; label: string }[] = [
   { id: 'ABYSS', label: 'AbyssBlog' },
   { id: 'PARTITA', label: 'Partita' },
   { id: 'LETRIN', label: 'Letr\'in' },
@@ -100,7 +100,7 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
   const [isMuted, setIsMuted] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  const [selectedApps, setSelectedApps] = useState<UniversalMediaType[]>([]);
+  const [selectedApps, setSelectedApps] = useState<SourceApp[]>([]);
   const [onlyTradable, setOnlyTradable] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [isWidgetOpen, setWidgetOpen] = useState(false);
@@ -189,7 +189,7 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
     setCurrentIndex((prev) => (prev + 1) % playlist.length);
   };
 
-  const toggleFilter = (app: UniversalMediaType) => {
+  const toggleFilter = (app: SourceApp) => {
     setSelectedApps(prev => 
       prev.includes(app) ? prev.filter(a => a !== app) : [...prev, app]
     );

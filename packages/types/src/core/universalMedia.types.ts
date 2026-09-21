@@ -12,7 +12,8 @@ export type MediaType = z.infer<typeof MediaTypeEnum>;
 export const SourceAppEnum = z.enum([
   'PARTITA', 
   'LETRIN', 
-  'ABYSS', 
+  'ABYSS',
+  'BIBLIOTEK', 
   'DHO', 
   'GALLERY', 
   'SPRITE',

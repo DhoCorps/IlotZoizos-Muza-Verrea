@@ -37,6 +37,17 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
+// 🌿 MOCK PRÉVENTIF : Empêche l'orchestrateur de tenter de charger la Canopée dans le vide
+vi.mock('@ilot/shared-core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/shared-core')>();
+  return {
+    ...actual,
+    NotificationOrchestrator: vi.fn().mockImplementation(() => ({
+      fosterNotification: vi.fn().mockResolvedValue({ success: true })
+    }))
+  };
+});
+
 declare global {
   // 🛡️ Harmonisation stricte de la signature d'index pour correspondre à auth.user.update.test.ts
   var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;

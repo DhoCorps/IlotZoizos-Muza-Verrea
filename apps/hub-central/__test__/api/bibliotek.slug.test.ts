@@ -6,6 +6,9 @@ import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
 import type { ApiContext } from '@/lib/api-guards';
 
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
+// -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
@@ -40,11 +43,23 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
+// 🌿 MOCK PRÉVENTIF DE LA CANOPÉE POUR ISOLER L'ORCHESTRATEUR
+vi.mock('@ilot/shared-core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/shared-core')>();
+  return {
+    ...actual,
+    NotificationOrchestrator: vi.fn().mockImplementation(() => ({
+      fosterNotification: vi.fn().mockResolvedValue({ success: true })
+    }))
+  };
+});
+
 declare global {
   // 🛡️ Harmonisation stricte de la signature d'index globale de __mockUser
   var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
+// 🛡️ Typage ajusté pour s'adapter à la résolution asynchrone des params (Next.js 15)
 type RouteHandler = (req: NextRequest, ctx: { params: Promise<{ slug?: string | string[] }> }) => Promise<Response>;
 
 describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
@@ -56,6 +71,7 @@ describe('API Bibliotek - Ouvrage Individuel ([slug])', () => {
     vi.clearAllMocks();
     delete global.__mockUser;
 
+    // Espionnage direct du prototype pour que l'instanciation fonctionne
     vi.spyOn(BibliotekOrchestrator.prototype, 'updateBook').mockResolvedValue({
       success: true,
       status: 'success',

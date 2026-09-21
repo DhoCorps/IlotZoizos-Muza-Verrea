@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/bibliotek/[slug]/annotations/route';
 import { AnnotationModel, LibraryBookModel } from '@ilot/infrastructure';
+import { UniversalCommentOrchestrator } from '@ilot/shared-core'; // 🌟 Import de l'Orchestrateur
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
 import type { ApiContext } from '@/lib/api-guards'; // 🛡️ Import explicite pour éliminer l'erreur ApiContext
@@ -56,6 +57,14 @@ describe('API Bibliotek - Sous-route Annotations ([slug]/annotations)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete global.__mockUser;
+
+    // 🌟 ESPIONNAGE DU PROTOTYPE (Mock sécurisé pour Vitest)
+    vi.spyOn(UniversalCommentOrchestrator.prototype, 'fosterComment').mockResolvedValue({
+      success: true,
+      isJackpot: false,
+      mongo: { uid: 'mocked_resonance' } as any,
+      neo4j: {} as any
+    });
   });
 
   it('🟢 GET : doit lister les notes associées au livre par son slug', async () => {
@@ -82,7 +91,7 @@ describe('API Bibliotek - Sous-route Annotations ([slug]/annotations)', () => {
     expect(json.data[0].selectedText).toBe('Extrait Spinoza');
   });
 
-  it('🟢 POST : doit créer une note rattachée au livre résolu par son slug (201)', async () => {
+  it('🟢 POST : doit vérifier la résonance via l\'Orchestrateur et consigner la note rattachée au livre (201)', async () => {
     global.__mockUser = { uid: 'bird_reader', capabilities: [] };
 
     vi.mocked(LibraryBookModel.findOne).mockReturnValue({
@@ -114,5 +123,45 @@ describe('API Bibliotek - Sous-route Annotations ([slug]/annotations)', () => {
     expect(json.success).toBe(true);
     expect(json.data.uid).toBe('annot_new');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek-annotations');
+    
+    // On s'assure que l'orchestrateur a été sollicité avec le bon format
+    expect(UniversalCommentOrchestrator.prototype.fosterComment).toHaveBeenCalledWith(
+      expect.objectContaining({ targetUid: 'book_999' }),
+      expect.any(Object)
+    );
+  });
+
+  it('🔴 POST : doit rejeter si l\'Orchestrateur Universel refuse la résonance (ex: pas d\'acte d\'amour)', async () => {
+    global.__mockUser = { uid: 'bird_reader', capabilities: [] };
+
+    vi.mocked(LibraryBookModel.findOne).mockReturnValue({
+      lean: vi.fn().mockResolvedValue({
+        uid: 'book_999',
+        title: 'Traité de Philosophie'
+      })
+    } as unknown as ReturnType<typeof LibraryBookModel.findOne>);
+
+    // On simule un rejet (403) de la part de l'orchestrateur
+    vi.spyOn(UniversalCommentOrchestrator.prototype, 'fosterComment').mockRejectedValueOnce({
+      status: 403,
+      message: "Le droit de critiquer s'achète par un acte d'amour."
+    });
+
+    const req = new NextRequest('http://localhost:3000/api/bibliotek/traite/annotations', {
+      method: 'POST',
+      body: JSON.stringify({
+        selectedText: 'Texte sans amour',
+      })
+    });
+
+    const res = await postHandler(req, { params: Promise.resolve({ slug: 'traite' }) });
+    const json = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(json.success).toBe(false);
+    expect(json.error).toContain("acte d'amour");
+
+    // L'enregistrement local en base MongoDB a bien été bloqué
+    expect(AnnotationModel.create).not.toHaveBeenCalled();
   });
 });

@@ -6,6 +6,7 @@ import { Link } from '@/navigation';
 import { ChapeauProvider } from '@/context/ChapeauContext';
 import { FloatingChapeau } from '@/components/chapeau/FloatingChapeau';
 import CanopyAwardsWidget from '@/components/canopy/CanopyAwardsWidget'; // 🏆 Import du widget Panthéon
+import { NotificationDropdown } from '@/components/global/NotificationDropdown'; // 🔔 Import de la cloche de notification
 
 export default function AppRootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -21,10 +22,14 @@ export default function AppRootLayout({ children }: { children: React.ReactNode 
                 Îlot Zoizos
               </span>
             </Link>
+            
             <div className="flex items-center gap-4 text-xs font-mono text-slate-400">
               <span className="hidden sm:inline-flex items-center gap-1.5 text-emerald-400">
                 <Sparkles size={12} /> Matrice Synaptique Active
               </span>
+
+              {/* 🔔 Le Journal de la Canopée (Cloche de notification) intégré dans le header */}
+              <NotificationDropdown />
             </div>
           </div>
         </header>

@@ -1,6 +1,6 @@
 // packages/types/src/__tests__/showcase.types.test.ts
 import { describe, it, expect } from 'vitest';
-import { IUniversalMediaItem, ShowcaseFilterOptions, UniversalMediaType } from '../core/showcase.types';
+import { IUniversalMediaItem, ShowcaseFilterOptions, SourceApp } from '@ilot/types';
 
 describe('Showcase Types - Validation des structures et typages de la Canopée', () => {
   it('doit valider la structure complète d\'un IUniversalMediaItem', () => {
@@ -26,7 +26,7 @@ describe('Showcase Types - Validation des structures et typages de la Canopée',
   });
 
   it('doit accepter l\'ensemble des types d\'applications supportés (UniversalMediaType)', () => {
-    const supportedApps: UniversalMediaType[] = ['PARTITA', 'LETRIN', 'ABYSS', 'DHO', 'GALLERY', 'SPRITE'];
+    const supportedApps: SourceApp[] = ['PARTITA', 'LETRIN', 'ABYSS', 'DHO', 'GALLERY', 'SPRITE'];
 
     expect(supportedApps).toHaveLength(6);
     expect(supportedApps).toContain('PARTITA');

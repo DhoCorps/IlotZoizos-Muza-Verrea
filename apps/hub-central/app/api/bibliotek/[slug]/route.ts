@@ -104,6 +104,7 @@ export const PUT = withAura(async (req: NextRequest, context: ApiContext, curren
 
     let updatedBook: BibliotekSyncResult;
     try {
+      // 🌿 L'Orchestrateur se charge de la modification et notifie la Canopée si besoin
       const bibliotekOrch = new BibliotekOrchestrator();
       updatedBook = await bibliotekOrch.updateBook(targetBook.uid, sanitizedData, signature);
     } catch (orchErr: unknown) {

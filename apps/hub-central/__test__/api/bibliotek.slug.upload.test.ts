@@ -5,8 +5,11 @@ import { checkRateLimit } from '@/modules/security/rateLimiter';
 import { LibraryBookModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
-import type { ApiContext } from '@/lib/api-guards';
+import type { ApiContext } from '@/lib/api-guards'; // 🛡️ Import explicite
 
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
+// -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
@@ -60,6 +63,7 @@ vi.mock('@/lib/slugify', () => ({
 }));
 
 declare global {
+  // 🛡️ Harmonisation stricte de la signature d'index
   var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 

@@ -1,10 +1,10 @@
 // infrastructure/src/database/services/universalMediaRegistry.ts
 import { UniversalMediaModel } from '../models/nosql/universalMedia.model';
-import { UniversalMediaType } from '@ilot/types';
+import { SourceApp } from '@ilot/types';
 
 export interface IndexMediaPayload {
   mediaId: string;
-  sourceApp: UniversalMediaType;
+  sourceApp: SourceApp;
   ownerUid: string;
   ownerSlug: string;
   title: string;

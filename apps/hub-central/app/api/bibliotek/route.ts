@@ -84,6 +84,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
 
     let result: BibliotekSyncResult;
     try {
+      // 🌿 L'Orchestrateur prend le relais : Sédimentation, Graphe, Sceau SHA-256 ET Canopée Tampon
       const bibliotekOrch = new BibliotekOrchestrator();
       const dataToForge = { 
         ...validatedData, 

@@ -1,5 +1,5 @@
 import { UniversalMediaModel, OiseauModel } from '@ilot/infrastructure';
-import { IUniversalMediaItem, ShowcaseFilterOptions, UniversalMediaType } from '@ilot/types';
+import { IUniversalMediaItem, ShowcaseFilterOptions, SourceApp } from '@ilot/types';
 import { UserShowcaseShuffler } from '../utils/userShowcaseShuffler';
 import { IlotError } from '../errors/ilot.errors';
 import { resolveCanonicalUid } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
@@ -53,7 +53,7 @@ export class ShowcaseOrchestrator {
       // Conversion en objets typés propres avec assertion stricte de sourceApp vers UniversalMediaType
       const mediaItems: IUniversalMediaItem[] = rawItems.map((item) => ({
         mediaId: item.mediaId,
-        sourceApp: item.sourceApp as UniversalMediaType,
+        sourceApp: item.sourceApp as SourceApp,
         ownerUid: item.ownerUid,
         ownerSlug: item.ownerSlug,
         title: item.title,
