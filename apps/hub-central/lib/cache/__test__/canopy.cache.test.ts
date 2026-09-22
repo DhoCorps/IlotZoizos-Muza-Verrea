@@ -1,4 +1,3 @@
-// Fichier : __test__/cache/canopy.cache.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { 
   getCachedSubsidies, 
@@ -8,7 +7,6 @@ import {
 } from '@/lib/cache/canopy.cache';
 import { SubsidyModel, MessageModel, CanopyAwardModel } from '@ilot/infrastructure';
 import { CanopySubsidyOrchestrator } from '@ilot/shared-core';
-import { unstable_cache } from 'next/cache';
 
 vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb) => cb),
@@ -26,9 +24,11 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
+// 🛡️ Mock de la classe ES6 CanopySubsidyOrchestrator et de sa méthode d'instance castVote
+const mockCastVote = vi.fn();
 vi.mock('@ilot/shared-core', () => ({
-  CanopySubsidyOrchestrator: {
-    voteForSubsidy: vi.fn(),
+  CanopySubsidyOrchestrator: class {
+    castVote = mockCastVote;
   },
 }));
 
@@ -54,12 +54,15 @@ describe('Cache : Canopy Cache Helpers', () => {
     expect(SubsidyModel.find).toHaveBeenCalledWith({});
   });
 
-  it('doit exécuter le vote de subvention directement en mode test', async () => {
-    vi.mocked(CanopySubsidyOrchestrator.voteForSubsidy).mockResolvedValueOnce(undefined as any);
+  it('doit exécuter le vote de subvention directement en mode test via l\'orchestrateur', async () => {
+    mockCastVote.mockResolvedValueOnce(undefined as any);
 
     await executeCachedVote('sub_1', 'bird_test_1');
 
-    expect(CanopySubsidyOrchestrator.voteForSubsidy).toHaveBeenCalledWith('sub_1', 'bird_test_1');
+    expect(mockCastVote).toHaveBeenCalledWith('sub_1', {
+      actorUid: 'bird_test_1',
+      capabilities: []
+    });
   });
 
   it('doit récupérer les stats globales de la canopée', async () => {

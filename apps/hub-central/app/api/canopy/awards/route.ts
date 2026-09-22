@@ -15,7 +15,7 @@ export const GET = withSilice(async (req: Request, _context: ApiContext) => {
     
     return NextResponse.json({ success: true, awards }, { status: 200 });
   } catch (error: unknown) {
-    // 🛡️ Utilisation du gestionnaire d'erreur global (zéro 'any')
-    return handleRouteError(error, "Erreur interne lors de la récupération des trophées.");
+    // 🛡️ Transmission sécurisée d'un message textuel explicite via le gestionnaire global unifié ({ success: false, error: "..." })
+    return handleRouteError(error, "Erreur interne lors de la récupération des trophées de la canopée.");
   }
 });

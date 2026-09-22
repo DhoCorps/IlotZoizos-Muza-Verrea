@@ -1,7 +1,7 @@
-// Fichier : lib/cache/canopy.cache.ts
 import { unstable_cache } from 'next/cache';
 import { SubsidyModel, MessageModel, CanopyAwardModel, IMessageDocument } from '@ilot/infrastructure';
 import { CanopySubsidyOrchestrator } from '@ilot/shared-core';
+import { ActionSignature } from '@ilot/types';
 
 // -------------------------------------------------------------------------
 // 1. SUBSIDIES (Subventions)
@@ -28,15 +28,19 @@ export async function executeCachedVote(subsidyId: string, userId: string) {
   }
 
   const performer = async () => {
-    return await CanopySubsidyOrchestrator.voteForSubsidy(subsidyId, userId);
+    // 🛡️ Correction : Utilisation de l'instance de CanopySubsidyOrchestrator et de castVote avec sa signature
+    const orchestrator = new CanopySubsidyOrchestrator();
+    const signature: ActionSignature = {
+      actorUid: userId,
+      capabilities: []
+    };
+    return await orchestrator.castVote(subsidyId, signature);
   };
 
   if (process.env.NODE_ENV === 'test') {
     return await performer();
   }
 
-  // Note : Une action d'écriture/vote ne devrait pas idéalement être cachée via unstable_cache de la sorte, 
-  // mais on conserve le pattern avec une clé dynamisée par vote pour éviter les collisions de cache.
   const cacheKey = `canopy-subsidy-vote-${subsidyId}-${userId}`;
   const cachedAction = unstable_cache(
     performer,

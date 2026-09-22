@@ -1,23 +1,37 @@
 import React from 'react';
+import { Metadata } from 'next';
 import { RESOURCE_REGISTRY } from '@/constants/resources.config';
 import { AssetType } from '@ilot/types';
-import { CanopySubsidySection } from '@/components/canopy/CanopySubsidySection';
-import { KomptaLedgerService } from '@ilot/infrastructure';
-import { SubsidyModel } from '@ilot/infrastructure';
+import { CanopySubsidySection, Subsidy } from '@/components/canopy/CanopySubsidySection';
+import { KomptaLedgerService, SubsidyModel } from '@ilot/infrastructure';
+import { getCachedSubsidies } from '@/lib/cache/canopy.cache';
 
-// Simulation de récupération des données de la Banque Centrale
+// 🌐 1. Génération des balises SEO & OpenGraph (Statique pour la Banque)
+export const metadata: Metadata = {
+  title: "La Réserve de la Canopée | L'Îlot Zoizos",
+  description: "Le coffre-fort vivant de l’Îlot. Découvrez les fruits des paris manqués et la réserve souveraine, redistribués selon la conscience de la communauté.",
+  openGraph: {
+    title: "La Réserve de la Canopée",
+    description: "Le coffre-fort vivant de l’Îlot. Découvrez les fruits des paris manqués et la réserve souveraine.",
+    type: 'website',
+  }
+};
+
+// 🏦 Simulation de récupération des données de la Banque Centrale
 async function getTreasuryData() {
   // 1. Récupération dynamique des soldes de la Banque Centrale depuis le Grand Livre
   const rawBalances = await KomptaLedgerService.getUserBalances('system_canopy_treasury');
   
+  // 🛡️ SÉCURITÉ : Assainissement au cas où rawBalances serait undefined ou null
+  const safeBalances = rawBalances && typeof rawBalances === 'object' ? rawBalances : {};
+
   // 2. Transformation dynamique en tableau de réserves exploitable par la vue
-  const reserves = Object.entries(rawBalances).map(([type, amount]) => ({
+  const reserves = Object.entries(safeBalances).map(([type, amount]) => ({
     type: type as AssetType,
     amount: Number(amount) || 0
-    
   }));
 
-  // 3. Comptage dynamique des paris absorbés (récupéré depuis les références du grand livre ou le modèle)
+  // 3. Comptage dynamique des paris absorbés (récupéré depuis les références du grand livre)
   const totalLostBetsCollected = await KomptaLedgerService.countEntriesByCategory('BET_LOSS', 'system_canopy_treasury');
 
   // 4. Nombre total de dossiers de subvention en attente ou payés
@@ -35,7 +49,14 @@ async function getTreasuryData() {
 }
 
 export default async function CanopyBankPage() {
-  const data = await getTreasuryData();
+  // 🌿 Fetch SSR Parallèle (Trésorerie + Liste des Subventions pour hydratation du Client)
+  const [data, rawSubsidies] = await Promise.all([
+    getTreasuryData(),
+    getCachedSubsidies()
+  ]);
+
+  // 🛡️ Cast strict pour rassurer TypeScript face au .lean() de Mongoose
+  const initialSubsidies = rawSubsidies as unknown as Subsidy[];
 
   return (
     <div className="min-h-screen bg-slate-950 text-white p-8">
@@ -99,8 +120,8 @@ export default async function CanopyBankPage() {
         </div>
       </div>
 
-      {/* Section interactive du Guichet des Subventions */}
-      <CanopySubsidySection />
+      {/* Section interactive du Guichet des Subventions avec hydratation SSR */}
+      <CanopySubsidySection initialSubsidies={initialSubsidies} />
     </div>
   );
 }

@@ -19,17 +19,19 @@ interface CanopyStatsSnapshot {
 export const GET = withSilice(async (_req: Request, _context: ApiContext) => {
   try {
     const latestBroadcast = await getCachedCanopyStats();
+    
     if (!latestBroadcast || !latestBroadcast.metadata || typeof latestBroadcast.metadata !== 'object') {
       return NextResponse.json(
-        { success: false, message: "Aucun bilan de la canopée disponible pour le moment." }, 
+        { success: false, error: "Aucun bilan de la canopée disponible pour le moment." }, 
         { status: 404 }
       );
     }
 
     const metadata = latestBroadcast.metadata as Record<string, unknown>;
+    
     if (!('statsSnapshot' in metadata) || !metadata.statsSnapshot) {
       return NextResponse.json(
-        { success: false, message: "Aucun bilan de la canopée disponible pour le moment." }, 
+        { success: false, error: "Aucun bilan de la canopée disponible pour le moment." }, 
         { status: 404 }
       );
     }

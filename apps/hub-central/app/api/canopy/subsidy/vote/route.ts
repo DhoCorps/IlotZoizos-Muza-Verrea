@@ -3,7 +3,8 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
-import { executeCachedVote } from '@/lib/cache/canopy.cache';
+import { CanopySubsidyOrchestrator, IlotError } from '@ilot/shared-core';
+import { ActionSignature } from '@ilot/types';
 import { z } from 'zod';
 
 // 🛡️ Schéma de validation Zod pour le vote de subvention
@@ -31,18 +32,33 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
 
     const { subsidyId } = validationResult.data;
     
-    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
-    const userId = currentUser.uid;
+    // 🛡️ Signature d'action obligatoire pour l'Orchestrateur
+    const signature: ActionSignature = {
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
+    };
     
-    await executeCachedVote(subsidyId, userId);
+    try {
+      // 🌿 Délégation totale à l'Orchestrateur (Double écriture Mongo + Neo4j)
+      const orchestrator = new CanopySubsidyOrchestrator();
+      await orchestrator.castVote(subsidyId, signature);
+    } catch (orchErr: unknown) {
+      console.error("🔥 [CANOPY VOTE POST ERROR] :", orchErr);
+      const errObj = orchErr as { status?: number; statusCode?: number; message?: string };
+      const status = orchErr instanceof IlotError ? orchErr.status : (errObj.statusCode || 500);
+      const message = orchErr instanceof IlotError ? orchErr.message : (errObj.message || "La matrice a rejeté ce vote.");
+      return NextResponse.json({ success: false, error: message }, { status });
+    }
+
     revalidateTag('canopy-subsidies');
     
     return NextResponse.json({
       success: true,
-      message: "Vote enregistré avec succès dans la canopée."
+      message: "Vote enregistré avec succès dans la canopée et le graphe."
     }, { status: 200 });
 
   } catch (error: unknown) {
-    return handleRouteError(error, "Erreur interne lors du vote.");
+    // 🛡️ Gestionnaire d'erreur global unifié
+    return handleRouteError(error, "Erreur interne lors du vote dans la canopée.");
   }
 });

@@ -1,26 +1,42 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/canopy/subsidy/vote/route';
-import { CanopySubsidyOrchestrator } from '@ilot/shared-core';
 import { NextResponse } from 'next/server';
 import type { ApiContext } from '@/lib/api-guards';
 
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT
+// -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb: Function) => cb),
   revalidateTag: vi.fn()
 }));
 
-vi.mock('@ilot/shared-core', () => ({
-  CanopySubsidyOrchestrator: {
-    voteForSubsidy: vi.fn()
-  }
-}));
+// 🛡️ Mock de l'Orchestrateur avec une vraie classe ES6 pour supporter "new"
+const mockCastVote = vi.fn().mockResolvedValue(undefined);
 
+vi.mock('@ilot/shared-core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/shared-core')>();
+  return {
+    ...actual,
+    CanopySubsidyOrchestrator: class {
+      castVote = mockCastVote;
+    },
+    IlotError: class extends Error {
+      status: number;
+      constructor(message: string, code: string, status: number) {
+        super(message);
+        this.status = status;
+      }
+    }
+  };
+});
+
+// Mock du guard withAura
 vi.mock('@/lib/api-guards', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api-guards')>();
   return {
     ...actual,
     withAura: (handler: unknown) => async (req: Request, context: ApiContext) => {
-      // 🛡️ Correction : on vérifie si l'utilisateur est défini et possède un uid
       const currentUser = global.__mockUser;
       
       if (!currentUser || !currentUser.uid) {
@@ -42,18 +58,18 @@ declare global {
 
 type RouteHandler = (req: Request, ctx: ApiContext) => Promise<Response>;
 
-describe('API Route - /api/canopy/subsidy/vote (avec Cache Sécurisé)', () => {
+// -------------------------------------------------------------------------
+// 🧪 SUITE DE TESTS
+// -------------------------------------------------------------------------
+describe('API Route - /api/canopy/subsidy/vote (avec Délégation Orchestrateur)', () => {
   const postHandler = POST as unknown as RouteHandler;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // 🛡️ Par défaut, un utilisateur valide pour les tests qui en ont besoin
     global.__mockUser = { uid: 'bird_voter_123', capabilities: [] };
   });
 
-  it('🟢 doit enregistrer un vote avec succès en mode POST (200)', async () => {
-    vi.mocked(CanopySubsidyOrchestrator.voteForSubsidy).mockResolvedValue(undefined);
-
+  it('🟢 doit enregistrer un vote avec succès en mode POST (200) via l\'orchestrateur', async () => {
     const req = new Request('http://localhost/api/canopy/subsidy/vote', {
       method: 'POST',
       body: JSON.stringify({ subsidyId: 'sub_test_1' })
@@ -64,6 +80,11 @@ describe('API Route - /api/canopy/subsidy/vote (avec Cache Sécurisé)', () => {
 
     expect(response.status).toBe(200);
     expect(data.success).toBe(true);
+    
+    expect(mockCastVote).toHaveBeenCalledWith('sub_test_1', {
+      actorUid: 'bird_voter_123',
+      capabilities: []
+    });
   });
 
   it('🔴 doit rejeter la requête (400) si l\'ID de subvention est manquant', async () => {
@@ -81,7 +102,6 @@ describe('API Route - /api/canopy/subsidy/vote (avec Cache Sécurisé)', () => {
   });
 
   it('🔴 doit rejeter la requête (401) si l\'oiseau n\'est pas identifié', async () => {
-    // 🛡️ Simulation explicite d'un utilisateur non connecté
     global.__mockUser = undefined;
 
     const req = new Request('http://localhost/api/canopy/subsidy/vote', {

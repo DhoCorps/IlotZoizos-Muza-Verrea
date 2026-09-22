@@ -1,10 +1,11 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { SubsidyModel } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedSubsidies } from '@/lib/cache/canopy.cache';
+import { CanopySubsidyOrchestrator, IlotError } from '@ilot/shared-core';
+import { ActionSignature } from '@ilot/types';
 import { z } from 'zod';
 
 // 🛡️ Schéma de validation Zod strict pour le dépôt de subvention
@@ -24,7 +25,8 @@ export const GET = withAura(async (_req: Request, _context: ApiContext, _current
     const subsidies = await getCachedSubsidies();
     return NextResponse.json({ success: true, subsidies }, { status: 200 });
   } catch (error: unknown) {
-    return handleRouteError(error, "Erreur interne lors de la récupération des subventions.");
+    // 🛡️ Transmission d'un message textuel explicite et propre à l'utilisateur final
+    return handleRouteError(error, "Erreur interne lors de la récupération des subventions de la canopée.");
   }
 });
 
@@ -37,7 +39,7 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     try {
       rawBody = await req.json();
     } catch {
-      return NextResponse.json({ success: false, error: "Corps de requête illisible." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Corps de requête illisible ou malformé." }, { status: 400 });
     }
 
     // 🛡️ Validation stricte via Zod
@@ -47,20 +49,26 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       return NextResponse.json({ success: false, error: `Paramètres de subvention invalides : ${errorMessage}` }, { status: 400 });
     }
 
-    const { title, motivation, requestedAmount, currency, isRented } = validationResult.data;
+    const payload = validationResult.data;
     
-    // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
-    const userId = currentUser.uid;
+    // 🛡️ Signature d'action obligatoire pour l'Orchestrateur
+    const signature: ActionSignature = {
+      actorUid: currentUser.uid,
+      capabilities: currentUser.capabilities || []
+    };
 
-    const newSubsidy = await SubsidyModel.create({
-      requesterUid: userId,
-      title,
-      motivation,
-      requestedAmount,
-      currency,
-      isRented,
-      status: 'PENDING'
-    });
+    let newSubsidy;
+    try {
+      // 🌿 Délégation totale à l'Orchestrateur (Gère la double écriture Mongo + Neo4j)
+      const orchestrator = new CanopySubsidyOrchestrator();
+      newSubsidy = await orchestrator.fosterSubsidy(payload, signature);
+    } catch (orchErr: unknown) {
+      console.error("🔥 [CANOPY SUBSIDY POST ERROR] :", orchErr);
+      const errObj = orchErr as { status?: number; statusCode?: number; message?: string };
+      const status = orchErr instanceof IlotError ? orchErr.status : (errObj.statusCode || 500);
+      const message = orchErr instanceof IlotError ? orchErr.message : (errObj.message || "La matrice a rejeté cette demande de subvention.");
+      return NextResponse.json({ success: false, error: message }, { status });
+    }
     
     revalidateTag('canopy-subsidies');
     return NextResponse.json({
@@ -69,6 +77,7 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     }, { status: 201 });
 
   } catch (error: unknown) {
-    return handleRouteError(error, "Erreur interne du guichet.");
+    // 🛡️ Transmission d'un message explicite via le gestionnaire global
+    return handleRouteError(error, "Erreur interne du guichet des subventions.");
   }
 });

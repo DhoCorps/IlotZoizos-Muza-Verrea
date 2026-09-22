@@ -18,7 +18,8 @@ export const CommentTargetTypeSchema = z.enum([
   'LYRIKA', 
   'SAMPLOTEK', 
   'BIBLIOTEK', 
-  'POETRIK'
+  'POETRIK',
+  'SUBSIDY'
 ]);
 
 export type CommentTargetType = z.infer<typeof CommentTargetTypeSchema>;

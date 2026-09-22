@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/canopy/subsidy/route';
-import { SubsidyModel } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
 import { NextResponse } from 'next/server';
 import type { ApiContext } from '@/lib/api-guards';
@@ -29,23 +28,22 @@ vi.mock('@/lib/api-guards', async (importOriginal) => {
   };
 });
 
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  SubsidyModel: {
-    find: vi.fn().mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockReturnValue({
-          exec: vi.fn().mockResolvedValue([])
-        })
-      })
-    }),
-    create: vi.fn().mockResolvedValue({
-      uid: 'sub_123',
-      title: 'Aide au studio',
-      requesterUid: 'bird_test_1'
-    })
-  }
-}));
+// 🛡️ Mock de l'Orchestrateur avec une vraie classe ES6 pour supporter "new"
+const mockFosterSubsidy = vi.fn().mockResolvedValue({
+  uid: 'sub_123',
+  title: 'Aide au studio',
+  requesterUid: 'bird_test_1'
+});
+
+vi.mock('@ilot/shared-core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/shared-core')>();
+  return {
+    ...actual,
+    CanopySubsidyOrchestrator: class {
+      fosterSubsidy = mockFosterSubsidy;
+    }
+  };
+});
 
 declare global {
   // 🛡️ Harmonisation de la signature globale pour __mockUser
@@ -74,10 +72,14 @@ describe('Route API : Canopée Subventions (POST /api/canopy/subsidy)', () => {
     });
 
     const response = await postHandler(req, {} as ApiContext);
+    const json = await response.json();
+    
     expect(response.status).toBe(401);
+    expect(json.success).toBe(false);
+    expect(json.error).toBeDefined();
   });
 
-  it('🟢 doit créer une subvention (201) et invalider le cache de la Canopée', async () => {
+  it('🟢 doit créer une subvention via l\'Orchestrateur (201) et invalider le cache de la Canopée', async () => {
     global.__mockUser = { uid: 'bird_test_1', capabilities: [] };
 
     const req = new Request('http://localhost/api/canopy/subsidy', {
@@ -96,10 +98,16 @@ describe('Route API : Canopée Subventions (POST /api/canopy/subsidy)', () => {
 
     expect(response.status).toBe(201);
     expect(json.success).toBe(true);
-    expect(SubsidyModel.create).toHaveBeenCalledWith(
+    
+    // Vérifie que l'Orchestrateur a bien reçu les données validées et la signature
+    expect(mockFosterSubsidy).toHaveBeenCalledWith(
       expect.objectContaining({
-        requesterUid: 'bird_test_1',
-        title: 'Aide au studio'
+        title: 'Aide au studio',
+        requestedAmount: 1000,
+        currency: 'EUR'
+      }),
+      expect.objectContaining({
+        actorUid: 'bird_test_1'
       })
     );
 

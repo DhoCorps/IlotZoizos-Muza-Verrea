@@ -14,12 +14,23 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-describe('CanopyCronOrchestrator (Moteur de Clôture de Cycle)', () => {
+// 🛡️ MOCK DU TRANSACTION MANAGER (Pour isoler Mongo et Neo4j)
+vi.mock('../transactionManager', () => ({
+  TransactionManager: {
+    execute: vi.fn(async (_name, callback) => {
+      const mockMongoSession = {};
+      const mockNeo4jTx = { run: vi.fn().mockResolvedValue({ records: [] }) };
+      return await callback(mockMongoSession, mockNeo4jTx);
+    }),
+  },
+}));
+
+describe('CanopyCronOrchestrator (Moteur de Clôture de Cycle & Graphe)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('🟢 doit parcourir le catalogue et attribuer les trophées du cycle avec succès', async () => {
+  it('🟢 doit parcourir le catalogue, attribuer les trophées dans la Silice et les ancrer dans le Graphe', async () => {
     // Surcharge propre du catalogue via spyOn sur le chemin relatif interne
     vi.spyOn(AwardsRegistry, 'CANOPY_AWARDS_CATALOG', 'get').mockReturnValue({
       TEST_AWARD: {
@@ -44,7 +55,8 @@ describe('CanopyCronOrchestrator (Moteur de Clôture de Cycle)', () => {
         category: 'GLORY',
         loreDescription: 'Lore de test'
       }),
-      { upsert: true, new: true }
+      // On s'assure que la session MongoDB a bien été passée depuis le TransactionManager
+      expect.objectContaining({ upsert: true, new: true, session: expect.anything() })
     );
   });
 
