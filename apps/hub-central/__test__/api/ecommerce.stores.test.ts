@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/ecommerce/stores/route';
 import { StoreModel, OiseauModel } from '@ilot/infrastructure';
-import { EcommerceOrchestrator } from '@ilot/shared-core';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
 import type { ApiContext } from '@/lib/api-guards';
@@ -53,7 +52,7 @@ vi.mock('@ilot/infrastructure', () => ({
 vi.mock('@ilot/shared-core', () => ({
   EcommerceOrchestrator: vi.fn().mockImplementation(() => ({
     createStore: vi.fn().mockResolvedValue(true),
-  })),
+  }))
 }));
 
 declare global {
@@ -101,7 +100,7 @@ describe('API Stores (Boutiques)', () => {
       expect(res.status).toBe(401);
     });
 
-    it('🔴 doit rejeter avec une erreur 403 si l oiseau est classé INDESIRABLE ou banni', async () => {
+    it('🔴 doit rejeter avec une erreur 403 si l\'oiseau est classé INDESIRABLE ou banni', async () => {
       global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
       vi.mocked(OiseauModel.findOne).mockReturnValue({

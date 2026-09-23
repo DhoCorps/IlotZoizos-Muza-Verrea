@@ -1,9 +1,10 @@
-import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { OiseauModel, DemopraxyModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
-import { CAPABILITIES, ActionSignature } from '@ilot/types';
+import { CAPABILITIES, ActionSignature, SanctionCategory } from '@ilot/types';
 import type { ClientSession } from 'mongoose';
 import type { Transaction } from 'neo4j-driver';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface NuisanceMetrics {
     systemicHatredScore: number; // Indice de toxicité textuelle ou comportementale (0 à 10)
@@ -30,7 +31,17 @@ export interface DemopraxicEvaluationResult extends SanctuarySafetyEvaluation {
     success: boolean;
     targetUid: string;
     targetSlug: string | null;
+    sanctionCategory: SanctionCategory;
+    tags: string[];
     user: unknown;
+}
+
+export interface DemopraxyQueryOptions {
+    page?: number;
+    limit?: number;
+    sanctionCategory?: SanctionCategory | 'ALL';
+    tag?: string;
+    isExcluded?: boolean;
 }
 
 interface IOiseauEntity {
@@ -93,13 +104,51 @@ export class DemopraxyOrchestrator {
     }
 
     /**
+     * 📄 Récupère l'historique paginé des enregistrements démopraxiques (Registre public de justice)
+     */
+    public async getDemopraxicRegister(query: DemopraxyQueryOptions = {}) {
+        const page = Math.max(1, query.page || 1);
+        const limit = Math.min(100, Math.max(1, query.limit || 20));
+        const skip = (page - 1) * limit;
+
+        const filter: Record<string, unknown> = {};
+        if (query.sanctionCategory && query.sanctionCategory !== 'ALL') {
+            filter.sanctionCategory = query.sanctionCategory;
+        }
+        if (query.tag) {
+            filter.tags = query.tag;
+        }
+        if (typeof query.isExcluded === 'boolean') {
+            filter.isExcluded = query.isExcluded;
+        }
+
+        const [records, total] = await Promise.all([
+            DemopraxyModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+            DemopraxyModel.countDocuments(filter)
+        ]);
+
+        return {
+            success: true,
+            data: records,
+            pagination: {
+                total,
+                page,
+                limit,
+                totalPages: Math.ceil(total / limit) || 1
+            }
+        };
+    }
+
+    /**
      * 🌀 ÉVALUATION ET APPLICATION DE LA STASE D'EXCLUSION
-     * Enregistre l'évaluation dans MongoDB et applique l'exclusion/verrouillage indexé dans Neo4j.
+     * Enregistre l'évaluation dans MongoDB, consigne le registre démopraxique et applique l'exclusion dans Neo4j.
      */
     public async processDemopraxicEvaluation(
         userIdentifier: string, 
         metrics: NuisanceMetrics, 
-        signature: ActionSignature
+        signature: ActionSignature,
+        sanctionCategory: SanctionCategory = 'SYSTEMIC_HATRED',
+        tags: string[] = []
     ): Promise<DemopraxicEvaluationResult> {
         // Seul un Architecte ou un système souverain peut déclencher le vortex démopraxique
         if (!signature.capabilities.includes('*') && !signature.capabilities.includes(CAPABILITIES.MEMBER.EXILE)) {
@@ -117,8 +166,24 @@ export class DemopraxyOrchestrator {
         return await TransactionManager.execute("Stase Démopraxique", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
             // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
             const now = new Date();
+            const recordUid = `demo_${uuidv4()}`;
 
-            // 2. Mise à jour documentaire dans la Silice (MongoDB)
+            // 2. Consignation officielle dans le registre de justice (DemopraxyModel)
+            await DemopraxyModel.create([{
+                uid: recordUid,
+                userIdentifier: canonicalUid,
+                actorUid: signature.actorUid,
+                metrics: {
+                    ...metrics,
+                    computedEx: evaluation.exScore
+                },
+                sanctionCategory,
+                tags,
+                isExcluded: evaluation.isExcluded,
+                actionMessage: evaluation.actionMessage
+            }], { session: mongoSession });
+
+            // 3. Mise à jour documentaire dans la Silice (MongoDB)
             const updatedUser = await OiseauModel.findOneAndUpdate(
                 { uid: canonicalUid },
                 { 
@@ -127,6 +192,8 @@ export class DemopraxyOrchestrator {
                         'demopraxyState': {
                             lastExScore: evaluation.exScore,
                             isExcluded: evaluation.isExcluded,
+                            sanctionCategory,
+                            tags,
                             metrics,
                             evaluatedAt: now
                         },
@@ -136,11 +203,12 @@ export class DemopraxyOrchestrator {
                 { new: true, session: mongoSession }
             ).lean();
 
-            // 3. Propagation ultra-rapide dans le Graphe (Neo4j) via Index Strict et horodatage synchronisé
+            // 4. Propagation ultra-rapide dans le Graphe (Neo4j) via Index Strict et horodatage synchronisé
             const cypher = `
                 MATCH (u:User {uid: $canonicalUid})
                 SET u.sanctuaryVerrouille = $isExcluded,
                     u.demopraxyExScore = $exScore,
+                    u.demopraxyCategory = $sanctionCategory,
                     u.updatedAt = datetime($now)
                 RETURN u
             `;
@@ -149,6 +217,7 @@ export class DemopraxyOrchestrator {
                 canonicalUid,
                 isExcluded: evaluation.isExcluded,
                 exScore: evaluation.exScore,
+                sanctionCategory,
                 now: now.toISOString()
             });
 
@@ -156,6 +225,8 @@ export class DemopraxyOrchestrator {
                 success: true,
                 targetUid: canonicalUid,
                 targetSlug: user.slug || null,
+                sanctionCategory,
+                tags,
                 ...evaluation,
                 user: updatedUser
             };

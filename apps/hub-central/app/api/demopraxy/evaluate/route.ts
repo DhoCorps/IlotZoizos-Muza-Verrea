@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { DemopraxyOrchestrator, NuisanceMetrics } from '@ilot/shared-core';
-import { ActionSignature } from '@ilot/types';
+import { ActionSignature, SanctionCategory } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
@@ -12,6 +12,15 @@ import { z } from 'zod';
 // ==========================================
 const DemopraxyEvalSchema = z.object({
   userIdentifier: z.string().min(1, "L'identifiant de l'oiseau est requis."),
+  sanctionCategory: z.enum([
+    'SYSTEMIC_HATRED',
+    'MANIPULATION',
+    'TOXICITY',
+    'HARASSMENT',
+    'DISINFORMATION',
+    'CUSTOM'
+  ]).optional().default('SYSTEMIC_HATRED'),
+  tags: z.array(z.string()).optional().default([]),
   metrics: z.object({
     systemicHatredScore: z.number().min(0).max(10),
     recurrenceCount: z.number().min(0),
@@ -39,7 +48,7 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
       return NextResponse.json({ success: false, error: `Paramètres d'évaluation manquants ou invalides : ${errorMessage}` }, { status: 400 });
     }
 
-    const { userIdentifier, metrics } = validationResult.data;
+    const { userIdentifier, metrics, sanctionCategory, tags } = validationResult.data;
 
     // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
     const actorUid = currentUser.uid;
@@ -54,7 +63,9 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     const result = await orchestrator.processDemopraxicEvaluation(
       userIdentifier, 
       metrics as NuisanceMetrics, 
-      signature
+      signature,
+      sanctionCategory as SanctionCategory,
+      tags
     );
 
     // 💥 Invalidation chirurgicale du cache en cascade pour les données démopraxiques

@@ -1,168 +1,93 @@
 // apps/hub-central/app/[locale]/(inceptions)/ecommerce/[slug]/page.tsx
-'use client';
-
-import React, { use, useState, useMemo } from 'react';
-import { UniversalGridCanvas, useCartStore } from '@ilot/shared-core';
-import { storeRegistry } from '@/components/ecommerce/stores/StoreRegistry';
-import { AddToWishlistButton } from '@/components/ecommerce/wishlist/AddWishListButton';
-import { OmniActionWidget } from '@/components/widget/OmniActionWidget';
-import { ShoppingBag, Loader2, ArrowLeft, Box, Share2 } from 'lucide-react';
+import { notFound } from 'next/navigation';
+import { ProductModel, StoreModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { IProduct, IStore } from '@ilot/types';
+import { Metadata } from 'next';
+import { ArrowLeft, Store as StoreIcon, User } from 'lucide-react';
 import { Link } from '@/navigation';
-import { toast } from 'sonner';
-import { useQuery } from '@tanstack/react-query';
-import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
-import { IUniversalMediaItem } from '@ilot/types';
+import { ProductDetailInteractive } from './ProductDetailInteractive';
+import { UniversalComment } from '@/components/global/UniversalComment';
 
 interface ProductPageProps {
-  params: Promise<{ slug: string }>;
+  params: Promise<{ slug: string; locale?: string }>;
 }
 
-export default function ProductDetailPage({ params }: ProductPageProps) {
-  const { slug } = use(params);
-  const { addItem } = useCartStore();
+export const dynamic = 'force-dynamic';
 
-  // 🧩 État du widget universel
-  const [isWidgetOpen, setWidgetOpen] = useState(false);
+// 🔍 Génération des métadonnées SEO pour l'artefact
+export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
+  const { slug } = await params;
+  const product = await findEntityBySlugOrUid(ProductModel, slug) as IProduct | null;
 
-  // 🌀 SUTURE REACT QUERY : Récupération intelligente
-  const { data: product, isLoading, error } = useQuery({
-    queryKey: ['product', slug],
-    queryFn: async () => {
-      const res = await fetch(`/api/ecommerce/products/${slug}`);
-      if (!res.ok) throw new Error("Artefact introuvable");
-      return res.json();
-    },
-    enabled: !!slug
-  });
-
-  // 🦅 Synchronisation du contexte de la page avec le Chapeau Flottant
-  usePageChapeauContext({
-    recipientUid: product?.authorUid || product?.ownerUid || 'canopy_store_treasury',
-    recipientPseudo: product?.author || product?.storeName || 'le Marchand',
-    targetTitle: product?.title || 'Artefact de la Canopée',
-    storeUid: product?.storeUid,
-  });
-
-  // 🧩 Transformation du Produit en Média Universel pour l'OmniActionWidget
-  const universalMediaItem: IUniversalMediaItem | null = useMemo(() => {
-    if (!product) return null;
-    return {
-      mediaId: product.uid,
-      sourceApp: 'DHO',
-      ownerUid: product.authorUid || product.ownerUid || '',
-      ownerSlug: product.author || product.storeName || 'anonyme',
-      title: product.title,
-      mediaUrl: product.thumbnailUrl || '', 
-      thumbnailUrl: product.thumbnailUrl || undefined,
-      priceCents: product.priceCents,
-      consentForShowcase: !!product.settings?.consentForShowcase,
-      consentForMusicSync: !!product.settings?.consentForMusicSync,
-      createdAt: product.createdAt ? new Date(product.createdAt) : new Date(),
-    };
-  }, [product]);
-
-  if (isLoading) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <Loader2 className="w-10 h-10 animate-spin text-[#E5484D]" />
-      </div>
-    );
+  if (!product) {
+    return { title: 'Artefact introuvable | Îlot Zoizos' };
   }
 
-  if (error || !product) {
-    return (
-      <div className="max-w-4xl mx-auto py-24 text-center space-y-4">
-        <Box className="w-12 h-12 mx-auto text-slate-600" />
-        <h2 className="text-xl font-black uppercase text-white">Artefact introuvable</h2>
-        <p className="text-xs font-mono text-slate-400">Cet objet a été dissous dans les abîmes de la matrice.</p>
-        <Link href="/marketplace" className="inline-block mt-4 px-6 py-3 bg-white/5 text-white font-mono text-xs rounded-xl border border-white/10 hover:bg-white/10 transition-all">
-          Retour au Grand Bazar
-        </Link>
-      </div>
-    );
-  }
-
-  const handleAddToCart = () => {
-    addItem({
-      uid: product.uid,
-      title: product.title,
-      priceEUR: product.priceCents / 100,
-      priceShards: Math.round(product.priceCents / 10),
-      category: product.category
-    });
-    toast.success("✨ Artefact ajouté à votre panier.");
+  return {
+    title: `${product.title} | Îlot Zoizos`,
+    description: product.description || 'Artefact souverain forgé dans la canopée de l’Îlot.',
   };
+}
+
+export default async function ProductDetailPage({ params }: ProductPageProps) {
+  const { slug } = await params;
+  const product = await findEntityBySlugOrUid(ProductModel, slug) as IProduct | null;
+
+  if (!product) {
+    notFound();
+  }
+
+  // 🏛️ Récupération optionnelle de la boutique associée
+  let store: IStore | null = null;
+  if (product.storeUid) {
+    store = await StoreModel.findOne({ uid: product.storeUid }).lean() as unknown as IStore | null;
+  }
+
+  const creatorSlug = (product as any).authorSlug || product.ownerUid || 'createur-inconnu';
+  const storeSlug = store?.slug || product.storeUid;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-24 animate-in fade-in duration-500">
+    <div className="max-w-6xl mx-auto space-y-12 pb-24 animate-in fade-in duration-500">
       
-      {/* Navigation */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      {/* 🌐 Barre de Navigation & Séparation Identitaire (Boutique / Créateur) */}
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/5 pb-4">
         <Link href="/marketplace" className="text-xs font-mono text-slate-400 hover:text-white flex items-center gap-1.5 transition-colors">
           <ArrowLeft size={14} /> Retour au Grand Bazar
         </Link>
         
         <div className="flex items-center gap-3">
-          {/* 🧩 Bouton d'ouverture du Widget */}
-          <button 
-            onClick={() => setWidgetOpen(true)} 
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl text-xs font-bold text-slate-200 transition-all flex items-center gap-2 shadow-lg"
+          {storeSlug && (
+            <Link 
+              href={`/store/${storeSlug}` as any}
+              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl text-xs font-bold text-cyan-400 transition-all flex items-center gap-2 shadow-lg"
+            >
+              <StoreIcon size={14} /> Visiter la Boutique
+            </Link>
+          )}
+
+          <Link 
+            href={`/oiseau/${creatorSlug}` as any}
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-xl text-xs font-bold text-amber-400 transition-all flex items-center gap-2 shadow-lg"
           >
-            <Share2 size={14} /> Interagir & Partager
-          </button>
-          
-          <AddToWishlistButton productUid={product.uid} />
+            <User size={14} /> Profil du Créateur
+          </Link>
         </div>
       </div>
 
-      {/* Rendu dynamique du canevas modulaire */}
-      {product.blocks?.length > 0 ? (
-        <div className="pointer-events-none">
-          <UniversalGridCanvas 
-            blocks={product.blocks}
-            registry={storeRegistry}
-            selectedBlockId={null}
-            onSelectBlock={() => {}}
-            onUpdateLayout={() => {}}
-            onToggleBlock={() => {}}
-          />
-        </div>
-      ) : (
-        <div className="p-8 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl space-y-6">
-          <span className="text-[10px] font-mono px-3 py-1 rounded-full bg-[#E5484D]/10 text-[#E5484D] border border-[#E5484D]/30 uppercase font-bold">
-            {product.category}
-          </span>
-          <h1 className="text-3xl font-black uppercase text-white tracking-tight">{product.title}</h1>
-          <p className="text-xs text-slate-300 font-sans leading-relaxed whitespace-pre-wrap">{product.description}</p>
-        </div>
-      )}
+      {/* 🧩 Composant Client Interactif */}
+      <ProductDetailInteractive product={product} />
 
-      {/* Barre d'action et d'achat */}
-      <div className="p-6 bg-black/60 border border-white/10 rounded-3xl backdrop-blur-2xl flex flex-col sm:flex-row items-center justify-between gap-6 shadow-2xl">
-        <div className="space-y-1 text-center sm:text-left">
-          <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">Valeur de l'artefact</span>
-          <div className="text-2xl font-black text-white flex items-center gap-3">
-            <span>{(product.priceCents / 100).toFixed(2)} {product.currency || 'EUR'}</span>
-            <span className="text-xs font-mono text-slate-500 font-normal">| Stock : {product.stock}</span>
-          </div>
+      {/* 💬 Intégration des Avis Clients & Résonances */}
+      <div className="pt-8 border-t border-white/5 space-y-6">
+        <div className="space-y-1">
+          <h3 className="text-sm font-black uppercase tracking-widest text-white">Avis & Résonances de la Canopée</h3>
+          <p className="text-xs text-slate-400 font-mono">Partage ton ressenti vibratoire sur cet artefact.</p>
         </div>
-
-        <button
-          onClick={handleAddToCart}
-          className="px-8 py-4 bg-[#E5484D] hover:bg-[#c43d41] text-white font-black uppercase text-xs rounded-2xl shadow-[0_0_20px_rgba(229,72,77,0.3)] transition-all flex items-center justify-center gap-2"
-        >
-          <ShoppingBag size={16} /> Acquérir l'Artefact
-        </button>
+        <div className="bg-black/40 border border-white/5 rounded-3xl p-6 backdrop-blur-xl">
+          {/* Utilisation d'un type valide supporté par le Zod backend (ex: 'PROJECT') */}
+          <UniversalComment targetUid={product.uid} targetType="PROJECT" />
+        </div>
       </div>
-
-      {/* 🧩 Rendu du Prisme d'Interaction */}
-      {universalMediaItem && (
-        <OmniActionWidget 
-          media={universalMediaItem}
-          isOpen={isWidgetOpen}
-          onClose={() => setWidgetOpen(false)}
-        />
-      )}
     </div>
   );
 }

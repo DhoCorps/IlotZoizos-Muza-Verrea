@@ -4,6 +4,7 @@ import { StoreModel } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
 import type { ApiContext } from '@/lib/api-guards';
+import { EcommerceOrchestrator } from '@ilot/shared-core';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
@@ -60,7 +61,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       findOne: vi.fn(),
       deleteOne: vi.fn(),
     },
-    // Mock du helper unifié s'appuyant sur StoreModel.findOne
     findEntityBySlugOrUid: vi.fn(async (model: { findOne: Function }, identifier: string) => {
       const doc = await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] });
       if (!doc) return null;
@@ -72,11 +72,13 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-vi.mock('@ilot/shared-core', () => ({
-  EcommerceOrchestrator: vi.fn().mockImplementation(() => ({
-    dissolveStore: vi.fn().mockResolvedValue(true),
-  })),
-}));
+// 🛡️ MOCK PROPRE DE L'ORCHESTRATEUR VIA importOriginal
+vi.mock('@ilot/shared-core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/shared-core')>();
+  return {
+    ...actual,
+  };
+});
 
 declare global {
   var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
@@ -87,10 +89,17 @@ type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
 describe('API Store [slug] (GET & DELETE)', () => {
   const getHandler = GET as unknown as RouteHandler;
   const deleteHandler = DELETE as unknown as RouteHandler;
+  let mockDissolveStore: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
     delete global.__mockUser;
+
+    // 🎯 Espion propre sur la méthode de l'orchestrateur réel
+    mockDissolveStore = vi.spyOn(EcommerceOrchestrator.prototype, 'dissolveStore').mockResolvedValue({
+      success: true,
+      storeUid: 'store_1'
+    });
   });
 
   describe('GET /api/stores/[slug]', () => {
@@ -100,7 +109,7 @@ describe('API Store [slug] (GET & DELETE)', () => {
       } as unknown as ReturnType<typeof StoreModel.findOne>);
 
       const req = new NextRequest('http://localhost/api/stores/ma-boutique');
-      const res = await getHandler(req, { params: Promise.resolve({ slug: 'ma-boutique' }) });
+      const res = await getHandler(req, { params: Promise.resolve({ slug: 'ma-boutique' }) } as ApiContext);
       const json = await res.json() as { uid: string };
 
       expect(res.status).toBe(200);
@@ -113,7 +122,7 @@ describe('API Store [slug] (GET & DELETE)', () => {
       } as unknown as ReturnType<typeof StoreModel.findOne>);
 
       const req = new NextRequest('http://localhost/api/stores/inconnue');
-      const res = await getHandler(req, { params: Promise.resolve({ slug: 'inconnue' }) });
+      const res = await getHandler(req, { params: Promise.resolve({ slug: 'inconnue' }) } as ApiContext);
 
       expect(res.status).toBe(404);
     });
@@ -124,7 +133,7 @@ describe('API Store [slug] (GET & DELETE)', () => {
       delete global.__mockUser;
 
       const req = new NextRequest('http://localhost/api/stores/ma-boutique', { method: 'DELETE' });
-      const res = await deleteHandler(req, { params: Promise.resolve({ slug: 'ma-boutique' }) });
+      const res = await deleteHandler(req, { params: Promise.resolve({ slug: 'ma-boutique' }) } as ApiContext);
 
       expect(res.status).toBe(401);
     });
@@ -141,11 +150,12 @@ describe('API Store [slug] (GET & DELETE)', () => {
       } as unknown as ReturnType<typeof StoreModel.findOne>);
 
       const req = new NextRequest('http://localhost/api/stores/ma-boutique', { method: 'DELETE' });
-      const res = await deleteHandler(req, { params: Promise.resolve({ slug: 'ma-boutique' }) });
+      const res = await deleteHandler(req, { params: Promise.resolve({ slug: 'ma-boutique' }) } as ApiContext);
       const json = await res.json() as { success: boolean };
 
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);
+      expect(mockDissolveStore).toHaveBeenCalledWith('store_1', expect.any(Object));
       expect(revalidateTag).toHaveBeenCalledWith('stores');
       expect(revalidateTag).toHaveBeenCalledWith('store-ma-boutique');
       expect(revalidateTag).toHaveBeenCalledWith('user-stores-bird_1');

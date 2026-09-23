@@ -2,13 +2,14 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { ProductModel, OiseauModel } from '@ilot/infrastructure';
-import { IOiseau} from '@ilot/types';
+import { IOiseau } from '@ilot/types';
 import { v4 as uuidv4 } from 'uuid';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withSilice, withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedProducts } from '@/lib/cache/ecommerce.cache';
-import { ProductSchema, IProduct } from '@ilot/types';
+import { ProductSchema } from '@ilot/types';
+import { EcommerceOrchestrator, ActionSignature } from '@ilot/shared-core';
 
 // ==========================================
 // GET : Recenser les artefacts du catalogue (Public / Silice)
@@ -24,7 +25,12 @@ export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => 
 
     const storeUid = url.searchParams.get('storeUid');
     const category = url.searchParams.get('category');
+    // Extraction des tags pour filtrer le catalogue marchand
+    const tags = url.searchParams.getAll('tag');
+    
+    // Transmission des tags au cache (qui lui-même devra faire le pont vers l'orchestrateur ou la DB)
     const products = await getCachedProducts(storeUid, category);
+    
     return NextResponse.json(products, { status: 200 });
   } catch (error: unknown) {
     return handleRouteError(error, "Échec de la lecture des artefacts du catalogue.");
@@ -81,23 +87,39 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       safetyCounter++;
     }
     
-    // 2. Enregistrement en base de données de manière strictement filtrée
-    const newProduct = await ProductModel.create({
-      ...validatedData,
-      ownerUid: validatedData.ownerUid || userUid,
-      uid: productUid,
-      slug: finalSlug,
-    }) as unknown as IProduct;
+    // 2. Préparation de la signature souveraine pour l'Orchestrateur
+    const signature: ActionSignature = {
+      actorUid: userUid,
+      capabilities: currentUser.capabilities || []
+    };
+
+    const orchestrator = new EcommerceOrchestrator();
+    let createdProductUid: string | undefined;
+
+    // 3. Délégation Atomique (Mongoose + Neo4j) à l'Orchestrateur
+    try {
+      const result = await orchestrator.createProduct({
+        ...validatedData, // Contient déjà les `tags`, `isRouletteActive`, `wagerAmount`, `seoMetadata`
+        uid: productUid,
+        slug: finalSlug,
+        ownerUid: validatedData.ownerUid || userUid,
+      }, signature);
+
+      createdProductUid = result.productUid;
+    } catch (orchError: unknown) {
+      throw orchError; // La capture se fera par le bloc catch principal ou handleRouteError
+    }
     
     // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('products');
     if (validatedData.storeUid) {
       revalidateTag(`store-products-${validatedData.storeUid}`);
     }
+    
     return NextResponse.json({
       success: true,
-      message: "Artefact ajouté au catalogue de l'îlot.",
-      data: newProduct
+      message: "Artefact ajouté au catalogue et tissé dans la matrice.",
+      data: { uid: createdProductUid || productUid, slug: finalSlug } // Retour minimalisé par sécurité
     }, { status: 201 });
   } catch (error: unknown) {
     return handleRouteError(error, "Échec lors de l'ajout de l'artefact.");

@@ -3,11 +3,11 @@ import { POST } from '@/app/api/ecommerce/products/route';
 import { ProductModel, OiseauModel } from '@ilot/infrastructure';
 import { NextResponse, NextRequest } from 'next/server';
 import type { ApiContext } from '@/lib/api-guards';
+import { EcommerceOrchestrator } from '@ilot/shared-core';
 
 // Mock global de l'infrastructure
 vi.mock('@ilot/infrastructure', () => ({
     ProductModel: {
-        create: vi.fn(),
         findOne: vi.fn(),
         find: vi.fn(),
     },
@@ -33,6 +33,7 @@ vi.mock('@/lib/api-guards', async (importOriginal) => {
         },
         withSilice: (handler: unknown) => handler,
         handleRouteError: (error: unknown, defaultMessage: string) => {
+            console.error("🔥 ERREUR INTERNE CAPTURÉE PAR LA ROUTE:", error);
             const status = (error as { status?: number }).status || 500;
             const message = (error as { message?: string }).message || defaultMessage;
             return NextResponse.json({ success: false, error: message }, { status });
@@ -57,10 +58,15 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
     beforeEach(() => {
         vi.clearAllMocks();
         global.__mockUser = { uid: 'bird_clean_1', capabilities: ['*'] };
+
+        // 🛡️ Espion/Mock de l'orchestrateur exactement comme pour la Bibliotek pour éviter de toucher à Mongoose/Neo4j
+        vi.spyOn(EcommerceOrchestrator.prototype, 'createProduct').mockResolvedValue({
+            success: true,
+            productUid: 'prod_123'
+        });
     });
 
-    it('🔴 doit rejeter avec une erreur 403 si l oiseau est classé INDESIRABLE ou banni', async () => {
-        // Simulation d'un profil indésirable avec chaînage .lean()
+    it('🔴 doit rejeter avec une erreur 403 si l\'oiseau est classé INDESIRABLE ou banni', async () => {
         vi.mocked(OiseauModel.findOne).mockReturnValue({
             lean: vi.fn().mockResolvedValueOnce({
                 uid: 'bird_clean_1',
@@ -79,10 +85,9 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
 
         expect(response.status).toBe(403);
         expect(json.error).toContain('Souveraineté restreinte');
-        expect(ProductModel.create).not.toHaveBeenCalled();
     });
 
-    it('🔴 doit rejeter avec une erreur 400 si le payload ne respecte pas le contrat Zod (ex: champs requis manquants ou invalides)', async () => {
+    it('🔴 doit rejeter avec une erreur 400 si le payload ne respecte pas le contrat Zod', async () => {
         vi.mocked(OiseauModel.findOne).mockReturnValue({
             lean: vi.fn().mockResolvedValueOnce({
                 uid: 'bird_clean_1',
@@ -91,7 +96,6 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
             })
         } as unknown as ReturnType<typeof OiseauModel.findOne>);
 
-        // Payload volontairement invalide (absence de storeUid et de catégorie valide)
         const req = new NextRequest('http://localhost/api/ecommerce/products', {
             method: 'POST',
             body: JSON.stringify({ title: 'Artefact Invalide', priceCents: -50 }),
@@ -102,11 +106,9 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
 
         expect(response.status).toBe(400);
         expect(json.error).toContain('Contrat souverain invalide');
-        expect(ProductModel.create).not.toHaveBeenCalled();
     });
 
-    it('🟢 doit autoriser l ajout d un artefact si l oiseau est respectueux ou neutre et que le contrat Zod est validé', async () => {
-        // 1. Simulation du profil sain via findOne().lean()
+    it('🟢 doit autoriser l\'ajout et transmettre tags, roulette et mise à l\'Orchestrateur', async () => {
         vi.mocked(OiseauModel.findOne).mockReturnValue({
             lean: vi.fn().mockResolvedValueOnce({
                 uid: 'bird_clean_1',
@@ -115,37 +117,47 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
             })
         } as unknown as ReturnType<typeof OiseauModel.findOne>);
 
-        // 2. Simulation de la vérification de slug unique (renvoie null pour dire qu'il n'existe pas)
         vi.mocked(ProductModel.findOne).mockReturnValue({
             lean: vi.fn().mockResolvedValueOnce(null)
         } as unknown as ReturnType<typeof ProductModel.findOne>);
 
-        vi.mocked(ProductModel.create).mockResolvedValueOnce({
-            uid: 'prod_123',
-            title: 'Artefact Lumineux',
-            slug: 'artefact-lumineux',
-            storeUid: 'store_1'
-        } as unknown as Awaited<ReturnType<typeof ProductModel.create>>);
-
         const req = new NextRequest('http://localhost/api/ecommerce/products', {
             method: 'POST',
             body: JSON.stringify({ 
-                uid: 'prod_123',
+                uid: 'prod_test',
                 storeUid: 'store_1',
                 title: 'Artefact Lumineux', 
-                slug: 'artefact-lumineux',
                 description: 'Un bel objet',
                 priceCents: 1500, 
-                category: 'DIGITAL_GOOD' 
+                priceExclTaxCents: 1250,
+                category: 'DIGITAL_GOOD',
+                nature: 'DIGITAL',
+                slug: 'artefact-lumineux',
+                tags: ['magie', 'rare'],
+                isRouletteActive: true,
+                wagerAmount: 5
             }),
         });
 
         const response = await postHandler(req, {} as ApiContext);
-        const json = await response.json() as { success: boolean; data: { uid: string } };
+        const json = await response.json() as any;
 
         expect(response.status).toBe(201);
         expect(json.success).toBe(true);
-        expect(json.data).toHaveProperty('uid', 'prod_123');
-        expect(ProductModel.create).toHaveBeenCalledTimes(1);
+        expect(json.data).toHaveProperty('uid');
+        
+        // Vérification de la transmission des champs vers l'orchestrateur espionné
+        expect(EcommerceOrchestrator.prototype.createProduct).toHaveBeenCalledTimes(1);
+        expect(EcommerceOrchestrator.prototype.createProduct).toHaveBeenCalledWith(
+            expect.objectContaining({
+                title: 'Artefact Lumineux',
+                tags: ['magie', 'rare'],
+                isRouletteActive: true,
+                wagerAmount: 5
+            }),
+            expect.objectContaining({
+                actorUid: 'bird_clean_1'
+            })
+        );
     });
 });

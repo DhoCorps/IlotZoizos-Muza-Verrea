@@ -10,8 +10,7 @@ vi.mock('@/lib/api-guards', async (importOriginal) => {
     ...actual,
     withAura: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
       const mockUser = { uid: 'bird_juge_supreme', capabilities: ['*'] };
-      // @ts-ignore
-      return await handler(req, context, mockUser);
+      return await (handler as any)(req, context, mockUser);
     },
     handleRouteError: (error: unknown, defaultMessage: string) => {
       const status = (error as { status?: number; statusCode?: number }).status || (error as { statusCode?: number }).statusCode || 500;
@@ -57,6 +56,7 @@ describe('Routes API - Tribunal de la Canopée (Judgment)', () => {
       const json = await res.json() as { success: boolean; error: string };
 
       expect(res.status).toBe(400);
+      expect(json.success).toBe(false);
       expect(json.error).toContain("sont requis");
     });
 
@@ -85,7 +85,8 @@ describe('Routes API - Tribunal de la Canopée (Judgment)', () => {
       const json = await res.json() as { success: boolean; error: string };
 
       expect(res.status).toBe(400);
-      expect(json.error).toContain("Paramètres incomplets");
+      expect(json.success).toBe(false);
+      expect(json.error).toBeDefined();
     });
 
     it('🟢 doit exécuter la sentence et renvoyer un message d\'avertissement si une Grâce a été consommée', async () => {

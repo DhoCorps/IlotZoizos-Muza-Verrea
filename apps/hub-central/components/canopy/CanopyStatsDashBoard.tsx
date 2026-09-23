@@ -22,13 +22,15 @@ interface CanopyStatsDashboardProps {
 }
 
 export default function CanopyStatsDashboard({ initialStats }: CanopyStatsDashboardProps) {
-  // 🌿 Fetch hydraté (TanStack Query) avec cache long (les stats du mois précédent sont immutables)
+  // 🌿 Fetch hydraté (TanStack Query) avec extraction unifiée de l'erreur API
   const { data: stats, isLoading, isError } = useQuery<CanopyStatsSnapshot>({
     queryKey: ['canopy-stats'],
     queryFn: async () => {
       const res = await fetch('/api/canopy/stats');
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error("Erreur de chargement des statistiques.");
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || data.message || "Erreur de chargement des statistiques.");
+      }
       return data;
     },
     initialData: initialStats || undefined,

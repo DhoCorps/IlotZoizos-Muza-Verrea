@@ -21,7 +21,12 @@ export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => 
     const style = searchParams.get('style');
     const author = searchParams.get('author');
     
-    const enrichedProducts = await getCachedMarketplaceProducts(category, style, author);
+    // 📦 Extraction des tags multiples depuis l'URL (ex: ?tag=arme&tag=plasma)[cite: 3]
+    const tags = searchParams.getAll('tag');
+    
+    // 🌐 Transmission au cache incluant le tableau de tags[cite: 3]
+    const enrichedProducts = await getCachedMarketplaceProducts(category, style, author, tags);
+    
     return NextResponse.json({ success: true, data: enrichedProducts }, { status: 200 });
   } catch (error: unknown) {
     return handleRouteError(error, "Erreur interne de la Marketplace.");

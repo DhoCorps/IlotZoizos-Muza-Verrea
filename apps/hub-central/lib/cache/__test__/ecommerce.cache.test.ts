@@ -3,10 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { 
   getCachedUserWishlists, 
   getCachedVerifiedStores, 
-  getCachedMatchmakerResults 
+  getCachedMatchmakerResults,
+  getCachedMarketplaceProducts
 } from '@/lib/cache/ecommerce.cache';
 import { WishlistModel, StoreModel, getNeo4jSession } from '@ilot/infrastructure';
 import { unstable_cache } from 'next/cache';
+import { EcommerceOrchestrator } from '@ilot/shared-core';
 
 vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb) => cb),
@@ -24,13 +26,26 @@ vi.mock('@ilot/infrastructure', () => ({
 }));
 
 describe('Cache : E-commerce Cache Helpers', () => {
+  let mockGetMarketplaceProducts: any;
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+
+    // 🛡️ Ajout de category: 'SYNTH' pour satisfaire le filtre en mémoire de getCachedMarketplaceProducts
+    mockGetMarketplaceProducts = vi.spyOn(EcommerceOrchestrator.prototype, 'getMarketplaceProducts').mockResolvedValue({
+      success: true,
+      data: [{ 
+        uid: 'prod_1', 
+        title: 'Synthétiseur Ancien', 
+        authorSlug: 'bird_1', 
+        category: 'SYNTH', 
+        tags: ['synth'] 
+      }]
+    });
   });
 
   it('doit récupérer ou créer des wishlists en environnement de test', async () => {
-    // 🛡️ SUTURE DU CHAÎNAGE : Simulation de .find({ userUid }).lean() retournant un tableau vide
     vi.mocked(WishlistModel.find).mockReturnValue({
       lean: vi.fn().mockResolvedValueOnce([]),
     } as any);
@@ -61,6 +76,13 @@ describe('Cache : E-commerce Cache Helpers', () => {
 
     expect(result).toEqual(mockStores);
     expect(StoreModel.find).toHaveBeenCalledWith({ isVerified: true });
+  });
+
+  it('doit déléguer la recherche marketplace à l\'orchestrateur avec les tags', async () => {
+    const result = await getCachedMarketplaceProducts('SYNTH', 'ALL', 'ALL', ['synth', 'analog']);
+
+    expect(result).toHaveLength(1);
+    expect(mockGetMarketplaceProducts).toHaveBeenCalledWith(['synth', 'analog']);
   });
 
   it('doit exécuter et nettoyer la session Neo4j pour le matchmaker', async () => {

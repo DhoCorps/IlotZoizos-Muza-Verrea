@@ -1,21 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { POST } from '@/app/api/ecommerce/barter/route';
-import { BarterOfferModel, OiseauModel } from '@ilot/infrastructure';
+import { GET, PATCH } from '@/app/api/ecommerce/barter/[slug]/route';
+import { BarterOfferModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { EcommerceOrchestrator } from '@ilot/shared-core';
 import { NextResponse, NextRequest } from 'next/server';
 import type { ApiContext } from '@/lib/api-guards';
 
-// Mock global de l'infrastructure (pleinement chaînable)
 vi.mock('@ilot/infrastructure', () => ({
-    BarterOfferModel: {
-        create: vi.fn(),
-        findOneAndUpdate: vi.fn(),
-        find: vi.fn().mockReturnValue({
-            sort: vi.fn().mockReturnValue({
-                lean: vi.fn().mockResolvedValue([]),
-            }),
-        }),
-    },
+    BarterOfferModel: {},
+    findEntityBySlugOrUid: vi.fn(),
     OiseauModel: {
         findOne: vi.fn().mockReturnValue({
             lean: vi.fn().mockResolvedValue(null)
@@ -23,7 +15,6 @@ vi.mock('@ilot/infrastructure', () => ({
     },
 }));
 
-// Mock des gardiens d'API (`withAura`)
 vi.mock('@/lib/api-guards', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/lib/api-guards')>();
     return {
@@ -34,20 +25,17 @@ vi.mock('@/lib/api-guards', async (importOriginal) => {
                 if (!mockUser || !mockUser.uid) {
                     return NextResponse.json({ success: false, error: "Oiseau non identifié" }, { status: 401 });
                 }
-                // @ts-ignore
-                return await handler(req, context, mockUser);
+                return await (handler as any)(req, context, mockUser);
             };
         },
         withSilice: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
-            // @ts-ignore
-            return await handler(req, context);
+            return await (handler as any)(req, context);
         },
     };
 });
 
 vi.mock('next/cache', () => ({
     revalidateTag: vi.fn(),
-    unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
 declare global {
@@ -56,75 +44,52 @@ declare global {
 
 type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
 
-describe('POST /api/ecommerce/barter (Douane Vibratoire du Troc)', () => {
-    const postHandler = POST as unknown as RouteHandler;
+describe('GET & PATCH /api/ecommerce/barter/[slug] (Ausculter et Résoudre)', () => {
+    const getHandler = GET as unknown as RouteHandler;
+    const patchHandler = PATCH as unknown as RouteHandler;
 
     beforeEach(() => {
         vi.clearAllMocks();
         global.__mockUser = { uid: 'bird_clean_1', capabilities: ['*'] };
 
-        // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de EcommerceOrchestrator
-        vi.spyOn(EcommerceOrchestrator.prototype, 'proposeBarter').mockResolvedValue({
-            success: true,
-            barterUid: 'barter_123'
-        } as unknown as Awaited<ReturnType<EcommerceOrchestrator['proposeBarter']>>);
-        
         vi.spyOn(EcommerceOrchestrator.prototype, 'resolveBarter').mockResolvedValue({
             success: true,
             status: 'ACCEPTED'
         } as unknown as Awaited<ReturnType<EcommerceOrchestrator['resolveBarter']>>);
     });
 
-    it('🔴 doit rejeter avec une erreur 403 si l oiseau est classé INDESIRABLE ou banni', async () => {
-        // Simulation de findOne().lean()
-        vi.mocked(OiseauModel.findOne).mockReturnValueOnce({
-            lean: vi.fn().mockResolvedValueOnce({
-                uid: 'bird_clean_1',
-                profileStatus: 'INDESIRABLE',
-                isBanned: false,
-            })
-        } as unknown as ReturnType<typeof OiseauModel.findOne>);
+    it('🟢 GET : doit renvoyer les détails d’une offre existante', async () => {
+        vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+            uid: 'barter_999',
+            initiatorUid: 'bird_1',
+            status: 'PENDING'
+        } as any);
 
-        const req = new NextRequest('http://localhost/api/ecommerce/barter', {
-            method: 'POST',
-            body: JSON.stringify({ receiverUid: 'bird_target_2', offeredProductUids: ['prod_1'], requestedProductUids: ['prod_2'] }),
-        });
-
-        const response = await postHandler(req, {} as ApiContext);
+        const req = new NextRequest('http://localhost/api/ecommerce/barter/barter_999');
+        const response = await getHandler(req, { params: Promise.resolve({ slug: 'barter_999' }) } as ApiContext);
         const json = await response.json();
 
-        expect(response.status).toBe(403);
-        expect(json.error).toContain('Souveraineté restreinte');
-        expect(BarterOfferModel.create).not.toHaveBeenCalled();
+        expect(response.status).toBe(200);
+        expect(json.uid).toBe('barter_999');
     });
 
-    it('🟢 doit autoriser la proposition de troc si l oiseau est respectueux ou neutre', async () => {
-        // Simulation de findOne().lean()
-        vi.mocked(OiseauModel.findOne).mockReturnValueOnce({
-            lean: vi.fn().mockResolvedValueOnce({
-                uid: 'bird_clean_1',
-                profileStatus: 'RESPECTABLE',
-                isBanned: false,
-            })
-        } as unknown as ReturnType<typeof OiseauModel.findOne>);
-
-        vi.mocked(BarterOfferModel.create).mockResolvedValueOnce({
-            uid: 'barter_123',
-            initiatorUid: 'bird_clean_1',
+    it('🟢 PATCH : doit permettre à un oiseau d’accepter le troc', async () => {
+        vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+            uid: 'barter_999',
+            initiatorUid: 'bird_2',
             status: 'PENDING'
-        } as unknown as Awaited<ReturnType<typeof BarterOfferModel.create>>);
+        } as any);
 
-        const req = new NextRequest('http://localhost/api/ecommerce/barter', {
-            method: 'POST',
-            body: JSON.stringify({ receiverUid: 'bird_target_2', offeredProductUids: ['prod_1'], requestedProductUids: ['prod_2'] }),
+        const req = new NextRequest('http://localhost/api/ecommerce/barter/barter_999', {
+            method: 'PATCH',
+            body: JSON.stringify({ status: 'ACCEPTED' }),
         });
 
-        const response = await postHandler(req, {} as ApiContext);
-        const json = await response.json() as { success: boolean; data: { uid: string } };
+        const response = await patchHandler(req, { params: Promise.resolve({ slug: 'barter_999' }) } as ApiContext);
+        const json = await response.json();
 
-        expect(response.status).toBe(201);
+        expect(response.status).toBe(200);
         expect(json.success).toBe(true);
-        expect(json.data).toHaveProperty('uid', 'barter_123');
-        expect(BarterOfferModel.create).toHaveBeenCalledTimes(1);
+        expect(EcommerceOrchestrator.prototype.resolveBarter).toHaveBeenCalled();
     });
 });

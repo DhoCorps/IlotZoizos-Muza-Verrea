@@ -28,7 +28,7 @@ function revalidateJudgmentCascades(reportUid: string, targetUid?: string): void
 }
 
 // ==========================================
-// GET : Sélectionner des jurés impartiaux (Tribunal de la Canopée)
+// ⚖️ GET : Sélectionner des jurés impartiaux (Tribunal de la Canopée)
 // ==========================================
 export const GET = withAura(async (req: NextRequest, _context: ApiContext, _currentUser: OiseauUser) => {
   try {
@@ -49,12 +49,12 @@ export const GET = withAura(async (req: NextRequest, _context: ApiContext, _curr
     return NextResponse.json({ ...result, success: true }, { status: 200 });
 
   } catch (error: unknown) {
-    return handleRouteError(error, "Erreur interne lors de la convocation du Tribunal.");
+    return handleRouteError(error, "Erreur interne lors de la convocation du Tribunal de la Canopée.");
   }
 });
 
 // ==========================================
-// POST : Exécuter la sentence (Frappe ou Bouclier Karmique)
+// ⚡ POST : Exécuter la sentence (Frappe ou Bouclier Karmique)
 // ==========================================
 export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
@@ -62,15 +62,16 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     try {
       rawBody = await req.json();
     } catch {
-      return NextResponse.json({ success: false, error: "Corps de requête illisible." }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Corps de requête illisible ou malformé." }, { status: 400 });
     }
 
     // 🛡️ Blindage strict via Zod
     const validation = JudgmentPayloadSchema.safeParse(rawBody);
     if (!validation.success) {
+      const errorMessage = validation.error.issues.map(e => e.message).join(', ');
       return NextResponse.json({ 
         success: false, 
-        error: "Paramètres incomplets (cible, rapport, niveau de jugement requis).", 
+        error: `Paramètres de jugement invalides : ${errorMessage}`, 
         details: validation.error.flatten() 
       }, { status: 400 });
     }
@@ -99,10 +100,10 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       message: result.usedGrace
         ? "✨ Le Bouclier Karmique a absorbé le choc. Une Grâce dorée a été consumée."
         : "⚡ La sentence est tombée et a été gravée dans la Matrice.",
-      data: result // <--- On encapsule proprement le résultat ici
+      data: result
     }, { status: 200 });
 
   } catch (error: unknown) {
-    return handleRouteError(error, "Erreur interne lors du jugement.");
+    return handleRouteError(error, "Erreur interne lors de l'exécution du jugement.");
   }
 });

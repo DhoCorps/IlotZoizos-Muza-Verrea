@@ -1,4 +1,3 @@
-// Fichier : lib/cache/ecommerce.cache.ts
 import { unstable_cache } from 'next/cache';
 import mongoose from 'mongoose';
 import { 
@@ -9,6 +8,7 @@ import {
   BarterOfferModel, 
   getNeo4jSession 
 } from '@ilot/infrastructure';
+import { EcommerceOrchestrator } from '@ilot/shared-core';
 import { v4 as uuidv4 } from 'uuid';
 
 // -------------------------------------------------------------------------
@@ -146,24 +146,29 @@ export async function getCachedOrder(slug: string) {
 }
 
 // -------------------------------------------------------------------------
-// 5. MARKETPLACE
+// 5. MARKETPLACE (Mise à jour avec l'Orchestrateur et Neo4j)
 // -------------------------------------------------------------------------
-export async function getCachedMarketplaceProducts(category?: string | null, style?: string | null, author?: string | null) {
+export async function getCachedMarketplaceProducts(category?: string | null, style?: string | null, author?: string | null, tags: string[] = []) {
   const fetcher = async () => {
-    const query: Record<string, any> = {};
+    // Utilisation de l'EcommerceOrchestrator pour interroger Neo4j et la recherche par tags
+    const orchestrator = new EcommerceOrchestrator();
+    const result = await orchestrator.getMarketplaceProducts(tags);
+    
+    let products = result.data || [];
+
+    // Filtrage complémentaire optionnel en mémoire si des critères additionnels sont fournis
     if (category && category !== 'ALL') {
-      query.category = category;
+      products = products.filter((p: any) => p.category === category);
     }
     if (style && style !== 'ALL') {
-      query.$or = [
-        { style: { $regex: style, $options: 'i' } },
-        { tags: { $in: [new RegExp(style, 'i')] } }
-      ];
+      const regex = new RegExp(style, 'i');
+      products = products.filter((p: any) => regex.test(p.style) || (p.tags && p.tags.some((t: string) => regex.test(t))));
     }
     if (author && author !== 'ALL') {
-      query.author = { $regex: author, $options: 'i' };
+      const regex = new RegExp(author, 'i');
+      products = products.filter((p: any) => regex.test(p.authorSlug || p.ownerUid || p.storeOwnerUid));
     }
-    const products = await ProductModel.find(query).sort({ createdAt: -1 }).lean();
+
     return products.map((product: any) => ({
       ...product,
       authorSlug: product.authorSlug || product.ownerUid || product.storeOwnerUid || null
@@ -174,7 +179,8 @@ export async function getCachedMarketplaceProducts(category?: string | null, sty
     return await fetcher();
   }
 
-  const cacheKey = `marketplace-${category || 'all'}-${style || 'all'}-${author || 'all'}`;
+  const tagsKey = tags.length > 0 ? tags.sort().join('-') : 'no-tags';
+  const cacheKey = `marketplace-${category || 'all'}-${style || 'all'}-${author || 'all'}-${tagsKey}`;
   return await unstable_cache(
     fetcher,
     [cacheKey],

@@ -33,11 +33,6 @@ const UniversalCommentSchema: Schema = new Schema(
 // 1. Pour le Tiroir : Trouver vite tous les commentaires d'une œuvre précise
 UniversalCommentSchema.index({ targetType: 1, targetUid: 1 });
 
-// 2. Pour le Registre des Échos : Trouver vite tout ce qu'a écrit un Oiseau
-// Note : L'index sur authorUid est déjà déclaré nativement dans le schéma plus haut, 
-// mais on le maintient ici pour la clarté s'il s'avère complexe plus tard.
-UniversalCommentSchema.index({ authorUid: 1 });
-
 // 3. Pour reconstruire l'arbre des réponses : Trouver vite les enfants d'un commentaire
 UniversalCommentSchema.index({ parentId: 1 });
 

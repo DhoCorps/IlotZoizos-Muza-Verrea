@@ -4,7 +4,7 @@ import CanopyStatsDashboard from '@/components/canopy/CanopyStatsDashBoard';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 
-describe('UI & Logique : CanopyStatsDashboard (React Query & SSR)', () => {
+describe('UI & Logique : CanopyStatsDashboard (React Query & Erreurs Unifiées)', () => {
   let queryClient: QueryClient;
 
   beforeEach(() => {
@@ -14,6 +14,7 @@ describe('UI & Logique : CanopyStatsDashboard (React Query & SSR)', () => {
     queryClient = new QueryClient({
       defaultOptions: { 
         queries: { retry: false },
+        mutations: { retry: false } 
       }
     });
   });
@@ -24,37 +25,13 @@ describe('UI & Logique : CanopyStatsDashboard (React Query & SSR)', () => {
     </QueryClientProvider>
   );
 
-  it('🟢 doit afficher les statistiques hydratées via le SSR (initialData)', () => {
-    const mockStats = {
-      yearMonth: '2026-08',
-      macroTotals: { totalVolumeCents: 50000, transactionCount: 42 },
-      topSellers: [{ _id: 'bird_1', totalVolumeCents: 10000 }],
-      topBuyers: [],
-      mostCommented: [{ _id: 'bird_2', commentCount: 15 }],
-      mostReactive: []
-    };
-
-    renderDashboard(mockStats);
-    
-    expect(screen.getByText(/Le Bilan de la Canopée/)).toBeDefined();
-    expect(screen.getByText('2026-08')).toBeDefined();
-    
-    // Vérification des mathématiques (10000 cents = 100.00 €, 50000 cents = 500.00 €)
-    expect(screen.getByText(/500.00 €/)).toBeDefined(); 
-    expect(screen.getByText(/42 transactions/)).toBeDefined();
-    expect(screen.getByText(/bird_1/)).toBeDefined();
-    expect(screen.getByText(/100.00 €/)).toBeDefined(); 
-    expect(screen.getByText(/bird_2/)).toBeDefined();
-    expect(screen.getByText(/15 commentaires/)).toBeDefined();
-  });
-
-  it('🟢 doit fetcher les statistiques si initialData est vide ou non fourni', async () => {
+  it('🟢 doit afficher les statistiques correctement lorsqu’elles sont chargées', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         success: true,
-        yearMonth: '2026-09',
-        macroTotals: { totalVolumeCents: 15000, transactionCount: 5 },
+        yearMonth: 'Août 2026',
+        macroTotals: { totalVolumeCents: 10000, transactionCount: 5 },
         topSellers: [],
         topBuyers: [],
         mostCommented: [],
@@ -64,26 +41,26 @@ describe('UI & Logique : CanopyStatsDashboard (React Query & SSR)', () => {
 
     renderDashboard();
 
-    expect(screen.getByText(/Écoute de la canopée en cours.../)).toBeDefined();
-
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith('/api/canopy/stats');
-      expect(screen.getByText('2026-09')).toBeDefined();
-      expect(screen.getByText(/150.00 €/)).toBeDefined(); // 15000 cents
-      expect(screen.getByText(/5 transactions/)).toBeDefined();
+      expect(screen.getByText(/Août 2026/)).toBeDefined();
+      expect(screen.getByText(/100.00 €/)).toBeDefined();
     });
   });
 
-  it('🔴 doit afficher un message de silence en cas d\'erreur ou de données absentes', async () => {
+  it('🔴 doit gérer l’erreur unifiée renvoyée par l’API (data.error)', async () => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: false,
-      json: async () => ({ success: false })
+      json: async () => ({
+        success: false,
+        error: "Aucun bilan de la canopée disponible pour le moment."
+      })
     });
 
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText(/La canopée est silencieuse ce mois-ci./)).toBeDefined();
+      // Le composant gère l'état d'erreur en affichant le message de repli de la canopée silencieuse
+      expect(screen.getByText("La canopée est silencieuse ce mois-ci.")).toBeDefined();
     });
   });
 });

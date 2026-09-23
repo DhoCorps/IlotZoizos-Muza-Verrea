@@ -15,6 +15,7 @@ export * from './models/partita.types';
 export * from './models/letrinSprite.types';
 export * from './core/kontakt.types';
 export * from './core/ecommerce.types';
+export * from './core/demopraxy.types';
 export * from './core/gameHistory.types';
 export * from './models/message.types';
 export * from './models/quizz.types';
@@ -36,6 +37,7 @@ export * from './models/universalComment.types';
 export * from './models/propagation.types';
 export * from './core/notification.types';
 export * from './core/subscription.types';
+export * from './core/raffle.types';
 
 export interface ActionSignature {
   actorUid: string;       

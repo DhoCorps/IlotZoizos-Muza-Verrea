@@ -29,6 +29,9 @@ export * from './database/models/nosql/barterOffer.model';
 export * from './database/models/nosql/wallet.model';
 export * from './database/models/nosql/ledgerEntry.model';
 export * from './database/models/nosql/subsidy.model';
+export * from './database/models/nosql/ticket.model';
+export * from './database/models/nosql/roulette.model';
+export * from './database/models/nosql/raffle.model';
 
 export * from './database/models/nosql/taxonomy.model';
 
@@ -93,3 +96,6 @@ export * from './database/models/nosql/propagation.model';
 
 export * from './database/models/nosql/notification.model';
 export * from './database/models/graph/subscription.graph';
+
+export * from './database/models/nosql/demopraxy.model';
+

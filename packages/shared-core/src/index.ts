@@ -44,6 +44,7 @@ export * from './sync-engine/partita.orchestrator';
 export * from './sync-engine/letrinSprite.orchestrator';
 export * from './sync-engine/kontakt.orchestrator';
 export * from './sync-engine/ecommerce.orchestrator';
+export * from './sync-engine/raffle.orchestrator';
 export * from './sync-engine/task.irrigation.orchestrator';
 export * from './sync-engine/task.resonance.orchestrator';
 export * from './sync-engine/resonance.orchestrator';
@@ -62,6 +63,7 @@ export * from './sync-engine/univershall.orchestrator';
 export * from './sync-engine/univershallPantheon.orchestrator';
 export * from './sync-engine/universalMedia.orchestrator';
 export * from './sync-engine/notification.orchestrator';
+export * from './sync-engine/universalComment.orchestrator';
 
 // --- 6. JEUX (LOGIQUE & TYPES) ---
 

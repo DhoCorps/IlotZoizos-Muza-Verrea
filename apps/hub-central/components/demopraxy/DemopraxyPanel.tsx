@@ -3,12 +3,17 @@
 
 import React, { useState } from 'react';
 
-export default function DemopraxyPanel({ targetUserSlug }: { targetUserSlug: string }) {
+export default function DemopraxyPanel({ targetUserSlug, targetUserUid }: { targetUserSlug: string; targetUserUid?: string }) {
   const [hatred, setHatred] = useState<number>(2);
   const [recurrence, setRecurrence] = useState<number>(1);
   const [recalibration, setRecalibration] = useState<number>(5);
   const [resonance, setResonance] = useState<number>(5);
   
+  // 🛡️ Nouveaux états pour la qualification de la dérive
+  const [sanctionCategory, setSanctionCategory] = useState<string>('SYSTEMIC_HATRED');
+  const [tagsInput, setTagsInput] = useState<string>('toxique, récidiviste');
+  const [showCommentDrawer, setShowCommentDrawer] = useState<boolean>(false);
+
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,12 +27,19 @@ export default function DemopraxyPanel({ targetUserSlug }: { targetUserSlug: str
     setLoading(true);
     setError(null);
 
+    const tags = tagsInput
+      .split(',')
+      .map(t => t.trim())
+      .filter(Boolean);
+
     try {
       const res = await fetch('/api/demopraxy/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userIdentifier: targetUserSlug,
+          sanctionCategory,
+          tags,
           metrics: {
             systemicHatredScore: Number(hatred),
             recurrenceCount: Number(recurrence),
@@ -59,6 +71,39 @@ export default function DemopraxyPanel({ targetUserSlug }: { targetUserSlug: str
       </div>
 
       <form onSubmit={handleEvaluate} className="space-y-4">
+        {/* 📋 Sélection de la Catégorie de Sanction */}
+        <div>
+          <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">
+            Catégorie de Sanction / Dérive
+          </label>
+          <select
+            value={sanctionCategory}
+            onChange={(e) => setSanctionCategory(e.target.value)}
+            className="w-full px-3 py-2 bg-slate-800 rounded border border-slate-700 text-sm text-white focus:outline-none focus:border-indigo-500"
+          >
+            <option value="SYSTEMIC_HATRED">Haine Systémique</option>
+            <option value="MANIPULATION">Manipulation</option>
+            <option value="TOXICITY">Toxicité Comportementale</option>
+            <option value="HARASSMENT">Harcèlement</option>
+            <option value="DISINFORMATION">Désinformation</option>
+            <option value="CUSTOM">Personnalisée / Autre</option>
+          </select>
+        </div>
+
+        {/* 🏷️ Saisie des Tags */}
+        <div>
+          <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">
+            Tags de Qualification (séparés par des virgules)
+          </label>
+          <input 
+            type="text" 
+            value={tagsInput}
+            onChange={(e) => setTagsInput(e.target.value)}
+            placeholder="ex: toxique, récidiviste, troll"
+            className="w-full px-3 py-2 bg-slate-800 rounded border border-slate-700 text-sm text-white focus:outline-none focus:border-indigo-500"
+          />
+        </div>
+
         <div>
           <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">
             Indice de Toxicité / Haine Systémique (0 - 10): {hatred}
@@ -92,6 +137,18 @@ export default function DemopraxyPanel({ targetUserSlug }: { targetUserSlug: str
           />
         </div>
 
+        {/* 🌍 Nouveau Curseur : Résonance Collective */}
+        <div>
+          <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">
+            Résonance Collective / Impact (1 - 10): {resonance}
+          </label>
+          <input 
+            type="range" min="1" max="10" step="0.5" value={resonance} 
+            onChange={(e) => setResonance(Number(e.target.value))}
+            className="w-full accent-amber-500 bg-slate-800 cursor-pointer"
+          />
+        </div>
+
         {error && (
           <div className="p-3 bg-red-900/30 border border-red-800 text-red-300 text-xs rounded">
             {error}
@@ -109,8 +166,31 @@ export default function DemopraxyPanel({ targetUserSlug }: { targetUserSlug: str
 
       {result && (
         <div className={`mt-6 p-4 rounded-lg border text-sm ${result.isExcluded ? 'bg-red-950/40 border-red-900 text-red-200' : 'bg-slate-800/60 border-slate-700 text-slate-300'}`}>
-          <p className="font-semibold mb-1">{result.isExcluded ? '🌑 Sanctuaire Isolé' : '🌱 Volière en Paix'}</p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="font-semibold">{result.isExcluded ? '🌑 Sanctuaire Isolé' : '🌱 Volière en Paix'}</p>
+            {targetUserUid && (
+              <button
+                onClick={() => setShowCommentDrawer(!showCommentDrawer)}
+                className="text-xs px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-indigo-300 rounded border border-slate-700 transition-colors"
+              >
+                {showCommentDrawer ? 'Fermer le Débat' : '💬 Débattre (Gardiens)'}
+              </button>
+            )}
+          </div>
           <p className="text-xs font-mono">{result.actionMessage}</p>
+
+          {/* 💬 Tiroir de Débat UniversalComment réservé aux gardiens */}
+          {showCommentDrawer && targetUserUid && (
+            <div className="mt-4 pt-4 border-t border-slate-700/60 space-y-3 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
+                <span>Registre des Débats (Cible: USER)</span>
+                <span className="text-amber-400">Accès Gardien Sécurisé</span>
+              </div>
+              <div className="p-3 bg-slate-950/80 rounded border border-slate-800 text-xs text-slate-400 text-center">
+                [Composant UniversalComment injecté ici pour consigner les motifs dans le graphe]
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -102,12 +102,9 @@ export const DELETE = withAura(async (_req: NextRequest, context: ApiContext, cu
       capabilities: sessionCaps
     };
 
+    // ⚙️ Synchronisation et suppression atomique via l'Orchestrateur
     const ecommerceOrch = new EcommerceOrchestrator();
-    if (typeof (ecommerceOrch as unknown as { dissolveStore?: Function }).dissolveStore === 'function') {
-      await ecommerceOrch.dissolveStore(store.uid, signature);
-    } else {
-      await StoreModel.deleteOne({ uid: store.uid });
-    }
+    await ecommerceOrch.dissolveStore(store.uid, signature);
     
     // 💥 Invalidation chirurgicale du cache en cascade via notre helper dédié
     revalidateStoreCascades(identifier, store.uid, store.slug, store.ownerUid);

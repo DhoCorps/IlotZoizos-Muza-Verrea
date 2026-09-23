@@ -1,48 +1,113 @@
 import mongoose from 'mongoose'; 
-import type{ Document } from 'mongoose';
+import type { Document, Model, Types } from 'mongoose';
 
 const { Schema } = mongoose;
+import { v4 as uuidv4 } from 'uuid';
+import { IProduct } from '@ilot/types'; 
 
-export interface IProductDocument extends Document {
-  uid: string;
-  storeUid: string;
-  title: string;
-  slug: string; // 🪡
-  description: string;
-  priceCents: number;
-  currency: string;
-  stock: number;
-  category: string;
-  visibility : string;
-  imageUrl?: string;
+/**
+ * 🏗️ PRODUCT DOCUMENT
+ */
+export interface IProductDocument extends Omit<IProduct, '_id'>, Document {
+  _id: Types.ObjectId;
   createdAt: Date;
+  updatedAt: Date;
 }
 
-// Dans ton interface et ton schéma Mongoose
-export type CreationVisibility = 'PUBLIC' | 'EXCHANGEABLE' | 'VISIBLE' | 'PRIVATE';
+// Schéma Mongoose pour les déclinaisons (variantes)
+const ProductVariantSchema = new Schema({
+  uid: { type: String, required: true, default: () => uuidv4() },
+  name: { type: String, required: true, trim: true },
+  sku: { type: String, trim: true },
+  priceOffsetCents: { type: Number, default: 0 },
+  costPriceCents: { type: Number, min: 0, default: 0 },
+  stock: { type: Number, min: 0, default: 1 },
+  attributes: { type: Map, of: String }
+}, { _id: false });
 
+const ProductSchema = new Schema<IProductDocument>(
+  {
+    // --- 🌉 LE PONT NEO4J ---
+    uid: { 
+      type: String, 
+      required: true, 
+      unique: true, 
+      default: () => uuidv4(), 
+      index: true 
+    },
+    storeUid: { type: String, required: true, index: true },
 
-const ProductSchema = new Schema<IProductDocument>({
-  uid: { type: String, required: true, unique: true, index: true },
-  storeUid: { type: String, required: true, index: true },
-  title: { type: String, required: true, trim: true },
-  slug: { type: String, required: true, unique: true, index: true }, // 🪡 INDEXÉ POUR LA RECHERCHE PAR URL
-  description: { type: String, required: true },
-  priceCents: { type: Number, required: true, min: 0 },
-  currency: { type: String, default: 'EUR' },
-  stock: { type: Number, default: 1, min: 0 },
-  category: { 
-    type: String, 
-    enum: ['FONT_SPRITE', 'DIGITAL_GOOD', 'PHYSICAL_ARTIFACT', 'LORE_SCROLL'],
-    required: true 
+    // --- 🛡️ SUTURES DE SOUVERAINETÉ & INDEXATION ---
+    ownerUid: { type: String, index: true },
+    ownerSlug: { type: String, index: true },
+    sellerUid: { type: String, index: true },
+
+    // --- 🏷️ IDENTITÉ & CONTENU ---
+    title: { type: String, required: true, trim: true, index: true },
+    slug: { type: String, required: true, trim: true, index: true }, 
+    description: { type: String, required: true, maxlength: 5000 },
+    
+    // --- 💰 GESTION FINANCIÈRE ---
+    nature: { 
+      type: String, 
+      enum: ['PHYSICAL', 'DIGITAL'], 
+      default: 'DIGITAL' 
+    },
+    priceExclTaxCents: { type: Number, min: 0, default: 0 },
+    taxRatePercent: { type: Number, min: 0, default: 0 },
+    priceCents: { type: Number, required: true, min: 0 }, 
+    costPriceCents: { type: Number, min: 0, default: 0 }, 
+    marginCents: { type: Number }, 
+    marginPercent: { type: Number }, 
+    
+    currency: { type: String, default: 'EUR' },
+    stock: { type: Number, min: 0, default: 1 },
+
+    // --- 🎨 DÉCLINAISONS ---
+    variants: [ProductVariantSchema],
+
+    // --- 🏷️ TAGS & SEO (Correction de l'index en double) ---
+    tags: { type: [{ type: String, lowercase: true, trim: true }] },
+    seoMetadata: {
+      title: { type: String, trim: true },
+      description: { type: String, trim: true }
+    },
+
+    // --- 🎡 OPTIONS DE LA ROULETTE KARMIQUE ---
+    isRouletteActive: { type: Boolean, default: false },
+    wagerAmount: { type: Number, min: 0, default: 0 },
+    secretPriceCents: { type: Number, min: 0 },
+
+    category: { 
+      type: String, 
+      required: true,
+      enum: ['FONT_SPRITE', 'DIGITAL_GOOD', 'PHYSICAL_ARTIFACT', 'LORE_SCROLL'],
+      index: true
+    },
+    imageUrl: { type: String, trim: true },
+    visibility: { 
+      type: String, 
+      enum: ['PUBLIC', 'EXCHANGEABLE', 'VISIBLE', 'PRIVATE'],
+      default: 'PUBLIC' 
+    },
+    settings: { type: Schema.Types.Mixed }
   },
-  imageUrl: { type: String, trim: true },
-  visibility: { 
-  type: String, 
-  enum: ['PUBLIC', 'EXCHANGEABLE', 'VISIBLE', 'PRIVATE'], 
-  default: 'PUBLIC',
-  required: true 
-},
-}, { timestamps: true });
+  { 
+    timestamps: true,
+    toJSON: { 
+      virtuals: true,
+      transform: (_, ret: any) => { 
+        delete ret._id; 
+        delete ret.__v;
+        return ret;
+      } 
+    }
+  }
+);
 
-export const ProductModel = mongoose.models.Product || mongoose.model<IProductDocument>('Product', ProductSchema);
+// 🔍 INDEX DE RECHERCHE UNIQUE (Évite le doublon)
+ProductSchema.index({ tags: 1 });
+ProductSchema.index({ title: 'text', description: 'text', tags: 'text' });
+
+export const ProductModel = (mongoose.models.Product as Model<IProductDocument>) || 
+                            mongoose.model<IProductDocument>('Product', ProductSchema);

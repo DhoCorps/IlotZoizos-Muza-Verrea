@@ -5,7 +5,6 @@ import { EcommerceOrchestrator } from '@ilot/shared-core';
 import { NextResponse, NextRequest } from 'next/server';
 import type { ApiContext } from '@/lib/api-guards';
 
-// Mock global de l'infrastructure (pleinement chaînable)
 vi.mock('@ilot/infrastructure', () => ({
     BarterOfferModel: {
         create: vi.fn(),
@@ -23,7 +22,6 @@ vi.mock('@ilot/infrastructure', () => ({
     },
 }));
 
-// Mock des gardiens d'API (`withAura`)
 vi.mock('@/lib/api-guards', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/lib/api-guards')>();
     return {
@@ -34,13 +32,11 @@ vi.mock('@/lib/api-guards', async (importOriginal) => {
                 if (!mockUser || !mockUser.uid) {
                     return NextResponse.json({ success: false, error: "Oiseau non identifié" }, { status: 401 });
                 }
-                // @ts-ignore
-                return await handler(req, context, mockUser);
+                return await (handler as any)(req, context, mockUser);
             };
         },
         withSilice: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
-            // @ts-ignore
-            return await handler(req, context);
+            return await (handler as any)(req, context);
         },
     };
 });
@@ -63,7 +59,7 @@ describe('POST /api/ecommerce/barter (Douane Vibratoire du Troc)', () => {
         vi.clearAllMocks();
         global.__mockUser = { uid: 'bird_clean_1', capabilities: ['*'] };
 
-        // 🛡️ SUTURE CHIRURGICALE : Espionnage direct sur le prototype de EcommerceOrchestrator
+        // 🛡️ L'espionnage fonctionne car les méthodes ont été restaurées
         vi.spyOn(EcommerceOrchestrator.prototype, 'proposeBarter').mockResolvedValue({
             success: true,
             barterUid: 'barter_123'
@@ -76,7 +72,6 @@ describe('POST /api/ecommerce/barter (Douane Vibratoire du Troc)', () => {
     });
 
     it('🔴 doit rejeter avec une erreur 403 si l oiseau est classé INDESIRABLE ou banni', async () => {
-        // Simulation de findOne().lean()
         vi.mocked(OiseauModel.findOne).mockReturnValueOnce({
             lean: vi.fn().mockResolvedValueOnce({
                 uid: 'bird_clean_1',
@@ -99,7 +94,6 @@ describe('POST /api/ecommerce/barter (Douane Vibratoire du Troc)', () => {
     });
 
     it('🟢 doit autoriser la proposition de troc si l oiseau est respectueux ou neutre', async () => {
-        // Simulation de findOne().lean()
         vi.mocked(OiseauModel.findOne).mockReturnValueOnce({
             lean: vi.fn().mockResolvedValueOnce({
                 uid: 'bird_clean_1',

@@ -100,7 +100,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       isVerified: true
     }) as unknown as IStore;
     
-    // 3. Synchronisation Neo4j (Non-bloquant)
+    // 3. Synchronisation Neo4j via l'Orchestrateur
     try {
       const orchestrator = new EcommerceOrchestrator();
       await orchestrator.createStore(

@@ -1,16 +1,29 @@
 import { describe, it, expect } from 'vitest';
 import { ProductModel } from '../../nosql/product.model';
 
-describe('Product Model', () => {
-    it('🟢 doit valider un produit conforme avec toutes ses valeurs requises et par défaut', () => {
+describe('Product Model - Mongoose & Kompta Integration', () => {
+    it('🟢 doit valider un produit conforme avec toutes ses valeurs requises, sa TVA, son coût de revient et ses tags indexés', () => {
         const validData = {
             uid: 'prod_123',
             storeUid: 'store_canopee_1',
             title: 'Plume Sélénite de Collection',
             slug: 'plume-selenite-de-collection',
             description: 'Une plume gravée pour tracer des glyphes dans la Silice.',
-            priceCents: 2500,
-            category: 'FONT_SPRITE',
+            nature: 'PHYSICAL',
+            priceExclTaxCents: 2083,
+            taxRatePercent: 20,
+            priceCents: 2500, 
+            costPriceCents: 800, 
+            marginCents: 1283, 
+            marginPercent: 60,
+            tags: ['sélénite', 'plume', 'artifact'],
+            seoMetadata: {
+                title: 'Plume Sélénite',
+                description: 'Achetez la plume exclusive.'
+            },
+            isRouletteActive: true,
+            wagerAmount: 10,
+            category: 'PHYSICAL_ARTIFACT',
             visibility: 'PUBLIC',
         };
 
@@ -19,22 +32,22 @@ describe('Product Model', () => {
         expect(product.storeUid).toBe('store_canopee_1');
         expect(product.title).toBe('Plume Sélénite de Collection');
         expect(product.slug).toBe('plume-selenite-de-collection');
-        expect(product.description).toBe('Une plume gravée pour tracer des glyphes dans la Silice.');
         expect(product.priceCents).toBe(2500);
-        expect(product.category).toBe('FONT_SPRITE');
-        expect(product.visibility).toBe('PUBLIC');
+        expect(product.costPriceCents).toBe(800);
+        expect(product.tags).toContain('sélénite');
+        expect(product.isRouletteActive).toBe(true);
+        expect(product.wagerAmount).toBe(10);
         expect(product.currency).toBe('EUR');
         expect(product.stock).toBe(1);
     });
 
-    it('🔴 doit rejeter un produit si les champs obligatoires stricts (uid, storeUid, title, slug, description, priceCents, category) manquent', () => {
+    it('🔴 doit rejeter un produit si les champs obligatoires stricts (storeUid, title, slug, description, priceCents, category) manquent', () => {
+        // On passe un objet sans les champs requis (l'uid se génère tout seul par défaut, donc on ne teste pas son absence pure)
         const invalidData = {
             currency: 'USD',
-            // Les champs required racine (hors visibility qui a un default) sont omis
         };
 
         const error = new ProductModel(invalidData).validateSync();
-        expect(error?.errors?.uid).toBeDefined();
         expect(error?.errors?.storeUid).toBeDefined();
         expect(error?.errors?.title).toBeDefined();
         expect(error?.errors?.slug).toBeDefined();
@@ -51,8 +64,8 @@ describe('Product Model', () => {
             slug: 'test',
             description: 'Description',
             priceCents: 100,
-            category: 'UNKNOWN_CATEGORY', // Invalide
-            visibility: 'UNKNOWN_VISIBILITY', // Invalide
+            category: 'UNKNOWN_CATEGORY', 
+            visibility: 'UNKNOWN_VISIBILITY', 
         };
 
         const error = new ProductModel(invalidData).validateSync();

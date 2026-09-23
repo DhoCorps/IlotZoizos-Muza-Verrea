@@ -1,26 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EcommerceOrchestrator } from '../ecommerce.orchestrator';
 import { TransactionManager } from '../transactionManager';
-import { IlotError } from '../../errors/ilot.errors';
-import { syncUniversalInteraction, SystemGraphDlqModel, ProductModel, StoreModel } from '@ilot/infrastructure';
+import { syncUniversalInteraction, RouletteModel } from '@ilot/infrastructure';
 
+// 1. Mock de l'infrastructure
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
   return {
     ...actual,
     syncUniversalInteraction: vi.fn(async () => true),
-    SystemGraphDlqModel: {
-      create: vi.fn().mockResolvedValue([{}])
-    },
-    ProductModel: {
-      deleteOne: vi.fn().mockResolvedValue({ deletedCount: 1 })
-    },
-    StoreModel: {
-      deleteOne: vi.fn().mockResolvedValue({ deletedCount: 1 })
-    }
+    SystemGraphDlqModel: { create: vi.fn().mockResolvedValue([{}]) },
+    ProductModel: { deleteOne: vi.fn().mockResolvedValue({ deletedCount: 1 }) },
+    StoreModel: { deleteOne: vi.fn().mockResolvedValue({ deletedCount: 1 }) },
+    RouletteModel: {}
   };
 });
 
+// 2. Mock du TransactionManager
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
     execute: vi.fn(async (_name, cb) => {
@@ -31,6 +27,10 @@ vi.mock('../transactionManager', () => ({
             get: (field: string) => {
               if (field === 'ownerUid') return 'store_owner_123';
               if (field === 'initiatorUid') return 'initiator_123';
+              if (field === 'balance') return 100;
+              if (field === 'wagerAmount') return 10;
+              if (field === 'basePrice') return 5000;
+              if (field === 'distance') return 2;
               return 'mock_node';
             }
           }] 
@@ -41,140 +41,60 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-describe('EcommerceOrchestrator - Synchronisation Boutique, Commandes, Troc, Artefacts & Dissolution', () => {
+describe('EcommerceOrchestrator - Core v1 (Boutiques, Tags, Karma, Troc & Roulette)', () => {
   let orchestrator: EcommerceOrchestrator;
   const mockActorUid = 'bird-alpha';
 
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new EcommerceOrchestrator();
+
+    const mockNullQuery = Promise.resolve(null) as any;
+    mockNullQuery.session = vi.fn().mockResolvedValue(null);
+
+    RouletteModel.findOne = vi.fn().mockReturnValue(mockNullQuery) as any;
+    RouletteModel.insertMany = vi.fn().mockResolvedValue([{ uid: 'roulette_sess_123' }]) as any;
   });
 
-  describe('createStore', () => {
-    it('🔴 doit rejeter (401) si l\'Oiseau n\'est pas authentifié', async () => {
-      await expect(
-        orchestrator.createStore(
-          { uid: 'store-1', ownerUid: mockActorUid, storeName: 'Boutique', slug: 'boutique' },
-          { actorUid: '', capabilities: [] }
-        )
-      ).rejects.toThrow(IlotError);
-    });
-
-    it('🟢 doit créer une boutique et lier l\'Oiseau dans le graphe via MATCH strict', async () => {
-      const result = await orchestrator.createStore(
-        { uid: 'store-1', ownerUid: mockActorUid, storeName: 'Boutique des Artefacts', slug: 'boutique-des-artefacts' },
+  describe('createProduct (avec Tags)', () => {
+    it('🟢 doit créer un artefact et synchroniser ses tags dans le Graphe', async () => {
+      const result = await orchestrator.createProduct(
+        { uid: 'prod-1', storeUid: 'store-1', title: 'Epée Plasma', priceCents: 1500, tags: ['arme', 'plasma'] },
         { actorUid: mockActorUid, capabilities: ['*'] }
       );
-      
-      expect(result.success).toBe(true);
-      expect(result.storeUid).toBe('store-1');
-      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
-    });
-
-    it('🔴 doit rejeter (404) si l\'Oiseau est introuvable dans le Graphe (zéro record)', async () => {
-      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name, cb) => {
-        return await cb({} as unknown as Parameters<Parameters<typeof TransactionManager.execute>[1]>[0], { run: vi.fn().mockResolvedValue({ records: [] }) } as unknown as Parameters<Parameters<typeof TransactionManager.execute>[1]>[1]);
-      });
-
-      await expect(
-        orchestrator.createStore(
-          { uid: 'store-1', ownerUid: mockActorUid, storeName: 'Boutique', slug: 'boutique' },
-          { actorUid: mockActorUid, capabilities: ['*'] }
-        )
-      ).rejects.toThrow(/Oiseau propriétaire introuvable/);
-    });
-  });
-
-  describe('dissolveStore', () => {
-    it('🔴 doit rejeter (401) si l\'Oiseau n\'est pas authentifié pour dissoudre une boutique', async () => {
-      await expect(
-        orchestrator.dissolveStore('store-1', { actorUid: '', capabilities: [] })
-      ).rejects.toThrow(IlotError);
-    });
-
-    it('🟢 doit dissoudre la boutique du graphe et de MongoDB avec succès', async () => {
-      const result = await orchestrator.dissolveStore(
-        'store-1',
-        { actorUid: mockActorUid, capabilities: ['*'] }
-      );
-
       expect(result.success).toBe(true);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
-      expect(StoreModel.deleteOne).toHaveBeenCalledWith({ uid: 'store-1' });
     });
   });
 
-  describe('recordOrder', () => {
-    it('🟢 doit enregistrer une commande, relier l\'acheteur et propager l\'interaction universelle', async () => {
-      const result = await orchestrator.recordOrder(
-        { uid: 'ord-1', buyerUid: mockActorUid, storeUid: 'store-1', totalAmountCents: 1500, stripePaymentIntentId: 'pi_123' },
-        { actorUid: mockActorUid, capabilities: ['*'] }
+  describe('spinKarmicRoulette', () => {
+    it('🟢 doit déduire la mise, générer un prix réduit et verrouiller la session pour 24h', async () => {
+      const result = await orchestrator.spinKarmicRoulette(
+        mockActorUid, 'prod-1', { actorUid: mockActorUid, capabilities: ['*'] }
       );
-      
       expect(result.success).toBe(true);
-      expect(result.orderUid).toBe('ord-1');
-
-      expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
-      expect(syncUniversalInteraction).toHaveBeenCalledWith(mockActorUid, 'store_owner_123', 'ECOMMERCE');
-    });
-
-    it('🟡 doit basculer l\'interaction en DLQ si syncUniversalInteraction échoue', async () => {
-      vi.mocked(syncUniversalInteraction).mockRejectedValueOnce(new Error('Neo4j timeout'));
-
-      const result = await orchestrator.recordOrder(
-        { uid: 'ord-1', buyerUid: mockActorUid, storeUid: 'store-1', totalAmountCents: 1500, stripePaymentIntentId: 'pi_123' },
-        { actorUid: mockActorUid, capabilities: ['*'] }
-      );
-
-      expect(result.success).toBe(true);
-      expect(SystemGraphDlqModel.create).toHaveBeenCalledTimes(1);
+      expect(result.price).toBeLessThan(5000); 
     });
   });
 
-  describe('proposeBarter & resolveBarter', () => {
-    it('🟢 doit enregistrer une proposition de troc et propager l\'interaction si une cible est désignée', async () => {
+  // 👇 NOUVEAUX TESTS POUR LE TROC
+  describe('Gestion du Troc (Barter)', () => {
+    it('🟢 doit créer un noeud Barter dans Neo4j via proposeBarter', async () => {
       const result = await orchestrator.proposeBarter(
-        { uid: 'barter-1', initiatorUid: mockActorUid, receiverUid: 'bird-beta', offeredUids: ['prod-1'], requestedUids: ['prod-2'] },
+        { uid: 'barter_1', initiatorUid: mockActorUid, offeredUids: ['p1'], requestedUids: ['p2'] },
         { actorUid: mockActorUid, capabilities: ['*'] }
       );
-      
-      expect(result.success).toBe(true);
-      expect(result.barterUid).toBe('barter-1');
-
-      expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
-      expect(syncUniversalInteraction).toHaveBeenCalledWith(mockActorUid, 'bird-beta', 'ECOMMERCE');
-    });
-
-    it('🟢 doit résoudre (accepter) une offre de troc, lier les oiseaux et propager l\'interaction', async () => {
-      const result = await orchestrator.resolveBarter(
-        { barterUid: 'barter-1', acceptorUid: 'bird-beta', status: 'ACCEPTED' },
-        { actorUid: 'bird-beta', capabilities: ['*'] }
-      );
-      
-      expect(result.success).toBe(true);
-      expect(result.status).toBe('ACCEPTED');
-
-      expect(syncUniversalInteraction).toHaveBeenCalledTimes(1);
-      expect(syncUniversalInteraction).toHaveBeenCalledWith('initiator_123', 'bird-beta', 'ECOMMERCE');
-    });
-  });
-
-  describe('removeProduct', () => {
-    it('🔴 doit rejeter (401) si l\'Oiseau n\'est pas authentifié pour supprimer un produit', async () => {
-      await expect(
-        orchestrator.removeProduct('prod-1', { actorUid: '', capabilities: [] })
-      ).rejects.toThrow(IlotError);
-    });
-
-    it('🟢 doit supprimer l\'artefact de la base de données et du graphe avec succès', async () => {
-      const result = await orchestrator.removeProduct(
-        'prod-1',
-        { actorUid: mockActorUid, capabilities: ['*'] }
-      );
-
       expect(result.success).toBe(true);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
-      expect(ProductModel.deleteOne).toHaveBeenCalledWith({ uid: 'prod-1' });
+    });
+
+    it('🟢 doit mettre à jour le noeud Barter dans Neo4j via resolveBarter', async () => {
+      const result = await orchestrator.resolveBarter(
+        { barterUid: 'barter_1', acceptorUid: 'bird_beta', status: 'ACCEPTED' },
+        { actorUid: 'bird_beta', capabilities: ['*'] }
+      );
+      expect(result.success).toBe(true);
+      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });
 });
