@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/bibliotek/[slug]/annotations/route';
 import { AnnotationModel, LibraryBookModel } from '@ilot/infrastructure';
-import { UniversalCommentOrchestrator } from '@ilot/shared-core'; // 🌟 Import de l'Orchestrateur
+import { UniversalCommentOrchestrator } from '@ilot/shared-core';
+import { getCachedBook } from '@/lib/cache/bibliotek.cache';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
-import type { ApiContext } from '@/lib/api-guards'; // 🛡️ Import explicite pour éliminer l'erreur ApiContext
+import type { ApiContext } from '@/lib/api-guards';
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
+}));
+
+vi.mock('@/lib/cache/bibliotek.cache', () => ({
+  getCachedBook: vi.fn(),
 }));
 
 vi.mock('@/lib/api-guards', async (importOriginal) => {
@@ -44,7 +49,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 });
 
 declare global {
-  // 🛡️ Harmonisation stricte de la signature d'index pour correspondre à auth.user.update.test.ts
   var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
@@ -58,7 +62,6 @@ describe('API Bibliotek - Sous-route Annotations ([slug]/annotations)', () => {
     vi.clearAllMocks();
     delete global.__mockUser;
 
-    // 🌟 ESPIONNAGE DU PROTOTYPE (Mock sécurisé pour Vitest)
     vi.spyOn(UniversalCommentOrchestrator.prototype, 'fosterComment').mockResolvedValue({
       success: true,
       isJackpot: false,
@@ -67,13 +70,11 @@ describe('API Bibliotek - Sous-route Annotations ([slug]/annotations)', () => {
     });
   });
 
-  it('🟢 GET : doit lister les notes associées au livre par son slug', async () => {
-    vi.mocked(LibraryBookModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValue({
-        uid: 'book_999',
-        title: 'Traité'
-      })
-    } as unknown as ReturnType<typeof LibraryBookModel.findOne>);
+  it('🟢 GET : doit lister les notes associées au livre par son slug via le cache', async () => {
+    vi.mocked(getCachedBook).mockResolvedValueOnce({
+      uid: 'book_999',
+      title: 'Traité'
+    } as any);
 
     vi.mocked(AnnotationModel.find).mockReturnValue({
       sort: vi.fn().mockReturnValue({
@@ -81,12 +82,15 @@ describe('API Bibliotek - Sous-route Annotations ([slug]/annotations)', () => {
       })
     } as unknown as ReturnType<typeof AnnotationModel.find>);
 
+    global.__mockUser = { uid: 'bird_reader', capabilities: [] };
+
     const req = new NextRequest('http://localhost:3000/api/bibliotek/traite/annotations');
     const res = await getHandler(req, { params: Promise.resolve({ slug: 'traite' }) });
     const json = await res.json();
 
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
+    expect(getCachedBook).toHaveBeenCalledWith('traite');
     expect(json.data).toHaveLength(1);
     expect(json.data[0].selectedText).toBe('Extrait Spinoza');
   });
@@ -124,7 +128,6 @@ describe('API Bibliotek - Sous-route Annotations ([slug]/annotations)', () => {
     expect(json.data.uid).toBe('annot_new');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek-annotations');
     
-    // On s'assure que l'orchestrateur a été sollicité avec le bon format
     expect(UniversalCommentOrchestrator.prototype.fosterComment).toHaveBeenCalledWith(
       expect.objectContaining({ targetUid: 'book_999' }),
       expect.any(Object)
@@ -141,7 +144,6 @@ describe('API Bibliotek - Sous-route Annotations ([slug]/annotations)', () => {
       })
     } as unknown as ReturnType<typeof LibraryBookModel.findOne>);
 
-    // On simule un rejet (403) de la part de l'orchestrateur
     vi.spyOn(UniversalCommentOrchestrator.prototype, 'fosterComment').mockRejectedValueOnce({
       status: 403,
       message: "Le droit de critiquer s'achète par un acte d'amour."
@@ -161,7 +163,6 @@ describe('API Bibliotek - Sous-route Annotations ([slug]/annotations)', () => {
     expect(json.success).toBe(false);
     expect(json.error).toContain("acte d'amour");
 
-    // L'enregistrement local en base MongoDB a bien été bloqué
     expect(AnnotationModel.create).not.toHaveBeenCalled();
   });
 });

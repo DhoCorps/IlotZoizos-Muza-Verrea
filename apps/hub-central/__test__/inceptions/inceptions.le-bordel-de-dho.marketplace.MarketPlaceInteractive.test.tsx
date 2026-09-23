@@ -28,7 +28,7 @@ vi.mock('@/components/widget/OmniActionWidget', () => ({
   OmniActionWidget: ({ isOpen }: any) => isOpen ? <div data-testid="omni-widget">Widget Partage</div> : null,
 }));
 
-vi.mock('@/components/ecommerce/ProductComparator', () => ({
+vi.mock('@/components/ecommerce/comparator/ProductComparator', () => ({
   ProductComparator: ({ products }: any) => (
     <div data-testid="product-comparator">
       Comparateur ({products.length})
@@ -62,9 +62,35 @@ describe('Composant MarketPlaceInteractive', () => {
     expect(screen.queryByText(/Recensement des artefacts dans la silice/i)).toBeNull();
   });
 
+  it('doit rendre également les monolithes de loterie fournis par le SSR', () => {
+    const initialData = [
+      { 
+        uid: 'raffle_1', 
+        title: 'Grimoire Sacrificiel', 
+        priceCents: 2500, 
+        category: 'RAFFLE', 
+        isRaffle: true, 
+        raffleData: { 
+          uid: 'ref_1', 
+          ticketPriceShards: 25, 
+          maxTickets: 100, 
+          soldTicketsCount: 85, 
+          drawDate: new Date(Date.now() + 86400000).toISOString() 
+        } 
+      }
+    ];
+    
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MarketPlaceInteractive initialProducts={initialData} initialFilters={defaultFilters} />
+      </QueryClientProvider>
+    );
+
+    expect(screen.getByText('Grimoire Sacrificiel')).toBeDefined();
+    expect(screen.getByText(/Monolithe de Loterie/i)).toBeDefined();
+  });
+
   it('doit déclencher le fetch uniquement si les filtres changent et mettre à jour l’URL', async () => {
-    // 🛡️ CORRECTION : Utilisation de mockResolvedValue au lieu de "Once" car React Query 
-    // peut déclencher plusieurs fetch (hydratation + changement de filtre)
     vi.mocked(global.fetch).mockResolvedValue({
       ok: true,
       json: async () => ({

@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/bibliotek/[slug]/emotional-highlights/route';
 import { LibraryBookModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { BibliotekOrchestrator } from '@ilot/shared-core';
+import { getCachedBook } from '@/lib/cache/bibliotek.cache';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
+import type { ApiContext } from '@/lib/api-guards';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
@@ -12,15 +14,19 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
+vi.mock('@/lib/cache/bibliotek.cache', () => ({
+  getCachedBook: vi.fn(),
+}));
+
 vi.mock('@/lib/api-guards', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api-guards')>();
   return {
     ...actual,
-    withOptionalAura: (handler: unknown) => async (req: NextRequest, context: unknown) => {
+    withOptionalAura: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
       // @ts-ignore
       return await handler(req, context, global.__mockUser);
     },
-    withAura: (handler: unknown) => async (req: NextRequest, context: unknown) => {
+    withAura: (handler: unknown) => async (req: NextRequest, context: ApiContext) => {
       const mockUser = global.__mockUser;
       if (!mockUser || !mockUser.uid) {
         return NextResponse.json({ success: false, error: 'Accès non autorisé.' }, { status: 401 });
@@ -54,7 +60,6 @@ describe('API Bibliotek - Surlignages Émotionnels ([slug]/emotional-highlights)
     vi.clearAllMocks();
     delete global.__mockUser;
 
-    // 🛡️ CORRECTION CRITIQUE : Le mock respecte dorénavant scrupuleusement l'interface EmotionalHighlightResult
     vi.spyOn(BibliotekOrchestrator.prototype, 'addEmotionalHighlight').mockResolvedValue({
       success: true,
       highlight: { 
@@ -70,8 +75,8 @@ describe('API Bibliotek - Surlignages Émotionnels ([slug]/emotional-highlights)
     });
   });
 
-  it('🟢 GET : doit retourner uniquement les Notes d\'Érudits (isScholarSealed: true) pour un visiteur public', async () => {
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
+  it('🟢 GET : doit retourner uniquement les Notes d\'Érudits (isScholarSealed: true) via le cache pour un visiteur public', async () => {
+    vi.mocked(getCachedBook).mockResolvedValueOnce({ 
       uid: 'book_123',
       authorUid: 'author_1',
       emotionalHighlights: [
@@ -85,16 +90,17 @@ describe('API Bibliotek - Surlignages Émotionnels ([slug]/emotional-highlights)
     const json = await res.json();
 
     expect(res.status).toBe(200);
+    expect(getCachedBook).toHaveBeenCalledWith('mon-livre');
     expect(json.success).toBe(true);
     expect(json.isPrivateView).toBe(false);
     expect(json.data).toHaveLength(1);
     expect(json.data[0].emotion).toBe('<(:<');
   });
 
-  it('🟢 GET : doit retourner toutes les fulgurances (publiques et privées) à l\'auteur de l\'ouvrage', async () => {
+  it('🟢 GET : doit retourner toutes les fulgurances (publiques et privées) à l\'auteur de l\'ouvrage via le cache', async () => {
     global.__mockUser = { uid: 'author_1', capabilities: [] };
 
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
+    vi.mocked(getCachedBook).mockResolvedValueOnce({ 
       uid: 'book_123',
       authorUid: 'author_1',
       emotionalHighlights: [
@@ -110,7 +116,7 @@ describe('API Bibliotek - Surlignages Émotionnels ([slug]/emotional-highlights)
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
     expect(json.isPrivateView).toBe(true);
-    expect(json.data).toHaveLength(2); // L'auteur voit tout
+    expect(json.data).toHaveLength(2);
   });
 
   it('🔴 POST : doit rejeter (401) si l’Oiseau n’est pas connecté', async () => {
@@ -143,5 +149,7 @@ describe('API Bibliotek - Surlignages Émotionnels ([slug]/emotional-highlights)
     expect(json.data.emotion).toBe('<(:<');
     expect(json.data.uid).toBe('emo_mocked_123');
     expect(BibliotekOrchestrator.prototype.addEmotionalHighlight).toHaveBeenCalled();
+    expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
+    expect(revalidateTag).toHaveBeenCalledWith('bibliotek-mon-livre');
   });
 });

@@ -60,6 +60,18 @@ describe('Composant ProductDetailInteractive', () => {
     expect(screen.getByTestId('wishlist-btn')).toBeDefined();
   });
 
+  it('doit rendre l’animation de tirage de loterie si le produit est une raffle close avec vainqueur', () => {
+    const raffleProduct = {
+      ...sampleProduct,
+      isRaffle: true,
+      raffleWinnerPseudo: 'OiseauLibre_88',
+    };
+
+    render(<ProductDetailInteractive product={raffleProduct} />);
+
+    expect(screen.getByText(/Résultat du Sceau de Loterie/i)).toBeDefined();
+  });
+
   it('doit ajouter l’artefact au panier et déclencher un toast lors du clic sur acquisition', () => {
     render(<ProductDetailInteractive product={sampleProduct} />);
 

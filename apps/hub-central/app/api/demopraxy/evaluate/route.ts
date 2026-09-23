@@ -5,6 +5,7 @@ import { DemopraxyOrchestrator, NuisanceMetrics } from '@ilot/shared-core';
 import { ActionSignature, SanctionCategory } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
+import { getCachedDemopraxicMetrics } from '@/lib/cache/demopraxy.cache'; // 🚀 Import du Cache Démopraxy
 import { z } from 'zod';
 
 // ==========================================
@@ -49,6 +50,14 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     }
 
     const { userIdentifier, metrics, sanctionCategory, tags } = validationResult.data;
+
+    // 🔍 Auscultation préalable via le cache démopraxique (Vérification d'existence)
+    try {
+      await getCachedDemopraxicMetrics(userIdentifier);
+    } catch (cacheErr: unknown) {
+      const message = cacheErr instanceof Error ? cacheErr.message : "Oiseau introuvable.";
+      return NextResponse.json({ success: false, error: message }, { status: 404 });
+    }
 
     // 🛡️ Uniformisation stricte sur currentUser.uid (garanti par le gardien withAura)
     const actorUid = currentUser.uid;

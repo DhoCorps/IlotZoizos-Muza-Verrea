@@ -7,6 +7,7 @@ import { ActionSignature, CAPABILITIES } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
+import { getCachedBook } from '@/lib/cache/bibliotek.cache'; // 🚀 Import du Cache Bibliotek
 import { IlotError } from '@ilot/shared-core';
 import { z } from 'zod';
 
@@ -36,7 +37,7 @@ const UpdateLibraryBookSchema = z.object({
 });
 
 // ==========================================
-// GET : Ausculter un Ouvrage spécifique (Public / Optionnel Aura)
+// GET : Ausculter un Ouvrage spécifique (Public / Optionnel Aura avec Cache)
 // ==========================================
 export const GET = withOptionalAura(async (_req: NextRequest, context: ApiContext, currentUser?: OiseauUser) => {
   try {
@@ -52,8 +53,12 @@ export const GET = withOptionalAura(async (_req: NextRequest, context: ApiContex
       return NextResponse.json({ success: false, error: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 🔍 Utilisation de notre helper unifié (Slug ou UID)
-    const book = await findEntityBySlugOrUid(LibraryBookModel, identifier) as ILibraryBook | null;
+    // 🔍 Utilisation du cache optimisé avec repli sur la base de données
+    let book: ILibraryBook | null = (await getCachedBook(identifier)) as ILibraryBook | null;
+    if (!book) {
+      book = (await findEntityBySlugOrUid(LibraryBookModel, identifier)) as ILibraryBook | null;
+    }
+
     if (!book) {
       return NextResponse.json({ success: false, error: "Cet ouvrage s'est évaporé du Sanctuaire." }, { status: 404 });
     }

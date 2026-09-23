@@ -1,8 +1,8 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
-import { LibraryBookModel } from '@ilot/infrastructure';
 import { withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
+import { getCachedBookBySignature } from '@/lib/cache/bibliotek.cache';
 
 // ==========================================
 // GET : L'Oracle du Sceau (Vérification Publique d'Antériorité par SHA-256)
@@ -25,8 +25,8 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
       }, { status: 400 });
     }
 
-    // 🔍 Recherche de l'ouvrage dans la Silice via son empreinte exacte
-    const book = await LibraryBookModel.findOne({ digitalSignature: signature.trim() }).lean();
+    // 🔍 Recherche de l'ouvrage via le système de cache de l'Oracle
+    const book = await getCachedBookBySignature(signature.trim());
 
     if (!book) {
       return NextResponse.json({ 

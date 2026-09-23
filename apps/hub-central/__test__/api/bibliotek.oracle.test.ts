@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/bibliotek/oracle/route';
-import { LibraryBookModel } from '@ilot/infrastructure';
+import { getCachedBookBySignature } from '@/lib/cache/bibliotek.cache';
 import { NextRequest } from 'next/server';
 import type { ApiContext } from '@/lib/api-guards';
 
@@ -18,15 +18,9 @@ vi.mock('@/lib/api-guards', async (importOriginal) => {
   };
 });
 
-vi.mock('@ilot/infrastructure', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
-  return {
-    ...actual,
-    LibraryBookModel: {
-      findOne: vi.fn(),
-    },
-  };
-});
+vi.mock('@/lib/cache/bibliotek.cache', () => ({
+  getCachedBookBySignature: vi.fn(),
+}));
 
 declare global {
   var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
@@ -53,10 +47,7 @@ describe('API Bibliotek - Oracle du Sceau (/api/bibliotek/oracle)', () => {
   });
 
   it('🔴 GET : doit retourner (404) si le sceau SHA-256 ne correspond à aucun ouvrage', async () => {
-    // 🛠️ CORRECTION : Simulation d'un query builder Mongoose dont lean() résout à null
-    vi.mocked(LibraryBookModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValueOnce(null)
-    } as unknown as ReturnType<typeof LibraryBookModel.findOne>);
+    vi.mocked(getCachedBookBySignature).mockResolvedValueOnce(null);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/oracle?signature=invalid_hash_123');
     const res = await getHandler(req, {} as ApiContext);
@@ -80,9 +71,7 @@ describe('API Bibliotek - Oracle du Sceau (/api/bibliotek/oracle)', () => {
       createdAt: new Date(),
     };
 
-    vi.mocked(LibraryBookModel.findOne).mockReturnValue({
-      lean: vi.fn().mockResolvedValueOnce(mockBook)
-    } as unknown as ReturnType<typeof LibraryBookModel.findOne>);
+    vi.mocked(getCachedBookBySignature).mockResolvedValueOnce(mockBook as any);
 
     const req = new NextRequest(`http://localhost:3000/api/bibliotek/oracle?signature=${mockBook.digitalSignature}`);
     const res = await getHandler(req, {} as ApiContext);

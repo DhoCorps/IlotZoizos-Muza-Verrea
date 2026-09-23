@@ -1,12 +1,12 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
-import { DemopraxyOrchestrator } from '@ilot/shared-core';
 import { withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { SanctionCategory } from '@ilot/types';
+import { getCachedDemopraxicRegister } from '@/lib/cache/demopraxy.cache';
 
 // ==========================================
-// 📖 GET : Consulter le Registre Public de Justice Démopraxique (Public / Optionnel Aura avec Pagination)
+// 📖 GET : Consulter le Registre Public de Justice Démopraxique (Public / Optionnel Aura avec Pagination & Cache)
 // ==========================================
 export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContext, _currentUser?: OiseauUser) => {
   try {
@@ -22,18 +22,20 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
     const isExcludedParam = url.searchParams.get('isExcluded');
     const isExcluded = isExcludedParam !== null ? isExcludedParam === 'true' : undefined;
 
-    // Paramètres de pagination performante (modèle Bibliotek)[cite: 6]
+    // Paramètres de pagination performante
     const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
     const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '20', 10)));
 
-    const orchestrator = new DemopraxyOrchestrator();
-    const registerData = await orchestrator.getDemopraxicRegister({
+    // 🚀 Utilisation du cache chirurgical du registre démopraxique avec sérialisation de sécurité
+    const rawData = await getCachedDemopraxicRegister({
       page,
       limit,
       sanctionCategory,
       tag,
       isExcluded
     });
+
+    const registerData = JSON.parse(JSON.stringify(rawData));
 
     return NextResponse.json(registerData, { status: 200 });
   } catch (error: unknown) {

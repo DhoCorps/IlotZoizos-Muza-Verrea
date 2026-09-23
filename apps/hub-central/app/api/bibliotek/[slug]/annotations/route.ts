@@ -4,6 +4,7 @@ import { NextResponse, NextRequest } from 'next/server';
 import { AnnotationModel, LibraryBookModel, findEntityBySlugOrUid, ILibraryBook } from '@ilot/infrastructure';
 import { UniversalCommentOrchestrator } from '@ilot/shared-core'; // 🌟 Import de l'Orchestrateur
 import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
+import { getCachedBook, getCachedBookAnnotations } from '@/lib/cache/bibliotek.cache'; // 🚀 Import du Cache Bibliotek
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { randomUUID } from 'crypto';
@@ -19,26 +20,38 @@ const CreateAnnotationSchema = z.object({
 });
 
 // ==========================================
-// GET : Lister les annotations d'un ouvrage spécifique
+// GET : Lister les annotations d'un ouvrage spécifique (Avec Cache)
 // ==========================================
 export const GET = withOptionalAura(async (_req: NextRequest, context: ApiContext, currentUser?: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    let resolvedParams: { slug?: string | string[] } | undefined;
+    try {
+      resolvedParams = await context.params;
+    } catch {
+      return NextResponse.json({ success: false, error: "Paramètres de route invalides." }, { status: 400 });
+    }
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 
-    // 🔍 Utilisation de notre helper unifié (Slug ou UID)
-    const book = await findEntityBySlugOrUid(LibraryBookModel, identifier) as ILibraryBook | null;
+    // 🔍 Utilisation du cache pour l'ouvrage avec repli sur la base de données
+    let book = (await getCachedBook(identifier)) as ILibraryBook | null;
+    if (!book) {
+      book = (await findEntityBySlugOrUid(LibraryBookModel, identifier)) as ILibraryBook | null;
+    }
+
     if (!book) {
       return NextResponse.json({ success: false, error: "Ouvrage introuvable." }, { status: 404 });
     }
 
-    const query: Record<string, unknown> = { bookUid: book.uid };
-    if (currentUser?.uid) {
-      query.authorUid = currentUser.uid;
+    // 🚀 Utilisation du cache des annotations si aucun utilisateur spécifique n'est filtré, sinon requête ciblée
+    let annotations;
+    if (!currentUser?.uid) {
+      annotations = await getCachedBookAnnotations(book.uid);
+    } else {
+      const query: Record<string, unknown> = { bookUid: book.uid, authorUid: currentUser.uid };
+      annotations = await AnnotationModel.find(query).sort({ createdAt: -1 }).lean();
     }
 
-    const annotations = await AnnotationModel.find(query).sort({ createdAt: -1 }).lean();
     return NextResponse.json({ success: true, data: annotations }, { status: 200 });
   } catch (error: unknown) {
     return handleRouteError(error, "Erreur interne lors de la récupération des notes.");
@@ -50,7 +63,12 @@ export const GET = withOptionalAura(async (_req: NextRequest, context: ApiContex
 // ==========================================
 export const POST = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
-    const resolvedParams = await context.params;
+    let resolvedParams: { slug?: string | string[] } | undefined;
+    try {
+      resolvedParams = await context.params;
+    } catch {
+      return NextResponse.json({ success: false, error: "Paramètres invalides." }, { status: 400 });
+    }
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
 

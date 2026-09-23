@@ -6,6 +6,7 @@ import { BibliotekOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
 import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
+import { getCachedBook } from '@/lib/cache/bibliotek.cache'; // 🚀 Import du Cache Bibliotek
 import { slugify } from '@/lib/slugify';
 import { z } from 'zod';
 
@@ -19,7 +20,7 @@ const HighlightSchema = z.object({
 });
 
 // ==========================================
-// GET : Consulter les fulgurances (Notes d'Érudits publiques ou Studio privé)
+// GET : Consulter les fulgurances (Notes d'Érudits publiques ou Studio privé avec Cache)
 // ==========================================
 export const GET = withOptionalAura(async (_req: NextRequest, context: ApiContext, currentUser?: OiseauUser) => {
   try {
@@ -36,8 +37,12 @@ export const GET = withOptionalAura(async (_req: NextRequest, context: ApiContex
       return NextResponse.json({ success: false, error: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 🔍 Récupération de l'ouvrage et de ses fulgurances
-    const book = await findEntityBySlugOrUid(LibraryBookModel, identifier) as ILibraryBook | null;
+    // 🔍 Récupération de l'ouvrage via le cache avec repli sur la base de données
+    let book = (await getCachedBook(identifier)) as ILibraryBook | null;
+    if (!book) {
+      book = (await findEntityBySlugOrUid(LibraryBookModel, identifier)) as ILibraryBook | null;
+    }
+
     if (!book) {
       return NextResponse.json({ success: false, error: "Ouvrage introuvable dans la Silice." }, { status: 404 });
     }

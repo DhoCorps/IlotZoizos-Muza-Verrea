@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/bibliotek/annotations/route';
 import { AnnotationModel } from '@ilot/infrastructure';
 import { UniversalCommentOrchestrator } from '@ilot/shared-core';
+import { getCachedBookAnnotations } from '@/lib/cache/bibliotek.cache';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
 import type { ApiContext } from '@/lib/api-guards';
@@ -11,6 +12,10 @@ import type { ApiContext } from '@/lib/api-guards';
 // -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
+}));
+
+vi.mock('@/lib/cache/bibliotek.cache', () => ({
+  getCachedBookAnnotations: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('@/lib/api-guards', async (importOriginal) => {
@@ -72,17 +77,11 @@ describe('API Bibliotek - Annotations Globales (/annotations)', () => {
 
     vi.mocked(AnnotationModel.find).mockReturnValue({
       sort: vi.fn().mockReturnValue({
-        skip: vi.fn().mockReturnValue({
-          limit: vi.fn().mockReturnValue({
-            lean: vi.fn().mockResolvedValue([
-              { uid: 'annot_1', selectedText: 'Une belle phrase', bookUid: 'book_123' }
-            ])
-          })
-        })
+        lean: vi.fn().mockResolvedValue([
+          { uid: 'annot_1', selectedText: 'Une belle phrase', bookUid: 'book_123' }
+        ])
       })
     } as unknown as ReturnType<typeof AnnotationModel.find>);
-
-    vi.mocked(AnnotationModel.countDocuments).mockResolvedValue(1);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/annotations?page=1&limit=15');
     const res = await getHandler(req, {} as ApiContext);

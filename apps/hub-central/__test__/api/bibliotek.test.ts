@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/bibliotek/route';
 import { LibraryBookModel } from '@ilot/infrastructure';
 import { BibliotekOrchestrator } from '@ilot/shared-core';
+import { getCachedBibliotekCatalog } from '@/lib/cache/bibliotek.cache';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
 
@@ -10,6 +11,10 @@ import { NextResponse, NextRequest } from 'next/server';
 // -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
+}));
+
+vi.mock('@/lib/cache/bibliotek.cache', () => ({
+  getCachedBibliotekCatalog: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('@/lib/api-guards', async (importOriginal) => {
@@ -77,23 +82,23 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
     } as unknown as Awaited<ReturnType<BibliotekOrchestrator['fosterBook']>>);
   });
 
-  it('🟢 GET : doit lister UNIQUEMENT les ouvrages PUBLISHED pour le flux public (Visiteurs)', async () => {
-    vi.mocked(LibraryBookModel.find).mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        skip: vi.fn().mockReturnValue({
-          limit: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue([]) })
-        })
-      })
-    } as any);
+  it('🟢 GET : doit utiliser le cache global pour le flux public (Visiteurs) lorsque aucun filtre n’est actif', async () => {
+    vi.mocked(getCachedBibliotekCatalog).mockResolvedValueOnce([
+      { uid: 'book_1', title: 'Livre Cache 1', status: 'PUBLISHED' }
+    ]);
 
-    const req = new NextRequest('http://localhost:3000/api/bibliotek?writingType=essai');
-    await getHandler(req, {});
-    
-    // Le filtre 'status: PUBLISHED' est forcé
-    expect(LibraryBookModel.find).toHaveBeenCalledWith(expect.objectContaining({ status: 'PUBLISHED' }));
+    const req = new NextRequest('http://localhost:3000/api/bibliotek');
+    const res = await getHandler(req, {});
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(getCachedBibliotekCatalog).toHaveBeenCalled();
+    expect(json.data).toHaveLength(1);
+    expect(json.data[0].title).toBe('Livre Cache 1');
   });
 
-  it('🟢 GET : doit permettre à un auteur de consulter ses brouillons (DRAFT) dans son Studio', async () => {
+  it('🟢 GET : doit permettre à un auteur de consulter ses brouillons (DRAFT) dans son Studio via la base de données', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
 
     vi.mocked(LibraryBookModel.find).mockReturnValue({
@@ -104,10 +109,12 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
       })
     } as any);
 
+    vi.mocked(LibraryBookModel.countDocuments).mockResolvedValueOnce(0);
+
     const req = new NextRequest('http://localhost:3000/api/bibliotek?authorUid=bird_writer&status=DRAFT');
     await getHandler(req, {});
     
-    // L'Oiseau identifié peut voir ses propres brouillons
+    // L'Oiseau identifié peut voir ses propres brouillons via la requête directe (bypass du cache global)
     expect(LibraryBookModel.find).toHaveBeenCalledWith(expect.objectContaining({ status: 'DRAFT', authorUid: 'bird_writer' }));
   });
 
@@ -140,5 +147,8 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
     expect(res.status).toBe(201);
     expect(json.success).toBe(true);
     expect(json.data.status).toBe('PUBLISHED');
+    expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
+    expect(revalidateTag).toHaveBeenCalledWith('bibliotek-user-bird_writer');
+    expect(revalidateTag).toHaveBeenCalledWith('bibliotek-public');
   });
 });

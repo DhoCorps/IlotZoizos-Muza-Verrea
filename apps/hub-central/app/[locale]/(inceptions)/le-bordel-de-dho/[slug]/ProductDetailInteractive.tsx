@@ -1,4 +1,3 @@
-// apps/hub-central/app/[locale]/(inceptions)/ecommerce/[slug]/ProductDetailInteractive.tsx
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -7,7 +6,8 @@ import { storeRegistry } from '@/components/ecommerce/stores/StoreRegistry';
 import { AddToWishlistButton } from '@/components/ecommerce/wishlist/AddWishListButton';
 import { OmniActionWidget } from '@/components/widget/OmniActionWidget';
 import { KarmaRouletteModal } from '@/components/ecommerce/roulette/KarmaRouletteModal';
-import { ShoppingBag, Share2, Sparkles } from 'lucide-react';
+import { RaffleDrawAnimation } from '@/components/raffle/RaffleDrawAnimation'; // 🚀 Import de l'animation dramatique
+import { ShoppingBag, Share2, Sparkles, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
 import { IUniversalMediaItem } from '@ilot/types';
 
@@ -60,6 +60,16 @@ export function ProductDetailInteractive({ product }: { product: any }) {
         </button>
         <AddToWishlistButton productUid={product.uid} />
       </div>
+
+      {/* 🏆 VUE DE RÉSULTAT DE LOTERIE (Si le tirage est clos et le gagnant connu) */}
+      {product.isRaffle && product.raffleWinnerPseudo && (
+        <div className="my-6">
+          <div className="flex items-center gap-2 mb-3 text-amber-400 font-mono text-xs uppercase tracking-widest">
+            <Trophy size={16} /> Résultat du Sceau de Loterie
+          </div>
+          <RaffleDrawAnimation winnerPseudo={product.raffleWinnerPseudo} />
+        </div>
+      )}
 
       {/* 🖼️ Rendu dynamique du canevas modulaire */}
       {product.blocks?.length > 0 ? (

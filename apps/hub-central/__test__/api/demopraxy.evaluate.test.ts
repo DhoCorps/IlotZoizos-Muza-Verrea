@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/demopraxy/evaluate/route';
 import { DemopraxyOrchestrator } from '@ilot/shared-core';
+import { getCachedDemopraxicMetrics } from '@/lib/cache/demopraxy.cache';
 import { revalidateTag } from 'next/cache';
 import { NextResponse } from 'next/server';
 import type { ApiContext } from '@/lib/api-guards';
@@ -24,6 +25,15 @@ vi.mock('@/lib/api-guards', async (importOriginal) => {
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
+}));
+
+vi.mock('@/lib/cache/demopraxy.cache', () => ({
+  getCachedDemopraxicMetrics: vi.fn().mockResolvedValue({
+    uid: 'bird_2',
+    slug: 'bird-2',
+    sanctuaryVerrouille: false,
+    demopraxyState: null
+  }),
 }));
 
 declare global {
@@ -83,7 +93,7 @@ describe('API Demopraxy Evaluation POST', () => {
     expect(json.error).toBeDefined();
   });
 
-  it('🟢 doit traiter l\'évaluation démopraxique avec succès (200), catégorie et tags, et invalider le cache', async () => {
+  it('🟢 doit traiter l\'évaluation démopraxique avec succès (200), utiliser le cache, et invalider les tags', async () => {
     global.__mockUser = { uid: 'bird_1', capabilities: ['*'] };
 
     const req = new Request('http://localhost/api/demopraxy/evaluate', {
@@ -106,6 +116,7 @@ describe('API Demopraxy Evaluation POST', () => {
 
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
+    expect(getCachedDemopraxicMetrics).toHaveBeenCalledWith('bird_2');
     expect(revalidateTag).toHaveBeenCalledWith('demopraxy');
     expect(revalidateTag).toHaveBeenCalledWith('demopraxy-bird_2');
     expect(revalidateTag).toHaveBeenCalledWith('demopraxy-actor-bird_1');

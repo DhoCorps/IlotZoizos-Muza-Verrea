@@ -3,8 +3,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import ResonanceButton from '@/components/resonance/ResonanceButton'; 
 import { OmniActionWidget } from '@/components/widget/OmniActionWidget';
-import { Scale, Loader2, Share2, Tag as TagIcon } from 'lucide-react';
+import { Scale, Loader2, Share2, Tag as TagIcon, Sparkles } from 'lucide-react';
 import { ProductComparator } from '@/components/ecommerce/comparator/ProductComparator';
+import { RaffleMonolith } from '@/components/raffle/RaffleMonolith'; // 🚀 Import du Monolithe de Loterie
 import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
@@ -24,6 +25,8 @@ export interface Product {
   thumbnailUrl?: string;
   createdAt?: string;
   tags?: string[];
+  isRaffle?: boolean; // Indicateur de loterie
+  raffleData?: any;  // Données de la loterie si applicable
 }
 
 interface MarketPlaceInteractiveProps {
@@ -121,6 +124,17 @@ export function MarketPlaceInteractive({ initialProducts, initialFilters }: Mark
     });
   };
 
+  const handleBuyRaffleTicket = async (raffleUid: string) => {
+    try {
+      const res = await fetch(`/api/raffles/${raffleUid}/buy`, { method: 'POST' });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || "Échec de l'acquisition du ticket.");
+      toast.success("Ticket acquis et scellé dans le Graphe !");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Erreur lors de l'acquisition.");
+    }
+  };
+
   return (
     <div className="space-y-8 pb-32">
       {/* Barre de Filtres Multicritères incluant la recherche par Tag */}
@@ -157,7 +171,7 @@ export function MarketPlaceInteractive({ initialProducts, initialFilters }: Mark
         ))}
       </div>
 
-      {/* Grille des Produits */}
+      {/* Grille des Produits & Monolithes de Loterie */}
       {loading && products.length === 0 ? (
         <div className="text-center py-20 text-slate-500 flex items-center justify-center gap-2">
           <Loader2 className="w-5 h-5 animate-spin text-emerald-400" />
@@ -170,6 +184,27 @@ export function MarketPlaceInteractive({ initialProducts, initialFilters }: Mark
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {products.map((product) => {
+            // 🎲 Connexion du Monolithe si le produit est une Loterie active
+            if (product.isRaffle && product.raffleData) {
+              return (
+                <div key={product.uid} className="col-span-full">
+                  <RaffleMonolith 
+                    raffle={{
+                      uid: product.raffleData.uid,
+                      prizeProductUid: product.uid,
+                      prizeTitle: product.title,
+                      vendorName: product.author,
+                      ticketPriceShards: product.raffleData.ticketPriceShards || Math.round(product.priceCents / 10),
+                      maxTickets: product.raffleData.maxTickets,
+                      soldTicketsCount: product.raffleData.soldTicketsCount,
+                      drawDate: product.raffleData.drawDate,
+                    }}
+                    onBuyTicket={handleBuyRaffleTicket}
+                  />
+                </div>
+              );
+            }
+
             const targetSlug = product.authorSlug || product.author?.toLowerCase().replace(/\s+/g, '-') || 'marchand-inconnu';
             const isComparing = compareList.some(p => p.uid === product.uid);
 

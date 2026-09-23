@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, NextRequest } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
 import { LibraryBookModel, findEntityBySlugOrUid, ILibraryBook } from '@ilot/infrastructure';
+import { getCachedBook } from '@/lib/cache/bibliotek.cache'; // 🚀 Import du Cache Bibliotek
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, withRateLimit, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
@@ -41,8 +42,12 @@ export const POST = withRateLimit('upload-bibliotek', 10, 60, withAura(async (re
       return NextResponse.json({ success: false, error: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 🔍 Résolution unifiée de l'ouvrage via le helper centralisé
-    const book = await findEntityBySlugOrUid(LibraryBookModel, identifier) as ILibraryBook | null;
+    // 🔍 Résolution de l'ouvrage via le cache avec repli sur la base de données
+    let book = (await getCachedBook(identifier)) as ILibraryBook | null;
+    if (!book) {
+      book = (await findEntityBySlugOrUid(LibraryBookModel, identifier)) as ILibraryBook | null;
+    }
+
     if (!book) {
       return NextResponse.json({ success: false, error: "Ouvrage introuvable dans le Sanctuaire." }, { status: 404 });
     }
@@ -168,8 +173,12 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       return NextResponse.json({ success: false, error: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 🔍 Résolution unifiée pour s'assurer que l'entité existe et obtenir son UID
-    const book = await findEntityBySlugOrUid(LibraryBookModel, identifier) as ILibraryBook | null;
+    // 🔍 Résolution via le cache avec repli sur la base de données
+    let book = (await getCachedBook(identifier)) as ILibraryBook | null;
+    if (!book) {
+      book = (await findEntityBySlugOrUid(LibraryBookModel, identifier)) as ILibraryBook | null;
+    }
+
     if (!book) {
       return NextResponse.json({ success: false, error: "Ouvrage introuvable." }, { status: 404 });
     }

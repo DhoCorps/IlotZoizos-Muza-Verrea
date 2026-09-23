@@ -4,6 +4,7 @@ import { NextResponse, NextRequest } from 'next/server';
 import { AnnotationModel } from '@ilot/infrastructure';
 import { UniversalCommentOrchestrator } from '@ilot/shared-core'; // 🌟 Import de l'Orchestrateur Universel
 import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
+import { getCachedBookAnnotations } from '@/lib/cache/bibliotek.cache'; // 🚀 Import du Cache Bibliotek
 import { ActionSignature } from '@ilot/types';
 import { randomUUID } from 'crypto';
 import { revalidateTag } from 'next/cache';
@@ -19,7 +20,7 @@ const CreateAnnotationSchema = z.object({
 });
 
 // ==========================================
-// GET : Lister les Annotations de l'Oiseau (Avec Pagination)
+// GET : Lister les Annotations de l'Oiseau (Avec Pagination & Cache)
 // ==========================================
 export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContext, currentUser?: OiseauUser) => {
   try {
@@ -38,15 +39,21 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
     if (currentUser?.uid) query.authorUid = currentUser.uid;
     if (bookUid) query.bookUid = bookUid;
 
-    // 🚀 Requêtes optimisées en parallèle avec skip, limit et comptage total
-    const [annotations, total] = await Promise.all([
-      AnnotationModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-      AnnotationModel.countDocuments(query)
-    ]);
+    // 🚀 Utilisation du cache si on interroge un bookUid spécifique, sinon requête optimisée en parallèle
+    let annotations;
+    if (bookUid && !currentUser?.uid) {
+      annotations = await getCachedBookAnnotations(bookUid);
+    } else {
+      annotations = await AnnotationModel.find(query).sort({ createdAt: -1 }).lean();
+    }
+
+    // Application manuelle de la pagination sur le cache/résultat pour conserver l'exactitude des métadonnées
+    const total = annotations.length;
+    const paginatedAnnotations = annotations.slice(skip, skip + limit);
 
     return NextResponse.json({ 
       success: true, 
-      data: annotations,
+      data: paginatedAnnotations,
       pagination: {
         total,
         page,

@@ -4,8 +4,14 @@ import { DemopraxyOrchestrator } from '@ilot/shared-core';
 import type { ApiContext } from '@/lib/api-guards';
 
 // -------------------------------------------------------------------------
-// 🎭 MOCKS DE L'ORCHESTRATEUR
+// 🎭 MOCKS DE L'ENVIRONNEMENT ET DE L'ORCHESTRATEUR
 // -------------------------------------------------------------------------
+vi.mock('next/cache', () => ({
+  unstable_cache: vi.fn((cb: Function) => cb),
+  revalidateTag: vi.fn(),
+}));
+
+// Mock direct de l'Orchestrateur pour que le test d'origine s'exécute parfaitement
 vi.mock('@ilot/shared-core', () => ({
   DemopraxyOrchestrator: class {
     getDemopraxicRegister = vi.fn().mockResolvedValue({
@@ -15,6 +21,18 @@ vi.mock('@ilot/shared-core', () => ({
     });
   }
 }));
+
+// Mock du guard pour éviter l'appel direct à NextAuth hors contexte de requête Next.js
+vi.mock('@/lib/api-guards', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api-guards')>();
+  return {
+    ...actual,
+    withOptionalAura: (handler: unknown) => async (req: Request, context: ApiContext) => {
+      // @ts-ignore
+      return await handler(req, context, undefined);
+    },
+  };
+});
 
 type RouteHandler = (req: Request, ctx: ApiContext) => Promise<Response>;
 

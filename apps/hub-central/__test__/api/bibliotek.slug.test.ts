@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PUT, DELETE } from '@/app/api/bibliotek/[slug]/route';
 import { LibraryBookModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { BibliotekOrchestrator } from '@ilot/shared-core';
+import { getCachedBook } from '@/lib/cache/bibliotek.cache';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
 import type { ApiContext } from '@/lib/api-guards';
@@ -11,6 +12,10 @@ import type { ApiContext } from '@/lib/api-guards';
 // -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
+}));
+
+vi.mock('@/lib/cache/bibliotek.cache', () => ({
+  getCachedBook: vi.fn(),
 }));
 
 vi.mock('@/lib/api-guards', async (importOriginal) => {
@@ -88,31 +93,32 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Statuts', () => {
     } as unknown as Awaited<ReturnType<BibliotekOrchestrator['disintegrateBook']>>);
   });
 
-  it('🟢 GET : doit retourner les détails d’un ouvrage PUBLISHED pour un visiteur', async () => {
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
+  it('🟢 GET : doit retourner les détails d’un ouvrage PUBLISHED via le cache pour un visiteur', async () => {
+    vi.mocked(getCachedBook).mockResolvedValueOnce({ 
       uid: 'book_999', 
       title: 'Essai sur la Silice', 
       authorUid: 'bird_writer', 
       status: 'PUBLISHED',
       toObject: () => ({ uid: 'book_999', title: 'Essai sur la Silice', authorUid: 'bird_writer', status: 'PUBLISHED' })
-    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+    } as any);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/essai-sur-la-silice');
     const res = await getHandler(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
     const json = await res.json();
 
     expect(res.status).toBe(200);
+    expect(getCachedBook).toHaveBeenCalledWith('essai-sur-la-silice');
     expect(json.title).toBe('Essai sur la Silice');
   });
 
   it('🔴 GET : doit rejeter (403) l’accès à un DRAFT si le visiteur n’est pas l’auteur', async () => {
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
+    vi.mocked(getCachedBook).mockResolvedValueOnce({ 
       uid: 'book_999', 
       title: 'Brouillon Secret', 
       authorUid: 'bird_writer', 
       status: 'DRAFT',
       toObject: () => ({ uid: 'book_999', title: 'Brouillon Secret', authorUid: 'bird_writer', status: 'DRAFT' })
-    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+    } as any);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/brouillon-secret');
     const res = await getHandler(req, { params: Promise.resolve({ slug: 'brouillon-secret' }) });
@@ -123,13 +129,13 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Statuts', () => {
   it('🟢 GET : doit autoriser l’accès à un DRAFT si le visiteur est l’auteur', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
 
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
+    vi.mocked(getCachedBook).mockResolvedValueOnce({ 
       uid: 'book_999', 
       title: 'Brouillon Secret', 
       authorUid: 'bird_writer', 
       status: 'DRAFT',
       toObject: () => ({ uid: 'book_999', title: 'Brouillon Secret', authorUid: 'bird_writer', status: 'DRAFT' })
-    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+    } as any);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/brouillon-secret');
     const res = await getHandler(req, { params: Promise.resolve({ slug: 'brouillon-secret' }) });
@@ -158,7 +164,7 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Statuts', () => {
       uid: 'book_canonique_123', 
       slug: 'essai-sur-la-silice',
       authorUid: 'bird_writer' 
-    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+    } as any);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/essai-sur-la-silice', {
       method: 'PUT',
@@ -191,7 +197,7 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Statuts', () => {
       uid: 'book_canonique_123', 
       slug: 'essai-sur-la-silice',
       authorUid: 'bird_writer' 
-    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+    } as any);
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek/essai-sur-la-silice', {
       method: 'DELETE'

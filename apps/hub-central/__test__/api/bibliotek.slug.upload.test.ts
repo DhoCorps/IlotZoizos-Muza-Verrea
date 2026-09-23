@@ -2,16 +2,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, DELETE } from '@/app/api/bibliotek/[slug]/upload/route';
 import { storageService } from '@/modules/storage/storage.service';
 import { checkRateLimit } from '@/modules/security/rateLimiter';
-import { LibraryBookModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { LibraryBookModel } from '@ilot/infrastructure';
+import { getCachedBook } from '@/lib/cache/bibliotek.cache';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
-import type { ApiContext } from '@/lib/api-guards'; // 🛡️ Import explicite
+import type { ApiContext } from '@/lib/api-guards';
 
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
+}));
+
+vi.mock('@/lib/cache/bibliotek.cache', () => ({
+  getCachedBook: vi.fn(),
 }));
 
 vi.mock('@/lib/api-guards', async (importOriginal) => {
@@ -50,7 +55,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       findOneAndUpdate: vi.fn(),
       updateOne: vi.fn(),
     },
-    findEntityBySlugOrUid: vi.fn(),
   };
 });
 
@@ -63,7 +67,6 @@ vi.mock('@/lib/slugify', () => ({
 }));
 
 declare global {
-  // 🛡️ Harmonisation stricte de la signature d'index
   var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
@@ -94,15 +97,15 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as unknown as Awaited<ReturnType<typeof storageService.deleteFile>>);
   });
 
-  it('🟢 POST : doit réussir l’upload d’un manuscrit, forger le Sceau SHA-256 et mettre à jour l’ouvrage (201)', async () => {
+  it('🟢 POST : doit réussir l’upload d’un manuscrit via le cache, forger le Sceau SHA-256 et mettre à jour l’ouvrage (201)', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
 
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+    vi.mocked(getCachedBook).mockResolvedValueOnce({
       uid: 'book_999', 
       slug: 'essai-sur-la-silice',
       title: 'Essai sur la Silice', 
       authorUid: 'bird_writer' 
-    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+    } as any);
 
     vi.mocked(LibraryBookModel.findOneAndUpdate).mockReturnValue({
       lean: vi.fn().mockResolvedValue({ uid: 'book_999', fileUrl: 'https://cdn.ilot/books/essai.epub' })
@@ -116,7 +119,6 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
       method: 'POST',
     });
 
-    // 🛡️ Suture absolue : On mocke directement la méthode formData() au niveau du prototype de la requête
     vi.spyOn(req, 'formData').mockResolvedValue(formData);
 
     const res = await postHandler(req, { params: Promise.resolve({ slug: 'essai-sur-la-silice' }) });
@@ -129,21 +131,21 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
     expect(typeof json.digitalSignature).toBe('string');
     expect(json.digitalSignature.length).toBe(64);
     
-    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(LibraryBookModel, 'essai-sur-la-silice');
+    expect(getCachedBook).toHaveBeenCalledWith('essai-sur-la-silice');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek-essai-sur-la-silice');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek-book_999');
   });
 
-  it('🟢 DELETE : doit purger l’artefact du cloud et nettoyer la Silice (200)', async () => {
+  it('🟢 DELETE : doit purger l’artefact du cloud et nettoyer la Silice via le cache (200)', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
 
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+    vi.mocked(getCachedBook).mockResolvedValueOnce({
       uid: 'book_999', 
       slug: 'essai-sur-la-silice',
       authorUid: 'bird_writer', 
       fileUrl: 'https://cdn.ilot/books/essai.epub' 
-    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+    } as any);
 
     const req = new NextRequest('http://localhost/api/bibliotek/essai-sur-la-silice/upload?url=https://cdn.ilot/books/essai.epub', {
       method: 'DELETE',
@@ -154,7 +156,7 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
 
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
-    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(LibraryBookModel, 'essai-sur-la-silice');
+    expect(getCachedBook).toHaveBeenCalledWith('essai-sur-la-silice');
     expect(storageService.deleteFile).toHaveBeenCalledWith('mock-book-key.epub');
     expect(LibraryBookModel.updateOne).toHaveBeenCalledWith(
       { uid: 'book_999' },
@@ -166,12 +168,12 @@ describe('API Bibliotek - Upload et Coffre R2 ([slug]/upload)', () => {
   it('🔴 DELETE : doit rejeter (403) en cas de tentative IDOR sur une URL étrangère normalisée', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
 
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+    vi.mocked(getCachedBook).mockResolvedValueOnce({
       uid: 'book_999', 
       slug: 'essai-sur-la-silice',
       authorUid: 'bird_writer', 
       fileUrl: 'https://cdn.ilot/books/essai.epub' 
-    } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+    } as any);
 
     const req = new NextRequest('http://localhost/api/bibliotek/essai-sur-la-silice/upload?url=https://cdn.ilot/books/volée-par-un-intrus.epub', {
       method: 'DELETE',

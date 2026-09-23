@@ -6,6 +6,7 @@ import { BibliotekOrchestrator, BibliotekSyncResult } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
 import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
+import { getCachedBibliotekCatalog } from '@/lib/cache/bibliotek.cache';
 import { z } from 'zod';
 
 // ==========================================
@@ -40,7 +41,7 @@ const CreateBookSchema = z.object({
 });
 
 // ==========================================
-// GET : Le Sanctuaire des Écrits Libres (Public / Optionnel Aura avec Pagination)
+// GET : Le Sanctuaire des Écrits Libres (Public / Optionnel Aura avec Pagination & Cache)
 // ==========================================
 export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContext, currentUser?: OiseauUser) => {
   try {
@@ -79,11 +80,22 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
       query.status = 'PUBLISHED';
     }
 
-    // 🚀 Requêtes optimisées avec curseurs de pagination et comptage total
-    const [books, total] = await Promise.all([
-      LibraryBookModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-      LibraryBookModel.countDocuments(query)
-    ]);
+    // 🚀 Optimisation : Utilisation du cache global si aucun filtre complexe de studio n'est actif, sinon requête directe
+    let books;
+    let total;
+
+    if (!isRequestingOwnStudio && !authorUid && !filterType && !filterStyle) {
+      // Récupération depuis le cache global de la Bibliotek
+      const catalog = await getCachedBibliotekCatalog();
+      books = catalog.slice(skip, skip + limit);
+      total = catalog.length;
+    } else {
+      // Requêtes optimisées avec curseurs de pagination et comptage total en parallèle
+      [books, total] = await Promise.all([
+        LibraryBookModel.find(query).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        LibraryBookModel.countDocuments(query)
+      ]);
+    }
 
     const safeBooks = JSON.parse(JSON.stringify(books || []));
 

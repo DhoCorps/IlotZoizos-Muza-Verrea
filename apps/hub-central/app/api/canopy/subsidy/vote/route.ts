@@ -3,8 +3,8 @@ export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
-import { CanopySubsidyOrchestrator, IlotError } from '@ilot/shared-core';
-import { ActionSignature } from '@ilot/types';
+import { IlotError } from '@ilot/shared-core';
+import { executeCachedVote } from '@/lib/cache/canopy.cache';
 import { z } from 'zod';
 
 // 🛡️ Schéma de validation Zod pour le vote de subvention
@@ -32,16 +32,9 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
 
     const { subsidyId } = validationResult.data;
     
-    // 🛡️ Signature d'action obligatoire pour l'Orchestrateur
-    const signature: ActionSignature = {
-      actorUid: currentUser.uid,
-      capabilities: currentUser.capabilities || []
-    };
-    
     try {
-      // 🌿 Délégation totale à l'Orchestrateur (Double écriture Mongo + Neo4j)
-      const orchestrator = new CanopySubsidyOrchestrator();
-      await orchestrator.castVote(subsidyId, signature);
+      // 🌿 Délégation totale au système de cache et à l'Orchestrateur (Double écriture Mongo + Neo4j)
+      await executeCachedVote(subsidyId, currentUser.uid);
     } catch (orchErr: unknown) {
       console.error("🔥 [CANOPY VOTE POST ERROR] :", orchErr);
       const errObj = orchErr as { status?: number; statusCode?: number; message?: string };

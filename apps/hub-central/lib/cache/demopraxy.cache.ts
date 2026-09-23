@@ -1,7 +1,7 @@
-// Fichier : lib/cache/demopraxy.cache.ts
 import { unstable_cache } from 'next/cache';
 import { OiseauModel } from '@ilot/infrastructure';
-import { IlotError } from '@ilot/shared-core';
+import { DemopraxyOrchestrator } from '@ilot/shared-core';
+import { SanctionCategory } from '@ilot/types';
 
 // -------------------------------------------------------------------------
 // CACHE CHIRURGICAL : Récupération des métriques et rapports démopraxiques
@@ -36,5 +36,34 @@ export async function getCachedDemopraxicMetrics(userIdentifier: string) {
     fetcher,
     [cacheKey],
     { revalidate: 30, tags: ['demopraxy', `demopraxy-${userIdentifier}`] }
+  )();
+}
+
+// -------------------------------------------------------------------------
+// CACHE CHIRURGICAL : Récupération du registre démopraxique (Pagination & Filtres)
+// -------------------------------------------------------------------------
+export async function getCachedDemopraxicRegister(params: {
+  page: number;
+  limit: number;
+  sanctionCategory?: SanctionCategory | 'ALL';
+  tag?: string;
+  isExcluded?: boolean;
+}) {
+  const fetcher = async () => {
+    const orchestrator = new DemopraxyOrchestrator();
+    return await orchestrator.getDemopraxicRegister(params);
+  };
+
+  if (process.env.NODE_ENV === 'test') {
+    return await fetcher();
+  }
+
+  const { page, limit, sanctionCategory = 'ALL', tag = 'none', isExcluded = 'all' } = params;
+  const cacheKey = `demopraxy-register-${page}-${limit}-${sanctionCategory}-${tag}-${isExcluded}`;
+
+  return await unstable_cache(
+    fetcher,
+    [cacheKey],
+    { revalidate: 60, tags: ['demopraxy', 'demopraxy-register'] }
   )();
 }
