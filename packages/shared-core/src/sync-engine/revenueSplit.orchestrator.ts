@@ -12,7 +12,7 @@ export interface SplitShare {
 
 export interface RevenueSplitParams {
   sourceBuyerUid: string;
-  totalAmount: number;
+  totalAmountCents: number; // 🚀 Harmonisé en centimes
   currency: SovereignCurrency;
   referenceUid: string;
   description: string;
@@ -39,7 +39,7 @@ export class RevenueSplitOrchestrator {
    * - Arrondit chaque part à l'inférieur et reverse l'éventuel surplus directement dans le Trésor de la Canopée.
    */
   public static async distributeSaleRevenue(params: RevenueSplitParams): Promise<void> {
-    const { sourceBuyerUid, totalAmount, currency, referenceUid, description, shares, mode = 'EXACT' } = params;
+    const { sourceBuyerUid, totalAmountCents, currency, referenceUid, description, shares, mode = 'EXACT' } = params;
 
     if (!shares || shares.length === 0) {
       throw new IlotError("Aucun bénéficiaire spécifié pour la répartition.", "BAD_REQUEST", 400);
@@ -80,45 +80,45 @@ export class RevenueSplitOrchestrator {
 
     await TransactionManager.execute("Répartition des Bénéfices de Vente", async (mongoSession: ClientSession, _neo4jTx: Transaction) => {
       const now = new Date();
-      let totalDistributed = 0;
+      let totalDistributedCents = 0;
 
       // 1. Première passe : calcul des parts avec arrondi inférieur (Math.floor)
       const processedShares = calculatedShares.map(share => {
-        if (share.basisPoints <= 0) return { ...share, amount: 0 };
+        if (share.basisPoints <= 0) return { ...share, amountCents: 0 };
         
-        const exactAmount = (totalAmount * share.basisPoints) / 10000;
+        const exactAmount = (totalAmountCents * share.basisPoints) / 10000;
         const roundedAmount = Math.floor(exactAmount);
         
-        totalDistributed += roundedAmount;
-        return { ...share, amount: roundedAmount };
+        totalDistributedCents += roundedAmount;
+        return { ...share, amountCents: roundedAmount };
       });
 
       // 2. Calcul du surplus issu des arrondis inférieurs
-      const surplus = totalAmount - totalDistributed;
+      const surplusCents = totalAmountCents - totalDistributedCents;
 
       // 3. Injection du surplus dans le Trésor de la Canopée
-      if (surplus > 0) {
+      if (surplusCents > 0) {
         const treasuryShare = processedShares.find(s => s.beneficiaryUid === RevenueSplitOrchestrator.CANOPY_TREASURY_UID);
         if (treasuryShare) {
-          treasuryShare.amount += surplus;
+          treasuryShare.amountCents += surplusCents;
         } else {
           processedShares.push({
             beneficiaryUid: RevenueSplitOrchestrator.CANOPY_TREASURY_UID,
             basisPoints: 0,
             percentage: 0,
-            amount: surplus
+            amountCents: surplusCents
           });
         }
       }
 
       // 4. Inscription immuable dans le Grand Livre
       for (const share of processedShares) {
-        if (share.amount <= 0) continue;
+        if (share.amountCents <= 0) continue;
 
         await KomptaLedgerService.recordEntry({
           ownerUid: share.beneficiaryUid,
           counterpartyUid: sourceBuyerUid,
-          amount: share.amount,
+          amountCents: share.amountCents, // 🚀 Utilisation stricte de amountCents
           currency,
           type: 'CREDIT',
           category: 'STORE_SALE',

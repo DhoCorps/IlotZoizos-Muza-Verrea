@@ -33,7 +33,7 @@ export interface MarketContractPayload {
     initiatorUid: string;
     targetUid: string;
     contractType: 'GIFT' | 'BARTER' | 'LOAN';
-    virtualValueAmount: number; // Montant en énergie/monnaie virtuelle
+    virtualValueAmountCents: number; // 🚀 Harmonisation ERP en centimes stricts
     currency: string;
     interestRate?: number;      // Pourcentage (ex: 5.5 pour 5.5%)
     durationDays?: number;      // Durée du prêt avant exigibilité
@@ -177,7 +177,7 @@ export class MarketRegulationOrchestrator {
                 CREATE (c:MarketContract {
                     uid: $contractUid,
                     type: $contractType,
-                    amount: $virtualValueAmount,
+                    amountCents: $virtualValueAmountCents,
                     currency: $currency,
                     interestRate: $interestRate,
                     durationDays: $durationDays,
@@ -195,7 +195,7 @@ export class MarketRegulationOrchestrator {
                 targetUid: payload.targetUid,
                 contractUid: payload.contractUid,
                 contractType: payload.contractType,
-                virtualValueAmount: payload.virtualValueAmount,
+                virtualValueAmountCents: payload.virtualValueAmountCents,
                 currency: payload.currency,
                 interestRate: payload.interestRate || 0,
                 durationDays: payload.durationDays || 0,

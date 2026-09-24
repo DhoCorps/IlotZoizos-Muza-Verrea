@@ -12,8 +12,8 @@ export interface BankAccountInfo {
 
 export interface UserWallet {
   userId: string;
-  balance: number; // En centimes pour éviter les erreurs d'arrondi float
-  currency: string; // 'EUR'
+  balanceCents: number; // 🚀 Harmonisé en centimes stricts pour éviter les erreurs d'arrondi
+  currency: string;     // 'EUR'
   linkedAccounts: BankAccountInfo[];
   createdAt: Date;
   updatedAt: Date;
@@ -23,7 +23,7 @@ export interface DirectTransactionPayload {
   transactionId: string;
   senderId: string;
   recipientId: string;
-  amount: number; // En centimes
+  amountCents: number; // 🚀 Harmonisé en centimes stricts
   currency: string;
   status: 'pending' | 'completed' | 'failed';
   metadata?: {

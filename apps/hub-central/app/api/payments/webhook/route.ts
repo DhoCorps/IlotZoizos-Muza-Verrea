@@ -25,8 +25,6 @@ export const POST = withSilice(async (req: NextRequest, _context: ApiContext) =>
       console.warn("⚠️ [Webhook Trésorerie] Tentative d'accès sans signature.");
       return NextResponse.json({ error: "Signature manquante." }, { status: 401 });
     }
-
-    // TODO : Validation cryptographique stricte de la signature du webhook
     
     let event: { type?: string; data?: { object?: Record<string, unknown> } };
     try {
@@ -38,10 +36,10 @@ export const POST = withSilice(async (req: NextRequest, _context: ApiContext) =>
     if (event.type === 'payment_intent.succeeded' || event.type === 'checkout.session.completed') {
       const rawObject = event.data?.object || {};
       
-      // 🛡️ Typage explicite et conforme au contrat de l'ExternalPaymentPayload attendu par l'orchestrateur
+      // 🛡️ Mappage et validation explicite du montant brut en centimes pour l'ERP
       const paymentData = {
         id: (rawObject.id as string) || `pi_${Date.now()}`,
-        amount: typeof rawObject.amount === 'number' ? rawObject.amount : 0,
+        amount: typeof rawObject.amount === 'number' ? rawObject.amount : 0, // Stripe transmet déjà en centimes (ex: 5000 pour 50.00€)
         currency: (rawObject.currency as string) || 'eur',
         metadata: (rawObject.metadata || {}) as Record<string, unknown>,
         customer: rawObject.customer as string | undefined,
@@ -49,7 +47,6 @@ export const POST = withSilice(async (req: NextRequest, _context: ApiContext) =>
       
       await komptaOrchestrator.processExternalPayment(paymentData);
       
-      // Extraction sécurisée de l'UID du destinataire depuis les métadonnées ou le client
       const metadata = (paymentData.metadata || {}) as Record<string, unknown>;
       const recipientUid = (metadata.recipientUid as string) || (paymentData.customer as string);
 

@@ -1,4 +1,4 @@
-import { GameMode, CurrencyEnum } from '../core/economy.types'; // ou le chemin relatif vers ton fichier de schémas
+import { GameMode, CurrencyEnum } from '../core/economy.types';
 import { z } from 'zod';
 
 export type WagerCurrency = z.infer<typeof CurrencyEnum>;
@@ -8,7 +8,7 @@ export interface IGameRoomConfig {
   gameId: string;
   roomCode?: string;
   mode: GameMode;
-  wagerAmount: number;
+  wagerAmountCents: number; // 🚀 Harmonisé en centimes stricts
   wagerCurrency: WagerCurrency;
   creatorUid: string;
 }
@@ -24,8 +24,8 @@ export interface IGameRoomState {
 export interface IBettorResult {
   userId: string;
   gameId: string;
-  betAssets: Array<{ type: string; amount: number; entityId?: string }>;
-  winnings: Array<{ type: string; amount: number }>;
+  betAssets: Array<{ type: string; amountCents?: number; amount?: number; entityId?: string }>; // Rétrocompatibilité souple mais orienté amountCents
+  winnings: Array<{ type: string; amountCents: number }>; // 🚀 Harmonisation en centimes
   multiplier: number;
   status: 'PENDING' | 'WON' | 'LOST';
   timestamp: Date;

@@ -66,10 +66,10 @@ describe('Route API : Webhook Trésorerie (POST /api/payments/webhook)', () => {
     expect(revalidateTag).not.toHaveBeenCalled();
   });
 
-  it('🟢 doit traiter un paiement réussi (200), déclencher la comptabilisation et invalider le cache', async () => {
+  it('🟢 doit traiter un paiement réussi (200), déclencher la comptabilisation en centimes et invalider le cache', async () => {
     const mockPaymentData = { 
       id: 'pi_12345', 
-      amount: 5000, 
+      amount: 5000, // 50.00 EUR en centimes stricts
       currency: 'eur',
       metadata: { recipientUid: 'bird_investor_1' }
     };

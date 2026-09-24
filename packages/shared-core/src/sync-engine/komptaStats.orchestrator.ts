@@ -26,6 +26,17 @@ export interface MonthlyCanopyStats {
   macroTotals: MacroTotals;
 }
 
+// 🚀 NOUVEAU : Interface pour les rapports ERP et fiscaux d'un marchand
+export interface ERPFinancialStats {
+  yearMonth: string;
+  caTTC: number;
+  caHT: number;
+  tvaCollected: number;
+  platformFees: number;
+  netMargin: number; // Défini par HT - Frais plateforme
+  transactionCount: number;
+}
+
 interface IAggregatedLedgerEntry {
   _id: {
     ownerUid?: string;
@@ -50,7 +61,7 @@ export class KomptaStatsEngine {
     'ATOME_AIR': 1.5,
     'GLUON_FEU': 3.0,
     'KAOS_ORGANIQUE': 10.0,     // Énergie chaotique de très haute valeur
-    'BARTER': 0.0                   // Le troc pur n'a pas de valeur financière spéculative
+    'BARTER': 0.0                 // Le troc pur n'a pas de valeur financière spéculative
   };
 
   /**
@@ -121,32 +132,30 @@ export class KomptaStatsEngine {
     const [rawSellers, rawBuyers, mostCommented, mostReactive, rawMacro] = await Promise.all([
       // 1. Top Vendeurs (Agrégation multi-devises)
       LedgerEntryModel.aggregate([
-        { $match: { createdAt: { $gte: startDate, $lt: endDate }, type: 'CREDIT', category: 'STORE_SALE' } },
+        { $match: { createdAt: { $gte: startDate,$lt: endDate }, type: 'CREDIT', category: 'STORE_SALE' } },
         { $group: { _id: { ownerUid: '$ownerUid', currency: '$currency' }, totalVolume: { $sum: '$amountCents' } } }
       ]) as unknown as IAggregatedLedgerEntry[],
       // 2. Top Acheteurs / Mécènes (Agrégation multi-devises)
       LedgerEntryModel.aggregate([
-        { $match: { createdAt: { $gte: startDate, $lt: endDate }, type: 'DEBIT', category: { $in: ['STORE_PURCHASE', 'TIP'] } } },
+        { $match: { createdAt: {$gte: startDate, $lt: endDate }, type: 'DEBIT', category: {$in: ['STORE_PURCHASE', 'TIP'] } } },
         { $group: { _id: { ownerUid: '$ownerUid', currency: '$currency' }, totalVolume: { $sum: '$amountCents' } } }
       ]) as unknown as IAggregatedLedgerEntry[],
       // 3. L'Oiseau Écho (Commentaires)
       CommentModel.aggregate([
-        { $match: { createdAt: { $gte: startDate, $lt: endDate } } },
-        { $group: { _id: '$targetOwnerUid', commentCount: { $sum: 1 } } },
-        { $sort: { commentCount: -1 } },
-        { $limit: 5 }
+        { $match: { createdAt: { $gte: startDate,$lt: endDate } } },
+        { $group: { _id: '$targetOwnerUid', commentCount: {$sum: 1 } } },
+        { $sort: { commentCount: -1 } },         {$limit: 5 }
       ]) as unknown as Array<{ _id: string; commentCount: number }>,
       // 4. L'Oiseau Réactif (Réactions)
       ReactionModel.aggregate([
-        { $match: { createdAt: { $gte: startDate, $lt: endDate } } },
-        { $group: { _id: '$senderUid', reactionCount: { $sum: 1 } } },
-        { $sort: { reactionCount: -1 } },
-        { $limit: 5 }
+        { $match: { createdAt: { $gte: startDate,$lt: endDate } } },
+        { $group: { _id: '$senderUid', reactionCount: {$sum: 1 } } },
+        { $sort: { reactionCount: -1 } },         {$limit: 5 }
       ]) as unknown as Array<{ _id: string; reactionCount: number }>,
       // 5. Macro Totaux financiers (Sécurisés par devise)
       LedgerEntryModel.aggregate([
-        { $match: { createdAt: { $gte: startDate, $lt: endDate } } },
-        { $group: { _id: '$currency', totalVolume: { $sum: '$amountCents' }, transactionCount: { $sum: 1 } } }
+        { $match: { createdAt: { $gte: startDate,$lt: endDate } } },
+        { $group: { _id: '$currency', totalVolume: {$sum: '$amountCents' }, transactionCount: {$sum: 1 } } }
       ]) as unknown as IAggregatedLedgerEntry[]
     ]);
 
@@ -168,6 +177,64 @@ export class KomptaStatsEngine {
       mostCommented: mostCommented || [],
       mostReactive: mostReactive || [],
       macroTotals
+    };
+  }
+
+  /**
+   * 📊 NOUVEAU: Calcule les statistiques financières et fiscales d'un oiseau pour un mois précis (ERP).
+   */
+  public static async aggregateFinancialStats(userUid: string, yearMonth: string): Promise<ERPFinancialStats> {
+    if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
+      throw new Error(`Format de mois invalide : "${yearMonth}". Attendu : "YYYY-MM".`);
+    }
+
+    const startDate = new Date(`${yearMonth}-01T00:00:00.000Z`);
+    const [yearStr, monthStr] = yearMonth.split('-');
+    let year = parseInt(yearStr, 10);
+    let month = parseInt(monthStr, 10);
+    
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+    const nextYearMonth = `${year}-${String(month).padStart(2, '0')}`;
+    const endDate = new Date(`${nextYearMonth}-01T00:00:00.000Z`);
+
+    const aggregation = await LedgerEntryModel.aggregate([
+      { 
+        $match: { 
+          ownerUid: userUid, 
+          createdAt: { $gte: startDate,$lt: endDate }, 
+          type: 'CREDIT', 
+          category: 'STORE_SALE' // Seules les ventes génèrent du CA
+        } 
+      },
+      { 
+        $group: { 
+          _id: null, 
+          caTTC: { $sum: { $ifNull: ['$amountCents', 0] } }, 
+          caHT: { $sum: { $ifNull: ['$amountHTCents', 0] } }, 
+          tvaCollected: { $sum: { $ifNull: ['$taxCents', 0] } }, 
+          platformFees: { $sum: { $ifNull: ['$feeCents', 0] } },
+          transactionCount: { $sum: 1 }
+        } 
+      }
+    ]);
+
+    const result = aggregation[0] || { caTTC: 0, caHT: 0, tvaCollected: 0, platformFees: 0, transactionCount: 0 };
+    
+    // Marge nette = Prix de vente HT - Frais plateforme
+    const netMargin = result.caHT - result.platformFees;
+
+    return {
+      yearMonth,
+      caTTC: result.caTTC,
+      caHT: result.caHT,
+      tvaCollected: result.tvaCollected,
+      platformFees: result.platformFees,
+      netMargin,
+      transactionCount: result.transactionCount
     };
   }
 }

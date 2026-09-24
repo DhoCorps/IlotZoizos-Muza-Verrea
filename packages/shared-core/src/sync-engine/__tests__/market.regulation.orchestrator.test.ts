@@ -67,15 +67,15 @@ describe('MarketRegulationOrchestrator - Régulation & Contrats (Prêt, Don, Tro
     it('🔴 doit rejeter (403) si un oiseau tente de forger un contrat au nom d\'un autre', async () => {
       const payload: MarketContractPayload = {
         contractUid: 'ctr_1', initiatorUid: 'hacker_bird', targetUid: 'target_bird',
-        contractType: 'LOAN', virtualValueAmount: 1000, currency: 'TOTAMTOE', interestRate: 5
+        contractType: 'LOAN', virtualValueAmountCents: 100000, currency: 'TOTAMTOE', interestRate: 5
       };
       await expect(orchestrator.proposeMarketContract(payload, dummySignature as any)).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit forger un contrat de PRÊT (LOAN) avec intérêt et durée', async () => {
+    it('🟢 doit forger un contrat de PRÊT (LOAN) avec intérêt, durée et amountCents', async () => {
       const payload: MarketContractPayload = {
         contractUid: 'ctr_loan_1', initiatorUid: 'bird_initiator', targetUid: 'target_bird',
-        contractType: 'LOAN', virtualValueAmount: 500, currency: 'ESSENCE_VENT',
+        contractType: 'LOAN', virtualValueAmountCents: 50000, currency: 'ESSENCE_VENT',
         interestRate: 4.5, durationDays: 30, description: 'Prêt pour création de guilde'
       };
 
@@ -86,10 +86,10 @@ describe('MarketRegulationOrchestrator - Régulation & Contrats (Prêt, Don, Tro
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
 
-    it('🟢 doit forger un contrat de DON (GIFT) sans intérêt', async () => {
+    it('🟢 doit forger un contrat de DON (GIFT) sans intérêt avec amountCents', async () => {
       const payload: MarketContractPayload = {
         contractUid: 'ctr_gift_1', initiatorUid: 'bird_initiator', targetUid: 'target_bird',
-        contractType: 'GIFT', virtualValueAmount: 100, currency: 'KAOS_ORGANIQUE',
+        contractType: 'GIFT', virtualValueAmountCents: 10000, currency: 'KAOS_ORGANIQUE',
         description: 'Soutien aux créateurs'
       };
 

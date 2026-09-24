@@ -22,7 +22,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-// 🛡️ 2. Mock de l'orchestrateur de ledger avec des espions clairs
+// 🛡️ 2. Mock de l'orchestrateur de ledger avec des espions claires
 vi.mock('../komptaLedger.orchestrator', () => ({
   KomptaLedgerOrchestrator: { transfer: vi.fn().mockResolvedValue(true) }
 }));
@@ -72,7 +72,7 @@ describe('BettingOrchestrator - Moteur Économique & Pari', () => {
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit alimenter la Trésorerie en cas de défaite sur une monnaie souveraine', async () => {
+    it('🟢 doit alimenter la Trésorerie en cas de défaite sur une monnaie souveraine (amountCents)', async () => {
       const cryptoMock = await import('crypto');
       vi.spyOn(cryptoMock.default, 'randomInt').mockImplementationOnce(() => 1000);
 
@@ -86,7 +86,7 @@ describe('BettingOrchestrator - Moteur Économique & Pari', () => {
         expect.objectContaining({
           fromUid: 'loser_bird',
           toUid: 'system_canopy_treasury',
-          amount: 20
+          amountCents: 20 // 🚀 Vérification de l'utilisation de amountCents
         })
       );
     });

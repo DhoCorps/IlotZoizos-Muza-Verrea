@@ -33,7 +33,7 @@ describe('RevenueSplitOrchestrator - Moteur de Partage des Flux', () => {
     await expect(
       RevenueSplitOrchestrator.distributeSaleRevenue({
         sourceBuyerUid: 'buyer_bird',
-        totalAmount: 1000,
+        totalAmountCents: 1000,
         currency: 'DHO' as SovereignCurrency,
         referenceUid: 'sale_empty',
         description: 'Vente vide',
@@ -52,7 +52,7 @@ describe('RevenueSplitOrchestrator - Moteur de Partage des Flux', () => {
     await expect(
       RevenueSplitOrchestrator.distributeSaleRevenue({
         sourceBuyerUid: 'buyer_bird',
-        totalAmount: 1000,
+        totalAmountCents: 1000,
         currency: 'DHO' as SovereignCurrency,
         referenceUid: 'sale_invalid',
         description: 'Somme incorrecte',
@@ -72,7 +72,7 @@ describe('RevenueSplitOrchestrator - Moteur de Partage des Flux', () => {
 
     await RevenueSplitOrchestrator.distributeSaleRevenue({
       sourceBuyerUid: 'buyer_bird',
-      totalAmount: 1003,
+      totalAmountCents: 1003,
       currency: 'TOX' as SovereignCurrency,
       referenceUid: 'sale_founders_surplus',
       description: 'Vente avec surplus d\'arrondi',
@@ -89,7 +89,7 @@ describe('RevenueSplitOrchestrator - Moteur de Partage des Flux', () => {
     });
 
     expect(treasuryCall).toBeDefined();
-    const resolvedEntry = treasuryCall?.[0] as unknown as { amount?: number };
-    expect(resolvedEntry?.amount).toBe(302);
+    const resolvedEntry = treasuryCall?.[0] as unknown as { amountCents?: number };
+    expect(resolvedEntry?.amountCents).toBe(302);
   });
 });

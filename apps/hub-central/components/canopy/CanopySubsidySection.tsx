@@ -9,7 +9,7 @@ export interface Subsidy {
   uid?: string;
   title: string;
   motivation: string;
-  requestedAmount: number;
+  requestedAmount: number; // Exprimé en centimes pour l'harmonie ERP
   currency: 'TOX' | 'DHO';
   voteCount: number;
   status: string;
@@ -82,13 +82,9 @@ export const CanopySubsidySection: React.FC<CanopySubsidySectionProps> = ({ init
       return data;
     },
     onMutate: async (subsidyId: string) => {
-      // 1. Annuler les refetchs en cours pour ne pas écraser l'optimistic update
       await queryClient.cancelQueries({ queryKey: ['canopy-subsidies'] });
-
-      // 2. Sauvegarder l'ancienne liste dans un snapshot pour un éventuel rollback
       const previousSubsidies = queryClient.getQueryData<Subsidy[]>(['canopy-subsidies']);
 
-      // 3. Mettre à jour immédiatement le cache local (Incrémentation instantanée du vote)
       queryClient.setQueryData<Subsidy[]>(['canopy-subsidies'], (old = []) =>
         old.map(sub => 
           (sub.uid === subsidyId || sub._id === subsidyId)
@@ -100,7 +96,6 @@ export const CanopySubsidySection: React.FC<CanopySubsidySectionProps> = ({ init
       return { previousSubsidies };
     },
     onError: (err: Error, _subsidyId, context: any) => {
-      // En cas d'échec réseau, on restaure l'ancien état (rollback)
       if (context?.previousSubsidies) {
         queryClient.setQueryData(['canopy-subsidies'], context.previousSubsidies);
       }
@@ -110,7 +105,6 @@ export const CanopySubsidySection: React.FC<CanopySubsidySectionProps> = ({ init
       toast.success('Vote enregistré avec succès ! 🗳️');
     },
     onSettled: () => {
-      // Synchroniser définitivement le cache avec le serveur après coup
       queryClient.invalidateQueries({ queryKey: ['canopy-subsidies'] });
     }
   });
@@ -123,7 +117,7 @@ export const CanopySubsidySection: React.FC<CanopySubsidySectionProps> = ({ init
   return (
     <div className="max-w-5xl mx-auto mt-16 space-y-8">
       <div className="border-t border-slate-800 pt-10">
-        <h2 className="text-2xl font-bold flex items-center gap-3 mb-2">
+        <h2 className="text-2xl font-bold flex items-center gap-3 mb-2 text-slate-100">
           <span>🗳️</span> Le Guichet des Subventions de la Canopée
         </h2>
         <p className="text-slate-400 text-sm">
@@ -141,7 +135,7 @@ export const CanopySubsidySection: React.FC<CanopySubsidySectionProps> = ({ init
               <input 
                 id="titleInput"
                 type="text" 
-                className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm text-white"
+                className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm text-white focus:outline-none focus:border-amber-500"
                 value={title}
                 onChange={e => setTitle(e.target.value)}
                 required
@@ -152,7 +146,7 @@ export const CanopySubsidySection: React.FC<CanopySubsidySectionProps> = ({ init
               <label htmlFor="motivationInput" className="block text-xs font-medium text-slate-300 mb-1">Motivation / Description</label>
               <textarea 
                 id="motivationInput"
-                className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm text-white h-24"
+                className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm text-white h-24 focus:outline-none focus:border-amber-500"
                 value={motivation}
                 onChange={e => setMotivation(e.target.value)}
                 required
@@ -161,11 +155,11 @@ export const CanopySubsidySection: React.FC<CanopySubsidySectionProps> = ({ init
             
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="amountInput" className="block text-xs font-medium text-slate-300 mb-1">Montant</label>
+                <label htmlFor="amountInput" className="block text-xs font-medium text-slate-300 mb-1">Montant (Centimes)</label>
                 <input 
                   id="amountInput"
                   type="number" 
-                  className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm text-white"
+                  className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm text-white focus:outline-none focus:border-amber-500"
                   value={requestedAmount}
                   onChange={e => setRequestedAmount(Number(e.target.value))}
                   min={1}
@@ -176,7 +170,7 @@ export const CanopySubsidySection: React.FC<CanopySubsidySectionProps> = ({ init
                 <label htmlFor="currencySelect" className="block text-xs font-medium text-slate-300 mb-1">Devise</label>
                 <select 
                   id="currencySelect"
-                  className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm text-white"
+                  className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sm text-white focus:outline-none focus:border-amber-500"
                   value={currency}
                   onChange={e => setCurrency(e.target.value as any)}
                 >
@@ -192,7 +186,7 @@ export const CanopySubsidySection: React.FC<CanopySubsidySectionProps> = ({ init
                 id="isRented"
                 checked={isRented}
                 onChange={e => setIsRented(e.target.checked)}
-                className="rounded bg-slate-800 border-slate-700 text-indigo-600"
+                className="rounded bg-slate-800 border-slate-700 text-indigo-600 focus:ring-0"
               />
               <label htmlFor="isRented" className="text-xs text-slate-300 cursor-pointer">
                 Option Rente Échelonnée (si éligible)
@@ -221,7 +215,7 @@ export const CanopySubsidySection: React.FC<CanopySubsidySectionProps> = ({ init
               {subsidies.map(sub => {
                 const subId = sub.uid || sub._id;
                 return (
-                  <div key={subId} className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between gap-4">
+                  <div key={subId} className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between gap-4 shadow-md">
                     <div>
                       <div className="flex justify-between items-start">
                         <h4 className="font-bold text-white text-base">{sub.title}</h4>

@@ -136,11 +136,11 @@ export class CanopySubsidyOrchestrator {
 
     if (winner) {
       await TransactionManager.execute("Tirage Mensuel Canopée", async (mongoSession, neo4jTx) => {
-        // 1. Virement via le Ledger
+        // 1. Virement via le Ledger avec amountCents 🚀
         await KomptaLedgerOrchestrator.transfer({
           fromUid: 'system_canopy_treasury',
           toUid: winner.requesterUid,
-          amount: winner.requestedAmount,
+          amountCents: winner.requestedAmount,
           currency: winner.currency as any,
           category: 'SUBSIDY',
           referenceUid: `subsidy_${winner.uid}_${now.getTime()}`,
@@ -164,7 +164,6 @@ export class CanopySubsidyOrchestrator {
   }
 
   private weightedRandomDraw(top: ISubsidyDocument[], low: ISubsidyDocument[]): ISubsidyDocument | null {
-    // Logique de tirage : on met 3 copies de chaque dossier topTier et 1 de lowTier dans le chapeau
     const pool = [...top, ...top, ...top, ...low];
     if (pool.length === 0) return null;
     return pool[Math.floor(Math.random() * pool.length)];

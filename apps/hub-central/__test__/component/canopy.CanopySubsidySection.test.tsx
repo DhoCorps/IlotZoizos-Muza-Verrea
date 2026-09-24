@@ -27,7 +27,7 @@ describe('UI & Logique : CanopySubsidySection (React Query & Optimistic Updates)
 
   const renderSection = (initialSubsidies: any[] = []) => render(
     <QueryClientProvider client={queryClient}>
-      <CanopySubsidySection initialSubsidies={initialSubsidies} />[cite: 4]
+      <CanopySubsidySection initialSubsidies={initialSubsidies} />
     </QueryClientProvider>
   );
 
@@ -67,7 +67,6 @@ describe('UI & Logique : CanopySubsidySection (React Query & Optimistic Updates)
 
     renderSection(mockData);
 
-    // Retarder intentionnellement la réponse du fetch pour tester l'optimistic update
     let resolveFetch: any;
     const delayedFetch = new Promise((resolve) => {
       resolveFetch = resolve;
@@ -77,7 +76,6 @@ describe('UI & Logique : CanopySubsidySection (React Query & Optimistic Updates)
 
     fireEvent.click(screen.getByText(/Voter 🗳️/i));
 
-    // 🛡️ UTILISATION DE waitFor : Laisse le temps à React de propager le re-rendu asynchrone du cache
     await waitFor(() => {
       expect(screen.getByText((_, node) => {
         const text = node?.textContent || '';
@@ -90,7 +88,6 @@ describe('UI & Logique : CanopySubsidySection (React Query & Optimistic Updates)
       })).toBeDefined();
     });
 
-    // Résoudre le fetch après coup
     resolveFetch({
       ok: true,
       json: async () => ({ success: true })

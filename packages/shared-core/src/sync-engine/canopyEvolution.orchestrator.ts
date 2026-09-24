@@ -40,11 +40,11 @@ export class CanopyEvolutionOrchestrator {
     // 🌿 DÉLÉGATION AU TRANSACTION MANAGER (Double Écriture)
     await TransactionManager.execute(`Attribution Trophée App [${appModule}]`, async (mongoSession, neo4jTx) => {
       
-      // 1. Versement de la dotation financière (Ledger)
+      // 1. Versement de la dotation financière (Ledger) avec amountCents
       await KomptaLedgerOrchestrator.transfer({
         fromUid: 'system_canopy_treasury',
         toUid: winnerUid,
-        amount: trophyDef.rewardAmount,
+        amountCents: trophyDef.rewardAmount,
         currency: trophyDef.rewardCurrency,
         category: 'BET_WIN',
         referenceUid: `app_trophy_${appModule}_${trophyId}_${cycleReference}_${now.getTime()}`,

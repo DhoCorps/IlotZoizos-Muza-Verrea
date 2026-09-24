@@ -46,7 +46,6 @@ vi.mock('@ilot/shared-core', async (importOriginal) => {
 });
 
 declare global {
-  // 🛡️ Harmonisation de la signature globale pour __mockUser
   var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
@@ -68,7 +67,7 @@ describe('Route API : Canopée Subventions (POST /api/canopy/subsidy)', () => {
 
     const req = new Request('http://localhost/api/canopy/subsidy', {
       method: 'POST',
-      body: JSON.stringify({ title: 'Test', motivation: 'Test', requestedAmount: 500, currency: 'EUR' })
+      body: JSON.stringify({ title: 'Test', motivation: 'Test', requestedAmount: 50000, currency: 'EUR' })
     });
 
     const response = await postHandler(req, {} as ApiContext);
@@ -87,7 +86,7 @@ describe('Route API : Canopée Subventions (POST /api/canopy/subsidy)', () => {
       body: JSON.stringify({
         title: 'Aide au studio',
         motivation: 'Achat de matériel analogique',
-        requestedAmount: 1000,
+        requestedAmount: 100000, // 1000,00 € en centimes
         currency: 'EUR',
         isRented: false
       })
@@ -99,11 +98,10 @@ describe('Route API : Canopée Subventions (POST /api/canopy/subsidy)', () => {
     expect(response.status).toBe(201);
     expect(json.success).toBe(true);
     
-    // Vérifie que l'Orchestrateur a bien reçu les données validées et la signature
     expect(mockFosterSubsidy).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'Aide au studio',
-        requestedAmount: 1000,
+        requestedAmount: 100000,
         currency: 'EUR'
       }),
       expect.objectContaining({
@@ -111,7 +109,6 @@ describe('Route API : Canopée Subventions (POST /api/canopy/subsidy)', () => {
       })
     );
 
-    // 💥 Vérification que le tag de cache a bien été invalidé
     expect(revalidateTag).toHaveBeenCalledWith('canopy-subsidies');
   });
 });

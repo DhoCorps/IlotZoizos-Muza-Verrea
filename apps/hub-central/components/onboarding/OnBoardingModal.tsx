@@ -17,9 +17,9 @@ export default function OnboardingModal({ userUid }: { userUid: string }) {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
-  // Génération du coût aléatoire pour le "re-roll"
+  // Génération du coût de "re-roll" en centimes stricts (ex: 100 à 300 centimes pour 1 à 3 unités)
   const [rerollCost, setRerollCost] = useState({
-    amount: Math.floor(Math.random() * 3) + 1, // Coût entre 1 et 3
+    amountCents: (Math.floor(Math.random() * 3) + 1) * 100, // Coût entre 100 et 300 centimes
     currency: CURRENCIES[Math.floor(Math.random() * CURRENCIES.length)]
   });
 
@@ -56,7 +56,7 @@ export default function OnboardingModal({ userUid }: { userUid: string }) {
   const handleReroll = async () => {
     setIsLoading(true);
     try {
-      // Appel vers une future route qui déduit le coût et regénère une identité
+      // Appel vers la route qui déduit le coût en centimes et regénère une identité
       const res = await fetch('/api/oiseau/onboarding/reroll', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -66,9 +66,9 @@ export default function OnboardingModal({ userUid }: { userUid: string }) {
       
       if (data.success) {
         setIdentity(data.data);
-        // On génère un nouveau coût pour le prochain reroll potentiel
+        // On génère un nouveau coût en centimes pour le prochain reroll potentiel
         setRerollCost({
-          amount: Math.floor(Math.random() * 3) + 1,
+          amountCents: (Math.floor(Math.random() * 3) + 1) * 100,
           currency: CURRENCIES[Math.floor(Math.random() * CURRENCIES.length)]
         });
       } else {
@@ -125,8 +125,8 @@ export default function OnboardingModal({ userUid }: { userUid: string }) {
             ) : (
               <>
                 Hériter d'un autre Sobriquet
-                <span className="text-xs px-2 py-1 bg-red-950/50 rounded text-red-300">
-                  -{rerollCost.amount} {rerollCost.currency}
+                <span className="text-xs px-2 py-1 bg-red-950/50 rounded text-red-300 font-mono">
+                  -{(rerollCost.amountCents / 100).toFixed(2)} {rerollCost.currency}
                 </span>
               </>
             )}

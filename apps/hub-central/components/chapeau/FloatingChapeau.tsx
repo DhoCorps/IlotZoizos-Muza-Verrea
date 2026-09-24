@@ -1,4 +1,3 @@
-// apps/hub-central/components/FloatingChapeau.tsx
 'use client';
 
 import React, { useState } from 'react';
@@ -11,7 +10,7 @@ export function FloatingChapeau() {
   const [mode, setMode] = useState<'tip' | 'exchange'>('tip');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Gestion dynamique du montant du pourboire (en centimes)
+  // Gestion dynamique du montant du pourboire (exprimé strictement en centimes)
   const [selectedAmountCents, setSelectedAmountCents] = useState<number>(150);
   const [customAmount, setCustomAmount] = useState<string>('');
   
@@ -27,10 +26,10 @@ export function FloatingChapeau() {
   const handleQuickTip = async () => {
     setIsLoading(true);
     try {
-      const amountToProcess = customAmount ? Math.round(parseFloat(customAmount) * 100) : selectedAmountCents;
+      const amountCentsToProcess = customAmount ? Math.round(parseFloat(customAmount) * 100) : selectedAmountCents;
 
-      if (isNaN(amountToProcess) || amountToProcess <= 0) {
-        throw new Error("Veuillez indiquer un montant valide.");
+      if (isNaN(amountCentsToProcess) || amountCentsToProcess <= 0) {
+        throw new Error("Veuillez indiquer un montant valide en centimes ou en euros.");
       }
 
       const response = await fetch('/api/payments/transaction', {
@@ -39,7 +38,7 @@ export function FloatingChapeau() {
         body: JSON.stringify({
           transactionUid: `tx_tip_${Date.now()}`,
           recipientUid: chapeauData.recipientUid,
-          amountCents: amountToProcess,
+          amountCents: amountCentsToProcess, // 🚀 Transmission de l'entier strict en centimes pour l'ERP
           currency: 'EUR',
           storeUid: chapeauData.storeUid,
           description: `Soutien pour : ${chapeauData.targetTitle}`
@@ -49,11 +48,12 @@ export function FloatingChapeau() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Erreur lors du transfert');
 
-      alert(`🎩 Don de ${(amountToProcess / 100).toFixed(2)}€ envoyé avec succès à ${chapeauData.recipientPseudo} !`);
+      alert(`🎩 Don de ${(amountCentsToProcess / 100).toFixed(2)}€ envoyé avec succès à ${chapeauData.recipientPseudo} !`);
       setIsOpen(false);
       setCustomAmount('');
-    } catch (error: any) {
-      alert(`[Erreur Kompta] : ${error.message}`);
+    } catch (error: unknown) {
+      const errMessage = error instanceof Error ? error.message : String(error);
+      alert(`[Erreur Kompta] : ${errMessage}`);
     } finally {
       setIsLoading(false);
     }
@@ -79,8 +79,9 @@ export function FloatingChapeau() {
 
       alert(`📦 Troc scellé dans la matrice ! Votre objet a été transmis à ${chapeauData.recipientPseudo}.`);
       setIsOpen(false);
-    } catch (error: any) {
-      alert(`[Erreur Troc] : ${error.message}`);
+    } catch (error: unknown) {
+      const errMessage = error instanceof Error ? error.message : String(error);
+      alert(`[Erreur Troc] : ${errMessage}`);
     } finally {
       setIsLoading(false);
     }
@@ -207,7 +208,7 @@ export function FloatingChapeau() {
       {/* Le Bouton Flottant Principal */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="group relative flex items-center gap-3 rounded-full bg-slate-900/90 border border-amber-500/50 px-4 py-3 text-amber-400 shadow-2xl backdrop-blur-md hover:bg-slate-800 transition-all duration-300 hover:scale-105 animate-bounce-subtle"
+        className="group relative flex items-center gap-3 rounded-full bg-slate-900/90 border border-amber-500/50 px-4 py-3 text-amber-400 shadow-2xl backdrop-blur-md hover:bg-slate-800 transition-all duration-300 hover:scale-105"
         title="Ouvrir le Chapeau contextuel"
       >
         <span className="text-2xl transition-transform duration-300 group-hover:rotate-12">🎩</span>

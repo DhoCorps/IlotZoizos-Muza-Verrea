@@ -8,11 +8,11 @@ import { CanopySubsidyOrchestrator, IlotError } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { z } from 'zod';
 
-// 🛡️ Schéma de validation Zod strict pour le dépôt de subvention
+// 🛡️ Schéma de validation Zod strict pour le dépôt de subvention (Harmonisé en centimes entiers)
 const CreateSubsidySchema = z.object({
   title: z.string().min(1, "Le titre est requis."),
   motivation: z.string().min(1, "La motivation est requise."),
-  requestedAmount: z.number().positive("Le montant demandé doit être positif."),
+  requestedAmount: z.number().int("Le montant en centimes doit être un nombre entier.").positive("Le montant demandé doit être positif."),
   currency: z.string().min(1, "La devise est requise."),
   isRented: z.boolean().optional().default(false),
 });
@@ -25,7 +25,6 @@ export const GET = withAura(async (_req: Request, _context: ApiContext, _current
     const subsidies = await getCachedSubsidies();
     return NextResponse.json({ success: true, subsidies }, { status: 200 });
   } catch (error: unknown) {
-    // 🛡️ Transmission d'un message textuel explicite et propre à l'utilisateur final
     return handleRouteError(error, "Erreur interne lors de la récupération des subventions de la canopée.");
   }
 });
@@ -77,7 +76,6 @@ export const POST = withAura(async (req: Request, _context: ApiContext, currentU
     }, { status: 201 });
 
   } catch (error: unknown) {
-    // 🛡️ Transmission d'un message explicite via le gestionnaire global
     return handleRouteError(error, "Erreur interne du guichet des subventions.");
   }
 });

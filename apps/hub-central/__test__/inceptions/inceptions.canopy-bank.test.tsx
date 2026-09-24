@@ -8,7 +8,7 @@ const { mockGetBalances, mockCountEntries, mockCountDocs, mockGetCachedSubsidies
   mockCountEntries: vi.fn().mockResolvedValue(42),
   mockCountDocs: vi.fn().mockResolvedValue(5),
   mockGetCachedSubsidies: vi.fn().mockResolvedValue([
-    { _id: 'sub_1', uid: 'sub_1', title: 'Aide au studio', motivation: 'Test', requestedAmount: 100, currency: 'TOX', voteCount: 0, status: 'PENDING', isRented: false }
+    { _id: 'sub_1', uid: 'sub_1', title: 'Aide au studio', motivation: 'Test', requestedAmount: 10000, currency: 'TOX', voteCount: 0, status: 'PENDING', isRented: false }
   ]),
 }));
 
@@ -45,7 +45,7 @@ describe('SSR & SEO : CanopyBankPage (Inception)', () => {
     mockCountEntries.mockResolvedValue(42);
     mockCountDocs.mockResolvedValue(5);
     mockGetCachedSubsidies.mockResolvedValue([
-      { _id: 'sub_1', uid: 'sub_1', title: 'Aide au studio', motivation: 'Test', requestedAmount: 100, currency: 'TOX', voteCount: 0, status: 'PENDING', isRented: false }
+      { _id: 'sub_1', uid: 'sub_1', title: 'Aide au studio', motivation: 'Test', requestedAmount: 10000, currency: 'TOX', voteCount: 0, status: 'PENDING', isRented: false }
     ]);
   });
 
@@ -53,7 +53,7 @@ describe('SSR & SEO : CanopyBankPage (Inception)', () => {
     const ui = await CanopyBankPage();
     render(ui);
 
-    // Vérification du rendu global et des valeurs de trésorerie (désormais vert !)
+    // Vérification du rendu global et des valeurs de trésorerie
     expect(screen.getByText('La Réserve de la Canopée')).toBeDefined();
     expect(screen.getByText(/1[,\s ]500/)).toBeDefined(); 
     expect(screen.getByText('300')).toBeDefined();   

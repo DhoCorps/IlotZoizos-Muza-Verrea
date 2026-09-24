@@ -13,7 +13,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-describe('KomptaStatsEngine - Moteur Statistique Multi-Énergies', () => {
+describe('KomptaStatsEngine - Moteur Statistique Multi-Énergies & ERP', () => {
   const targetYearMonth = '2026-08';
 
   beforeEach(() => {
@@ -73,5 +73,53 @@ describe('KomptaStatsEngine - Moteur Statistique Multi-Énergies', () => {
     expect(stats.mostCommented).toEqual([]);
     expect(stats.mostReactive).toEqual([]);
     expect(stats.macroTotals).toEqual({});
+  });
+
+  it('🟢 doit calculer le CA HT total, la TVA collectée et la marge nette pour un marchand via aggregateFinancialStats', async () => {
+    vi.mocked(LedgerEntryModel.aggregate).mockResolvedValueOnce([{
+      _id: null,
+      caTTC: 2400,
+      caHT: 2000,
+      tvaCollected: 400,
+      platformFees: 100,
+      transactionCount: 2
+    }]);
+
+    const stats = await KomptaStatsEngine.aggregateFinancialStats('marchand_1', targetYearMonth);
+
+    expect(LedgerEntryModel.aggregate).toHaveBeenCalledTimes(1);
+    
+    // 🛡️ CORRECTION : Cast en 'any' pour contourner le typage PipelineStage strict de Mongoose sur $match
+    const aggregateCall = vi.mocked(LedgerEntryModel.aggregate).mock.calls[0][0];
+    const matchStage = aggregateCall[0] as any;
+    
+    expect(matchStage.$match).toMatchObject({
+      ownerUid: 'marchand_1',
+      type: 'CREDIT',
+      category: 'STORE_SALE'
+    });
+
+    // Vérification des données analytiques extraites
+    expect(stats.yearMonth).toBe(targetYearMonth);
+    expect(stats.caTTC).toBe(2400);
+    expect(stats.caHT).toBe(2000);
+    expect(stats.tvaCollected).toBe(400);
+    expect(stats.platformFees).toBe(100);
+    // Marge nette = caHT - platformFees = 2000 - 100 = 1900
+    expect(stats.netMargin).toBe(1900);
+    expect(stats.transactionCount).toBe(2);
+  });
+
+  it('🟢 doit gérer gracieusement les statistiques financières si le marchand n\'a fait aucune vente', async () => {
+    vi.mocked(LedgerEntryModel.aggregate).mockResolvedValueOnce([]); // Aucun résultat
+
+    const stats = await KomptaStatsEngine.aggregateFinancialStats('marchand_2', targetYearMonth);
+
+    expect(stats.caTTC).toBe(0);
+    expect(stats.caHT).toBe(0);
+    expect(stats.tvaCollected).toBe(0);
+    expect(stats.platformFees).toBe(0);
+    expect(stats.netMargin).toBe(0);
+    expect(stats.transactionCount).toBe(0);
   });
 });

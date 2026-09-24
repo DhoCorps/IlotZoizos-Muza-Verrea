@@ -1,16 +1,29 @@
 import { TransactionManager } from './transactionManager';
 import { KomptaStatsEngine } from './komptaStats.orchestrator';
-import { RewardEntryModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { RewardEntryModel, OiseauModel, findEntityBySlugOrUid, PageViewModel } from '@ilot/infrastructure';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature, CAPABILITIES } from '@ilot/types';
 import type { ClientSession } from 'mongoose';
 import type { Transaction } from 'neo4j-driver';
 
-// Interface d'injection pour isoler le shared-core de l'application
+// ==========================================
+// INTERFACES DE DÉPENDANCE & ÉVÈNEMENTS
+// ==========================================
 export interface IMessageManager {
   sendSystemNewsletter(payload: NewsletterPayload): Promise<unknown>;
   sendMessage(payload: PrivateMessagePayload): Promise<unknown>;
   [key: string]: unknown;
+}
+
+// 🚀 NOUVEAU : Interface pour le bus d'évènements (Pub/Sub)
+export interface IEventPublisher {
+  emit(eventName: string, payload: unknown): void;
+}
+
+export interface HarvestCompletedEvent {
+  yearMonth: string;
+  stats: any; // Type issu de MonthlyCanopyStats
+  awardedRewards: RewardEntryPayload[];
 }
 
 export interface NewsletterPayload {
@@ -64,30 +77,43 @@ interface IOiseauEntity {
   [key: string]: unknown;
 }
 
-export class MonthlyStatsOrchestrator {
-  private messageService: IMessageManager;
+export interface TrafficDataPoint {
+  date: string;
+  visitors: number;
+  pageViews: number;
+}
 
-  constructor(customMessageService?: IMessageManager) {
-    // Par défaut (pour les tests), on injecte un mock silencieux
-    this.messageService = customMessageService || {
-      sendSystemNewsletter: async () => ({ success: true }),
-      sendMessage: async () => ({ success: true })
+export interface StoreTrafficStats {
+  storeUid: string;
+  yearMonth: string;
+  dailyTraffic: TrafficDataPoint[];
+  historicalMonthlyTraffic: TrafficDataPoint[];
+}
+
+// ==========================================
+// L'ORCHESTRATEUR PRINCIPAL
+// ==========================================
+export class MonthlyStatsOrchestrator {
+  private eventPublisher: IEventPublisher;
+
+  constructor(customEventPublisher?: IEventPublisher) {
+    // Par défaut, un bus silencieux si non fourni
+    this.eventPublisher = customEventPublisher || {
+      emit: () => {}
     };
   }
 
   /**
    * 🌙 LE RITUEL DE LA MOISSON MENSUELLE
    * S'exécute par défaut le 1er du mois à 03:00.
-   * Calcule les métriques, forge les titres honorifiques et distribue la Sève
+   * Calcule les métriques, forge les titres honorifiques et émet l'évènement de fin.
    */
   public async executeMonthlyHarvest(yearMonth: string, signature: ActionSignature): Promise<MonthlyHarvestResult> {
-    // Seul le système souverain (*) ou un Architecte peut déclencher la moisson globale
     if (!signature.capabilities.includes('*') && !signature.capabilities.includes(CAPABILITIES.SYSTEM.ALL)) {
       throw new IlotError("Aura insuffisante pour invoquer le Rituel de la Moisson.", "FORBIDDEN", 403);
     }
 
     return await TransactionManager.execute("Moisson de la Canopée", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now' pour toute l'exécution de la moisson
       const now = new Date();
 
       // 1. Extraction des flux énergétiques de la Silice
@@ -95,7 +121,6 @@ export class MonthlyStatsOrchestrator {
       const awardedRewards: RewardEntryPayload[] = [];
 
       // 2. FORGE DES TITRES HONORIFIQUES ET RÉCOMPENSES ÉVOCATRICES
-      // L'Alchimiste de Valeur (Top Vendeur / Créateur de Richesse)
       if (stats.topSellers.length > 0) {
         awardedRewards.push({
           ownerUid: stats.topSellers[0].uid,
@@ -109,7 +134,6 @@ export class MonthlyStatsOrchestrator {
         });
       }
 
-      // Le Mécène de l'Aube (Top Acheteur / Injecteur de Sève)
       if (stats.topBuyers.length > 0) {
         awardedRewards.push({
           ownerUid: stats.topBuyers[0].uid,
@@ -123,7 +147,6 @@ export class MonthlyStatsOrchestrator {
         });
       }
 
-      // La Voix de l'Abîme (L'Oiseau le plus commenté)
       if (stats.mostCommented.length > 0) {
         awardedRewards.push({
           ownerUid: stats.mostCommented[0]._id,
@@ -137,7 +160,6 @@ export class MonthlyStatsOrchestrator {
         });
       }
 
-      // L'Étincelle Symbiotique (L'Oiseau le plus réactif/empathique)
       if (stats.mostReactive.length > 0) {
         awardedRewards.push({
           ownerUid: stats.mostReactive[0]._id,
@@ -156,7 +178,7 @@ export class MonthlyStatsOrchestrator {
         await RewardEntryModel.insertMany(awardedRewards, { session: mongoSession });
       }
 
-      // 4. Sédimentation dans le Graphe (Neo4j) - Phase 2 : MATCH STRICT sur UID Canonique
+      // 4. Sédimentation dans le Graphe (Neo4j)
       for (const reward of awardedRewards) {
         const cypher = `
           MATCH (u:User {uid: $ownerUid})
@@ -177,10 +199,104 @@ export class MonthlyStatsOrchestrator {
         });
       }
 
-      // 5. CHRONIQUE DE L'ÎLOT : La Newsletter évocatrice
-      const fiatVolume = stats.macroTotals['EUR']?.totalVolume || 0;
-      const kaosVolume = stats.macroTotals['KAOS_ORGANIQUE']?.totalVolume || 0;
-      const transactions = Object.values(stats.macroTotals).reduce((sum, curr) => sum + curr.transactionCount, 0);
+      // 5. 🚀 ASYNCHRONISME : Émission de l'évènement de fin de moisson (Fire & Forget)
+      // Délègue la charge réseau (emails/messages) aux écouteurs en arrière-plan
+      this.eventPublisher.emit('CANOPY_HARVEST_COMPLETED', {
+        yearMonth,
+        stats,
+        awardedRewards
+      });
+
+      return {
+        success: true,
+        yearMonth,
+        distributedRewardsCount: awardedRewards.length
+      };
+    });
+  }
+
+  /**
+   * 📊 Récupère l'analytique de trafic d'une boutique (ERP).
+   */
+  public async getStoreTraffic(storeUid: string, yearMonth: string): Promise<StoreTrafficStats> {
+    if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
+      throw new IlotError(`Format de mois invalide : "${yearMonth}". Attendu : "YYYY-MM".`, "BAD_REQUEST", 400);
+    }
+
+    const startDate = new Date(`${yearMonth}-01T00:00:00.000Z`);
+    
+    const [yearStr, monthStr] = yearMonth.split('-');
+    let year = parseInt(yearStr, 10);
+    let month = parseInt(monthStr, 10);
+    
+    let nextMonth = month + 1;
+    let nextYear = year;
+    if (nextMonth > 12) {
+      nextMonth = 1;
+      nextYear += 1;
+    }
+    const endDate = new Date(`${nextYear}-${String(nextMonth).padStart(2, '0')}-01T00:00:00.000Z`);
+    
+    let histMonth = month - 6;
+    let histYear = year;
+    if (histMonth <= 0) {
+      histMonth += 12;
+      histYear -= 1;
+    }
+    const historicalStartDate = new Date(`${histYear}-${String(histMonth).padStart(2, '0')}-01T00:00:00.000Z`);
+
+    const dailyAggregation = await PageViewModel.aggregate([
+      { $match: { storeUid, createdAt: { $gte: startDate,$lt: endDate } } },
+      { $group: { 
+          _id: { $dateToString: { format: "\%Y-\%m-\%d", date: "$createdAt" } }, 
+          visitors: { $addToSet: "$visitorUid" },
+          pageViews: { $sum: 1 }                 } },       {$sort: { _id: 1 } }
+    ]);
+
+    const monthlyAggregation = await PageViewModel.aggregate([
+      { $match: { storeUid, createdAt: { $gte: historicalStartDate,$lt: endDate } } },
+      { $group: { 
+          _id: { $dateToString: { format: "\%Y-\%m", date: "$createdAt" } }, 
+          visitors: { $addToSet: "$visitorUid" }, 
+          pageViews: { $sum: 1 }                 } },       {$sort: { _id: 1 } }
+    ]);
+
+    const mapAggregation = (agg: any[]) => agg.map(item => ({
+      date: item._id,
+      visitors: Array.isArray(item.visitors) ? item.visitors.length : 0,
+      pageViews: item.pageViews
+    }));
+
+    return {
+      storeUid,
+      yearMonth,
+      dailyTraffic: mapAggregation(dailyAggregation),
+      historicalMonthlyTraffic: mapAggregation(monthlyAggregation)
+    };
+  }
+}
+
+// ==========================================
+// L'ÉCOUTEUR D'ÉVÈNEMENTS (BACKGROUND LISTENER)
+// ==========================================
+export class CanopyHarvestNotificationListener {
+  private messageService: IMessageManager;
+
+  constructor(messageService: IMessageManager) {
+    this.messageService = messageService;
+  }
+
+  /**
+   * 🎧 Consomme l'évènement 'CANOPY_HARVEST_COMPLETED' en arrière-plan.
+   */
+  public async handleHarvestCompleted(event: HarvestCompletedEvent): Promise<void> {
+    const { yearMonth, stats, awardedRewards } = event;
+
+    try {
+      // 1. CHRONIQUE DE L'ÎLOT : La Newsletter évocatrice
+      const fiatVolume = stats.macroTotals?.['EUR']?.totalVolume || 0;
+      const kaosVolume = stats.macroTotals?.['KAOS_ORGANIQUE']?.totalVolume || 0;
+      const transactions = Object.values(stats.macroTotals || {}).reduce((sum: number, curr: any) => sum + (curr.transactionCount || 0), 0);
 
       const newsletterContent = `
         La lune a achevé son cycle sur l'Îlot Zoizos pour ce mois de ${yearMonth}.
@@ -199,10 +315,9 @@ export class MonthlyStatsOrchestrator {
         statsSnapshot: stats
       });
 
-      // 6. MESSAGES PRIVÉS : Chuchotements aux Lauréats (avec résolution unifiée)
+      // 2. MESSAGES PRIVÉS : Chuchotements aux Lauréats
       const rewardedUids = Array.from(new Set(awardedRewards.map(r => r.ownerUid)));
 
-      // ⚡ Parallélisation massive de l'envoi des messages
       await Promise.all(
         rewardedUids.map(async (uid) => {
           try {
@@ -215,22 +330,18 @@ export class MonthlyStatsOrchestrator {
             await this.messageService.sendMessage({
               conversationSlug: `private-${uid}`,
               senderSlug: 'SYSTEM_CANOPY_ROOT',
-              content: `L'Îlot a entendu ton chant. Pour ce cycle de ${yearMonth}, tu has été adoubé(e) et l'aura "${auras}" t'enveloppe désormais. Tes récompenses symbiotiques ont été liées dans ton inventaire de Silice.`,
+              content: `L'Îlot a entendu ton chant. Pour ce cycle de ${yearMonth}, tu as été adoubé(e) et l'aura "${auras}" t'enveloppe désormais. Tes récompenses symbiotiques ont été liées dans ton inventaire de Silice.`,
               attachments: [],
               replyToSlug: ''
             });
           } catch (err: unknown) {
             const errMessage = err instanceof Error ? err.message : String(err);
-            console.error(`  [Orchestrator] Échec de l'envoi du message privé au lauréat ${uid} :`, errMessage);
+            console.error(`  [NotificationListener] Échec message privé lauréat ${uid} :`, errMessage);
           }
         })
       );
-
-      return {
-        success: true,
-        yearMonth,
-        distributedRewardsCount: awardedRewards.length
-      };
-    });
+    } catch (err) {
+      console.error("  [NotificationListener] Échec global du traitement des notifications de moisson :", err);
+    }
   }
 }

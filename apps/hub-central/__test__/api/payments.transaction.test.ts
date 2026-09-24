@@ -54,7 +54,7 @@ describe('API Payments Transaction - POST /api/payments/transaction', () => {
       body: JSON.stringify({
         transactionUid: 'tx_1',
         recipientUid: 'bird_recipient',
-        amountCents: 150,
+        amountCents: 15000,
       }),
     });
 
@@ -65,7 +65,7 @@ describe('API Payments Transaction - POST /api/payments/transaction', () => {
     expect(data.error).toBe("Le Nexus est invisible aux étrangers.");
   });
 
-  it('doit réussir (201), exécuter la transaction marchande et invalider le cache', async () => {
+  it('doit réussir (201), exécuter la transaction marchande en centimes et invalider le cache', async () => {
     global.__mockUser = { uid: 'bird_buyer_123', capabilities: [] };
 
     const req = new NextRequest('http://localhost:3000/api/payments/transaction', {
@@ -73,7 +73,7 @@ describe('API Payments Transaction - POST /api/payments/transaction', () => {
       body: JSON.stringify({
         transactionUid: 'tx_test_chapeau_001',
         recipientUid: 'bird_recipient_456',
-        amountCents: 150, // 1.50 EUR
+        amountCents: 150, // 1.50 EUR en centimes
         currency: 'EUR',
         storeUid: 'store_789',
         description: 'Pourboire depuis le Chapeau flottant',

@@ -19,16 +19,18 @@ export const metadata: Metadata = {
 
 // 🏦 Simulation de récupération des données de la Banque Centrale
 async function getTreasuryData() {
-  // 1. Récupération dynamique des soldes de la Banque Centrale depuis le Grand Livre
+  // 1. Récupération dynamique des soldes de la Banque Centrale depuis le Grand Livre (exprimés en centimes)
   const rawBalances = await KomptaLedgerService.getUserBalances('system_canopy_treasury');
   
   // 🛡️ SÉCURITÉ : Assainissement au cas où rawBalances serait undefined ou null
   const safeBalances = rawBalances && typeof rawBalances === 'object' ? rawBalances : {};
 
   // 2. Transformation dynamique en tableau de réserves exploitable par la vue
-  const reserves = Object.entries(safeBalances).map(([type, amount]) => ({
+  const reserves = Object.entries(safeBalances).map(([type, amountCents]) => ({
     type: type as AssetType,
-    amount: Number(amount) || 0
+    // On conserve la valeur brute en centimes ou on la convertit si affichage unitaire, 
+    // ici on garde l'entier strict de l'ERP
+    amount: Number(amountCents) || 0
   }));
 
   // 3. Comptage dynamique des paris absorbés (récupéré depuis les références du grand livre)

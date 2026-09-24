@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { UserWallet, BankAccountInfo, DirectTransactionPayload } from '../core/payment.types';
 
 describe('Payment Types & Interfaces - L\'Îlot Zoizos', () => {
-  it('doit valider la structure complète d\'un UserWallet avec ses comptes liés', () => {
+  it('doit valider la structure complète d\'un UserWallet avec ses comptes liés et balanceCents', () => {
     const mockBankAccount: BankAccountInfo = {
       providerId: 'tok_visa_debit_123',
       last4: '4242',
@@ -14,7 +14,7 @@ describe('Payment Types & Interfaces - L\'Îlot Zoizos', () => {
 
     const mockWallet: UserWallet = {
       userId: 'oiseau_dho_123',
-      balance: 15000, // 150,00 EUR en centimes
+      balanceCents: 15000, // 150,00 EUR en centimes stricts
       currency: 'EUR',
       linkedAccounts: [mockBankAccount],
       createdAt: new Date(),
@@ -22,19 +22,19 @@ describe('Payment Types & Interfaces - L\'Îlot Zoizos', () => {
     };
 
     expect(mockWallet.userId).toBe('oiseau_dho_123');
-    expect(mockWallet.balance).toBe(15000);
+    expect(mockWallet.balanceCents).toBe(15000);
     expect(mockWallet.currency).toBe('EUR');
     expect(mockWallet.linkedAccounts).toHaveLength(1);
     expect(mockWallet.linkedAccounts[0].isDefault).toBe(true);
     expect(mockWallet.linkedAccounts[0].last4).toBe('4242');
   });
 
-  it('doit valider la structure d\'une transaction directe P2P', () => {
+  it('doit valider la structure d\'une transaction directe P2P avec amountCents', () => {
     const mockTransaction: DirectTransactionPayload = {
       transactionId: 'tx_uuid_987654',
       senderId: 'oiseau_client_1',
       recipientId: 'oiseau_vendeur_2',
-      amount: 2500, // 25,00 EUR
+      amountCents: 2500, // 25,00 EUR en centimes stricts
       currency: 'EUR',
       status: 'completed',
       metadata: {
@@ -48,7 +48,7 @@ describe('Payment Types & Interfaces - L\'Îlot Zoizos', () => {
     expect(mockTransaction.transactionId).toBe('tx_uuid_987654');
     expect(mockTransaction.senderId).toBe('oiseau_client_1');
     expect(mockTransaction.recipientId).toBe('oiseau_vendeur_2');
-    expect(mockTransaction.amount).toBe(2500);
+    expect(mockTransaction.amountCents).toBe(2500);
     expect(mockTransaction.status).toBe('completed');
     expect(mockTransaction.metadata?.itemId).toBe('art_toile_99');
   });

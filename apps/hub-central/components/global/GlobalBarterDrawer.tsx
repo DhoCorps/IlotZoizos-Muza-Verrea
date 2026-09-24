@@ -1,4 +1,3 @@
-// apps/hub-central/components/global/GlobalBarterDrawer.tsx
 'use client';
 
 import React, { useState } from 'react';
@@ -26,12 +25,14 @@ export const GlobalBarterDrawer: React.FC<GlobalBarterDrawerProps> = ({
     setResult(null);
 
     try {
+      // 🚀 Harmonisation : Si on mise des jetons/monnaie (Kaos), on multiplie par 100 pour obtenir des centimes stricts. 
+      // Une tâche représente une entité unique (amount = 1).
       const bets: IAssetValue[] = selectedTaskUid 
         ? [{ type: 'TASK' as AssetType, amount: 1, entityId: selectedTaskUid }]
-        : [{ type: 'KAOS' as AssetType, amount: 10 }];
+        : [{ type: 'KAOS' as AssetType, amount: 1000 }]; // 10 Kaos de base transformés en 1000 centimes
 
       const targets: IAssetValue[] = [
-        { type: 'KAOS' as AssetType, amount: Number(targetKaos) }
+        { type: 'KAOS' as AssetType, amount: Math.round(Number(targetKaos) * 100) } // Conversion en centimes stricts
       ];
 
       const res = await fetch('/api/games/bet', {

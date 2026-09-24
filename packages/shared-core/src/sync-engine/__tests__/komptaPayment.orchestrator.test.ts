@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KomptaPaymentOrchestrator } from '../komptaPayment.orchestrator';
 import { TransactionManager } from '../transactionManager';
-import { WalletModel, KomptaLedgerService } from '@ilot/infrastructure';
+import { WalletModel, KomptaLedgerService, LedgerEntryModel } from '@ilot/infrastructure';
 import * as orchestratorEngine from '../../utils/orchestrator.engine';
 
 vi.mock('../transactionManager', () => ({
@@ -16,7 +16,6 @@ vi.mock('../transactionManager', () => ({
   }
 }));
 
-// Mock de l'utilitaire global safeSyncUniversalInteraction
 vi.mock('../../utils/orchestrator.engine', () => ({
   safeSyncUniversalInteraction: vi.fn(async () => {})
 }));
@@ -26,6 +25,9 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   return {
     ...actual,
     WalletModel: {
+      findOne: vi.fn()
+    },
+    LedgerEntryModel: {
       findOne: vi.fn()
     },
     KomptaLedgerService: {
@@ -48,6 +50,10 @@ describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
         currency: 'EUR',
         save: vi.fn().mockResolvedValue(true)
       })
+    } as never);
+
+    vi.mocked(LedgerEntryModel.findOne).mockReturnValue({
+      session: vi.fn().mockResolvedValue(null)
     } as never);
 
     vi.mocked(KomptaLedgerService.recordEntry).mockResolvedValue(true as never);
@@ -84,7 +90,6 @@ describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
       const result = await orchestrator.executeDirectTransfer(payload, validSignature as never);
       
       expect(result.success).toBe(true);
-      // L'appel sécurisé encapsule la gestion d'erreur et DLQ en interne
       expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledTimes(1);
     });
   });
@@ -130,6 +135,26 @@ describe('KomptaPaymentOrchestrator - Le Gardien du Trésor', () => {
       
       expect(WalletModel.findOne).toHaveBeenCalledWith({ userId: 'bird_investor_1' });
       expect(orchestratorEngine.safeSyncUniversalInteraction).not.toHaveBeenCalled();
+    });
+
+    it('🟢 doit ignorer un dépôt déjà traité et retourner un succès silencieux (Idempotence)', async () => {
+      vi.mocked(LedgerEntryModel.findOne).mockReturnValue({
+        session: vi.fn().mockResolvedValue({ _id: 'mock_existing_entry' })
+      } as never);
+
+      const payload = {
+        id: 'evt_stripe_duplicate',
+        amount: 5000,
+        currency: 'eur',
+        metadata: { recipientUid: 'bird_investor_1' }
+      };
+
+      const result = await orchestrator.processExternalPayment(payload);
+
+      expect(result.success).toBe(true);
+      expect(result.depositUid).toBe('evt_stripe_duplicate');
+      expect(result.message).toBe("Dépôt déjà traité (Idempotence).");
+      expect(WalletModel.findOne).not.toHaveBeenCalled();
     });
   });
 });

@@ -23,7 +23,6 @@ vi.mock('../komptaLedger.orchestrator', () => ({
   }
 }));
 
-// Mock indispensable du TransactionManager pour isoler Mongo et Neo4j
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
     execute: vi.fn(async (_name, callback) => {
@@ -82,7 +81,7 @@ describe('CanopySubsidyOrchestrator - Système de Subventions & Graphe', () => {
     const mockSubsidy = {
       uid: 'sub_1',
       voteCount: 1,
-      voterUids: ['bird_voter_1'], // L'oiseau a déjà voté
+      voterUids: ['bird_voter_1'],
       save: vi.fn()
     };
     
@@ -91,11 +90,11 @@ describe('CanopySubsidyOrchestrator - Système de Subventions & Graphe', () => {
     } as any);
 
     await expect(orchestrator.castVote('sub_1', signature)).rejects.toThrow(IlotError);
-    expect(mockSubsidy.voteCount).toBe(1); // Pas d'incrément
+    expect(mockSubsidy.voteCount).toBe(1);
     expect(mockSubsidy.save).not.toHaveBeenCalled();
   });
 
-  it('🟢 doit exécuter un tirage et verser la dotation au gagnant', async () => {
+  it('🟢 doit exécuter un tirage et verser la dotation au gagnant (amountCents)', async () => {
     const mockWinner = {
       uid: 'sub_win',
       requesterUid: 'bird_winner',
@@ -103,18 +102,24 @@ describe('CanopySubsidyOrchestrator - Système de Subventions & Graphe', () => {
       currency: 'TOX',
       title: 'Projet Test',
       status: 'PENDING',
-      voteCount: 15, // Suffisant pour le topTier
+      voteCount: 15,
       save: vi.fn().mockResolvedValue(true)
     };
     
     vi.mocked(SubsidyModel.find).mockResolvedValue([mockWinner] as any);
 
-    // Force le tirage à toujours retourner le gagnant (bypass de l'aléatoire)
     vi.spyOn(orchestrator as any, 'weightedRandomDraw').mockReturnValue(mockWinner);
 
     await orchestrator.executeMonthlyDraw();
 
-    expect(KomptaLedgerOrchestrator.transfer).toHaveBeenCalled();
+    // 🚀 Vérification de l'utilisation de amountCents dans le transfert de la subvention
+    expect(KomptaLedgerOrchestrator.transfer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fromUid: 'system_canopy_treasury',
+        toUid: 'bird_winner',
+        amountCents: 100
+      })
+    );
     expect(mockWinner.status).toBe('PAID');
     expect(mockWinner.save).toHaveBeenCalled();
   });

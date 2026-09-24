@@ -53,7 +53,7 @@ describe('API Route - /api/games/bet (Comptoir de Barter)', () => {
 
     const req = new NextRequest('http://localhost/api/games/bet', {
       method: 'POST',
-      body: JSON.stringify({ gameId: 'g1', bets: [{ type: 'TOX', amount: 10 }], targets: [] })
+      body: JSON.stringify({ gameId: 'g1', bets: [{ type: 'TOX', amount: 1000 }], targets: [] })
     });
 
     const response = await postHandler(req, {} as ApiContext);
@@ -77,13 +77,13 @@ describe('API Route - /api/games/bet (Comptoir de Barter)', () => {
   });
 
   it('🟢 doit exécuter le pari avec succès, renvoyer le résultat et invalider le cache', async () => {
-    const mockBetResult = { isWinner: true, results: [{ type: 'TOX', amount: 50 }] };
+    const mockBetResult = { isWinner: true, results: [{ type: 'TOX', amount: 5000 }] };
     vi.mocked(BettingOrchestrator.placeBet).mockResolvedValueOnce(mockBetResult as unknown as Awaited<ReturnType<typeof BettingOrchestrator.placeBet>>);
 
     const payload = {
       gameId: 'canopy-dice-game',
-      bets: [{ type: 'TOX', amount: 10 }],
-      targets: [{ type: 'TOX', amount: 50 }]
+      bets: [{ type: 'TOX', amount: 1000 }], // En centimes entiers
+      targets: [{ type: 'TOX', amount: 5000 }]
     };
 
     const req = new NextRequest('http://localhost/api/games/bet', {

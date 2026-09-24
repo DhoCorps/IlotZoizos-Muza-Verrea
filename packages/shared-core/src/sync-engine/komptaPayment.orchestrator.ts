@@ -1,7 +1,7 @@
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { ActionSignature } from '@ilot/types';
-import { WalletModel, KomptaLedgerService, SovereignCurrency } from '@ilot/infrastructure';
+import { WalletModel, KomptaLedgerService, SovereignCurrency, LedgerEntryModel } from '@ilot/infrastructure';
 import { safeSyncUniversalInteraction } from '../utils/orchestrator.engine';
 
 export interface DirectTransferPayload {
@@ -50,16 +50,9 @@ export interface ExternalPaymentPayload {
 }
 
 export class KomptaPaymentOrchestrator {
-  /**
-   * 🏛️ CONSTANTE DE REDISTRIBUTION (La Sève de l'Îlot)
-   * Prélèvement automatique de 1% sur les flux marchands pour alimenter le Trésor de la Canopée
-   */
   private static readonly CANOPY_TAX_RATE = 0.01; 
   private static readonly CANOPY_TREASURY_UID = 'SYSTEM_CANOPY_TREASURY';
 
-  /**
-   * 🦅 TRANSFERT DIRECT P2P SÉCURISÉ (Zéro taxe sur le P2P pur, traçabilité Grand Livre)
-   */
   public async executeDirectTransfer(
     payload: DirectTransferPayload,
     signature: ActionSignature
@@ -111,7 +104,6 @@ export class KomptaPaymentOrchestrator {
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.senderUid,
         counterpartyUid: payload.recipientUid,
-        amount: payload.amountCents / 100,
         amountCents: payload.amountCents,
         currency: payload.currency as SovereignCurrency,
         type: 'DEBIT',
@@ -125,7 +117,6 @@ export class KomptaPaymentOrchestrator {
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.recipientUid,
         counterpartyUid: payload.senderUid,
-        amount: payload.amountCents / 100,
         amountCents: payload.amountCents,
         currency: payload.currency as SovereignCurrency,
         type: 'CREDIT',
@@ -174,7 +165,6 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA L'UTILITAIRE GLOBAL
     if (payload.senderUid !== payload.recipientUid) {
       await safeSyncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE', 'executeDirectTransfer');
     }
@@ -182,9 +172,6 @@ export class KomptaPaymentOrchestrator {
     return result;
   }
 
-  /**
-   * 🦅 MOTEUR DE TRANSACTION MARCHANDE (Client ➔ Vendeur avec Redistribution Canopée)
-   */
   public async executeStoreTransaction(
     payload: DirectStoreTransactionPayload,
     signature: ActionSignature
@@ -255,7 +242,6 @@ export class KomptaPaymentOrchestrator {
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.buyerUid,
         counterpartyUid: payload.recipientUid,
-        amount: payload.amountCents / 100,
         amountCents: payload.amountCents,
         currency: payload.currency as SovereignCurrency,
         type: 'DEBIT',
@@ -269,7 +255,6 @@ export class KomptaPaymentOrchestrator {
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.recipientUid,
         counterpartyUid: payload.buyerUid,
-        amount: payload.amountCents / 100,
         amountCents: netMerchantAmountCents,
         currency: payload.currency as SovereignCurrency,
         type: 'CREDIT',
@@ -284,7 +269,6 @@ export class KomptaPaymentOrchestrator {
         await KomptaLedgerService.recordEntry({
           ownerUid: KomptaPaymentOrchestrator.CANOPY_TREASURY_UID,
           counterpartyUid: payload.buyerUid,
-          amount: payload.amountCents / 100,
           amountCents: canopyTaxCents,
           currency: payload.currency as SovereignCurrency,
           type: 'CREDIT',
@@ -349,7 +333,6 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA L'UTILITAIRE GLOBAL
     if (payload.buyerUid !== payload.recipientUid) {
       await safeSyncUniversalInteraction(payload.buyerUid, payload.recipientUid, 'ECOMMERCE', 'executeStoreTransaction');
     }
@@ -357,9 +340,6 @@ export class KomptaPaymentOrchestrator {
     return result;
   }
 
-  /**
-   * 📦 MOTEUR DE TROC & DON D'OBJET VIA LE CHAPEAU
-   */
   public async executeItemExchange(
     payload: ItemExchangeTransactionPayload,
     signature: ActionSignature
@@ -382,7 +362,6 @@ export class KomptaPaymentOrchestrator {
       await KomptaLedgerService.recordEntry({
         ownerUid: payload.senderUid,
         counterpartyUid: payload.recipientUid,
-        amount: 0,
         amountCents: 0,
         currency: 'EUR',
         type: 'DEBIT',
@@ -429,7 +408,6 @@ export class KomptaPaymentOrchestrator {
       };
     });
 
-    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA L'UTILITAIRE GLOBAL
     if (payload.senderUid !== payload.recipientUid) {
       await safeSyncUniversalInteraction(payload.senderUid, payload.recipientUid, 'ECOMMERCE', 'executeItemExchange');
     }
@@ -437,12 +415,9 @@ export class KomptaPaymentOrchestrator {
     return result;
   }
 
-  /**
-   * 🏦 MOTEUR D'ENTRÉE DES FONDS EXTERNES (Webhook Stripe/Trésorerie)
-   */
   public async processExternalPayment(
     payload: ExternalPaymentPayload
-  ): Promise<{ success: boolean; depositUid: string }> {
+  ): Promise<{ success: boolean; depositUid: string; message?: string }> {
     
     const recipientUid = payload.metadata?.recipientUid || payload.customer;
 
@@ -455,6 +430,16 @@ export class KomptaPaymentOrchestrator {
     }
 
     return await TransactionManager.execute("Dépôt Externe (Webhook) & Kompta", async (mongoSession, neo4jTx) => {
+      
+      const existingDeposit = await LedgerEntryModel.findOne({ referenceUid: payload.id }).session(mongoSession);
+      if (existingDeposit) {
+        return {
+          success: true,
+          depositUid: payload.id,
+          message: "Dépôt déjà traité (Idempotence)."
+        };
+      }
+
       const now = new Date();
 
       let recipientWallet = await WalletModel.findOne({ userId: recipientUid }).session(mongoSession);
@@ -475,7 +460,6 @@ export class KomptaPaymentOrchestrator {
       await KomptaLedgerService.recordEntry({
         ownerUid: recipientUid,
         counterpartyUid: 'EXTERNAL_SYSTEM',
-        amount: payload.amount / 100,
         amountCents: payload.amount,
         currency: payload.currency.toUpperCase() as SovereignCurrency,
         type: 'CREDIT',

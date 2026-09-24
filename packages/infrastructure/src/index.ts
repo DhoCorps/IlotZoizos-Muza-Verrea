@@ -28,6 +28,7 @@ export * from './database/models/nosql/order.model';
 export * from './database/models/nosql/barterOffer.model';
 export * from './database/models/nosql/wallet.model';
 export * from './database/models/nosql/ledgerEntry.model';
+export * from './database/models/nosql/pageView.model';
 export * from './database/models/nosql/subsidy.model';
 export * from './database/models/nosql/ticket.model';
 export * from './database/models/nosql/roulette.model';

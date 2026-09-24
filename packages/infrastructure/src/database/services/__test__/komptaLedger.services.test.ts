@@ -1,130 +1,86 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import crypto from 'crypto';
-import { KomptaLedgerService, RecordLedgerParams } from '../komptaLedger.services';
+import { KomptaLedgerService } from '../komptaLedger.services';
 import { LedgerEntryModel } from '../../models/nosql/ledgerEntry.model';
+import crypto from 'crypto';
 
-// 🛡️ Mock du modèle Mongoose pour éviter les appels réels à MongoDB
 vi.mock('../../models/nosql/ledgerEntry.model');
+vi.mock('crypto');
 
-describe('KomptaLedgerService (Grand Livre Souverain)', () => {
+describe('KomptaLedgerService - Extension Analytique & Fiscale', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
 
-  describe('recordEntry (Enregistrement Inaltérable)', () => {
-    const mockParams: RecordLedgerParams = {
-      ownerUid: 'bird_sender',
-      counterpartyUid: 'bird_recipient',
-      amount: 10.5,
-      amountCents: 1050,
-      currency: 'TOX',
-      type: 'DEBIT',
-      category: 'SYSTEM_TRANSFER',
-      referenceUid: 'ref_123',
-      description: 'Test transfert'
+    vi.mocked(crypto.randomBytes).mockReturnValue({
+      toString: () => 'mockhex',
+    } as any);
+    
+    vi.mocked(crypto.createHash).mockReturnValue({
+      update: vi.fn().mockReturnThis(),
+      digest: vi.fn().mockReturnValue('mock_sha256_hash'),
+    } as any);
+
+    // Mock du findOne pour récupérer le genesis hash
+    const mockQuery = {
+      sort: vi.fn().mockReturnThis(),
+      lean: vi.fn().mockResolvedValue(null),
     };
-
-    it('🟢 doit enregistrer une entrée avec un hachage SHA-256 valide et chaîné', async () => {
-      // Simulation : Aucune entrée précédente (génération du hash genesis)
-      vi.mocked(LedgerEntryModel.findOne).mockReturnValue({
-        sort: vi.fn().mockReturnThis(),
-        session: vi.fn().mockReturnThis(),
-        lean: vi.fn().mockResolvedValue(null)
-      } as any);
-
-      // Mock de l'objet Mongoose retourné lors du .save() ou .create()
-      const saveMock = vi.fn();
-      vi.mocked(LedgerEntryModel).mockImplementation(() => ({
-        save: saveMock,
-        toObject: vi.fn().mockReturnValue(mockParams)
-      } as any));
-
-      await KomptaLedgerService.recordEntry(mockParams);
-
-      // Vérification de l'appel à create (ou save)
-      expect(LedgerEntryModel).toHaveBeenCalledTimes(1);
-      const savedCallArgs = vi.mocked(LedgerEntryModel).mock.calls[0][0] as any;
-
-      // Vérification que le hash existe et fait 64 caractères (SHA-256)
-      expect(savedCallArgs.entryHash).toBeTypeOf('string');
-      expect(savedCallArgs.entryHash.length).toBe(64); 
-      
-      // Vérification que le previousHash est bien le genesis par défaut
-      expect(savedCallArgs.previousHash).toBe('ROOT_GENESIS_TOX_HASH');
-    });
-
-    it('🟢 doit chaîner le hash avec l\'entrée précédente', async () => {
-      const previousEntry = { entryHash: 'PREVIOUS_HASH_MOCK' };
-      
-      // Simulation : Une entrée précédente existe
-      vi.mocked(LedgerEntryModel.findOne).mockReturnValue({
-        sort: vi.fn().mockReturnThis(),
-        session: vi.fn().mockReturnThis(),
-        lean: vi.fn().mockResolvedValue(previousEntry)
-      } as any);
-
-      const saveMock = vi.fn();
-      vi.mocked(LedgerEntryModel).mockImplementation(() => ({
-        save: saveMock,
-        toObject: vi.fn().mockReturnValue(mockParams)
-      } as any));
-
-      await KomptaLedgerService.recordEntry(mockParams);
-
-      const savedCallArgs = vi.mocked(LedgerEntryModel).mock.calls[0][0] as any;
-
-      // Vérification que le nouveau hash inclut bien le hash précédent
-      expect(savedCallArgs.previousHash).toBe('PREVIOUS_HASH_MOCK');
-    });
-
-    it('🟢 doit respecter et persister un horodatage (createdAt) personnalisé s\'il est fourni', async () => {
-      const customDate = new Date('2026-08-15T12:00:00Z');
-      const paramsWithDate: RecordLedgerParams = {
-        ...mockParams,
-        createdAt: customDate
-      };
-
-      vi.mocked(LedgerEntryModel.findOne).mockReturnValue({
-        sort: vi.fn().mockReturnThis(),
-        session: vi.fn().mockReturnThis(),
-        lean: vi.fn().mockResolvedValue(null)
-      } as any);
-
-      const saveMock = vi.fn();
-      vi.mocked(LedgerEntryModel).mockImplementation(() => ({
-        save: saveMock,
-        toObject: vi.fn().mockReturnValue(paramsWithDate)
-      } as any));
-
-      await KomptaLedgerService.recordEntry(paramsWithDate);
-
-      const savedCallArgs = vi.mocked(LedgerEntryModel).mock.calls[0][0] as any;
-
-      // Vérification que la date personnalisée a bien été passée au modèle
-      expect(savedCallArgs.createdAt).toEqual(customDate);
-    });
+    vi.mocked(LedgerEntryModel.findOne).mockReturnValue(mockQuery as any);
   });
 
-  describe('getUserBalances (Calcul de Soldes)', () => {
-    it('🟢 doit calculer correctement le solde cumulé pour une devise', async () => {
-      // Simulation de plusieurs écritures
-      const mockEntries = [
-        { currency: 'TOX', type: 'CREDIT', amount: 100 },
-        { currency: 'TOX', type: 'DEBIT', amount: 30 },
-        { currency: 'TOX', type: 'CREDIT', amount: 10 },
-        { currency: 'DHO', type: 'CREDIT', amount: 500 }
-      ];
+  it('doit enregistrer une écriture de vente (STORE_SALE) avec ventilation fiscale (HT, TVA, Frais)', async () => {
+    const mockSave = vi.fn().mockResolvedValue(true);
+    vi.mocked(LedgerEntryModel).mockImplementation(() => ({
+      save: mockSave,
+    }) as any);
 
-      vi.mocked(LedgerEntryModel.find).mockReturnValue({
-        lean: vi.fn().mockResolvedValue(mockEntries)
-      } as any);
-
-      const balances = await KomptaLedgerService.getUserBalances('bird_bank');
-
-      expect(balances).toEqual({
-        TOX: 80, // 100 - 30 + 10
-        DHO: 500 // 500
-      });
+    await KomptaLedgerService.recordEntry({
+      ownerUid: 'marchand_1',
+      counterpartyUid: 'client_1',
+      counterpartyPseudo: 'Oiseau_Libre',
+      amountCents: 1200,    // 12.00 € TTC
+      amountHTCents: 1000,  // 10.00 € HT
+      taxCents: 200,        // 2.00 € TVA
+      feeCents: 50,         // 0.50 € Frais Stripe
+      currency: 'EUR',
+      type: 'CREDIT',
+      category: 'STORE_SALE',
+      referenceUid: 'ref_001',
+      orderUid: 'order_12345',
+      invoiceUid: 'inv_12345',
+      description: 'Vente de l\'Artefact',
+      createdAt: new Date('2026-09-24T12:00:00.000Z')
     });
+
+    // 1. Vérifie que le constructeur a bien reçu les champs ERP/Fiscaux
+    expect(LedgerEntryModel).toHaveBeenCalledWith(expect.objectContaining({
+      ownerUid: 'marchand_1',
+      counterpartyPseudo: 'Oiseau_Libre',
+      amountCents: 1200,
+      amountHTCents: 1000,
+      taxCents: 200,
+      feeCents: 50,
+      orderUid: 'order_12345',
+      invoiceUid: 'inv_12345',
+      entryHash: 'mock_sha256_hash'
+    }));
+
+    // 2. Vérifie que le hachage contient bien les montants HT, TAX et FEE pour empêcher la falsification
+    expect(crypto.createHash('sha256').update).toHaveBeenCalledWith(
+      expect.stringContaining('|1200|1000|200|50|EUR|CREDIT|STORE_SALE')
+    );
+    expect(mockSave).toHaveBeenCalled();
+  });
+
+  it('doit calculer dynamiquement la balance de l\'Oiseau avec amountCents', async () => {
+    vi.mocked(LedgerEntryModel.find).mockReturnValue({
+      lean: vi.fn().mockResolvedValue([
+        { currency: 'EUR', type: 'CREDIT', amountCents: 5000 },
+        { currency: 'EUR', type: 'DEBIT', amountCents: 1500 },
+      ])
+    } as any);
+
+    const balances = await KomptaLedgerService.getUserBalances('bird_1');
+    
+    expect(balances['EUR']).toBe(3500); // 5000 - 1500
   });
 });

@@ -71,7 +71,7 @@ export class BettingOrchestrator {
             await KomptaLedgerOrchestrator.transfer({
               fromUid: userId, 
               toUid: 'system_canopy_treasury', 
-              amount: bet.amount,
+              amountCents: bet.amount, // 🚀 Harmonisé en amountCents
               currency: bet.type as SovereignCurrency, 
               category: 'CANOPY_TAX_REVENUE',
               referenceUid: `lost_bet_${gameId}_${now.getTime()}`,

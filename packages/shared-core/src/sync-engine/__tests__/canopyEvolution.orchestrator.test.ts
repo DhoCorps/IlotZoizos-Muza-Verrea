@@ -60,14 +60,13 @@ describe('CanopyEvolutionOrchestrator - Trophées par Application', () => {
       cycleReference: '2026-08'
     });
 
-    // 1. Vérification du transfert financier
+    // 1. Vérification du transfert financier avec amountCents
     expect(KomptaLedgerOrchestrator.transfer).toHaveBeenCalledTimes(1);
     expect(KomptaLedgerOrchestrator.transfer).toHaveBeenCalledWith(
       expect.objectContaining({
         fromUid: 'system_canopy_treasury',
         toUid: 'bird_producer',
-        // Utilisation de expect.any() pour ne pas briser le test si tu modifies la dotation dans le registre
-        amount: expect.any(Number),
+        amountCents: expect.any(Number),
         currency: expect.any(String)
       })
     );

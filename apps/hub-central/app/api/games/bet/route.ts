@@ -8,11 +8,11 @@ import { IAssetValue } from '@ilot/types';
 import { z } from 'zod';
 
 // ==========================================
-// 🛡️ SCHÉMA ZOD (Validation stricte du pari)
+// 🛡️ SCHÉMA ZOD (Validation stricte du pari harmonisée en centimes)
 // ==========================================
 const AssetValueSchema = z.object({
   type: z.string(),
-  amount: z.number().positive(),
+  amount: z.number().int("Le montant en centimes doit être un entier.").positive(),
   entityId: z.string().optional()
 });
 

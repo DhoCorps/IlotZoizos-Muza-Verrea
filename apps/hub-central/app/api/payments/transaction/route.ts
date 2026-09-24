@@ -8,11 +8,11 @@ import { z } from 'zod';
 
 const komptaOrchestrator = new KomptaPaymentOrchestrator();
 
-// 🛡️ Schéma Zod pour sécuriser la transaction marchande
+// 🛡️ Schéma Zod pour sécuriser la transaction marchande (Harmonisé en centimes entiers stricts)
 const TransactionSchema = z.object({
   transactionUid: z.string().min(1, "L'identifiant de transaction est requis."),
   recipientUid: z.string().min(1, "Le destinataire est requis."),
-  amountCents: z.number().positive("Le montant doit être positif."),
+  amountCents: z.number().int("Le montant en centimes doit être un nombre entier.").positive("Le montant doit être positif."),
   currency: z.string().optional(),
   storeUid: z.string().optional(),
   description: z.string().optional(),
