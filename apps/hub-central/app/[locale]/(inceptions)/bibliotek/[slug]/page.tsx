@@ -5,6 +5,7 @@ import { LibraryBookModel, findEntityBySlugOrUid, ILibraryBook } from '@ilot/inf
 import { connectToDatabase } from '@ilot/infrastructure';
 import { PapierAncreReader } from '@/components/bibliotek/PapierAncreReader';
 import { ScholarlyNotesSection } from '@/components/bibliotek/ScholarlyNotesSection';
+import { CopyrightBanner } from '@/components/global/CopyrightBanner'; // 🚀 Import du composant DRY de Copyright
 
 interface PageProps {
   params: Promise<{ locale: string; slug: string }>;
@@ -64,6 +65,11 @@ export default async function BookDetailsPage({ params }: PageProps) {
   return (
     <main className="max-w-5xl mx-auto px-4 py-12 space-y-12 animate-in fade-in duration-500">
       
+      {/* 🚀 Intégration de la Bannière de Copyright en mode display si des métadonnées existent */}
+      {serializedBook.copyrightMetadata && (
+        <CopyrightBanner mode="display" metadata={serializedBook.copyrightMetadata} />
+      )}
+
       {/* Liseuse immersive "Papier Ancre" enrichie (Audio, Vibrations, Suivi & Troc) */}
       <PapierAncreReader book={serializedBook} />
 

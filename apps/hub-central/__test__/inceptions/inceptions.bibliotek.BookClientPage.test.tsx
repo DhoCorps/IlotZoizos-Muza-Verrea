@@ -12,7 +12,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-// Mock du connecteur de base de données s'il est importé depuis l'infrastructure ou un autre fichier
 vi.mock('@ilot/infrastructure/src/database/mongoose', () => ({
   default: vi.fn().mockResolvedValue(true),
   connectToDatabase: vi.fn().mockResolvedValue(true),
@@ -36,6 +35,16 @@ vi.mock('@/components/bibliotek/ScholarlyNotesSection', () => ({
   ScholarlyNotesSection: () => <div data-testid="mock-scholarly-notes">Notes d'Érudits</div>,
 }));
 
+// 🚀 Mock du composant CopyrightBanner pour les tests de page
+vi.mock('@/components/global/CopyrightBanner', () => ({
+  CopyrightBanner: ({ metadata }: { metadata: any }) => (
+    <div data-testid="mock-copyright-banner">
+      <span>{metadata?.role}</span>
+      {metadata?.isExclusiveIlot && <span>Exclusivité</span>}
+    </div>
+  ),
+}));
+
 describe('SSR & SEO : BookDetailsPage ([slug])', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -56,13 +65,14 @@ describe('SSR & SEO : BookDetailsPage ([slug])', () => {
     expect((metadata.openGraph as any)?.type).toBe('book');
   });
 
-  it('🟢 doit rendre la liseuse et la section des érudits pour un livre publié', async () => {
+  it('🟢 doit rendre la liseuse, la bannière de copyright et la section des érudits pour un livre publié', async () => {
     const mockBook = {
       uid: 'book_123',
       title: 'Le Chant des Étoiles',
       slug: 'chant-des-etoiles',
       status: 'PUBLISHED',
-      fileUrl: 'https://cdn.ilot/book.txt'
+      fileUrl: 'https://cdn.ilot/book.txt',
+      copyrightMetadata: { role: 'SUBLIMATOR', isExclusiveIlot: true }
     };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockBook as any);
@@ -72,6 +82,9 @@ describe('SSR & SEO : BookDetailsPage ([slug])', () => {
 
     expect(screen.getByTestId('mock-reader')).toBeDefined();
     expect(screen.getByText('Le Chant des Étoiles')).toBeDefined();
+    expect(screen.getByTestId('mock-copyright-banner')).toBeDefined();
+    expect(screen.getByText('SUBLIMATOR')).toBeDefined();
+    expect(screen.getByText('Exclusivité')).toBeDefined();
     expect(screen.getByTestId('mock-scholarly-notes')).toBeDefined();
   });
 

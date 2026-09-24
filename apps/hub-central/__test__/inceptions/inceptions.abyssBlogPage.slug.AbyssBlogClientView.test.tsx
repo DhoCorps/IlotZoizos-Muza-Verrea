@@ -28,6 +28,16 @@ vi.mock('@/components/global/UniversalCommentDrawer', () => ({
   })
 }));
 
+// 🚀 Mock du CopyrightBanner pour vérifier son rendu dans les tests
+vi.mock('@/components/global/CopyrightBanner', () => ({
+  CopyrightBanner: ({ metadata }: { metadata: any }) => (
+    <div data-testid="mock-copyright-banner">
+      <span>{metadata?.role}</span>
+      {metadata?.isExclusiveIlot && <span>Exclusivité</span>}
+    </div>
+  ),
+}));
+
 const mockPlay = vi.fn();
 const mockPause = vi.fn();
 
@@ -43,7 +53,8 @@ describe('UI & Logique : AbyssBlogClientView', () => {
     createdAt: new Date().toISOString(),
     media: { audioTrackUrl: 'https://cdn.ilot/audio.mp3' },
     authorUid: 'author_1',
-    tags: ['abysse', 'poésie']
+    tags: ['abysse', 'poésie'],
+    copyrightMetadata: { role: 'SUBLIMATOR', isExclusiveIlot: true }
   };
 
   const mockInitialComments = [
@@ -71,13 +82,18 @@ describe('UI & Logique : AbyssBlogClientView', () => {
     );
   };
 
-  it('🟢 doit rendre correctement le sujet, ses tags, les commentaires SSR et le bouton d\'ouverture des résonances', () => {
+  it('🟢 doit rendre correctement le sujet, la bannière de copyright, ses tags et les commentaires SSR', () => {
     renderComponent();
 
     expect(screen.getByText('Titre Sublime')).toBeDefined();
     expect(screen.getByText('Le contenu profond du sujet...')).toBeDefined();
     expect(screen.getByText('Premier écho SSR')).toBeDefined();
     
+    // Vérification de la bannière de Copyright
+    expect(screen.getByTestId('mock-copyright-banner')).toBeDefined();
+    expect(screen.getByText('SUBLIMATOR')).toBeDefined();
+    expect(screen.getByText('Exclusivité')).toBeDefined();
+
     expect(screen.getByText('abysse')).toBeDefined();
     expect(screen.getByText('poésie')).toBeDefined();
 

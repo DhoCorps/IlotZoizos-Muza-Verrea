@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CopyrightMetadataSchema } from '../../../shared-core/src/types/shared.types'; // 🚀 Import DRY pour le copyright unifié
 
 export const CreationVisibilitySchema = z.enum(['PUBLIC', 'EXCHANGEABLE', 'VISIBLE', 'PRIVATE']);
 export type CreationVisibility = z.infer<typeof CreationVisibilitySchema>;
@@ -64,6 +65,9 @@ export const ProductSchema = z.object({
     title: z.string().optional(),
     description: z.string().optional(),
   }).optional(),
+
+  // 📜 COPYRIGHT ET EXCLUSIVITÉ ÎLOT (DRY)
+  copyrightMetadata: CopyrightMetadataSchema.optional(),
 
   // 🎡 OPTIONS DE LA ROULETTE KARMIQUE
   isRouletteActive: z.boolean().default(false),

@@ -17,7 +17,6 @@ vi.mock('next/navigation', () => ({
   notFound: vi.fn(() => { throw new Error('NOT_FOUND'); }),
 }));
 
-// 🛡️ CORRECTION : Ajout de useWishlistStore dans le mock partagé
 vi.mock('@ilot/shared-core', () => ({
   UniversalGridCanvas: () => <div data-testid="grid-canvas">Canvas</div>,
   useCartStore: () => ({ addItem: vi.fn() }),
@@ -37,6 +36,16 @@ vi.mock('@/navigation', () => ({
   Link: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,
 }));
 
+// 🚀 Mock du CopyrightBanner pour valider son affichage dans les tests de page
+vi.mock('@/components/global/CopyrightBanner', () => ({
+  CopyrightBanner: ({ metadata }: { metadata: any }) => (
+    <div data-testid="mock-copyright-banner">
+      <span>{metadata?.role}</span>
+      {metadata?.isExclusiveIlot && <span>Exclusivité</span>}
+    </div>
+  ),
+}));
+
 describe('ProductDetailPage (SSR Server Component)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -52,7 +61,7 @@ describe('ProductDetailPage (SSR Server Component)', () => {
     expect(metadata.title).toContain('Artefact Majestueux');
   });
 
-  it('doit rendre la page du produit avec les liens vers la boutique et le profil', async () => {
+  it('doit rendre la page du produit avec la bannière de copyright, les liens vers la boutique et le profil', async () => {
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 'prod_1',
       title: 'Artefact Majestueux',
@@ -61,6 +70,7 @@ describe('ProductDetailPage (SSR Server Component)', () => {
       stock: 5,
       storeUid: 'store_1',
       authorSlug: 'oiseau-createur',
+      copyrightMetadata: { role: 'CREATOR', isExclusiveIlot: true }
     } as any);
 
     vi.mocked(StoreModel.findOne).mockReturnValue({
@@ -71,6 +81,9 @@ describe('ProductDetailPage (SSR Server Component)', () => {
     render(ui);
 
     expect(screen.getByText('Artefact Majestueux')).toBeDefined();
+    expect(screen.getByTestId('mock-copyright-banner')).toBeDefined();
+    expect(screen.getByText('CREATOR')).toBeDefined();
+    expect(screen.getByText('Exclusivité')).toBeDefined();
     expect(screen.getByText('Visiter la Boutique')).toBeDefined();
     expect(screen.getByText('Profil du Créateur')).toBeDefined();
     expect(screen.getByTestId('universal-comments')).toBeDefined();

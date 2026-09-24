@@ -1,4 +1,3 @@
-// packages/shared-core/src/ecommerce/useCartStore.ts
 'use client';
 
 import { create } from 'zustand';
@@ -8,8 +7,8 @@ export interface CartItem {
   productUid: string;
   productSlug?: string;
   title: string;
-  priceEUR: number;
-  priceShards: number;
+  priceEURCents: number;   // 🚀 En centimes stricts
+  priceShardsCents: number; // 🚀 En centimes stricts
   quantity: number;
   category: string;
 }
@@ -22,8 +21,8 @@ interface CartState {
     uid: string;
     slug?: string;
     title: string;
-    priceEUR?: number;
-    priceShards?: number;
+    priceEURCents?: number;
+    priceShardsCents?: number;
     category?: string;
   }) => void;
   removeItem: (productUidOrSlug: string) => void;
@@ -59,8 +58,8 @@ export const useCartStore = create<CartState>()(
               productUid: product.uid,
               productSlug: product.slug,
               title: product.title,
-              priceEUR: product.priceEUR || 0,
-              priceShards: product.priceShards || 0,
+              priceEURCents: product.priceEURCents || 0,
+              priceShardsCents: product.priceShardsCents || 0,
               quantity: 1,
               category: product.category || 'PHYSICAL'
             }]

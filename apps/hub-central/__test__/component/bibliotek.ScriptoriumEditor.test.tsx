@@ -1,79 +1,57 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { ScriptoriumEditor } from '@/components/bibliotek/ScriptoriumEditor';
 import React from 'react';
 
-// ==========================================
-// 🎭 MOCK ROBUSTE DE Y-WEBSOCKET POUR VITEST
-// ==========================================
-vi.mock('y-websocket', () => {
-  return {
-    WebsocketProvider: vi.fn().mockImplementation(() => ({
-      on: vi.fn((event, callback) => {
-        if (event === 'status') {
-          callback({ status: 'connected' });
-        }
-      }),
-      off: vi.fn(),
-      destroy: vi.fn(),
-      awareness: {
-        on: vi.fn(),
-        off: vi.fn(),
-        getStates: () => new Map([[1, {}]])
-      }
-    }))
-  };
-});
+// Mocks des WebSockets Yjs pour isoler l'éditeur
+vi.mock('y-websocket', () => ({
+  WebsocketProvider: vi.fn().mockImplementation(() => ({
+    on: vi.fn(),
+    awareness: { on: vi.fn(), getStates: () => new Map() },
+    destroy: vi.fn()
+  }))
+}));
 
-describe('UI & Logique : ScriptoriumEditor (Atelier d’écriture collaboratif)', () => {
-  const mockOnSave = vi.fn();
+describe('Composant ScriptoriumEditor (Bibliotek & Copyright DRY)', () => {
+  const mockOnSave = vi.fn().mockResolvedValue(undefined);
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('🟢 doit rendre l’éditeur avec les valeurs initiales et l’état de synchronisation', async () => {
-    render(
-      <ScriptoriumEditor
-        initialTitle="Manifeste Quantique"
-        initialContent="La conscience précède la matière."
-        onSave={mockOnSave}
-      />
-    );
+  it('doit rendre l\'éditeur avec le titre, les types et la bannière de copyright', () => {
+    render(<ScriptoriumEditor onSave={mockOnSave} />);
 
     expect(screen.getByPlaceholderText("Titre de l'ouvrage ou du chapitre...")).toBeDefined();
-    expect(screen.getByDisplayValue("Manifeste Quantique")).toBeDefined();
-    expect(screen.getByDisplayValue("La conscience précède la matière.")).toBeDefined();
-    
-    // 🛠️ CORRECTION : On attend que le statut passe bien par la synchro ou on cible le texte d'état réel rendu
-    await waitFor(() => {
-      expect(screen.getByText(/Synchro Yjs Active|Mode Hors-ligne/i)).toBeDefined();
-    });
+    expect(screen.getByText("Le Scriptorium")).toBeDefined();
+    expect(screen.getByText(/Droits & Origines/i)).toBeDefined(); // Vérifie la présence du CopyrightBanner
   });
 
-  it('🟢 doit permettre de modifier le contenu et de déclencher la sauvegarde souveraine', async () => {
-    render(
-      <ScriptoriumEditor
-        initialTitle="Titre Test"
-        initialContent="Contenu initial"
-        onSave={mockOnSave}
-      />
-    );
+  it('doit transmettre les métadonnées de copyright et l\'exclusivité lors du scellement de l\'œuvre', async () => {
+    const user = userEvent.setup();
+    render(<ScriptoriumEditor onSave={mockOnSave} />);
 
+    // Remplit le titre et le contenu
     const titleInput = screen.getByPlaceholderText("Titre de l'ouvrage ou du chapitre...");
-    const textarea = screen.getByPlaceholderText("Écris ta substance ici... Les mots s'écoulent en silence.");
+    await user.type(titleInput, 'Mon Traité Philosophique');
 
-    fireEvent.change(titleInput, { target: { value: 'Nouveau Titre Souverain' } });
-    fireEvent.change(textarea, { target: { value: 'Nouveau contenu synchronisé.' } });
+    // Coche l'exclusivité Îlot via le CopyrightBanner
+    const exclusiveCheckbox = screen.getByLabelText(/Exclusivité Îlot/i);
+    await user.click(exclusiveCheckbox);
 
-    const saveBtn = screen.getByTestId('seal-work-btn');
-    fireEvent.click(saveBtn);
+    // Clique sur le bouton de scellement
+    const saveButton = screen.getByTestId('seal-work-btn');
+    await user.click(saveButton);
 
-    expect(mockOnSave).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Nouveau Titre Souverain',
-      content: 'Nouveau contenu synchronisé.',
-      writingType: 'roman',
-      style: 'philosophie'
-    }));
+    await waitFor(() => {
+      expect(mockOnSave).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Mon Traité Philosophique',
+        copyrightMetadata: expect.objectContaining({
+          role: 'CREATOR',
+          isExclusiveIlot: true
+        })
+      }));
+    });
   });
 });

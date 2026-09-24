@@ -1,9 +1,10 @@
 import { TransactionManager } from './transactionManager';
-import { ActionSignature } from '@ilot/types';
+import { ActionSignature, CopyrightMetadata } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { safeSyncUniversalInteraction } from '@ilot/shared-core';
 import { ProductModel, StoreModel, RouletteModel } from '@ilot/infrastructure';
 import crypto from 'crypto';
+import { sanitizeCopyright, getCopyrightCypherRelation } from '../utils/copyright.engine'; // 🚀 Import du Helper DRY
 
 export interface EcommerceSyncResult {
   success: boolean;
@@ -13,7 +14,7 @@ export interface EcommerceSyncResult {
   productUid?: string;
   sessionUid?: string;
   status?: string;
-  price?: number;
+  priceCents?: number;
   data?: any;
 }
 
@@ -30,10 +31,12 @@ export interface CreateProductPayload {
   uid: string;
   storeUid: string;
   title: string;
-  priceCents: number;
+  description?: string;
+  priceCents: number; // 🚀 En centimes stricts
   tags?: string[];
   isRouletteActive?: boolean;
-  wagerAmount?: number;
+  wagerAmountCents?: number; // 🚀 En centimes stricts
+  copyrightMetadata?: CopyrightMetadata; // 🚀 Injection DRY
   [key: string]: unknown;
 }
 
@@ -41,7 +44,7 @@ export interface RecordOrderPayload {
   uid: string;
   buyerUid: string;
   storeUid: string;
-  totalAmountCents: number;
+  totalAmountCents: number; // 🚀 En centimes stricts
   stripePaymentIntentId: string;
   [key: string]: unknown;
 }
@@ -63,9 +66,6 @@ export interface ResolveBarterPayload {
 }
 
 export class EcommerceOrchestrator {
-  // ==========================================
-  // 🏪 GESTION DES BOUTIQUES
-  // ==========================================
   
   async createStore(data: CreateStorePayload, signature: ActionSignature): Promise<EcommerceSyncResult> {
     if (!signature.actorUid) throw new IlotError("Oiseau non authentifié", "UNAUTHORIZED", 401);
@@ -95,36 +95,69 @@ export class EcommerceOrchestrator {
     return { success: true };
   }
 
-  // ==========================================
-  // 📦 GESTION DES ARTEFACTS (PRODUITS & TAGS)
-  // ==========================================
-
   async createProduct(data: CreateProductPayload, signature: ActionSignature): Promise<EcommerceSyncResult> {
     if (!signature.actorUid) throw new IlotError("Oiseau non authentifié", "UNAUTHORIZED", 401);
 
-    return await TransactionManager.execute("Création Produit", async (_mongoSession, neo4jTx) => {
+    return await TransactionManager.execute("Création Produit", async (mongoSession, neo4jTx) => {
+      
+      // 🛡️ Logique métier du Copyright centralisée
+      const cpMeta = sanitizeCopyright(data.copyrightMetadata);
+      
+      // ✨ OPTIMISATION SEO / UX : Génération auto d'une meta-description e-commerce propre
+      let autoSeoDesc = '';
+      if (data.description && data.description.length > 150) {
+        autoSeoDesc = `${data.description.substring(0, 147)}...`;
+      } else {
+        autoSeoDesc = data.description || `Découvrez ${data.title} dans la boutique.`;
+      }
+
+      // 1. Sauvegarde dans MongoDB (Silice)
+      const newProductData = {
+        ...data,
+        ownerUid: signature.actorUid,
+        sellerUid: signature.actorUid, // Par défaut le vendeur est le créateur
+        seoMetadata: {
+          title: `${data.title} | Artefact`,
+          description: autoSeoDesc
+        },
+        copyrightMetadata: cpMeta
+      };
+      
+      await ProductModel.create([newProductData], { session: mongoSession });
+
+      // 2. Tissage dans le graphe (Neo4j)
+      // 🌐 Génération dynamique du lien selon le rôle (CREATED, SUBLIMATES, CURATES)
+      const relationType = getCopyrightCypherRelation(cpMeta.role);
+
       const query = `
         MATCH (s:Store {uid: $storeUid})
+        MATCH (u:User {uid: $ownerUid})
         CREATE (p:Product { 
           uid: $uid, 
           title: $title, 
           priceCents: $priceCents,
           tags: $tags,
           isRouletteActive: $isRouletteActive,
-          wagerAmount: $wagerAmount,
+          wagerAmountCents: $wagerAmountCents,
+          isExclusiveIlot: $isExclusiveIlot,
           createdAt: datetime() 
         })
         CREATE (s)-[:SELLS]->(p)
+        CREATE (u)-[:${relationType} { notes: $sublimationNotes }]->(p)
         RETURN p
       `;
+      
       await neo4jTx.run(query, {
         uid: data.uid,
         storeUid: data.storeUid,
+        ownerUid: signature.actorUid,
         title: data.title,
         priceCents: data.priceCents,
         tags: data.tags || [],
         isRouletteActive: data.isRouletteActive || false,
-        wagerAmount: data.wagerAmount || 0
+        wagerAmountCents: data.wagerAmountCents || 0,
+        isExclusiveIlot: cpMeta.isExclusiveIlot,
+        sublimationNotes: cpMeta.sublimationNotes || ''
       });
 
       return { success: true, productUid: data.uid };
@@ -160,18 +193,14 @@ export class EcommerceOrchestrator {
     });
   }
 
-  // ==========================================
-  // 🎡 LA ROULETTE KARMIQUE & PRIX DYNAMIQUE
-  // ==========================================
-
-  async calculateKarmicPrice(buyerUid: string, sellerUid: string, basePriceShards: number): Promise<number> {
+  async calculateKarmicPriceCents(buyerUid: string, sellerUid: string, basePriceCents: number): Promise<number> {
     return await TransactionManager.execute("Calcul Karma", async (_mongoSession, neo4jTx) => {
       const query = `
         MATCH path = shortestPath((b:User {uid: $buyerUid})-[:TRADED_WITH|INTERACTED*..4]-(s:User {uid: $sellerUid}))
         RETURN length(path) AS distance
       `;
       const result = await neo4jTx.run(query, { buyerUid, sellerUid });
-      if (result.records.length === 0) return basePriceShards;
+      if (result.records.length === 0) return basePriceCents;
 
       const distance = result.records[0].get('distance') as number;
       let discountMultiplier = 1;
@@ -179,7 +208,7 @@ export class EcommerceOrchestrator {
       else if (distance === 2) discountMultiplier = 0.9;
       else if (distance === 3) discountMultiplier = 0.95;
 
-      return Math.max(0, Math.floor(basePriceShards * discountMultiplier));
+      return Math.max(0, Math.floor(basePriceCents * discountMultiplier));
     }) as unknown as number;
   }
 
@@ -194,25 +223,25 @@ export class EcommerceOrchestrator {
         MATCH (buyer:User {uid: $buyerUid})
         MATCH (p:Product {uid: $productUid})<-[:SELLS]-(:Store)<-[:OWNS_STORE]-(seller:User)
         OPTIONAL MATCH path = shortestPath((buyer)-[:TRADED_WITH*..3]-(seller))
-        RETURN buyer.shardsBalance AS balance, length(path) AS distance, p.wagerAmount AS wagerAmount, p.priceCents AS basePrice
+        RETURN buyer.shardsBalanceCents AS balanceCents, length(path) AS distance, p.wagerAmountCents AS wagerAmountCents, p.priceCents AS basePriceCents
       `;
       const neoResult = await neo4jTx.run(query, { buyerUid, productUid });
       
       if (neoResult.records.length === 0) throw new IlotError("Données introuvables", "NOT_FOUND", 404);
       
       const record = neoResult.records[0];
-      const balance = record.get('balance') as number || 0;
-      const wagerAmount = record.get('wagerAmount') as number;
-      const basePrice = record.get('basePrice') as number;
+      const balanceCents = record.get('balanceCents') as number || 0;
+      const wagerAmountCents = record.get('wagerAmountCents') as number || 0;
+      const basePriceCents = record.get('basePriceCents') as number || 0;
       const distance = record.get('distance') as number | null;
 
-      if (balance < wagerAmount) throw new IlotError("Fonds karmiques insuffisants", "PAYMENT_REQUIRED", 402);
-      await neo4jTx.run(`MATCH (u:User {uid: $buyerUid}) SET u.shardsBalance = u.shardsBalance - $wagerAmount`, { buyerUid, wagerAmount });
+      if (balanceCents < wagerAmountCents) throw new IlotError("Fonds karmiques insuffisants", "PAYMENT_REQUIRED", 402);
+      await neo4jTx.run(`MATCH (u:User {uid: $buyerUid}) SET u.shardsBalanceCents = u.shardsBalanceCents - $wagerAmountCents`, { buyerUid, wagerAmountCents });
 
       const luckFactor = distance ? Math.max(1, 4 - distance) : 1; 
       const maxDiscountPercent = 30 * luckFactor; 
       const randomDiscount = crypto.randomInt(10, maxDiscountPercent + 1);
-      const secretPrice = Math.floor(basePrice * (1 - (randomDiscount / 100)));
+      const secretPriceCents = Math.floor(basePriceCents * (1 - (randomDiscount / 100)));
 
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24);
@@ -220,13 +249,13 @@ export class EcommerceOrchestrator {
       const insertedSessions = await RouletteModel.insertMany([{
         buyerUid,
         productUid,
-        rolledPriceCents: secretPrice,
-        wagerAmount,
+        rolledPriceCents: secretPriceCents,
+        wagerAmountCents,
         status: 'PENDING',
         expiresAt
       }], { session: mongoSession });
 
-      return { success: true, sessionUid: insertedSessions[0].uid, price: secretPrice };
+      return { success: true, sessionUid: insertedSessions[0].uid, priceCents: secretPriceCents };
     });
   }
 
@@ -240,23 +269,19 @@ export class EcommerceOrchestrator {
       session.status = 'ABANDONED';
       await session.save({ session: mongoSession });
 
-      if (session.wagerAmount > 0) {
-        const sellerShare = Math.floor(session.wagerAmount / 2);
+      if (session.wagerAmountCents > 0) {
+        const sellerShareCents = Math.floor(session.wagerAmountCents / 2);
         const query = `
           MATCH (p:Product {uid: $productUid})<-[:SELLS]-(:Store)<-[:OWNS_STORE]-(seller:User)
-          SET seller.shardsBalance = COALESCE(seller.shardsBalance, 0) + $sellerShare
+          SET seller.shardsBalanceCents = COALESCE(seller.shardsBalanceCents, 0) + $sellerShareCents
         `;
-        await neo4jTx.run(query, { productUid: session.productUid, sellerShare });
+        await neo4jTx.run(query, { productUid: session.productUid, sellerShareCents });
       }
 
       return { success: true, sessionUid };
     });
   }
 
-  // ==========================================
-  // 🛒 COMMANDES ET TROC
-  // ==========================================
-  
   async recordOrder(data: RecordOrderPayload, signature: ActionSignature): Promise<EcommerceSyncResult> {
     if (!signature.actorUid) throw new IlotError("Oiseau non authentifié", "UNAUTHORIZED", 401);
 

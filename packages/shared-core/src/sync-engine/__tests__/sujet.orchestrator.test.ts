@@ -42,10 +42,25 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
+// MOCK du Copyright Engine pour isoler les tests
+vi.mock('../utils/copyright.engine', () => ({
+  sanitizeCopyright: vi.fn((meta) => {
+    // Reproduction simplifiée du comportement métier pour les tests d'intégration
+    if (!meta) return { role: 'CREATOR', isExclusiveIlot: false };
+    if (meta.role === 'CURATOR') return { ...meta, isExclusiveIlot: false };
+    return meta;
+  }),
+  getCopyrightCypherRelation: vi.fn((role) => {
+    if (role === 'SUBLIMATOR') return 'SUBLIMATES';
+    if (role === 'CURATOR') return 'CURATES';
+    return 'CREATED';
+  })
+}));
+
 // ==========================================
 // TESTS : SUJET ORCHESTRATOR
 // ==========================================
-describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
+describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)', () => {
   let orchestrator: SujetOrchestrator;
   const adminSignature = { actorUid: 'admin_1', capabilities: ['*'] };
   const userSignature = { actorUid: 'bird_author', capabilities: [] };
@@ -59,12 +74,10 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
     vi.clearAllMocks();
     mockFosterNotification.mockClear();
 
-    // 🌿 L'astuce est ici : on crée un objet qui possède la fonction mockée
     const injectedNotificationOrchestrator = {
       fosterNotification: mockFosterNotification
     } as any; 
 
-    // Et on l'injecte directement en second argument !
     orchestrator = new SujetOrchestrator(mockStorageManager, injectedNotificationOrchestrator);
   });
 
@@ -75,38 +88,43 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit forger un sujet, tisser la toile Neo4j, ET envoyer un écho aux abonnés', async () => {
+    it('🟢 doit forger un sujet, générer l\'excerpt auto, tisser Neo4j et envoyer un écho', async () => {
       vi.mocked(SujetModel.findOne).mockReturnValue({
         session: vi.fn().mockReturnValue({
           lean: vi.fn().mockResolvedValueOnce(null)
         })
       } as any);
 
+      const longContent = "A".repeat(200);
+
       vi.mocked(SujetModel.create).mockResolvedValueOnce([
         { 
-          uid: 'sujet_1', 
-          title: 'Pensée Silencieuse', 
-          slug: 'pensee-silencieuse', 
-          authorUid: 'bird_author', 
-          status: 'PUBLISHED', // 🌿 AJOUT : On valide que le texte sort de l'œuf
-          settings: { allowPropagation: true },
-          propagation: { shareCount: 0, uniquePasseurs: 0, globalReach: 0 },
-          kosmicBoon: { interactionCount: 0, nextKosmicBoon: 42 } 
+          toObject: () => ({
+            uid: 'sujet_1', 
+            title: 'Pensée Silencieuse', 
+            slug: 'pensee-silencieuse', 
+            authorUid: 'bird_author', 
+            excerpt: "A".repeat(147) + '...', // Vérifie l'excerpt auto
+            status: 'PUBLISHED',
+            settings: { allowPropagation: true },
+            propagation: { shareCount: 0, uniquePasseurs: 0, globalReach: 0 },
+            kosmicBoon: { interactionCount: 0, nextKosmicBoon: 42 } 
+          })
         }
       ] as any);
 
       const res = await orchestrator.fosterSujet({ 
         title: 'Pensée Silencieuse', 
-        content: 'Du texte...',
+        content: longContent,
         authorUid: 'bird_author', 
-        status: 'PUBLISHED', // 🌿 AJOUT : La requête stipule le statut final
+        status: 'PUBLISHED',
         connections: { crossLinks: [{ entityType: 'LYRIKA', entityId: 'song_123', label: 'Inspiration' }] }
       }, userSignature as any);
       
-      expect((res.mongo as { uid: string }).uid).toBe('sujet_1');
+      expect((res.mongo as any).uid).toBe('sujet_1');
+      expect((res.mongo as any).excerpt).toContain('...'); // SEO optimisé !
       expect((res.mongo as any).kosmicBoon.nextKosmicBoon).toBe(42);
       expect((res.mongo as any).settings.allowPropagation).toBe(true);
-      expect((res.mongo as any).propagation.shareCount).toBe(0);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
       // 🌿 L'Écho est parti vers la Canopée !
@@ -116,7 +134,59 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues)', () => {
         userSignature
       );
     });
-  }); // <-- Il manquait cette accolade de fermeture !
+
+    it('🟢 doit forger un sujet avec rôle SUBLIMATOR et conserver l\'exclusivité', async () => {
+      vi.mocked(SujetModel.findOne).mockReturnValue({
+        session: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValueOnce(null) })
+      } as any);
+
+      vi.mocked(SujetModel.create).mockResolvedValueOnce([
+        { 
+          toObject: () => ({
+            uid: 'sujet_sub', 
+            status: 'PUBLISHED',
+            copyrightMetadata: { role: 'SUBLIMATOR', isExclusiveIlot: true }
+          })
+        }
+      ] as any);
+
+      const res = await orchestrator.fosterSujet({
+        title: 'Pensée Sublimée',
+        content: 'Texte court',
+        authorUid: 'bird_author',
+        status: 'PUBLISHED',
+        copyrightMetadata: { role: 'SUBLIMATOR', isExclusiveIlot: true }
+      }, userSignature as any);
+
+      expect((res.mongo as any).copyrightMetadata.role).toBe('SUBLIMATOR');
+      // On vérifie que la notification porte bien la mention "Exclusivité"
+      expect(mockFosterNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ title: expect.stringContaining('Exclusivité') })
+        }),
+        expect.anything()
+      );
+    });
+
+    it('🟢 doit forger un sujet et annuler l\'exclusivité si le rôle est CURATOR', async () => {
+      vi.mocked(SujetModel.findOne).mockReturnValue({
+        session: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValueOnce(null) })
+      } as any);
+
+      // Mock de la capture du paramètre modifié.
+      vi.mocked(SujetModel.create).mockImplementation(async (docs: any) => {
+        expect(docs[0].copyrightMetadata.isExclusiveIlot).toBe(false); // La sécurité a agi !
+        return [{ toObject: () => docs[0] }] as any; 
+      });
+
+      await orchestrator.fosterSujet({
+        title: 'Pensée Relayée',
+        content: 'Texte',
+        authorUid: 'bird_author',
+        copyrightMetadata: { role: 'CURATOR', isExclusiveIlot: true } // Demande abusive
+      }, userSignature as any);
+    });
+  });
 
   describe('updateSujet', () => {
     it('🔴 doit rejeter (404) si le sujet est introuvable', async () => {

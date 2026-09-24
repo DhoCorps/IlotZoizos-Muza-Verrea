@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { SujetModel } from '../../nosql/sujet.model';
 
-describe('Sujet Model (Ultimate Edition - SEO, Cross-Links & Propagation)', () => {
+describe('Sujet Model (Ultimate Edition - SEO, Cross-Links, Propagation & Copyright)', () => {
     
     it('🟢 doit valider un sujet conforme avec toutes ses valeurs requises, par défaut et auto-générées', () => {
         const validData = {
@@ -24,7 +24,10 @@ describe('Sujet Model (Ultimate Edition - SEO, Cross-Links & Propagation)', () =
         expect(sujet.settings.allowPropagation).toBe(true); // Vérification du module Propagation
         expect(sujet.connections.crossLinks).toEqual([]);
         expect(sujet.propagation.shareCount).toBe(0); // Télémétrie initiale à 0
-        expect(sujet.kosmicBoon.nextKosmicBoon).toBe(42); 
+        expect(sujet.kosmicBoon.nextKosmicBoon).toBe(42);
+        // Vérification des valeurs par défaut du copyright DRY
+        expect(sujet.copyrightMetadata?.role).toBe('CREATOR');
+        expect(sujet.copyrightMetadata?.isExclusiveIlot).toBe(false);
     });
 
     it('🔴 doit rejeter un sujet si les champs obligatoires (title, slug, content, authorUid) manquent', () => {
@@ -54,7 +57,7 @@ describe('Sujet Model (Ultimate Edition - SEO, Cross-Links & Propagation)', () =
         expect(error?.errors?.category).toBeDefined();
     });
 
-    it('🟢 doit valider un sujet riche intégrant le SEO, les cross-links, la propagation, et les attributs média', () => {
+    it('🟢 doit valider un sujet riche intégrant le SEO, les cross-links, la propagation, les attributs média et le copyright sublimé', () => {
         const richData = {
             title: 'Chronique des Profondeurs',
             slug: 'chronique-des-profondeurs',
@@ -64,6 +67,13 @@ describe('Sujet Model (Ultimate Edition - SEO, Cross-Links & Propagation)', () =
             authorUid: 'bird_1',
             readingTimeMinutes: 4,
             publishedAt: new Date('2026-06-06T12:00:00.000Z'), 
+            copyrightMetadata: {
+                role: 'SUBLIMATOR',
+                originalAuthor: 'Georges Brassens',
+                originalWorkTitle: 'Les Copains d abord',
+                sublimationNotes: 'Arrangement acoustique',
+                isExclusiveIlot: true
+            },
             seo: {
                 metaTitle: 'Chronique des Profondeurs | Îlot',
                 metaDescription: 'Plonge dans ce monologue inédit au cœur de l’Îlot Zoizos.',
@@ -100,6 +110,8 @@ describe('Sujet Model (Ultimate Edition - SEO, Cross-Links & Propagation)', () =
         expect(error).toBeUndefined();
         expect(sujet.readingTimeMinutes).toBe(4);
         expect(sujet.publishedAt).toBeInstanceOf(Date);
+        expect(sujet.copyrightMetadata.role).toBe('SUBLIMATOR');
+        expect(sujet.copyrightMetadata.isExclusiveIlot).toBe(true);
         expect(sujet.seo.metaTitle).toBe('Chronique des Profondeurs | Îlot');
         expect(sujet.connections.crossLinks).toHaveLength(1);
         expect(sujet.connections?.crossLinks?.[0]?.entityType).toBe('LYRIKA');

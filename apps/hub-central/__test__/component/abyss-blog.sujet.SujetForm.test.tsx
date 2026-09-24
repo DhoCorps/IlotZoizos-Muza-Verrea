@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SujetForm } from '@/components/abyss-blog/sujets/SujetForm';
 import React from 'react';
@@ -53,10 +54,11 @@ describe('Composant Front-End : SujetForm', () => {
     );
   };
 
-  it('affiche le formulaire en mode Création par défaut', () => {
+  it('affiche le formulaire en mode Création par défaut avec la bannière de Copyright', () => {
     renderComponent();
     expect(screen.getByText('Nouveau Monologue')).toBeDefined();
     expect(screen.getByText('Sceller le Texte')).toBeDefined();
+    expect(screen.getByText(/Droits & Origines/i)).toBeDefined();
   });
 
   it('affiche le formulaire en mode Édition si initialData est fourni', () => {
@@ -66,20 +68,28 @@ describe('Composant Front-End : SujetForm', () => {
     expect(screen.getByDisplayValue('Titre Existant')).toBeDefined();
   });
 
-  it('gère correctement le découpage des tags lors de la soumission', async () => {
+  it('gère correctement le découpage des tags et l\'inclusion du copyright lors de la soumission', async () => {
+    const user = userEvent.setup();
     renderComponent();
     
     fireEvent.change(screen.getByPlaceholderText('Titre du sujet'), { target: { value: 'Titre Test' } });
     fireEvent.change(screen.getByPlaceholderText("Tags (séparés par des virgules)..."), { target: { value: 'poésie, neo4j , canopée' } });
     fireEvent.change(screen.getByPlaceholderText("Laisse couler l'onde..."), { target: { value: 'Contenu...' } });
 
+    // Active l'exclusivité Îlot via le CopyrightBanner
+    const exclusiveCheckbox = screen.getByLabelText(/Exclusivité Îlot/i);
+    await user.click(exclusiveCheckbox);
+
     fireEvent.submit(document.getElementById('sujet-form-element')!);
 
     await waitFor(() => {
-      // Vérifie que fetch a été appelé avec les tags nettoyés
+      // Vérifie que fetch a été appelé avec les tags nettoyés et le bloc copyrightMetadata
       expect(global.fetch).toHaveBeenCalledWith('/api/sujets', expect.objectContaining({
         method: 'POST',
         body: expect.stringContaining('"tags":["poésie","neo4j","canopée"]')
+      }));
+      expect(global.fetch).toHaveBeenCalledWith('/api/sujets', expect.objectContaining({
+        body: expect.stringContaining('"copyrightMetadata"')
       }));
       expect(mockOnSuccess).toHaveBeenCalledTimes(1);
     });

@@ -16,7 +16,7 @@ export function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
 
   // Calcul du montant total selon la devise choisie
   const totalAmount = items.reduce((acc, item) => {
-    const price = currency === 'EUR' ? item.priceEUR : item.priceShards;
+    const price = currency === 'EUR' ? item.priceEURCents : item.priceShardsCents;
     return acc + price * item.quantity;
   }, 0);
 
@@ -29,7 +29,7 @@ export function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
           productUid: i.productUid,
           title: i.title,
           quantity: i.quantity,
-          pricePaid: currency === 'EUR' ? i.priceEUR : i.priceShards,
+          pricePaid: currency === 'EUR' ? i.priceEURCents : i.priceShardsCents,
           currency: currency
         })),
         totalAmount,
@@ -109,7 +109,7 @@ export function CartDrawer({ isOpen, onClose }: CartDrawerProps) {
         {/* Liste des articles */}
         <div className="flex-1 overflow-y-auto py-6 space-y-4 custom-scrollbar">
           {items.map((item) => {
-            const itemPrice = currency === 'EUR' ? item.priceEUR : item.priceShards;
+            const itemPrice = currency === 'EUR' ? item.priceEURCents : item.priceShardsCents;
             return (
               <div 
                 key={item.productUid}

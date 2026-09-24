@@ -48,7 +48,8 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-// 🌿 MOCK PRÉVENTIF DE LA CANOPÉE POUR ISOLER L'ORCHESTRATEUR
+// 🌿 On mock UNIQUEMENT le module de Notification ici.
+// On conserve l'Orchestrator Bibliotek original pour pouvoir utiliser son prototype.
 vi.mock('@ilot/shared-core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@ilot/shared-core')>();
   return {
@@ -74,6 +75,7 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Statuts', () => {
     vi.clearAllMocks();
     delete global.__mockUser;
 
+    // 🚀 L'astuce est de restaurer le `spyOn` direct sur le prototype de la vraie classe !
     vi.spyOn(BibliotekOrchestrator.prototype, 'updateBook').mockResolvedValue({
       success: true,
       status: 'success',
@@ -109,6 +111,7 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Statuts', () => {
     expect(res.status).toBe(200);
     expect(getCachedBook).toHaveBeenCalledWith('essai-sur-la-silice');
     expect(json.title).toBe('Essai sur la Silice');
+    expect(res.headers.get('Cache-Control')).toBe('public, s-maxage=60, stale-while-revalidate=300');
   });
 
   it('🔴 GET : doit rejeter (403) l’accès à un DRAFT si le visiteur n’est pas l’auteur', async () => {
@@ -157,7 +160,7 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Statuts', () => {
     expect(res.status).toBe(401);
   });
 
-  it('🟢 PUT : doit muter l’ouvrage avec succès (200) y compris son statut de publication', async () => {
+  it('🟢 PUT : doit muter l’ouvrage avec succès (200) y compris son statut de publication et métadonnées de copyright', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
@@ -171,6 +174,10 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Statuts', () => {
       body: JSON.stringify({ 
         title: 'Titre Muté',
         status: 'PUBLISHED',
+        copyrightMetadata: {
+          role: 'SUBLIMATOR',
+          isExclusiveIlot: true
+        },
         economy: {
           priceCents: 2500,
           gachaTier: 'legendary'
@@ -188,6 +195,24 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Statuts', () => {
     expect(BibliotekOrchestrator.prototype.updateBook).toHaveBeenCalledWith('book_canonique_123', expect.any(Object), expect.any(Object));
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek-essai-sur-la-silice');
+  });
+
+  it('🔴 PUT : doit rejeter (400) via Zod si les données de Copyright sont corrompues', async () => {
+    global.__mockUser = { uid: 'bird_writer', capabilities: [] };
+
+    const req = new NextRequest('http://localhost:3000/api/bibliotek/essai', {
+      method: 'PUT',
+      body: JSON.stringify({ 
+        copyrightMetadata: {
+          role: 'PIRATE' // Un rôle non reconnu par l'enum
+        }
+      })
+    });
+
+    const res = await putHandler(req, { params: Promise.resolve({ slug: 'essai' }) });
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain("Données de mutation");
   });
 
   it('🟢 DELETE : doit dissoudre l’ouvrage avec succès (200) avec son UID canonique', async () => {

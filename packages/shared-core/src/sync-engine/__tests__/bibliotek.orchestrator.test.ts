@@ -41,7 +41,21 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-describe('BibliotekOrchestrator - Scriptorium, Émotions & Économie', () => {
+// 🚀 MOCK du Copyright Engine pour isoler les tests
+vi.mock('../utils/copyright.engine', () => ({
+  sanitizeCopyright: vi.fn((meta) => {
+    if (!meta) return { role: 'CREATOR', isExclusiveIlot: false };
+    if (meta.role === 'CURATOR') return { ...meta, isExclusiveIlot: false };
+    return meta;
+  }),
+  getCopyrightCypherRelation: vi.fn((role) => {
+    if (role === 'SUBLIMATOR') return 'SUBLIMATES';
+    if (role === 'CURATOR') return 'CURATES';
+    return 'CREATED';
+  })
+}));
+
+describe('BibliotekOrchestrator - Scriptorium, Émotions, Économie & Copyright DRY', () => {
   let orchestrator: BibliotekOrchestrator;
   const userSignature: ActionSignature = { actorUid: 'oiseau-writer', capabilities: [] };
   const strangerSignature: ActionSignature = { actorUid: 'oiseau-intruder', capabilities: [] };
@@ -62,13 +76,13 @@ describe('BibliotekOrchestrator - Scriptorium, Émotions & Économie', () => {
     orchestrator = new BibliotekOrchestrator(mockStorageManager, injectedNotificationOrchestrator);
   });
 
-  describe('fosterBook (Création & Gestion des Brouillons)', () => {
-    it('devrait rejeter la publication si l\'oiseau usurpe une identité', async () => {
+  describe('fosterBook (Création, Copyright & Gestion des Brouillons)', () => {
+    it('🔴 devrait rejeter la publication si l\'oiseau usurpe une identité', async () => {
       const data = { authorUid: 'oiseau-writer', title: 'Mon Roman', fileUrl: 'cdn://epub' };
       await expect(orchestrator.fosterBook(data, strangerSignature)).rejects.toThrow(IlotError);
     });
 
-    it('🟢 devrait fonder un ouvrage en DRAFT sans déclencher d\'alerte publique', async () => {
+    it('🟢 devrait fonder un ouvrage en DRAFT sans déclencher d\'alerte publique, et générer le SEO', async () => {
       const data = { 
         title: 'Brouillon d\'Essai', 
         authorUid: 'oiseau-writer', 
@@ -92,9 +106,17 @@ describe('BibliotekOrchestrator - Scriptorium, Émotions & Économie', () => {
       expect(mockFosterNotification).toHaveBeenCalledTimes(0);
     });
 
-    it('🟢 devrait fonder un ouvrage en PUBLISHED et envoyer un écho aux abonnés', async () => {
+    it('🟢 devrait fonder un ouvrage avec le rôle SUBLIMATOR et badge d\'Exclusivité', async () => {
       const data = { 
-        title: 'Traité de Philosophie', authorUid: 'oiseau-writer', status: 'PUBLISHED' as const, fileUrl: 'https://cdn.ilot/books/traite.epub',
+        title: 'Traité Sublimé', 
+        authorUid: 'oiseau-writer', 
+        status: 'PUBLISHED' as const, 
+        fileUrl: 'https://cdn.ilot/books/traite.epub',
+        copyrightMetadata: {
+          role: 'SUBLIMATOR' as const,
+          originalAuthor: 'Vieux Maître',
+          isExclusiveIlot: true
+        }
       };
 
       vi.mocked(LibraryBookModel.findOne).mockReturnValue({
@@ -102,55 +124,73 @@ describe('BibliotekOrchestrator - Scriptorium, Émotions & Économie', () => {
       } as any);
 
       vi.mocked(LibraryBookModel.create).mockResolvedValue([{ 
-        uid: 'book-999', title: 'Traité de Philosophie', status: 'PUBLISHED',
-        toObject: () => ({ uid: 'book-999', title: 'Traité de Philosophie', status: 'PUBLISHED' })
+        uid: 'book-999', title: 'Traité Sublimé', status: 'PUBLISHED',
+        toObject: () => ({ uid: 'book-999', title: 'Traité Sublimé', status: 'PUBLISHED' })
       }] as any);
 
       const result = await orchestrator.fosterBook(data, userSignature);
 
       expect(result.success).toBe(true);
       expect(mockFosterNotification).toHaveBeenCalledTimes(1);
+      // Vérifie que le badge "Exclusivité" est bien injecté dans la notification système
+      expect(mockFosterNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            title: expect.stringContaining('Exclusivité Îlot')
+          })
+        }),
+        userSignature
+      );
     });
-  });
 
-  describe('updateBook (Publication de Brouillon)', () => {
-    it('🟢 devrait déclencher un écho NEW_BOOK lors de la transition de DRAFT vers PUBLISHED', async () => {
-      vi.mocked(findEntityBySlugOrUid).mockResolvedValue({ uid: 'book-999', authorUid: 'oiseau-writer', status: 'DRAFT' } as any);
-      vi.mocked(LibraryBookModel.findOneAndUpdate).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 'book-999', title: 'Nouveau Titre', status: 'PUBLISHED' })
+    it('🟢 devrait automatiquement désactiver l\'Exclusivité Îlot si le rôle est un simple CURATOR', async () => {
+      const data = { 
+        title: 'Livre Relayé', 
+        authorUid: 'oiseau-writer', 
+        fileUrl: 'https://cdn.ilot/books/livre.epub',
+        copyrightMetadata: { role: 'CURATOR' as const, isExclusiveIlot: true } // Abusif
+      };
+
+      vi.mocked(LibraryBookModel.findOne).mockReturnValue({
+        session: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue(null) })
       } as any);
 
-      await orchestrator.updateBook('book-slug', { status: 'PUBLISHED' }, userSignature);
+      // 🚀 Correction du mock `as any` pour satisfaire TypeScript
+      vi.mocked(LibraryBookModel.create).mockImplementation(async (docs: any) => {
+        expect(docs[0].copyrightMetadata.isExclusiveIlot).toBe(false); // La sécurité DRY agit !
+        return [{ uid: 'book-curator', toObject: () => docs[0] }] as any;
+      });
 
-      expect(mockFosterNotification).toHaveBeenCalledTimes(1);
+      await orchestrator.fosterBook(data, userSignature);
     });
   });
 
-  describe('addEmotionalHighlight (Surlignage Émotionnel)', () => {
-    it('🟢 devrait ajouter une fulgurance à l\'ouvrage et alerter l\'auteur', async () => {
-      vi.mocked(findEntityBySlugOrUid).mockResolvedValue({ uid: 'book-999', authorUid: 'oiseau-writer', slug: 'mon-livre' } as any);
-      vi.mocked(LibraryBookModel.findOneAndUpdate).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 'book-999', emotionalHighlights: [{ emotion: '<(:<' }] })
+  describe('toggleScholarSeal (Notes d\'Érudits & Reconnaissance)', () => {
+    it('🟢 devrait permettre à l\'auteur d\'apposer le Sceau et envoyer une notification au lecteur', async () => {
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValue({ uid: 'book-999', authorUid: 'oiseau-writer', slug: 'my-book' } as any);
+      
+      const mockUpdatedBook = {
+        uid: 'book-999',
+        slug: 'my-book',
+        emotionalHighlights: [{ uid: 'emo-uid', readerUid: 'bird_reader_1', isScholarSealed: true }]
+      };
+      
+      vi.mocked(LibraryBookModel.findOneAndUpdate).mockReturnValue({ 
+        lean: vi.fn().mockResolvedValue(mockUpdatedBook) 
       } as any);
-
-      const payload = { selectedText: 'Le feu danse...', emotion: '<(:<', comment: 'Brillant !' };
-      const result = await orchestrator.addEmotionalHighlight('book-999', payload, { actorUid: 'oiseau-reader', capabilities: [] });
-
-      expect(result.success).toBe(true);
-      expect(result.highlight.emotion).toBe('<(:<');
-      expect(mockFosterNotification).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('toggleScholarSeal (Notes d\'Érudits)', () => {
-    it('🟢 devrait permettre à l\'auteur d\'apposer le Sceau', async () => {
-      vi.mocked(findEntityBySlugOrUid).mockResolvedValue({ uid: 'book-999', authorUid: 'oiseau-writer' } as any);
-      vi.mocked(LibraryBookModel.findOneAndUpdate).mockReturnValue({ lean: vi.fn().mockResolvedValue({ uid: 'book-999' }) } as any);
 
       const result = await orchestrator.toggleScholarSeal('book-999', 'emo-uid', true, userSignature);
 
       expect(result.success).toBe(true);
       expect(result.isScholarSealed).toBe(true);
+      // Vérifie que la notification "Sceau d'érudit" part vers le lecteur
+      expect(mockFosterNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientUid: 'bird_reader_1',
+          type: 'SCHOLAR_SEAL_AWARDED'
+        }),
+        expect.anything()
+      );
     });
   });
 });

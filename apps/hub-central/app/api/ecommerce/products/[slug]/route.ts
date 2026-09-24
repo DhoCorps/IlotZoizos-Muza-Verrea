@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { ProductModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
-import { IProduct} from '@ilot/types';
+import { IProduct } from '@ilot/types';
 import { EcommerceOrchestrator } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
@@ -26,7 +26,7 @@ export const GET = withSilice(async (_req: NextRequest, context: ApiContext) => 
     if (!rawSlug) {
       return NextResponse.json({ success: false, error: "Slug de produit invalide." }, { status: 400 });
     }
-         
+          
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
     
     // Tentative via le cache, puis repli sur le helper unifié ou la base de données
@@ -38,7 +38,12 @@ export const GET = withSilice(async (_req: NextRequest, context: ApiContext) => 
     if (!product) {
       return NextResponse.json({ success: false, error: "Artefact introuvable dans l'îlot." }, { status: 404 });
     }
-    return NextResponse.json(product, { status: 200 });
+    
+    // ✨ OPTIMISATION PERF/SEO : Mise en cache CDN (Edge) pour alléger la DB sur les produits
+    const response = NextResponse.json(product, { status: 200 });
+    response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    
+    return response;
   } catch (error: unknown) {
     return handleRouteError(error, "Erreur interne lors de la consultation du produit.");
   }

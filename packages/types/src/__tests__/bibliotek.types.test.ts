@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { ILibraryBookMediaEntity, LibraryBookEconomyMetadata, IEmotionalHighlight } from '../core/bibliotek.types';
 
-describe('Types partagés : Bibliotek Media, Gacha, Barter & Émotions', () => {
+describe('Types partagés : Bibliotek Media, Gacha, Barter, Émotions & Copyright', () => {
   it('🟢 doit valider la structure complète d’un ouvrage enrichi avec l’économie Barter et Gacha', () => {
     const mockEconomy: LibraryBookEconomyMetadata = {
       priceCents: 1500, // 15.00 € ou équivalent Silice
@@ -31,6 +31,11 @@ describe('Types partagés : Bibliotek Media, Gacha, Barter & Émotions', () => {
       digitalSignature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
       timestampedAt: new Date(),
       economy: mockEconomy,
+      copyrightMetadata: {
+        role: 'SUBLIMATOR',
+        originalAuthor: 'Maître Ancien',
+        isExclusiveIlot: true,
+      },
       createdAt: new Date(),
     };
 
@@ -40,6 +45,8 @@ describe('Types partagés : Bibliotek Media, Gacha, Barter & Émotions', () => {
     expect(mockBook.economy.barterAllowed).toBe(true);
     expect(mockBook.economy.gachaTier).toBe('rare');
     expect(mockBook.economy.rights.allowBarter).toBe(true);
+    expect(mockBook.copyrightMetadata?.role).toBe('SUBLIMATOR');
+    expect(mockBook.copyrightMetadata?.isExclusiveIlot).toBe(true);
   });
 
   it('🟢 doit accepter des types et styles libres (extensibles)', () => {

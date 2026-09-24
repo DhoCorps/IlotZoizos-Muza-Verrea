@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { Plus, Upload, Loader2, Tag } from 'lucide-react';
 import { ecommerce } from '../../../lib/apiClient';
+import { CopyrightBanner } from '../../global/CopyrightBanner'; // 🚀 Import du composant DRY de Copyright
+import { CopyrightMetadata } from '@ilot/types';
 
 export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onSuccess: () => void; onClose: () => void }) {
   const [storeUid, setStoreUid] = useState(stores[0]?.uid || '');
@@ -15,6 +17,12 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
   const [file, setFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  // 🚀 État pour la bannière de copyright et d'exclusivité Îlot
+  const [copyrightMetadata, setCopyrightMetadata] = useState<CopyrightMetadata>({
+    role: 'CREATOR',
+    isExclusiveIlot: false
+  });
   
   const [categories, setCategories] = useState<{ value: string; label: string }[]>([
     { value: 'FONT_SPRITE', label: 'Police / Sprite' },
@@ -54,13 +62,13 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
         throw new Error('Le titre de l’artefact doit générer un slug valide.');
       }
 
-      // Traitement des tags séparés par des virgules pour alimenter le moteur Neo4j[cite: 1]
+      // Traitement des tags séparés par des virgules pour alimenter le moteur Neo4j
       const tags = tagsInput
         .split(',')
         .map(t => t.trim().toLowerCase())
         .filter(Boolean);
 
-      // 1. Création de l'artefact via l'API client et l'orchestrateur[cite: 3]
+      // 1. Création de l'artefact via l'API client et l'orchestrateur (avec les métadonnées de Copyright)
       await ecommerce.createProduct({
         storeUid,
         title,
@@ -68,7 +76,8 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
         priceCents: Math.round(parseFloat(priceCents) * 100),
         category,
         visibility,
-        tags
+        tags,
+        copyrightMetadata // 🚀 Intégration DRY
       });
 
       // 2. Téléversement du fichier/illustration associé sur le Nexus R2
@@ -160,6 +169,15 @@ export function ProductForm({ stores, onSuccess, onClose }: { stores: any[]; onS
           onChange={(e) => setTagsInput(e.target.value)}
           placeholder="synth, analog, vintage" 
           className="w-full bg-black/60 border border-white/10 px-4 py-3 rounded-xl text-xs text-white font-mono outline-none focus:border-[#E5484D]" 
+        />
+      </div>
+
+      {/* 🚀 BANNIÈRE DE COPYRIGHT & EXCLUSIVITÉ ÎLOT (DRY) */}
+      <div className="pt-2">
+        <CopyrightBanner 
+          mode="edit" 
+          metadata={copyrightMetadata} 
+          onChange={setCopyrightMetadata} 
         />
       </div>
 

@@ -11,12 +11,12 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-describe('Modèle Mongoose : LibraryBook (Bibliotek, Gacha, Émotions & SEO)', () => {
+describe('Modèle Mongoose : LibraryBook (Bibliotek, Gacha, Émotions, SEO & Copyright)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('🟢 doit sédimenter un livre avec un type, style, statut de publication et des données SEO/Économiques', async () => {
+  it('🟢 doit sédimenter un livre avec un type, style, statut de publication, données SEO/Économiques et copyright enrichi', async () => {
     const mockBookData = {
       uid: 'book_123',
       title: 'Chroniques de la Canopée',
@@ -31,6 +31,11 @@ describe('Modèle Mongoose : LibraryBook (Bibliotek, Gacha, Émotions & SEO)', (
       digitalSignature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
       timestampedAt: new Date(),
       copyrightClaimed: true,
+      copyrightMetadata: {
+        role: 'SUBLIMATOR',
+        originalAuthor: 'Penseur Ancien',
+        isExclusiveIlot: true
+      },
       settings: {
         allowReadExchange: true,
         consentForShowcase: true
@@ -62,6 +67,8 @@ describe('Modèle Mongoose : LibraryBook (Bibliotek, Gacha, Émotions & SEO)', (
     expect(createdBook.seo.ogType).toBe('book');
     expect(createdBook.economy.gachaTier).toBe('epic');
     expect(createdBook.digitalSignature).toHaveLength(64);
+    expect(createdBook.copyrightMetadata.role).toBe('SUBLIMATOR');
+    expect(createdBook.copyrightMetadata.isExclusiveIlot).toBe(true);
   });
 
   it('🟢 doit consigner un Surlignage Émotionnel ciblé avec signature et une Note d\'Érudit', async () => {

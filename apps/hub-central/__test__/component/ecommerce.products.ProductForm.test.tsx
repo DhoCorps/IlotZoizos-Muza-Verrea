@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { ProductForm } from '@/components/ecommerce/products/ProductForm';
 import { ecommerce } from '@/lib/apiClient';
 
@@ -28,19 +29,26 @@ describe('Composant ProductForm', () => {
     }) as any;
   });
 
-  it('doit rendre le formulaire de dépôt avec les boutiques', () => {
+  it('doit rendre le formulaire de dépôt avec les boutiques et le composant Copyright', () => {
     render(<ProductForm stores={mockStores} onSuccess={mockOnSuccess} onClose={mockOnClose} />);
     expect(screen.getByText(/Déposer un Artefact/i)).toBeDefined();
     expect(screen.getByDisplayValue('Boutique Îlot')).toBeDefined();
+    // Vérifie la présence de la bannière de copyright
+    expect(screen.getByText(/Droits & Origines/i)).toBeDefined();
   });
 
-  it('doit soumettre le produit avec succès en convertissant les prix en centimes et les tags', async () => {
+  it('doit soumettre le produit avec succès en convertissant les prix en centimes, les tags et en incluant le copyright', async () => {
+    const user = userEvent.setup();
     render(<ProductForm stores={mockStores} onSuccess={mockOnSuccess} onClose={mockOnClose} />);
 
     fireEvent.change(screen.getByPlaceholderText('ex: Synthétiseur Ancien'), { target: { value: 'Synthétiseur Ancien' } });
     fireEvent.change(screen.getByPlaceholderText('Caractéristiques...'), { target: { value: 'Un son unique.' } });
     fireEvent.change(screen.getByPlaceholderText('synth, analog, vintage'), { target: { value: 'synth, analog' } });
     fireEvent.change(screen.getByPlaceholderText('15.00'), { target: { value: '49.99' } });
+
+    // Active l'exclusivité Îlot via l'interface du CopyrightBanner
+    const exclusiveCheckbox = screen.getByLabelText(/Exclusivité Îlot/i);
+    await user.click(exclusiveCheckbox);
 
     fireEvent.click(screen.getByRole('button', { name: /Ajouter au Catalogue/i }));
 
@@ -49,7 +57,11 @@ describe('Composant ProductForm', () => {
         storeUid: 'store_1',
         title: 'Synthétiseur Ancien',
         priceCents: 4999,
-        tags: ['synth', 'analog']
+        tags: ['synth', 'analog'],
+        copyrightMetadata: {
+          role: 'CREATOR',
+          isExclusiveIlot: true
+        }
       }));
       expect(mockOnSuccess).toHaveBeenCalled();
       expect(mockOnClose).toHaveBeenCalled();

@@ -97,7 +97,7 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
   });
 
   describe('GET - Auscultation du Sujet', () => {
-    it('doit autoriser (200) la lecture si le sujet est publié (visiteur anonyme)', async () => {
+    it('doit autoriser (200) la lecture si le sujet est publié (visiteur anonyme) avec cache CDN', async () => {
       vi.mocked(getServerSession).mockResolvedValue(null);
 
       // Utilisation du helper unifié mocké pour le GET
@@ -114,6 +114,8 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
 
       expect(response.status).toBe(200);
       expect(json.uid).toBe('s-1');
+      // 🚀 Vérification SEO / Performances : Le Cache-Control doit être présent pour les visiteurs
+      expect(response.headers.get('Cache-Control')).toBe('public, s-maxage=60, stale-while-revalidate=300');
       expect(findEntityBySlugOrUid).toHaveBeenCalledWith(SujetModel, 'mon-sujet');
     });
 
@@ -147,7 +149,11 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
 
       const req = new NextRequest('http://localhost/api/sujets/mon-sujet', {
         method: 'PUT',
-        body: JSON.stringify({ title: 'Titre Modifié', media: { coverImageUrl: 'https://cdn.ilot/cover.jpg' } }),
+        body: JSON.stringify({ 
+          title: 'Titre Modifié', 
+          media: { coverImageUrl: 'https://cdn.ilot/cover.jpg' },
+          copyrightMetadata: { role: 'SUBLIMATOR', isExclusiveIlot: true } // Vérification du Copyright DRY
+        }),
       });
 
       const response = await PUT(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
@@ -159,6 +165,25 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
       // 💥 Vérification de l'invalidation du cache
       expect(revalidateTag).toHaveBeenCalledWith('sujets');
       expect(revalidateTag).toHaveBeenCalledWith('sujet-mon-sujet');
+    });
+
+    it('🔴 doit rejeter (400) via Zod si les données de Copyright sont corrompues', async () => {
+      vi.mocked(getServerSession).mockResolvedValue({
+        user: { uid: 'u-owner', capabilities: [] }
+      } as unknown as Awaited<ReturnType<typeof getServerSession>>);
+
+      const req = new NextRequest('http://localhost/api/sujets/mon-sujet', {
+        method: 'PUT',
+        body: JSON.stringify({ 
+          copyrightMetadata: { role: 'FAKE_ROLE' } // Rôle invalide
+        }),
+      });
+
+      const response = await PUT(req, { params: Promise.resolve({ slug: 'mon-sujet' }) });
+      const json = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(json.error).toContain("Données de mutation invalides.");
     });
   });
 

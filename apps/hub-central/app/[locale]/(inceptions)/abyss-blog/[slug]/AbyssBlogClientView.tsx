@@ -12,6 +12,7 @@ import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
 import { OmniActionWidget } from '../../../../../components/widget/OmniActionWidget';
 import { IUniversalMediaItem } from '@ilot/types';
 import { useCommentDrawer } from '@/components/global/UniversalCommentDrawer';
+import { CopyrightBanner } from '@/components/global/CopyrightBanner'; // 🚀 Import du composant DRY de Copyright
 
 interface AbyssBlogClientViewProps {
   sujet: any;
@@ -164,6 +165,11 @@ export default function AbyssBlogClientView({ sujet, initialComments }: AbyssBlo
         </div>
 
         <h1 className="text-4xl md:text-5xl font-black uppercase tracking-tight text-slate-100">{sujet.title}</h1>
+
+        {/* 🚀 Intégration de la Bannière de Copyright en mode display si des métadonnées existent */}
+        {sujet.copyrightMetadata && (
+          <CopyrightBanner mode="display" metadata={sujet.copyrightMetadata} />
+        )}
 
         {sujet.media?.audioTrackUrl && (
           <div className="p-4 bg-emerald-950/20 border border-emerald-500/30 rounded-2xl flex items-center justify-between gap-4">

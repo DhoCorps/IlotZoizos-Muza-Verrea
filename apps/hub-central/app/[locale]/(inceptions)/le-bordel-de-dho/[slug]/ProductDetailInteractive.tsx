@@ -35,8 +35,8 @@ export function ProductDetailInteractive({ product }: { product: any }) {
     addItem({
       uid: product.uid,
       title: product.title,
-      priceEUR: product.priceCents / 100,
-      priceShards: Math.round(product.priceCents / 10),
+      priceEURCents: product.priceCents / 100,
+      priceShardsCents: Math.round(product.priceCents / 10),
       category: product.category
     });
     toast.success("✨ Artefact ajouté à votre panier.");

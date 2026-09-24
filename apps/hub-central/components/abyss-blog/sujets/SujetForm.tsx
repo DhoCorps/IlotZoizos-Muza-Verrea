@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { Type, FileAudio, LayoutGrid, Upload, Music, ShieldCheck, ShoppingBag, Loader2, Sparkles, Hash } from 'lucide-react';
 import { RequireCapability } from '@/components/auth/RequireCapability';
-import { CAPABILITIES } from '@ilot/types';
+import { CAPABILITIES, CopyrightMetadata } from '@ilot/types';
 import { useQuery } from '@tanstack/react-query';
+import { CopyrightBanner } from '@/components/global/CopyrightBanner'; // 🚀 Import du composant DRY de Copyright
 
 interface SujetFormProps {
   initialData?: any;
@@ -28,6 +29,11 @@ export function SujetForm({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const isEdit = !!initialData;
+
+  // 🚀 État pour la bannière de copyright et d'exclusivité Îlot
+  const [copyrightMetadata, setCopyrightMetadata] = useState<CopyrightMetadata>(
+    initialData?.copyrightMetadata || { role: 'CREATOR', isExclusiveIlot: false }
+  );
 
   const { data: sujetCategories = [
     { value: 'MONOLOGUE', label: 'Monologue' },
@@ -84,10 +90,11 @@ export function SujetForm({
         content: overrideContent !== undefined ? overrideContent : formData.get('content')?.toString(),
         lyrics: formData.get('lyrics')?.toString() || undefined,
         copyright: formData.get('copyright')?.toString() || undefined,
+        copyrightMetadata, // 🚀 Intégration DRY des métadonnées de Copyright
         category: formData.get('category'),
         status: formData.get('status'),
         visibility: formData.get('visibility')?.toString() || 'PUBLIC',
-        tags: tags, // 🟢 Ajout des tags
+        tags: tags,
         connections: {
           relatedProjects: selectedProjects
         },
@@ -214,7 +221,7 @@ export function SujetForm({
           required 
         />
         
-        {/* 🟢 Ajout du champ pour les Tags */}
+        {/* 🟢 Champ pour les Tags */}
         <div className="flex items-center bg-black/40 border border-white/10 rounded-xl px-4 focus-within:border-[#E5484D] transition-colors">
           <Hash size={14} className="text-slate-500 mr-2" />
           <input 
@@ -273,6 +280,15 @@ export function SujetForm({
             />
           </div>
         </div>
+      </div>
+
+      {/* 🚀 BANNIÈRE DE COPYRIGHT & EXCLUSIVITÉ ÎLOT (DRY) */}
+      <div className="pt-2">
+        <CopyrightBanner 
+          mode="edit" 
+          metadata={copyrightMetadata} 
+          onChange={setCopyrightMetadata} 
+        />
       </div>
 
       {/* Classification & Visibilité */}

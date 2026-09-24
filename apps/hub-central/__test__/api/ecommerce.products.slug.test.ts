@@ -94,7 +94,7 @@ describe('API Product [slug] (GET & DELETE)', () => {
   });  
 
   describe('GET /api/products/[slug]', () => {
-    it('🟢 doit récupérer l\'artefact avec succès (200)', async () => {
+    it('🟢 doit récupérer l\'artefact avec succès (200) avec en-tête CDN SEO', async () => {
       vi.mocked(ProductModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValue({ uid: 'prod_1', title: 'Artefact Ancien' })
       } as unknown as ReturnType<typeof ProductModel.findOne>);
@@ -105,6 +105,7 @@ describe('API Product [slug] (GET & DELETE)', () => {
 
       expect(res.status).toBe(200);
       expect(json.uid).toBe('prod_1');
+      expect(res.headers.get('Cache-Control')).toBe('public, s-maxage=60, stale-while-revalidate=300'); // 🚀 Vérification SEO CDN
     });
 
     it('🔴 doit renvoyer 404 si l\'artefact est introuvable', async () => {

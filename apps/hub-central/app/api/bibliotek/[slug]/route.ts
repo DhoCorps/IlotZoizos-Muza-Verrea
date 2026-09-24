@@ -11,7 +11,7 @@ import { getCachedBook } from '@/lib/cache/bibliotek.cache'; // 🚀 Import du C
 import { IlotError } from '@ilot/shared-core';
 import { z } from 'zod';
 
-// 🛡️ Schéma Zod strict pour interdire l'assignation de masse et supporter les métadonnées Gacha, Barter & Statut
+// 🛡️ Schéma Zod strict pour interdire l'assignation de masse et supporter les métadonnées Gacha, Barter, Statut & Copyright DRY
 const UpdateLibraryBookSchema = z.object({
   title: z.string().min(1, "Le titre est requis.").optional(),
   description: z.string().optional(),
@@ -20,6 +20,13 @@ const UpdateLibraryBookSchema = z.object({
   fileUrl: z.string().url().optional(),
   coverUrl: z.string().url().nullable().optional(),
   copyrightClaimed: z.boolean().optional(),
+  copyrightMetadata: z.object({
+    role: z.enum(['CREATOR', 'SUBLIMATOR', 'CURATOR']),
+    originalAuthor: z.string().optional(),
+    originalWorkTitle: z.string().optional(),
+    sublimationNotes: z.string().optional(),
+    isExclusiveIlot: z.boolean().optional()
+  }).optional(),
   status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(), // 🟢 Ajout du cycle de vie
   economy: z.object({
     priceCents: z.number().int().nonnegative().optional(),
@@ -76,7 +83,16 @@ export const GET = withOptionalAura(async (_req: NextRequest, context: ApiContex
     }
 
     const myCaps = (isMine || isArchitect) ? [CAPABILITIES.SYSTEM.ALL] : [];
-    return NextResponse.json({ ...(book.toObject ? book.toObject() : book), myCapabilities: myCaps }, { status: 200 });
+    const responseData = { ...(book.toObject ? book.toObject() : book), myCapabilities: myCaps };
+    
+    const response = NextResponse.json(responseData, { status: 200 });
+
+    // ✨ OPTIMISATION PERF/SEO : Mise en cache CDN (Edge) pour les ouvrages publics lus par des visiteurs
+    if (isPublic && !isMine && !isArchitect) {
+      response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    }
+
+    return response;
   } catch (error: unknown) {
     if (error instanceof IlotError) {
       return NextResponse.json({ success: false, error: error.message }, { status: error.status });

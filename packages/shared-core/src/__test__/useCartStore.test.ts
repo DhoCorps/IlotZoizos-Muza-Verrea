@@ -10,8 +10,8 @@ describe('useCartStore', () => {
   it('🟢 doit ajouter un produit et incrémenter la quantité si déjà présent', () => {
     const store = useCartStore.getState();
     
-    store.addItem({ uid: 'p-1', slug: 'synthe-moog', title: 'Synthétiseur', priceEUR: 500 });
-    store.addItem({ uid: 'p-1', slug: 'synthe-moog', title: 'Synthétiseur', priceEUR: 500 });
+    store.addItem({ uid: 'p-1', slug: 'synthe-moog', title: 'Synthétiseur', priceEURCents: 500 });
+    store.addItem({ uid: 'p-1', slug: 'synthe-moog', title: 'Synthétiseur', priceEURCents: 500 });
 
     const items = useCartStore.getState().items;
     expect(items).toHaveLength(1);
@@ -21,9 +21,9 @@ describe('useCartStore', () => {
 
   it('🟢 doit permettre de décrémenter et de supprimer un article', () => {
     const store = useCartStore.getState();
-    store.addItem({ uid: 'p-1', title: 'Disque Vinyle', priceEUR: 25 });
+    store.addItem({ uid: 'p-1', title: 'Disque Vinyle', priceEURCents: 25 });
     
-    store.addItem({ uid: 'p-1', title: 'Disque Vinyle', priceEUR: 25 });
+    store.addItem({ uid: 'p-1', title: 'Disque Vinyle', priceEURCents: 25 });
     expect(useCartStore.getState().items[0].quantity).toBe(2);
 
     store.decrementItem('p-1');

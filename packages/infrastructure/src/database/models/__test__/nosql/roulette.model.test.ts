@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { RouletteModel } from '../../nosql/roulette.model';
 
-describe('Roulette Model - Mongoose & Karma Engine', () => {
-    it('🟢 doit valider une session de roulette valide avec date d\'expiration (blocage 24h)', () => {
+describe('Roulette Model - Mongoose & Karma Engine (Norme Cents)', () => {
+    it('🟢 doit valider une session de roulette valide avec date d\'expiration et wagerAmountCents', () => {
         const tomorrow = new Date();
         tomorrow.setHours(tomorrow.getHours() + 24);
 
@@ -10,8 +10,8 @@ describe('Roulette Model - Mongoose & Karma Engine', () => {
             uid: 'roulette_123',
             buyerUid: 'bird_99',
             productUid: 'prod_42',
-            rolledPriceCents: 500, // L'oiseau a eu de la chance, prix bas !
-            wagerAmount: 5, // Il a payé 5 Éclats pour tenter sa chance
+            rolledPriceCents: 500, // 5.00 € en centimes
+            wagerAmountCents: 500, // 500 centimes de mise
             status: 'PENDING',
             expiresAt: tomorrow
         };
@@ -21,7 +21,7 @@ describe('Roulette Model - Mongoose & Karma Engine', () => {
         expect(session.buyerUid).toBe('bird_99');
         expect(session.productUid).toBe('prod_42');
         expect(session.rolledPriceCents).toBe(500);
-        expect(session.wagerAmount).toBe(5);
+        expect(session.wagerAmountCents).toBe(500);
         expect(session.status).toBe('PENDING');
         expect(session.expiresAt).toBe(tomorrow);
     });
@@ -29,7 +29,6 @@ describe('Roulette Model - Mongoose & Karma Engine', () => {
     it('🔴 doit rejeter une session de roulette si les champs obligatoires manquent', () => {
         const invalidData = {
             status: 'PENDING'
-            // buyerUid, productUid, rolledPriceCents, et expiresAt sont manquants
         };
 
         const error = new RouletteModel(invalidData).validateSync();
@@ -48,27 +47,27 @@ describe('Roulette Model - Mongoose & Karma Engine', () => {
             productUid: 'prod_42',
             rolledPriceCents: 500,
             expiresAt: tomorrow,
-            status: 'HACKED' // État inconnu
+            status: 'HACKED'
         };
 
         const error = new RouletteModel(invalidData).validateSync();
         expect(error?.errors?.status).toBeDefined();
     });
 
-    it('🔴 doit rejeter une session si le prix tiré ou la mise sont négatifs (protection Kompta)', () => {
+    it('🔴 doit rejeter une session si le prix tiré ou la mise en centimes sont négatifs', () => {
         const tomorrow = new Date();
         tomorrow.setHours(tomorrow.getHours() + 24);
 
         const invalidData = {
             buyerUid: 'bird_99',
             productUid: 'prod_42',
-            rolledPriceCents: -100, // Impossible
-            wagerAmount: -5, // Impossible
+            rolledPriceCents: -100,
+            wagerAmountCents: -50,
             expiresAt: tomorrow
         };
 
         const error = new RouletteModel(invalidData).validateSync();
         expect(error?.errors?.rolledPriceCents).toBeDefined();
-        expect(error?.errors?.wagerAmount).toBeDefined();
+        expect(error?.errors?.wagerAmountCents).toBeDefined();
     });
 });

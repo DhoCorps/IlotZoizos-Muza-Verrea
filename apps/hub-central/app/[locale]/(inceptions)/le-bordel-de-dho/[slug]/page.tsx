@@ -7,6 +7,7 @@ import { ArrowLeft, Store as StoreIcon, User } from 'lucide-react';
 import { Link } from '@/navigation';
 import { ProductDetailInteractive } from './ProductDetailInteractive';
 import { UniversalComment } from '@/components/global/UniversalComment';
+import { CopyrightBanner } from '@/components/global/CopyrightBanner'; // 🚀 Import du composant DRY de Copyright
 
 interface ProductPageProps {
   params: Promise<{ slug: string; locale?: string }>;
@@ -46,6 +47,8 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
   const creatorSlug = (product as any).authorSlug || product.ownerUid || 'createur-inconnu';
   const storeSlug = store?.slug || product.storeUid;
 
+  const serializedProduct = JSON.parse(JSON.stringify(product));
+
   return (
     <div className="max-w-6xl mx-auto space-y-12 pb-24 animate-in fade-in duration-500">
       
@@ -74,8 +77,13 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
         </div>
       </div>
 
+      {/* 🚀 Intégration de la Bannière de Copyright en mode display si des métadonnées existent */}
+      {serializedProduct.copyrightMetadata && (
+        <CopyrightBanner mode="display" metadata={serializedProduct.copyrightMetadata} />
+      )}
+
       {/* 🧩 Composant Client Interactif */}
-      <ProductDetailInteractive product={product} />
+      <ProductDetailInteractive product={serializedProduct} />
 
       {/* 💬 Intégration des Avis Clients & Résonances */}
       <div className="pt-8 border-t border-white/5 space-y-6">
@@ -84,7 +92,6 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
           <p className="text-xs text-slate-400 font-mono">Partage ton ressenti vibratoire sur cet artefact.</p>
         </div>
         <div className="bg-black/40 border border-white/5 rounded-3xl p-6 backdrop-blur-xl">
-          {/* Utilisation d'un type valide supporté par le Zod backend (ex: 'PROJECT') */}
           <UniversalComment targetUid={product.uid} targetType="PROJECT" />
         </div>
       </div>

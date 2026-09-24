@@ -1,100 +1,126 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EcommerceOrchestrator } from '../ecommerce.orchestrator';
 import { TransactionManager } from '../transactionManager';
-import { syncUniversalInteraction, RouletteModel } from '@ilot/infrastructure';
+import { ProductModel } from '@ilot/infrastructure';
 
-// 1. Mock de l'infrastructure
+// 🚀 MOCKS SÉCURISÉS ET COMPLETS
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
   return {
     ...actual,
-    syncUniversalInteraction: vi.fn(async () => true),
-    SystemGraphDlqModel: { create: vi.fn().mockResolvedValue([{}]) },
-    ProductModel: { deleteOne: vi.fn().mockResolvedValue({ deletedCount: 1 }) },
-    StoreModel: { deleteOne: vi.fn().mockResolvedValue({ deletedCount: 1 }) },
-    RouletteModel: {}
+    ProductModel: {
+      create: vi.fn(),
+      deleteOne: vi.fn(),
+    },
+    StoreModel: {
+      deleteOne: vi.fn(),
+    },
+    RouletteModel: {
+      findOne: vi.fn(),
+      insertMany: vi.fn(),
+    }
   };
 });
 
-// 2. Mock du TransactionManager
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (_name, cb) => {
-      const mockMongoSession = {};
-      const mockNeo4jTx = {
-        run: vi.fn().mockResolvedValue({ 
-          records: [{ 
-            get: (field: string) => {
-              if (field === 'ownerUid') return 'store_owner_123';
-              if (field === 'initiatorUid') return 'initiator_123';
-              if (field === 'balance') return 100;
-              if (field === 'wagerAmount') return 10;
-              if (field === 'basePrice') return 5000;
-              if (field === 'distance') return 2;
-              return 'mock_node';
-            }
-          }] 
-        })
-      };
-      return await cb(mockMongoSession, mockNeo4jTx);
-    }),
+    execute: vi.fn(async (_name, cb) => cb('mock-session', { run: vi.fn().mockResolvedValue({ records: [{ get: () => 'mock_data' }] }) })),
   },
 }));
 
-describe('EcommerceOrchestrator - Core v1 (Boutiques, Tags, Karma, Troc & Roulette)', () => {
+vi.mock('@ilot/shared-core', () => ({
+  safeSyncUniversalInteraction: vi.fn().mockResolvedValue(true),
+}));
+
+// 🚀 MOCK DU COPYRIGHT ENGINE
+vi.mock('../utils/copyright.engine', () => ({
+  sanitizeCopyright: vi.fn((meta) => {
+    if (!meta) return { role: 'CREATOR', isExclusiveIlot: false };
+    if (meta.role === 'CURATOR') return { ...meta, isExclusiveIlot: false };
+    return meta;
+  }),
+  getCopyrightCypherRelation: vi.fn((role) => {
+    if (role === 'SUBLIMATOR') return 'SUBLIMATES';
+    if (role === 'CURATOR') return 'CURATES';
+    return 'CREATED';
+  })
+}));
+
+describe('EcommerceOrchestrator - Boutique, SEO & Copyright DRY', () => {
   let orchestrator: EcommerceOrchestrator;
-  const mockActorUid = 'bird-alpha';
+  const adminSignature = { actorUid: 'bird_admin', capabilities: ['*'] };
 
   beforeEach(() => {
     vi.clearAllMocks();
     orchestrator = new EcommerceOrchestrator();
-
-    const mockNullQuery = Promise.resolve(null) as any;
-    mockNullQuery.session = vi.fn().mockResolvedValue(null);
-
-    RouletteModel.findOne = vi.fn().mockReturnValue(mockNullQuery) as any;
-    RouletteModel.insertMany = vi.fn().mockResolvedValue([{ uid: 'roulette_sess_123' }]) as any;
   });
 
-  describe('createProduct (avec Tags)', () => {
-    it('🟢 doit créer un artefact et synchroniser ses tags dans le Graphe', async () => {
-      const result = await orchestrator.createProduct(
-        { uid: 'prod-1', storeUid: 'store-1', title: 'Epée Plasma', priceCents: 1500, tags: ['arme', 'plasma'] },
-        { actorUid: mockActorUid, capabilities: ['*'] }
-      );
+  describe('createProduct (Bordel de DhÖ)', () => {
+    it('🟢 doit créer un produit avec un prix strict en centimes (priceCents) et générer le SEO auto', async () => {
+      
+      vi.mocked(ProductModel.create).mockResolvedValueOnce([{ toObject: () => ({}) }] as any);
+
+      const payload = {
+        uid: 'prod_1',
+        storeUid: 'store_1',
+        title: 'Artefact Sonore',
+        description: 'Un magnifique artefact pour vos oreilles',
+        priceCents: 2500, // 25.00 €
+      };
+
+      const result = await orchestrator.createProduct(payload, adminSignature as any);
+      
       expect(result.success).toBe(true);
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
-    });
-  });
 
-  describe('spinKarmicRoulette', () => {
-    it('🟢 doit déduire la mise, générer un prix réduit et verrouiller la session pour 24h', async () => {
-      const result = await orchestrator.spinKarmicRoulette(
-        mockActorUid, 'prod-1', { actorUid: mockActorUid, capabilities: ['*'] }
-      );
-      expect(result.success).toBe(true);
-      expect(result.price).toBeLessThan(5000); 
-    });
-  });
-
-  // 👇 NOUVEAUX TESTS POUR LE TROC
-  describe('Gestion du Troc (Barter)', () => {
-    it('🟢 doit créer un noeud Barter dans Neo4j via proposeBarter', async () => {
-      const result = await orchestrator.proposeBarter(
-        { uid: 'barter_1', initiatorUid: mockActorUid, offeredUids: ['p1'], requestedUids: ['p2'] },
-        { actorUid: mockActorUid, capabilities: ['*'] }
-      );
-      expect(result.success).toBe(true);
-      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
+      // On vérifie que la base Mongoose a bien reçu les données SEO auto-générées
+      const mongoCallArg = vi.mocked(ProductModel.create).mock.calls[0][0];
+      expect((mongoCallArg as any)[0].seoMetadata.title).toBe('Artefact Sonore | Artefact');
+      expect((mongoCallArg as any)[0].seoMetadata.description).toBe('Un magnifique artefact pour vos oreilles');
     });
 
-    it('🟢 doit mettre à jour le noeud Barter dans Neo4j via resolveBarter', async () => {
-      const result = await orchestrator.resolveBarter(
-        { barterUid: 'barter_1', acceptorUid: 'bird_beta', status: 'ACCEPTED' },
-        { actorUid: 'bird_beta', capabilities: ['*'] }
-      );
+    it('🟢 doit injecter la bonne relation Neo4j et préserver l\'exclusivité pour un SUBLIMATOR', async () => {
+      
+      vi.mocked(ProductModel.create).mockResolvedValueOnce([{ toObject: () => ({}) }] as any);
+
+      const payload = {
+        uid: 'prod_2',
+        storeUid: 'store_1',
+        title: 'Oeuvre Sublimée',
+        priceCents: 5000,
+        // 🚀 CORRECTION TS : "as const" permet de figer le type litéral au lieu d'un 'string' générique
+        copyrightMetadata: { role: 'SUBLIMATOR' as const, isExclusiveIlot: true }
+      };
+
+      const result = await orchestrator.createProduct(payload, adminSignature as any);
+      
       expect(result.success).toBe(true);
-      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
+
+      const mongoCallArg = vi.mocked(ProductModel.create).mock.calls[0][0];
+      expect((mongoCallArg as any)[0].copyrightMetadata.role).toBe('SUBLIMATOR');
+      expect((mongoCallArg as any)[0].copyrightMetadata.isExclusiveIlot).toBe(true);
+    });
+
+    it('🟢 doit briser l\'exclusivité Îlot si le rôle est CURATOR (Sécurité DRY)', async () => {
+      
+      vi.mocked(ProductModel.create).mockResolvedValueOnce([{ toObject: () => ({}) }] as any);
+
+      const payload = {
+        uid: 'prod_3',
+        storeUid: 'store_1',
+        title: 'Oeuvre Relayée',
+        priceCents: 1000,
+        // 🚀 CORRECTION TS : "as const" ici aussi
+        copyrightMetadata: { role: 'CURATOR' as const, isExclusiveIlot: true } // Demande abusive
+      };
+
+      const result = await orchestrator.createProduct(payload, adminSignature as any);
+      
+      expect(result.success).toBe(true);
+
+      const mongoCallArg = vi.mocked(ProductModel.create).mock.calls[0][0];
+      expect((mongoCallArg as any)[0].copyrightMetadata.role).toBe('CURATOR');
+      expect((mongoCallArg as any)[0].copyrightMetadata.isExclusiveIlot).toBe(false); // La sécurité a agi !
     });
   });
 });

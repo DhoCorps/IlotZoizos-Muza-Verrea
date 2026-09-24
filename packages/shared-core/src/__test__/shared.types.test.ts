@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { AttachmentRegistry } from './shared.types';
+import { AttachmentRegistry, CopyrightRoleSchema, CopyrightMetadataSchema } from '../types/shared.types';
 import { IlotError } from '../errors/ilot.errors';
 import { IUniversalAttachment } from '../../../types/src/models/message.types';
 
-describe('AttachmentRegistry (Résolution Universelle des Entités de l\'Îlot)', () => {
+describe('AttachmentRegistry (Résolution Universelle des Entités de l\'Îlot) & Copyright (DRY)', () => {
   let registry: AttachmentRegistry;
 
   beforeEach(() => {
@@ -44,5 +44,22 @@ describe('AttachmentRegistry (Résolution Universelle des Entités de l\'Îlot)'
     await expect(registry.resolve('SONG' as any, 'song-unknown')).rejects.toThrowError(
       /est introuvable/
     );
+  });
+
+  describe('Validation des types de Copyright partagés (DRY)', () => {
+    it('🟢 doit valider les rôles et métadonnées de copyright', () => {
+      const validRole = CopyrightRoleSchema.parse('SUBLIMATOR');
+      expect(validRole).toBe('SUBLIMATOR');
+
+      const metadata = CopyrightMetadataSchema.parse({
+        role: 'SUBLIMATOR',
+        originalAuthor: 'Jean-Félix Lalanne',
+        isExclusiveIlot: true
+      });
+
+      expect(metadata.role).toBe('SUBLIMATOR');
+      expect(metadata.originalAuthor).toBe('Jean-Félix Lalanne');
+      expect(metadata.isExclusiveIlot).toBe(true);
+    });
   });
 });

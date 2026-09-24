@@ -60,7 +60,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       message: "La Roue Karmique a tourné avec succès.",
       data: {
         sessionUid: result.sessionUid,
-        priceCents: result.price,
+        priceCents: result.priceCents,
         expiresAt,
       }
     }, { status: 200 });

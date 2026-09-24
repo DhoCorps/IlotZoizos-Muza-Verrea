@@ -81,8 +81,8 @@ describe('Composant ProductDetailInteractive', () => {
     expect(mockAddItem).toHaveBeenCalledWith({
       uid: 'prod_999',
       title: 'Parchemin Cybernétique',
-      priceEUR: 45,
-      priceShards: 450,
+      priceEURCents: 45,
+      priceShardsCents: 450,
       category: 'LORE_SCROLL',
     });
     expect(toast.success).toHaveBeenCalledWith('✨ Artefact ajouté à votre panier.');

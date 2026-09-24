@@ -66,11 +66,20 @@ const ProductSchema = new Schema<IProductDocument>(
     // --- 🎨 DÉCLINAISONS ---
     variants: [ProductVariantSchema],
 
-    // --- 🏷️ TAGS & SEO (Correction de l'index en double) ---
+    // --- 🏷️ TAGS & SEO ---
     tags: { type: [{ type: String, lowercase: true, trim: true }] },
     seoMetadata: {
       title: { type: String, trim: true },
       description: { type: String, trim: true }
+    },
+
+    // --- 📜 COPYRIGHT ET EXCLUSIVITÉ ÎLOT (DRY) ---
+    copyrightMetadata: {
+      role: { type: String, enum: ['CREATOR', 'SUBLIMATOR', 'CURATOR'], default: 'CREATOR' },
+      originalAuthor: { type: String, trim: true },
+      originalWorkTitle: { type: String, trim: true },
+      sublimationNotes: { type: String, trim: true },
+      isExclusiveIlot: { type: Boolean, default: false }
     },
 
     // --- 🎡 OPTIONS DE LA ROULETTE KARMIQUE ---
@@ -81,7 +90,7 @@ const ProductSchema = new Schema<IProductDocument>(
     category: { 
       type: String, 
       required: true,
-      enum: ['FONT_SPRITE', 'DIGITAL_GOOD', 'PHYSICAL_ARTIFACT', 'LORE_SCROLL'],
+      enum: ['FONT_SPRITE', 'DIGITAL_GOOD', 'PHYSICAL_ARTIFACT', 'LORE_SCROLL', 'LUCKY_DROP'],
       index: true
     },
     imageUrl: { type: String, trim: true },
@@ -105,7 +114,7 @@ const ProductSchema = new Schema<IProductDocument>(
   }
 );
 
-// 🔍 INDEX DE RECHERCHE UNIQUE (Évite le doublon)
+// 🔍 INDEX DE RECHERCHE UNIQUE
 ProductSchema.index({ tags: 1 });
 ProductSchema.index({ title: 'text', description: 'text', tags: 'text' });
 

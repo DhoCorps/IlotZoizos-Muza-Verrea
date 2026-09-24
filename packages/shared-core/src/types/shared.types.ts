@@ -1,6 +1,10 @@
 import { IUniversalAttachment, AttachmentSourceType } from '../../../types/src/models/message.types';
 import { IlotError } from '../errors/ilot.errors';
 import { CrazyMorpionSymbol, CrazyMorpionGrid } from '../games/crazymorpion/CrazyMorpionTypes';
+// 🚀 Export centralisé des types Copyright pour l'application globale (DRY)
+// 🚀 Export centralisé et sécurisé pour 'isolatedModules' (TypeScript)
+export type { CopyrightRole, CopyrightMetadata } from '../../../types/src/models/sujet.types';
+export { CopyrightRoleSchema, CopyrightMetadataSchema } from '../../../types/src/models/sujet.types';
 
 import type { 
     CrazyMorpionGameRoom,  

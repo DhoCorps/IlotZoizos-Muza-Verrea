@@ -30,9 +30,16 @@ const SujetSchema = new Schema<ISujetDocument>(
     excerpt: { type: String, trim: true, maxlength: 300 },
     content: { type: String, required: true },
     
-    // --- CHAMPS LITTÉRAIRES ---
+    // --- CHAMPS LITTÉRAIRES & COPYRIGHT (DRY) ---
     lyrics: { type: String },
     copyright: { type: String },
+    copyrightMetadata: {
+      role: { type: String, enum: ['CREATOR', 'SUBLIMATOR', 'CURATOR'], default: 'CREATOR' },
+      originalAuthor: { type: String, trim: true },
+      originalWorkTitle: { type: String, trim: true },
+      sublimationNotes: { type: String, trim: true },
+      isExclusiveIlot: { type: Boolean, default: false }
+    },
 
     authorUid: { type: String, required: true, index: true },
 

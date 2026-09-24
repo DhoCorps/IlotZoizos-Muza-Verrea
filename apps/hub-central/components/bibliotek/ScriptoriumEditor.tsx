@@ -5,6 +5,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { Users, Wifi, WifiOff } from 'lucide-react';
+import { CopyrightBanner } from '@/components/global/CopyrightBanner'; // 🚀 Import du composant DRY de Copyright
+import { CopyrightMetadata } from '@ilot/types';
 
 interface ScriptoriumEditorProps {
   bookUid?: string; // Nécessaire pour isoler la salle de document Yjs partagée
@@ -12,7 +14,8 @@ interface ScriptoriumEditorProps {
   initialContent?: string;
   initialWritingType?: string;
   initialStyle?: string;
-  onSave: (data: { title: string; content: string; writingType: string; style: string }) => Promise<void>;
+  initialCopyrightMetadata?: CopyrightMetadata;
+  onSave: (data: { title: string; content: string; writingType: string; style: string; copyrightMetadata: CopyrightMetadata }) => Promise<void>;
 }
 
 const PREDEFINED_TYPES = ['roman', 'essai', 'biographie', 'poesie', 'manifeste', 'journal-intime', 'nouvelle'];
@@ -24,6 +27,7 @@ export const ScriptoriumEditor: React.FC<ScriptoriumEditorProps> = ({
   initialContent = '',
   initialWritingType = 'roman',
   initialStyle = 'philosophie',
+  initialCopyrightMetadata = { role: 'CREATOR', isExclusiveIlot: false },
   onSave,
 }) => {
   const [title, setTitle] = useState(initialTitle);
@@ -41,6 +45,9 @@ export const ScriptoriumEditor: React.FC<ScriptoriumEditorProps> = ({
   const [style, setStyle] = useState(initialStyle);
   const [customStyle, setCustomStyle] = useState('');
   const [isCustomStyleMode, setIsCustomStyleMode] = useState(false);
+
+  // 🚀 État pour la bannière de copyright et d'exclusivité Îlot
+  const [copyrightMetadata, setCopyrightMetadata] = useState<CopyrightMetadata>(initialCopyrightMetadata);
 
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -67,7 +74,6 @@ export const ScriptoriumEditor: React.FC<ScriptoriumEditorProps> = ({
     const provider = new WebsocketProvider(wsEndpoint, `ilot-zoizos-scriptorium-${bookUid}`, ydoc);
     providerRef.current = provider;
 
-    // 🛡️ Sécured check (garde-fou pour les tests unitaires et environnements sans WebSocket natif)
     if (provider && typeof provider.on === 'function') {
       provider.on('status', (event: { status: string }) => {
         setIsConnected(event.status === 'connected');
@@ -128,7 +134,13 @@ export const ScriptoriumEditor: React.FC<ScriptoriumEditorProps> = ({
       const finalType = isCustomTypeMode ? customType.trim() || 'roman' : writingType;
       const finalStyle = isCustomStyleMode ? customStyle.trim() || 'philosophie' : style;
 
-      await onSave({ title, content, writingType: finalType, style: finalStyle });
+      await onSave({ 
+        title, 
+        content, 
+        writingType: finalType, 
+        style: finalStyle, 
+        copyrightMetadata 
+      });
       setLastSaved(new Date());
     } catch (err) {
       console.error("Échec de la sédimentation du texte :", err);
@@ -139,10 +151,10 @@ export const ScriptoriumEditor: React.FC<ScriptoriumEditorProps> = ({
 
   return (
     <div className="min-h-screen bg-[#121417] text-[#E1E4E8] p-6 md:p-12 font-serif selection:bg-[#E5484D] selection:text-white">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-4xl mx-auto space-y-8">
         
         {/* En-tête de l'Atelier avec indicateur temps réel */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 border-b border-[#2A2E39] pb-6 gap-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-[#2A2E39] pb-6 gap-4">
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold tracking-wide text-[#F0F3F6]">Le Scriptorium</h1>
@@ -174,7 +186,7 @@ export const ScriptoriumEditor: React.FC<ScriptoriumEditorProps> = ({
         </div>
 
         {/* Formulaire de classification ouverte */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6 font-sans text-xs">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 font-sans text-xs">
           
           {/* Type d'écrit */}
           <div className="bg-[#1A1D24] p-4 rounded-xl border border-[#2A2E39]">
@@ -259,6 +271,13 @@ export const ScriptoriumEditor: React.FC<ScriptoriumEditorProps> = ({
           </div>
 
         </div>
+
+        {/* 🚀 Bannière de Copyright et Exclusivité Îlot (DRY) */}
+        <CopyrightBanner 
+          mode="edit" 
+          metadata={copyrightMetadata} 
+          onChange={setCopyrightMetadata} 
+        />
 
         {/* Zone de Rédaction Principale (Yjs Synced) */}
         <div className="bg-[#1A1D24] rounded-2xl border border-[#2A2E39] p-6 md:p-10 shadow-2xl flex flex-col gap-6">

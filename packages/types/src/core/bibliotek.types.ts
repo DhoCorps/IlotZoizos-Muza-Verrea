@@ -1,4 +1,5 @@
 import { ISeoMetadata } from './seo.types';
+import { CopyrightMetadata } from '../../../shared-core/src/types/shared.types'; // 🚀 Import DRY pour le copyright unifié
 
 // ==========================================
 // 📚 TYPES & SCHÉMAS : BIBLIOTEK, GACHA & BARTER
@@ -97,6 +98,7 @@ export interface ILibraryBookMediaEntity {
   digitalSignature: string;      // Sceau SHA-256 d'antériorité
   timestampedAt: string | Date;
   economy: LibraryBookEconomyMetadata;
+  copyrightMetadata?: CopyrightMetadata; // 🚀 Intégration DRY des métadonnées de Copyright et d'Exclusivité Îlot
   createdAt: string | Date;
   seo?: ISeoMetadata;            // Métadonnées d'indexation irréprochable
 }

@@ -33,8 +33,8 @@ describe('Composant CartDrawer', () => {
     
     vi.mocked(useCartStore).mockReturnValue({
       items: [
-        { productUid: 'prod_1', title: 'Artefact Alpha', quantity: 1, priceEUR: 15, priceShards: 150 },
-        { productUid: 'prod_2', title: 'Artefact Beta', quantity: 2, priceEUR: 10, priceShards: 100 }
+        { productUid: 'prod_1', title: 'Artefact Alpha', quantity: 1, priceEURCents: 15, priceShardsCents: 150 },
+        { productUid: 'prod_2', title: 'Artefact Beta', quantity: 2, priceEURCents: 10, priceShardsCents: 100 }
       ],
       currency: 'EUR',
       setCurrency: mockSetCurrency,

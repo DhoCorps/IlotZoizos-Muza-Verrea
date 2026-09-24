@@ -58,10 +58,17 @@ export interface ILibraryBook extends Document {
   coverUrl?: string;
   format: 'epub' | 'pdf' | 'txt' | 'scriptorium';
   
-  // 🛡️ Sceau Cryptographique d'Antériorité
+  // 🛡️ Sceau Cryptographique d'Antériorité & Copyright DRY
   digitalSignature: string;
   timestampedAt: Date;
   copyrightClaimed: boolean;
+  copyrightMetadata?: {
+    role: 'CREATOR' | 'SUBLIMATOR' | 'CURATOR';
+    originalAuthor?: string;
+    originalWorkTitle?: string;
+    sublimationNotes?: string;
+    isExclusiveIlot: boolean;
+  };
 
   settings: {
     allowReadExchange: boolean;
@@ -129,6 +136,13 @@ const LibraryBookSchema = new Schema<ILibraryBook>({
   digitalSignature: { type: String, required: true, index: true },
   timestampedAt: { type: Date, required: true, default: Date.now },
   copyrightClaimed: { type: Boolean, default: true },
+  copyrightMetadata: {
+    role: { type: String, enum: ['CREATOR', 'SUBLIMATOR', 'CURATOR'], default: 'CREATOR' },
+    originalAuthor: { type: String, trim: true },
+    originalWorkTitle: { type: String, trim: true },
+    sublimationNotes: { type: String, trim: true },
+    isExclusiveIlot: { type: Boolean, default: false }
+  },
 
   settings: {
     allowReadExchange: { type: Boolean, default: true },

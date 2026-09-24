@@ -1,4 +1,3 @@
-// packages/shared-core/src/ecommerce/useWishlistStore.ts
 'use client';
 
 import { create } from 'zustand';

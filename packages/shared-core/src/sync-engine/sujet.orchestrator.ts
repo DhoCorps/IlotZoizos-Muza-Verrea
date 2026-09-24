@@ -1,11 +1,12 @@
 import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
-import { ISujet } from '@ilot/types';
+import { ISujet, CopyrightMetadata } from '@ilot/types';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
 import { ensureUniqueSlug } from '../utils/orchestrator.engine'; 
 import { NotificationOrchestrator } from './notification.orchestrator';
+import { sanitizeCopyright, getCopyrightCypherRelation } from '../utils/copyright.engine'; // 🚀 Import du Helper DRY
 
 interface IStorageManager {
   deleteFile(key: string): Promise<unknown>;
@@ -31,6 +32,7 @@ export type FosterSujetPayload = Omit<Partial<ISujet>, 'resonance' | 'propagatio
   connections?: DeepPartialConnections;
   settings?: DeepPartialSettings;
   kosmicBoon?: DeepPartialKosmic;
+  copyrightMetadata?: CopyrightMetadata; // 🚀
 };
 
 export type UpdateSujetPayload = Partial<Omit<ISujet, 'uid' | 'authorUid' | 'resonance' | 'connections' | 'propagation'>>;
@@ -45,7 +47,7 @@ const generateSlug = (text: string): string => {
  */
 export class SujetOrchestrator {
   private storageService: IStorageManager;
-  private notificationOrchestrator: NotificationOrchestrator; // 🌿 Injection du cerveau de la Canopée
+  private notificationOrchestrator: NotificationOrchestrator;
 
   constructor(customStorageService?: IStorageManager, notificationOrchestrator?: NotificationOrchestrator) {
     this.storageService = customStorageService || {
@@ -73,14 +75,24 @@ export class SujetOrchestrator {
       const baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
       const finalSlug = await ensureUniqueSlug(SujetModel, baseSlug, mongoSession);
 
+      // ✨ OPTIMISATION UX/SEO : Génération automatique d'un extrait si absent
+      const autoExcerpt = data.excerpt || (data.content && data.content.length > 150 
+          ? `${data.content.substring(0, 147)}...` 
+          : data.content);
+
+      // 🛡️ Logique métier du Copyright et des Rôles centralisée
+      const cpMeta = sanitizeCopyright(data.copyrightMetadata);
+
       const newSujetData: Partial<ISujet> = {
         ...data,
         uid: sujetUid,
         title: title,
         slug: finalSlug,
+        excerpt: autoExcerpt, // Injection de l'extrait intelligent
         content: data.content || "",
         lyrics: data.lyrics || undefined,
         copyright: data.copyright || undefined,
+        copyrightMetadata: cpMeta, // 🚀 Injecté propre et nettoyé
         authorUid: signature.actorUid,
         category: data.category || 'MONOLOGUE',
         status: data.status || 'DRAFT',
@@ -118,7 +130,7 @@ export class SujetOrchestrator {
       let newSujet: ISujet;
       try {
         const created = await SujetModel.create([newSujetData], { session: mongoSession });
-        newSujet = created[0] as unknown as ISujet;
+        newSujet = created[0].toObject() as unknown as ISujet;
       } catch (err: unknown) {
         const error = err as { code?: number };
         if (error.code === 11000) {
@@ -128,6 +140,9 @@ export class SujetOrchestrator {
       }
 
       // 2. GRAPHE (Neo4j) - Le Tissu Universel
+      // 🌐 Génération dynamique du lien Cypher via le helper
+      const relationType = getCopyrightCypherRelation(cpMeta.role);
+
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (s:Sujet { 
@@ -136,10 +151,11 @@ export class SujetOrchestrator {
            slug: $slug,
            category: $category,
            status: $status,
+           isExclusiveIlot: $isExclusiveIlot,
            createdAt: datetime($now),
            updatedAt: datetime($now)
         })
-        CREATE (u)-[:WROTE]->(s)
+        CREATE (u)-[:${relationType} { notes: $sublimationNotes }]->(s)
 
         WITH s, u
         UNWIND (CASE WHEN size($crossLinks) > 0 THEN $crossLinks ELSE [null] END) AS link
@@ -168,6 +184,8 @@ export class SujetOrchestrator {
         status: newSujet.status,
         crossLinks: newSujet.connections?.crossLinks || [],
         productId: newSujet.merchLink?.productId || null,
+        isExclusiveIlot: cpMeta.isExclusiveIlot,
+        sublimationNotes: cpMeta.sublimationNotes || '',
         now: now.toISOString()
       });
 
@@ -178,13 +196,15 @@ export class SujetOrchestrator {
       return { success: true, status: 'success', mongo: newSujet, neo4j: neoResult };
     });
 
-    // 🌿 3. LA CANOPÉE TAMPON (Post-Transaction, non-bloquant)
+    // 🌿 3. LA CANOPÉE TAMPON
     if (txResult.success && txResult.neo4j && txResult.mongo?.status === 'PUBLISHED') {
       const records = txResult.neo4j.records;
       if (records.length > 0) {
         const followerUids = records[0].get('followerUids') || [];
         
         if (followerUids.length > 0) {
+          const exclusiveBadge = txResult.mongo?.copyrightMetadata?.isExclusiveIlot ? ' ✨ [Exclusivité]' : '';
+
           Promise.allSettled(followerUids.map((uid: string) => 
             this.notificationOrchestrator.fosterNotification({
               recipientUid: uid,
@@ -192,7 +212,7 @@ export class SujetOrchestrator {
               category: 'TEXT',
               type: 'NEW_SUJET',
               payload: {
-                title: "Nouvelle Pensée dans la matrice",
+                title: `Nouvelle Pensée dans la matrice${exclusiveBadge}`,
                 message: `L'Oiseau a sédimenté une nouvelle pensée : ${txResult.mongo?.title}`,
                 targetUrl: `/abyss-blog/${txResult.mongo?.slug}`,
                 targetUid: txResult.mongo?.uid,
@@ -211,7 +231,7 @@ export class SujetOrchestrator {
    * MUTATION : METTRE À JOUR UN SUJET
    */
   async updateSujet(sujetIdentifier: string, updates: UpdateSujetPayload, signature: ActionSignature): Promise<SujetSyncResult> {
-    const existing = await findEntityBySlugOrUid(SujetModel, sujetIdentifier) as ISujet | null;
+    const existing = await findEntityBySlugOrUid(SujetModel, sujetIdentifier) as unknown as ISujet | null;
     if (!existing) throw new IlotError("Sujet introuvable dans la Silice.", "NOT_FOUND", 404);
 
     const isAuthor = existing.authorUid === signature.actorUid;
@@ -219,7 +239,6 @@ export class SujetOrchestrator {
       throw new IlotError("Tu ne peux modifier que tes propres pensées.", "FORBIDDEN", 403);
     }
 
-    // Détermine si on passe d'un statut non-publié à PUBLISHED
     const wasPublished = existing.status === 'PUBLISHED';
     const willBePublished = updates.status === 'PUBLISHED';
     const justPublished = !wasPublished && willBePublished;
@@ -239,12 +258,12 @@ export class SujetOrchestrator {
       ).lean() as unknown as ISujet;
 
       let neoResult = null;
-      // On met à jour le Graphe et on récupère les abonnés si on vient de publier ou si des méta importantes changent
       const cypher = `
         MATCH (s:Sujet { uid: $sujetUid })
         SET s.title = coalesce($title, s.title),
             s.status = coalesce($status, s.status),
             s.category = coalesce($category, s.category),
+            s.isExclusiveIlot = coalesce($isExclusiveIlot, s.isExclusiveIlot),
             s.updatedAt = datetime($now)
         
         WITH s
@@ -263,6 +282,10 @@ export class SujetOrchestrator {
         RETURN s, collect(DISTINCT follower.uid) AS followerUids
       `;
 
+      const isExclusiveUpdate = updates.copyrightMetadata 
+          ? (updates.copyrightMetadata as any).isExclusiveIlot 
+          : null;
+
       neoResult = await neo4jTx.run(cypher, { 
         sujetUid: existing.uid, 
         authorUid: existing.authorUid,
@@ -270,13 +293,13 @@ export class SujetOrchestrator {
         status: updates.status || null, 
         category: updates.category || null,
         productId: updates.merchLink?.productId || null,
+        isExclusiveIlot: isExclusiveUpdate,
         now: now.toISOString()
       });
 
       return { success: true, status: 'success', mongo: updatedSujet, neo4j: neoResult };
     });
 
-    // 🌿 3. LA CANOPÉE TAMPON (Post-Mutation : Si le sujet vient d'être publié via une mise à jour de brouillon)
     if (txResult.success && justPublished && txResult.neo4j) {
       const records = txResult.neo4j.records;
       if (records.length > 0) {
@@ -309,7 +332,7 @@ export class SujetOrchestrator {
    * DÉSINTÉGRATION : PURGER UN SUJET
    */
   async disintegrateSujet(sujetIdentifier: string, signature: ActionSignature): Promise<{ success: boolean; purgedCount: number }> {
-    const existing = await findEntityBySlugOrUid(SujetModel, sujetIdentifier) as ISujet | null;
+    const existing = await findEntityBySlugOrUid(SujetModel, sujetIdentifier) as unknown as ISujet | null;
     if (!existing) throw new IlotError("Sujet introuvable.", "NOT_FOUND", 404);
 
     const isAuthor = existing.authorUid === signature.actorUid;
@@ -344,7 +367,7 @@ export class SujetOrchestrator {
         deletePromises.push(safeDelete(media.audioTrackUrl));
       }
       
-      await Promise.all(deletePromises);
+      await Promise.allSettled(deletePromises);
     }
 
     return result;

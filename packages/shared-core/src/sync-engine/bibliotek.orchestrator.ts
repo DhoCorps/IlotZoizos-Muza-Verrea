@@ -1,6 +1,6 @@
 import { LibraryBookModel, ILibraryBook } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
-import { ActionSignature, LibraryBookEconomyMetadata } from '@ilot/types';
+import { ActionSignature, LibraryBookEconomyMetadata, CopyrightMetadata } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
 import { generateSlug } from '../utils/string.engine';
@@ -8,6 +8,7 @@ import { generateFileHash } from '../utils/crypto.engine';
 import { findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { ensureUniqueSlug } from '../utils/orchestrator.engine'; 
 import { NotificationOrchestrator } from './notification.orchestrator';
+import { sanitizeCopyright, getCopyrightCypherRelation } from '../utils/copyright.engine'; // 🚀 Import du Helper DRY
 
 interface IStorageManager {
   deleteFile(key: string): Promise<unknown>;
@@ -21,6 +22,7 @@ export interface BibliotekSyncResult {
     digitalSignature?: string;
     timestampedAt?: Date;
     economy?: LibraryBookEconomyMetadata;
+    copyrightMetadata?: CopyrightMetadata;
     status?: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
   };
   neo4j: any;
@@ -39,6 +41,7 @@ export interface FosterBookPayload {
   coverUrl?: string | null;
   format?: string;
   economy?: Partial<LibraryBookEconomyMetadata>;
+  copyrightMetadata?: CopyrightMetadata; // 🚀
   settings?: {
     allowReadExchange?: boolean;
     consentForShowcase?: boolean;
@@ -51,7 +54,6 @@ export interface EmotionalHighlightPayload {
   comment?: string;
 }
 
-// 🛡️ Interface stricte pour éviter les erreurs de mock dans les tests
 export interface EmotionalHighlightResult {
   success: boolean;
   highlight: {
@@ -69,7 +71,7 @@ export interface EmotionalHighlightResult {
 /**
  * BIBLIOTEK ORCHESTRATOR
  * Gère la sédimentation des ouvrages, le Sceau SHA-256 d'antériorité, 
- * le cycle de vie (Brouillons), les Surlignages Émotionnels et la Canopée.
+ * le cycle de vie, les Surlignages Émotionnels, et les filiations artistiques (Copyright).
  */
 export class BibliotekOrchestrator {
   private storageService: IStorageManager;
@@ -112,8 +114,18 @@ export class BibliotekOrchestrator {
         style: data.style || 'philosophie'
       });
       const digitalSignature = generateFileHash(canonicalContent);
-      
       const now = new Date();
+
+      // 🛡️ Logique métier du Copyright centralisée via Helper DRY
+      const cpMeta = sanitizeCopyright(data.copyrightMetadata);
+
+      // ✨ OPTIMISATION SEO : Auto-génération de balises pour les moteurs de recherche
+      const autoSeo = {
+        metaTitle: `${title} | Bibliotek`,
+        metaDescription: `Découvrez cet ouvrage de type ${data.writingType || 'roman'} (${data.style || 'philosophie'}) par ${data.authorSlug || signature.actorUid}.`,
+        ogType: 'book',
+        articleAuthor: data.authorSlug || signature.actorUid
+      };
 
       const defaultEconomy: LibraryBookEconomyMetadata = {
         priceCents: data.economy?.priceCents ?? 0,
@@ -144,7 +156,9 @@ export class BibliotekOrchestrator {
         digitalSignature,
         timestampedAt: now,
         copyrightClaimed: true,
+        copyrightMetadata: cpMeta, // 🚀 Injecté proprement
         economy: defaultEconomy,
+        seo: autoSeo, // 🚀 Injection SEO automatique
         emotionalHighlights: [],
         settings: {
           allowReadExchange: data.settings?.allowReadExchange ?? true,
@@ -153,6 +167,9 @@ export class BibliotekOrchestrator {
       };
 
       const [newBook] = await LibraryBookModel.create([newBookData], { session: mongoSession });
+
+      // 🌐 Génération dynamique du lien Graphe selon le rôle de l'artiste
+      const relationType = getCopyrightCypherRelation(cpMeta.role);
 
       const cypher = `
         MATCH (u:User { uid: $actorUid })
@@ -168,9 +185,10 @@ export class BibliotekOrchestrator {
             priceCents: $priceCents,
             barterAllowed: $barterAllowed,
             gachaTier: $gachaTier,
+            isExclusiveIlot: $isExclusiveIlot,
             createdAt: datetime($now)
         })
-        CREATE (u)-[:WROTE]->(b)
+        CREATE (u)-[:${relationType} { notes: $sublimationNotes }]->(b)
         WITH b, u
         OPTIONAL MATCH (follower:User)-[:FOLLOWS]->(u)
         RETURN b, collect(DISTINCT follower.uid) AS followerUids
@@ -189,6 +207,8 @@ export class BibliotekOrchestrator {
         priceCents: defaultEconomy.priceCents,
         barterAllowed: defaultEconomy.barterAllowed,
         gachaTier: defaultEconomy.gachaTier,
+        isExclusiveIlot: cpMeta.isExclusiveIlot,
+        sublimationNotes: cpMeta.sublimationNotes || '',
         now: now.toISOString()
       });
 
@@ -210,6 +230,8 @@ export class BibliotekOrchestrator {
         const followerUids = records[0].get('followerUids') || [];
         
         if (followerUids.length > 0) {
+          const exclusiveBadge = data.copyrightMetadata?.isExclusiveIlot ? ' ✨ [Exclusivité Îlot]' : '';
+          
           Promise.allSettled(followerUids.map((uid: string) => 
             this.notificationOrchestrator.fosterNotification({
               recipientUid: uid,
@@ -217,7 +239,7 @@ export class BibliotekOrchestrator {
               category: 'TEXT',
               type: 'NEW_BOOK',
               payload: {
-                title: "Nouvel Ouvrage dans le Sanctuaire",
+                title: `Nouvel Ouvrage dans le Sanctuaire${exclusiveBadge}`,
                 message: `L'Oiseau a publié un manuscrit scellé : ${txResult.mongo?.title}`,
                 targetUrl: `/bibliotek/${txResult.mongo?.slug}`,
                 targetUid: txResult.mongo?.uid,
@@ -236,7 +258,7 @@ export class BibliotekOrchestrator {
    * 🧬 MUTATION : METTRE À JOUR UN OUVRAGE (et gérer la publication de brouillons)
    */
   async updateBook(bookIdentifier: string, updates: Record<string, unknown>, signature: ActionSignature): Promise<BibliotekSyncResult> {
-    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as ILibraryBook | null;
+    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as unknown as ILibraryBook | null;
     if (!existing) {
       throw new IlotError("Ouvrage introuvable dans la Silice.", "NOT_FOUND", 404);
     }
@@ -259,14 +281,17 @@ export class BibliotekOrchestrator {
       ).lean() as unknown as ILibraryBook;
 
       let neoResult = null;
-      if (updates.title || updates.writingType || updates.style || updates.format || updates.status || updates.economy) {
+      if (updates.title || updates.status || updates.economy || updates.copyrightMetadata) {
+        
+        const isExclusiveUpdate = updates.copyrightMetadata 
+            ? sanitizeCopyright(updates.copyrightMetadata as any).isExclusiveIlot 
+            : null;
+
         neoResult = await neo4jTx.run(`
           MATCH (b:LibraryBook { uid: $bookUid })
           SET b.title = coalesce($title, b.title),
-              b.writingType = coalesce($writingType, b.writingType),
-              b.style = coalesce($style, b.style),
-              b.format = coalesce($format, b.format),
               b.status = coalesce($status, b.status),
+              b.isExclusiveIlot = coalesce($isExclusiveIlot, b.isExclusiveIlot),
               b.updatedAt = datetime($now)
           WITH b
           MATCH (author:User { uid: $authorUid })
@@ -276,10 +301,8 @@ export class BibliotekOrchestrator {
           bookUid: existing.uid,
           authorUid: existing.authorUid,
           title: updates.title || null,
-          writingType: updates.writingType || null,
-          style: updates.style || null,
-          format: updates.format || null,
           status: updates.status || null,
+          isExclusiveIlot: isExclusiveUpdate,
           now: now.toISOString()
         });
       }
@@ -314,22 +337,6 @@ export class BibliotekOrchestrator {
                 }
               }, signature)
             )).catch(e => console.error("[Canopée Bibliotek] Erreur publication brouillon:", e));
-          } else if (updates.title || updates.content) {
-            Promise.allSettled(followerUids.map((uid: string) => 
-              this.notificationOrchestrator.fosterNotification({
-                recipientUid: uid,
-                senderUid: signature.actorUid,
-                category: 'SYSTEM',
-                type: 'UPDATED_BOOK',
-                payload: {
-                  title: "Manuscrit retouché",
-                  message: `Des modifications ont été apportées à : ${txResult.mongo?.title}`,
-                  targetUrl: `/bibliotek/${txResult.mongo?.slug}`,
-                  targetUid: txResult.mongo?.uid,
-                  targetType: 'BOOK'
-                }
-              }, signature)
-            )).catch(e => console.error("[Canopée Bibliotek] Erreur d'écho sur update:", e));
           }
         }
       }
@@ -342,7 +349,7 @@ export class BibliotekOrchestrator {
    * ✨ SURLIGNAGE ÉMOTIONNEL : Ajouter une fulgurance ciblée
    */
   async addEmotionalHighlight(bookIdentifier: string, payload: EmotionalHighlightPayload, signature: ActionSignature): Promise<EmotionalHighlightResult> {
-    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as ILibraryBook | null;
+    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as unknown as ILibraryBook | null;
     if (!existing) {
       throw new IlotError("Ouvrage introuvable dans la Silice.", "NOT_FOUND", 404);
     }
@@ -365,19 +372,23 @@ export class BibliotekOrchestrator {
     ).lean() as unknown as ILibraryBook;
 
     if (existing.authorUid !== signature.actorUid) {
-      await this.notificationOrchestrator.fosterNotification({
-        recipientUid: existing.authorUid,
-        senderUid: signature.actorUid,
-        category: 'RESONANCE',
-        type: 'EMOTIONAL_HIGHLIGHT',
-        payload: {
-          title: "Vibration Littéraire",
-          message: `Un Oiseau a vibré sur ce passage : "${payload.selectedText.substring(0, 30)}..."`,
-          targetUrl: `/bibliotek/${existing.slug}/studio`,
-          targetUid: existing.uid,
-          targetType: 'HIGHLIGHT'
-        }
-      }, { actorUid: 'system', capabilities: [] });
+      try {
+        await this.notificationOrchestrator.fosterNotification({
+          recipientUid: existing.authorUid,
+          senderUid: signature.actorUid,
+          category: 'RESONANCE',
+          type: 'EMOTIONAL_HIGHLIGHT',
+          payload: {
+            title: "Vibration Littéraire",
+            message: `Un Oiseau a vibré sur ce passage : "${payload.selectedText.substring(0, 30)}..."`,
+            targetUrl: `/bibliotek/${existing.slug}/studio`,
+            targetUid: existing.uid,
+            targetType: 'HIGHLIGHT'
+          }
+        }, { actorUid: 'system', capabilities: [] });
+      } catch (e) {
+        console.error("[Canopée Bibliotek] Erreur notification highlight:", e);
+      }
     }
 
     return { success: true, highlight: newHighlight, book: updatedBook };
@@ -387,7 +398,7 @@ export class BibliotekOrchestrator {
    * 📜 SCEAU DE L'ÉRUDIT : Promouvoir/Rétrograder une note d'un lecteur
    */
   async toggleScholarSeal(bookIdentifier: string, highlightUid: string, isSealed: boolean, signature: ActionSignature) {
-    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as ILibraryBook | null;
+    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as unknown as ILibraryBook | null;
     if (!existing) {
       throw new IlotError("Ouvrage introuvable.", "NOT_FOUND", 404);
     }
@@ -400,10 +411,34 @@ export class BibliotekOrchestrator {
       { uid: existing.uid, "emotionalHighlights.uid": highlightUid },
       { $set: { "emotionalHighlights.$.isScholarSealed": isSealed } },
       { new: true }
-    ).lean();
+    ).lean() as unknown as ILibraryBook;
 
     if (!updatedBook) {
       throw new IlotError("Fulgurance introuvable dans cet ouvrage.", "NOT_FOUND", 404);
+    }
+
+    // ✨ NOUVEAU: Notification gratifiante au lecteur ! Utilisation d'un bloc try/catch robuste
+    if (isSealed) {
+      const highlight = updatedBook.emotionalHighlights.find((h: any) => h.uid === highlightUid);
+      if (highlight && highlight.readerUid !== existing.authorUid) {
+        try {
+          await this.notificationOrchestrator.fosterNotification({
+            recipientUid: highlight.readerUid,
+            senderUid: signature.actorUid,
+            category: 'RESONANCE',
+            type: 'SCHOLAR_SEAL_AWARDED',
+            payload: {
+              title: "Sceau de l'Érudit Obtenu !",
+              message: `L'auteur a érigé votre fulgurance au rang de Note d'Érudit.`,
+              targetUrl: `/bibliotek/${existing.slug}`,
+              targetUid: existing.uid,
+              targetType: 'HIGHLIGHT'
+            }
+          }, { actorUid: 'system', capabilities: [] });
+        } catch (e) {
+          console.error("[Canopée Bibliotek] Échec de l'envoi de la notification Érudit:", e);
+        }
+      }
     }
 
     return { success: true, isScholarSealed: isSealed };
@@ -413,7 +448,7 @@ export class BibliotekOrchestrator {
    * 🌋 DÉSINTRÉGRATION : PURGER UN OUVRAGE DU SANCTUAIRE
    */
   async disintegrateBook(bookIdentifier: string, signature: ActionSignature): Promise<{ success: boolean; purgedCount: number }> {
-    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as ILibraryBook | null;
+    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as unknown as ILibraryBook | null;
     if (!existing) {
       throw new IlotError("Ouvrage introuvable.", "NOT_FOUND", 404);
     }

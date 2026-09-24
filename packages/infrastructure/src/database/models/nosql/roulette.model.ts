@@ -14,7 +14,7 @@ export interface IRouletteSessionDocument extends Document {
   buyerUid: string;
   productUid: string;
   rolledPriceCents: number;
-  wagerAmount: number; // Historisation de la mise (Shards) perdue/dépensée
+  wagerAmountCents: number; // 🚀 Harmonisé en centimes stricts
   status: 'PENDING' | 'BOUGHT' | 'ABANDONED';
   expiresAt: Date;
   createdAt: Date;
@@ -40,7 +40,7 @@ const RouletteSessionSchema = new Schema<IRouletteSessionDocument>(
       required: true, 
       min: [0, 'Le prix tiré ne peut pas être négatif'] 
     },
-    wagerAmount: { 
+    wagerAmountCents: { 
       type: Number, 
       required: true, 
       min: [0, 'La mise ne peut pas être négative'],
@@ -59,7 +59,7 @@ const RouletteSessionSchema = new Schema<IRouletteSessionDocument>(
     expiresAt: { 
       type: Date, 
       required: true,
-      index: true // Permet à un cron job de trouver rapidement les sessions à basculer en 'ABANDONED'
+      index: true 
     }
   },
   {
@@ -75,9 +75,7 @@ const RouletteSessionSchema = new Schema<IRouletteSessionDocument>(
   }
 );
 
-// 🔍 INDEX COMPOSÉ POUR LE BLOCAGE ANTI-SPAM
-// Permet de vérifier instantanément si un oiseau a déjà une session "PENDING" sur ce produit exact
 RouletteSessionSchema.index({ buyerUid: 1, productUid: 1, status: 1 });
 
 export const RouletteModel = (mongoose.models.RouletteSession as Model<IRouletteSessionDocument>) || 
-                             mongoose.model<IRouletteSessionDocument>('RouletteSession', RouletteSessionSchema);
+                            mongoose.model<IRouletteSessionDocument>('RouletteSession', RouletteSessionSchema);

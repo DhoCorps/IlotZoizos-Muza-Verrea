@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { ProductModel } from '../../nosql/product.model';
 
-describe('Product Model - Mongoose & Kompta Integration', () => {
-    it('🟢 doit valider un produit conforme avec toutes ses valeurs requises, sa TVA, son coût de revient et ses tags indexés', () => {
+describe('Product Model - Mongoose, Kompta & Copyright Integration', () => {
+    it('🟢 doit valider un produit conforme avec toutes ses valeurs requises, sa TVA, son coût de revient, ses tags indexés et son copyright enrichi', () => {
         const validData = {
             uid: 'prod_123',
             storeUid: 'store_canopee_1',
@@ -20,6 +20,12 @@ describe('Product Model - Mongoose & Kompta Integration', () => {
             seoMetadata: {
                 title: 'Plume Sélénite',
                 description: 'Achetez la plume exclusive.'
+            },
+            copyrightMetadata: {
+                role: 'SUBLIMATOR',
+                originalAuthor: 'Artisan Sélénite',
+                sublimationNotes: 'Polissage personnalisé',
+                isExclusiveIlot: true
             },
             isRouletteActive: true,
             wagerAmount: 10,
@@ -39,10 +45,11 @@ describe('Product Model - Mongoose & Kompta Integration', () => {
         expect(product.wagerAmount).toBe(10);
         expect(product.currency).toBe('EUR');
         expect(product.stock).toBe(1);
+        expect(product.copyrightMetadata?.role).toBe('SUBLIMATOR');
+        expect(product.copyrightMetadata?.isExclusiveIlot).toBe(true);
     });
 
     it('🔴 doit rejeter un produit si les champs obligatoires stricts (storeUid, title, slug, description, priceCents, category) manquent', () => {
-        // On passe un objet sans les champs requis (l'uid se génère tout seul par défaut, donc on ne teste pas son absence pure)
         const invalidData = {
             currency: 'USD',
         };
@@ -64,7 +71,7 @@ describe('Product Model - Mongoose & Kompta Integration', () => {
             slug: 'test',
             description: 'Description',
             priceCents: 100,
-            category: 'UNKNOWN_CATEGORY', 
+            category: 'UNKNOWN_CATEGORY',    
             visibility: 'UNKNOWN_VISIBILITY', 
         };
 

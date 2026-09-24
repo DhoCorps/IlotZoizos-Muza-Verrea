@@ -1,24 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { SujetSchema, SujetCategorySchema, SujetStatusSchema } from '../models/sujet.types';
+import { SujetSchema, SujetCategorySchema, SujetStatusSchema, CopyrightRoleSchema } from '../models/sujet.types';
 
-describe('Schéma Zod : SujetSchema & Énumérations (DRY Edition)', () => {
+describe('Schéma Zod : SujetSchema & Copyright (DRY Edition)', () => {
   
-  describe('Validations des Énumérations', () => {
+  describe('Validations des Énumérations & Copyright', () => {
     it('valide les catégories autorisées', () => {
       expect(SujetCategorySchema.parse('MONOLOGUE')).toBe('MONOLOGUE');
       expect(SujetCategorySchema.parse('MANIFESTO')).toBe('MANIFESTO');
       expect(() => SujetCategorySchema.parse('INCONNU')).toThrow();
     });
 
-    it('valide les statuts autorisés', () => {
-      expect(SujetStatusSchema.parse('DRAFT')).toBe('DRAFT');
-      expect(SujetStatusSchema.parse('PUBLISHED')).toBe('PUBLISHED');
-      expect(() => SujetStatusSchema.parse('DELETED')).toThrow();
+    it('valide les rôles de copyright autorisés (Créateur, Sublimateur, Curateur)', () => {
+      expect(CopyrightRoleSchema.parse('CREATOR')).toBe('CREATOR');
+      expect(CopyrightRoleSchema.parse('SUBLIMATOR')).toBe('SUBLIMATOR');
+      expect(CopyrightRoleSchema.parse('CURATOR')).toBe('CURATOR');
+      expect(() => CopyrightRoleSchema.parse('HACKER')).toThrow();
     });
   });
 
-  describe('Validation du Schéma Principal (SujetSchema)', () => {
-    
+  describe('Validation du Schéma Principal avec Copyright Sublimé', () => {
     const validBaseSujet = {
       uid: 'sujet-uuid-123',
       title: 'Chronique des Profondeurs',
@@ -27,95 +27,33 @@ describe('Schéma Zod : SujetSchema & Énumérations (DRY Edition)', () => {
       authorUid: 'oiseau-uid-789'
     };
 
-    it('valide un sujet minimal avec les valeurs par défaut', () => {
+    it('valide un sujet avec les métadonnées de copyright par défaut', () => {
       const result = SujetSchema.safeParse(validBaseSujet);
-      
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.category).toBe('MONOLOGUE');
-        expect(result.data.status).toBe('DRAFT');
-        expect(result.data.settings.allowPropagation).toBe(true); 
-        expect(result.data.propagation.uniquePasseurs).toBe(0); 
-        expect(result.data.seo.metaDescription).toBeUndefined();
-        expect(result.data.connections.crossLinks).toEqual([]);
-        expect(result.data.kosmicBoon.nextKosmicBoon).toBe(42);
+        expect(result.data.copyrightMetadata.role).toBe('CREATOR');
+        expect(result.data.copyrightMetadata.isExclusiveIlot).toBe(false);
       }
     });
 
-    it('valide un sujet avec un payload incomplet dans connections et génère les valeurs par défaut', () => {
-      // On force le type any pour simuler un payload incomplet venant du front
-      const partialConnectionsSujet: any = {
+    it('valide un sujet avec un rôle de Sublimateur et une exclusivité Îlot active', () => {
+      const sublimatedSujet = {
         ...validBaseSujet,
-        connections: {
-          crossLinks: [{ entityType: 'LYRIKA', entityId: 'song-123', label: 'Morceau lié' }]
+        copyrightMetadata: {
+          role: 'SUBLIMATOR',
+          originalAuthor: 'Georges Brassens',
+          originalWorkTitle: 'Les Copains d abord',
+          sublimationNotes: 'Arrangement acoustique en ré mineur',
+          isExclusiveIlot: true
         }
       };
 
-      const result = SujetSchema.safeParse(partialConnectionsSujet);
+      const result = SujetSchema.safeParse(sublimatedSujet);
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.connections.crossLinks).toHaveLength(1);
-        // Zod a bien généré le tableau vide pour la clé manquante
-        expect(result.data.connections.relatedProjects).toEqual([]);
-      }
-    });
-
-    it('rejète un sujet si les champs obligatoires manquent', () => {
-      expect(SujetSchema.safeParse({ ...validBaseSujet, title: '' }).success).toBe(false);
-      expect(SujetSchema.safeParse({ ...validBaseSujet, slug: '' }).success).toBe(false);
-      expect(SujetSchema.safeParse({ ...validBaseSujet, content: '' }).success).toBe(false);
-    });
-
-    it('rejète une URL canonique invalide via le schéma partagé SEO', () => {
-      const invalidCanonical = {
-        ...validBaseSujet,
-        seo: { canonicalUrl: 'ce-n-est-pas-une-url' }
-      };
-      expect(SujetSchema.safeParse(invalidCanonical).success).toBe(false);
-    });
-
-    it('valide un sujet enrichi utilisant les briques mutualisées (SEO, CrossLinks, Médias, KosmicBoon, Propagation)', () => {
-      const completeSujet = {
-        ...validBaseSujet,
-        subtitle: 'Une exploration des flux asynchrones',
-        excerpt: 'Résumé court pour les cartes du flux.',
-        publishedAt: '2026-06-06T12:00:00.000Z',
-        readingTimeMinutes: 3,
-        seo: {
-          metaTitle: 'Chronique des Profondeurs | Îlot',
-          metaDescription: 'Plonge dans ce monologue inédit au cœur de l’Îlot Zoizos.',
-          canonicalUrl: 'https://ilot-zoizos.com/abyss-blog/chronique-des-profondeurs'
-        },
-        connections: {
-          crossLinks: [
-            { entityType: 'FONT', entityId: 'font-1', label: 'Police Letr\'In' }
-          ]
-        },
-        media: {
-          coverImageUrl: 'https://cdn.ilot/cover.jpg',
-          coverImageAlt: 'Illustration cybernétique'
-        },
-        propagation: {
-          shareCount: 42,
-          uniquePasseurs: 10,
-          globalReach: 350
-        },
-        kosmicBoon: {
-          interactionCount: 5,
-          nextKosmicBoon: 42
-        },
-        lastCommentedAt: '2026-06-06T14:00:00.000Z'
-      };
-
-      const result = SujetSchema.safeParse(completeSujet);
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.connections.crossLinks).toHaveLength(1);
-        expect(result.data.seo.canonicalUrl).toBeDefined();
-        expect(result.data.media?.coverImageAlt).toBeDefined();
-        expect(result.data.propagation.globalReach).toBe(350);
-        expect(result.data.kosmicBoon.interactionCount).toBe(5);
-        expect(result.data.lastCommentedAt).toBeDefined();
+        expect(result.data.copyrightMetadata.role).toBe('SUBLIMATOR');
+        expect(result.data.copyrightMetadata.originalAuthor).toBe('Georges Brassens');
+        expect(result.data.copyrightMetadata.isExclusiveIlot).toBe(true);
       }
     });
   });

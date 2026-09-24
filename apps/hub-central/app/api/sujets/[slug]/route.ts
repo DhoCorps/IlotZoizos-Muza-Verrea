@@ -21,6 +21,14 @@ const UpdateSujetSchema = z.object({
     coverImageUrl: z.string().url("URL de couverture invalide.").optional(),
     audioTrackUrl: z.string().url("URL audio invalide.").optional(),
   }).nullable().optional(),
+  // 🚀 Injection de la validation du Copyright DRY
+  copyrightMetadata: z.object({
+    role: z.enum(['CREATOR', 'SUBLIMATOR', 'CURATOR']),
+    originalAuthor: z.string().optional(),
+    originalWorkTitle: z.string().optional(),
+    sublimationNotes: z.string().optional(),
+    isExclusiveIlot: z.boolean().optional()
+  }).optional(),
 }).passthrough();
 
 // ==========================================
@@ -55,7 +63,15 @@ export const GET = withOptionalAura(async (req: NextRequest, context: ApiContext
     if (!isPublic && !isMine && !isArchitect) {
       return NextResponse.json({ error: "Ce monologue intime t'est fermé." }, { status: 403 });
     }
-    return NextResponse.json(sujet, { status: 200 });
+
+    const response = NextResponse.json(sujet, { status: 200 });
+
+    // ✨ OPTIMISATION PERF/SEO : Mise en cache CDN (Edge) pour les visiteurs publics
+    if (isPublic && !isMine && !isArchitect) {
+      response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    }
+
+    return response;
   } catch (error: unknown) {
     return handleRouteError(error, "SUJET GET ERROR");
   }
@@ -104,7 +120,7 @@ export const PUT = withAura(async (req: NextRequest, context: ApiContext, curren
       const status = err.statusCode || err.status || 500;
       return NextResponse.json({ error: err.message || "Échec de la mutation du sujet dans le Nexus." }, { status });
     }
-         
+          
     revalidateTag('sujets');
     revalidateTag(`sujet-${identifier}`);
     if (result.mongo?.uid) revalidateTag(`sujet-${result.mongo.uid}`);
@@ -144,7 +160,7 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       const status = err.status || err.statusCode || 500;
       return NextResponse.json({ error: err.message || "Erreur lors de la désintégration." }, { status });
     }
-         
+          
     revalidateTag('sujets');
     revalidateTag(`sujet-${identifier}`);
 

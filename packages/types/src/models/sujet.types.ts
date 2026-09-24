@@ -2,6 +2,19 @@ import { z } from 'zod';
 import { SeoMetadataSchema, CrossLinkSchema, SharedMediaSchema } from '../core/seo.types';
 
 // ==========================================
+// 0. COPYRIGHT & RÔLES ARTISTIQUES (DRY)
+// ==========================================
+export const CopyrightRoleSchema = z.enum(['CREATOR', 'SUBLIMATOR', 'CURATOR']);
+
+export const CopyrightMetadataSchema = z.object({
+  role: CopyrightRoleSchema.default('CREATOR'),
+  originalAuthor: z.string().optional(),
+  originalWorkTitle: z.string().optional(),
+  sublimationNotes: z.string().optional(),
+  isExclusiveIlot: z.boolean().default(false)
+});
+
+// ==========================================
 // 1. ÉNUMÉRATIONS & TYPES DE CONNEXIONS
 // ==========================================
 export const SujetCategorySchema = z.enum([
@@ -52,6 +65,7 @@ export const SujetSchema = z.object({
   // --- CHAMPS LITTÉRAIRES & JURIDIQUES ---
   lyrics: z.string().optional(),
   copyright: z.string().optional(),
+  copyrightMetadata: CopyrightMetadataSchema.default({}), // 🚀 Intégration DRY du Copyright unifié
   
   authorUid: z.string(),
 
@@ -119,3 +133,5 @@ export const SujetSchema = z.object({
 export type ISujet = z.infer<typeof SujetSchema>;
 export type SujetCategory = z.infer<typeof SujetCategorySchema>;
 export type SujetStatus = z.infer<typeof SujetStatusSchema>;
+export type CopyrightRole = z.infer<typeof CopyrightRoleSchema>;
+export type CopyrightMetadata = z.infer<typeof CopyrightMetadataSchema>;

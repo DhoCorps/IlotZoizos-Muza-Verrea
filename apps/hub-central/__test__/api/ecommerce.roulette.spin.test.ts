@@ -105,7 +105,7 @@ describe('POST /api/ecommerce/roulette/spin (Lancer la Roue Karmique)', () => {
         mockSpinRoulette.mockResolvedValueOnce({
             success: true,
             sessionUid: 'sess_abc',
-            price: 1250
+            priceCents: 1250 // Alignement sur priceCents
         });
 
         vi.mocked(RouletteModel.findOne).mockReturnValue({
