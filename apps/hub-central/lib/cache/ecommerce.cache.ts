@@ -10,6 +10,27 @@ import {
 } from '@ilot/infrastructure';
 import { EcommerceOrchestrator } from '@ilot/shared-core';
 import { v4 as uuidv4 } from 'uuid';
+import type { Record as Neo4jRecord } from 'neo4j-driver';
+
+interface MarketplaceProduct {
+  uid: string;
+  title: string;
+  priceCents: number;
+  tags?: string[];
+  category?: string;
+  style?: string;
+  authorSlug?: string | null;
+  ownerUid?: string | null;
+  storeOwnerUid?: string | null;
+  [key: string]: unknown;
+}
+
+interface MatchmakerResultItem {
+  matchUid: string;
+  matchPseudo: string;
+  itemsTheyHaveThatYouWant: string[];
+  itemsYouHaveThatTheyWant: string[];
+}
 
 // -------------------------------------------------------------------------
 // 1. WISHLISTS
@@ -84,7 +105,7 @@ export async function getCachedStore(slug: string) {
 // -------------------------------------------------------------------------
 export async function getCachedProducts(storeUid?: string | null, category?: string | null) {
   const fetcher = async () => {
-    const query: any = {};
+    const query: Record<string, unknown> = {};
     if (storeUid) query.storeUid = storeUid;
     if (category) query.category = category;
     return await ProductModel.find(query).sort({ createdAt: -1 }).lean();
@@ -150,26 +171,24 @@ export async function getCachedOrder(slug: string) {
 // -------------------------------------------------------------------------
 export async function getCachedMarketplaceProducts(category?: string | null, style?: string | null, author?: string | null, tags: string[] = []) {
   const fetcher = async () => {
-    // Utilisation de l'EcommerceOrchestrator pour interroger Neo4j et la recherche par tags
     const orchestrator = new EcommerceOrchestrator();
     const result = await orchestrator.getMarketplaceProducts(tags);
     
-    let products = result.data || [];
+    let products: MarketplaceProduct[] = (result.data || []) as MarketplaceProduct[];
 
-    // Filtrage complémentaire optionnel en mémoire si des critères additionnels sont fournis
     if (category && category !== 'ALL') {
-      products = products.filter((p: any) => p.category === category);
+      products = products.filter((p) => p.category === category);
     }
     if (style && style !== 'ALL') {
       const regex = new RegExp(style, 'i');
-      products = products.filter((p: any) => regex.test(p.style) || (p.tags && p.tags.some((t: string) => regex.test(t))));
+      products = products.filter((p) => regex.test(String(p.style || '')) || (Array.isArray(p.tags) && p.tags.some((t) => typeof t === 'string' && regex.test(t))));
     }
     if (author && author !== 'ALL') {
       const regex = new RegExp(author, 'i');
-      products = products.filter((p: any) => regex.test(p.authorSlug || p.ownerUid || p.storeOwnerUid));
+      products = products.filter((p) => regex.test(String(p.authorSlug || p.ownerUid || p.storeOwnerUid || '')));
     }
 
-    return products.map((product: any) => ({
+    return products.map((product) => ({
       ...product,
       authorSlug: product.authorSlug || product.ownerUid || product.storeOwnerUid || null
     }));
@@ -229,8 +248,8 @@ export async function getCachedBarterOffer(slug: string) {
   )();
 }
 
-export async function getCachedMatchmakerResults(userUid: string) {
-  const fetcher = async () => {
+export async function getCachedMatchmakerResults(userUid: string): Promise<MatchmakerResultItem[]> {
+  const fetcher = async (): Promise<MatchmakerResultItem[]> => {
     const sessionNeo4j = getNeo4jSession();
     try {
       const query = `
@@ -245,15 +264,20 @@ export async function getCachedMatchmakerResults(userUid: string) {
         LIMIT 5
       `;
       const result = await sessionNeo4j.run(query, { userUid });
-      return result.records.map((record: any) => ({
-        matchUid: record.get('matchUid'),
-        matchPseudo: record.get('matchPseudo') || 'Oiseau Inconnu',
-        itemsTheyHaveThatYouWant: (record.get('itemsTheyHaveThatYouWant') || []).filter(Boolean),
-        itemsYouHaveThatTheyWant: (record.get('itemsYouHaveThatTheyWant') || []).filter(Boolean)
-      })).filter((m: any) => m.itemsTheyHaveThatYouWant.length > 0 || m.itemsYouHaveThatTheyWant.length > 0);
+      return result.records.map((record: Neo4jRecord): MatchmakerResultItem => {
+        const rawThey = (record.get('itemsTheyHaveThatYouWant') || []) as unknown[];
+        const rawYou = (record.get('itemsYouHaveThatTheyWant') || []) as unknown[];
+
+        return {
+          matchUid: String(record.get('matchUid') || ''),
+          matchPseudo: String(record.get('matchPseudo') || 'Oiseau Inconnu'),
+          itemsTheyHaveThatYouWant: rawThey.filter((item): item is string => typeof item === 'string'),
+          itemsYouHaveThatTheyWant: rawYou.filter((item): item is string => typeof item === 'string')
+        };
+      }).filter((m: MatchmakerResultItem) => m.itemsTheyHaveThatYouWant.length > 0 || m.itemsYouHaveThatTheyWant.length > 0);
     } finally {
       if (sessionNeo4j) {
-        await sessionNeo4j.close().catch((err) => console.error("  [NEO4J CLOSE ERROR]", err));
+        await sessionNeo4j.close().catch((err: unknown) => console.error("  [NEO4J CLOSE ERROR]", err));
       }
     }
   };

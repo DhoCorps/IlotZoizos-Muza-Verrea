@@ -1,3 +1,4 @@
+// Fichier : apps/hub-central/app/[locale]/(inceptions)/le-bordel-de-dho/marketPlace/page.tsx
 import { getCachedMarketplaceProducts } from '@/lib/cache/ecommerce.cache';
 import { MarketPlaceInteractive } from './MarketPlaceInteractive';
 import { Metadata } from 'next';
@@ -28,12 +29,19 @@ export default async function MarketPlacePage({ searchParams }: MarketPlacePageP
   }
 
   // 🚀 Fetch côté serveur (Bypass de la route API pour une vitesse maximale)
-  const products = await getCachedMarketplaceProducts(
+  const rawProducts = await getCachedMarketplaceProducts(
     category === 'ALL' ? null : category,
     style === 'ALL' ? null : style,
     author === 'ALL' ? null : author,
     tags.length > 0 ? tags : undefined
   );
+
+  // Normalisation sécurisée avec fallback (|| []) pour éviter tout crash si rawProducts est undefined
+  const products = (rawProducts || []).map((p: any) => ({
+    ...p,
+    category: p.category || 'UNKNOWN',
+    style: p.style || 'DEFAULT',
+  }));
 
   return (
     <MarketPlaceInteractive 

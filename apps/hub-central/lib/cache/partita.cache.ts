@@ -8,16 +8,24 @@ import { PartitaModel } from '@ilot/infrastructure';
 export const getCachedPartitas = (userUid?: string, filterInstrument?: string | null, filterStatus?: string | null) => {
   return unstable_cache(
     async () => {
-      let queryFilter: any = {
+      const queryFilter: Record<string, unknown> & {
+        $or?: Array<Record<string, unknown>>;
+      } = {
         $or: [
           { status: 'PUBLISHED' } // Les partitions publiées sont visibles par tous
         ]
       };
-      if (userUid) {
+
+      if (userUid && queryFilter.$or) {
         queryFilter.$or.push({ authorUid: userUid });
       }
-      if (filterInstrument) queryFilter.instrument = filterInstrument;
-      if (filterStatus) queryFilter.status = filterStatus;
+      if (filterInstrument) {
+        queryFilter.instrument = filterInstrument;
+      }
+      if (filterStatus) {
+        queryFilter.status = filterStatus;
+      }
+
       return await PartitaModel.find(queryFilter)
         .sort({ createdAt: -1 })
         .limit(50)
@@ -35,7 +43,7 @@ export const getCachedPartitaDetails = async (identifier: string) => {
   const fetcher = async () => {
     return await PartitaModel.findOne({ 
        $or: [{ slug: identifier }, { uid: identifier }] 
-     }).lean();
+      }).lean();
   };
   
   if (process.env.NODE_ENV === 'test') {

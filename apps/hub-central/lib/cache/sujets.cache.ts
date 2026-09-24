@@ -8,15 +8,19 @@ import { SujetModel } from '@ilot/infrastructure';
 export const getCachedSujets = (userUid?: string, category?: string) => {
   return unstable_cache(
     async () => {
-      let queryFilter: any = {
+      const queryFilter: Record<string, unknown> & {
+        $or?: Array<Record<string, unknown>>;
+      } = {
         $or: [{ status: 'PUBLISHED' }]
       };
-      if (userUid) {
+
+      if (userUid && queryFilter.$or) {
         queryFilter.$or.push({ authorUid: userUid });
       }
       if (category) {
         queryFilter.category = category;
       }
+
       return await SujetModel.find(queryFilter)
         .sort({ createdAt: -1 })
         .limit(50)

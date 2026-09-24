@@ -24,8 +24,12 @@ describe('Cache : getCachedStream', () => {
     const mockData = [{ mediaId: 'media_1' }];
     vi.mocked(ShowcaseOrchestrator.getPersonalizedShowcase).mockResolvedValue(mockData as any);
 
-    const filters = { selectedApps: ['DHO'], onlyTradable: false };
-    const result = await getCachedStream('bird_123', filters);
+    const filters = {
+      selectedApps: ['BIBLIOTEK', 'DHO'] as Array<"SPRITE" | "BIBLIOTEK" | "DHO" | "PARTITA" | "LETRIN" | "ABYSS" | "GALLERY" | "UNKNOWN">,
+      onlyTradable: true,
+    };
+
+const result = await getCachedStream('bird_123', filters);
 
     expect(result).toEqual(mockData);
     expect(ShowcaseOrchestrator.getPersonalizedShowcase).toHaveBeenCalledWith('bird_123', filters);
@@ -38,8 +42,12 @@ describe('Cache : getCachedStream', () => {
     const mockData = [{ mediaId: 'media_2' }];
     vi.mocked(ShowcaseOrchestrator.getPersonalizedShowcase).mockResolvedValue(mockData as any);
 
-    const filters = { selectedApps: ['GALLERY', 'DHO'], onlyTradable: true };
-    const result = await getCachedStream('bird_456', filters);
+    const filters = {
+      selectedApps: ['BIBLIOTEK', 'DHO'] as Array<"SPRITE" | "BIBLIOTEK" | "DHO" | "PARTITA" | "LETRIN" | "ABYSS" | "GALLERY" | "UNKNOWN">,
+      onlyTradable: true,
+    };
+
+const result = await getCachedStream('bird_123', filters);
 
     expect(result).toEqual(mockData);
     expect(unstable_cache).toHaveBeenCalled();

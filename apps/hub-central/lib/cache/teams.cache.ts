@@ -1,6 +1,7 @@
 // Fichier : lib/cache/teams.cache.ts
 import { unstable_cache } from 'next/cache';
 import { TeamModel, getNeo4jSession } from "@ilot/infrastructure";
+import type { Record as Neo4jRecord } from 'neo4j-driver';
 
 interface TeamMember {
   uid: string;
@@ -8,7 +9,18 @@ interface TeamMember {
   signature?: string | null;
 }
 
-const neo4jSession = getNeo4jSession();
+interface TeamInvitation {
+  uid: string;
+  pseudo: string;
+  status: 'PENDING' | 'REFUSED';
+}
+
+interface LeanTeamDocument {
+  uid: string;
+  ownerUid: string;
+  slug?: string;
+  [key: string]: unknown;
+}
 
 // -------------------------------------------------------------------------
 // 1. CACHE CHIRURGICAL : Récupération des Nids d'un Oiseau (Neo4j + Mongo)
@@ -17,59 +29,65 @@ export const getCachedUserTeams = (userUid: string) => {
   return unstable_cache(
     async () => {
       const neo4jSession = getNeo4jSession();
-      const relMap = new Map();
-      const memberMap = new Map();
-      const invitationMap = new Map();
-             
+      const relMap = new Map<string, string>();
+      const memberMap = new Map<string, TeamMember[]>();
+      const invitationMap = new Map<string, TeamInvitation[]>();
+               
       try {
-        const cypher = `
-          MATCH (u:User {uid: $userUid})-[r:FOUNDED|MEMBER_OF|INVITED_TO]->(t:Team)
-          RETURN t.uid AS teamUid, type(r) AS relType
-        `;
-        const result = await neo4jSession.run(cypher, { userUid });
-        result.records.forEach(record => {
-          relMap.set(record.get('teamUid'), record.get('relType'));
-        });
-        const teamUids = Array.from(relMap.keys());
-        if (teamUids.length === 0) return [];
-
-        for (const tUid of teamUids) {
-          const memberCypher = `
-            MATCH (m:User)-[:FOUNDED|MEMBER_OF]->(t:Team {uid: $tUid})
-            RETURN DISTINCT m.uid AS uid, m.pseudo AS pseudo, m.signature AS signature
+        if (neo4jSession) {
+          const cypher = `
+            MATCH (u:User {uid: $userUid})-[r:FOUNDED|MEMBER_OF|INVITED_TO]->(t:Team)
+            RETURN t.uid AS teamUid, type(r) AS relType
           `;
-          const memberResult = await neo4jSession.run(memberCypher, { tUid });
-          const members = memberResult.records.map(rec => ({
-            uid: rec.get('uid'),
-            pseudo: rec.get('pseudo'),
-            signature: rec.get('signature') || null
-          }));
-          memberMap.set(tUid, members);
+          const result = await neo4jSession.run(cypher, { userUid });
+          result.records.forEach((record: Neo4jRecord) => {
+            const teamUid = record.get('teamUid') as string;
+            const relType = record.get('relType') as string;
+            if (teamUid && relType) {
+              relMap.set(teamUid, relType);
+            }
+          });
+          const teamUids = Array.from(relMap.keys());
+          if (teamUids.length === 0) return [];
 
-          const inviteCypher = `
-            MATCH (target:User)-[r:INVITED_TO|REFUSED_INVITATION]->(t:Team {uid: $tUid})
-            RETURN DISTINCT target.uid AS uid, target.pseudo AS pseudo, type(r) AS relType
-          `;
-          const inviteResult = await neo4jSession.run(inviteCypher, { tUid });
-          const invitations = inviteResult.records.map((record: any) => ({
-            uid: record.get('uid'),
-            pseudo: record.get('pseudo'),
-            status: record.get('relType') === 'INVITED_TO' ? 'PENDING' : 'REFUSED'
-          }));
-          invitationMap.set(tUid, invitations);
+          for (const tUid of teamUids) {
+            const memberCypher = `
+              MATCH (m:User)-[:FOUNDED|MEMBER_OF]->(t:Team {uid: $tUid})
+              RETURN DISTINCT m.uid AS uid, m.pseudo AS pseudo, m.signature AS signature
+            `;
+            const memberResult = await neo4jSession.run(memberCypher, { tUid });
+            const members: TeamMember[] = memberResult.records.map((rec: Neo4jRecord) => ({
+              uid: rec.get('uid') as string,
+              pseudo: rec.get('pseudo') as string,
+              signature: (rec.get('signature') as string) || null
+            }));
+            memberMap.set(tUid, members);
+
+            const inviteCypher = `
+              MATCH (target:User)-[r:INVITED_TO|REFUSED_INVITATION]->(t:Team {uid: $tUid})
+              RETURN DISTINCT target.uid AS uid, target.pseudo AS pseudo, type(r) AS relType
+            `;
+            const inviteResult = await neo4jSession.run(inviteCypher, { tUid });
+            const invitations: TeamInvitation[] = inviteResult.records.map((record: Neo4jRecord) => ({
+              uid: record.get('uid') as string,
+              pseudo: record.get('pseudo') as string,
+              status: record.get('relType') === 'INVITED_TO' ? 'PENDING' : 'REFUSED'
+            }));
+            invitationMap.set(tUid, invitations);
+          }
         }
       } finally {
-        try { await neo4jSession.close(); } catch (e) {}
+        try { await neo4jSession?.close(); } catch {}
       }
 
       const teamUids = Array.from(relMap.keys());
-      const teams = await TeamModel.find({ uid: { $in: teamUids } }).lean();
+      const teams = (await TeamModel.find({ uid: { $in: teamUids } }).lean()) as unknown as LeanTeamDocument[];
 
       const populatedTeams = teams.map(team => ({
         ...team,
-        isInvitation: relMap.get(team.uid!) === 'INVITED_TO',
-        members: memberMap.get(team.uid!) || [],
-        invitations: invitationMap.get(team.uid!) || []
+        isInvitation: relMap.get(team.uid) === 'INVITED_TO',
+        members: memberMap.get(team.uid) || [],
+        invitations: invitationMap.get(team.uid) || []
       }));
 
       return populatedTeams.map(team => {
@@ -98,35 +116,42 @@ export const getCachedUserTeams = (userUid: string) => {
 // -------------------------------------------------------------------------
 // 2. CACHE CHIRURGICAL : Récupération et Auscultation d'un Nid Spécifique
 // -------------------------------------------------------------------------
-export const getCachedTeamDetails = (teamIdentifier: string, userUid: string, getCapabilitiesFn: Function) => {
+export const getCachedTeamDetails = (
+  teamIdentifier: string, 
+  userUid: string, 
+  getCapabilitiesFn: (userUid: string, teamUid: string) => Promise<unknown> | unknown
+) => {
   return unstable_cache(
     async () => {
       const team = await TeamModel.findOne({
         $or: [{ slug: teamIdentifier }, { uid: teamIdentifier }]
-      }).lean();
+      }).lean() as unknown as LeanTeamDocument | null;
+
       if (!team) return null;
       
-      const teamUid = (team as any).uid;
+      const teamUid = team.uid;
       const caps = await getCapabilitiesFn(userUid, teamUid);
       const neoSession = getNeo4jSession();
-      let invitations: any[] = [];
+      let invitations: TeamInvitation[] = [];
       
       try {
-        const inviteCypher = `
-          MATCH (target:User)-[r:INVITED_TO|REFUSED_INVITATION]->(t:Team {uid: $teamUid})
-          RETURN target.uid AS uid, target.pseudo AS pseudo, type(r) AS relType
-        `;
-        const inviteResult = await neo4jSession.run(inviteCypher, { teamUid });
-        invitations = inviteResult.records.map((record: any) => ({
-          uid: record.get('uid'),
-          pseudo: record.get('pseudo'),
-          status: record.get('relType') === 'INVITED_TO' ? 'PENDING' : 'REFUSED'
-        }));
-      } catch (inviteErr) {
+        if (neoSession) {
+          const inviteCypher = `
+            MATCH (target:User)-[r:INVITED_TO|REFUSED_INVITATION]->(t:Team {uid: $teamUid})
+            RETURN target.uid AS uid, target.pseudo AS pseudo, type(r) AS relType
+          `;
+          const inviteResult = await neoSession.run(inviteCypher, { teamUid });
+          invitations = inviteResult.records.map((record: Neo4jRecord): TeamInvitation => ({
+            uid: record.get('uid') as string,
+            pseudo: record.get('pseudo') as string,
+            status: record.get('relType') === 'INVITED_TO' ? 'PENDING' : 'REFUSED'
+          }));
+        }
+      } catch (inviteErr: unknown) {
         console.error("  [INVITATIONS QUERY ERROR]", inviteErr);
       } finally {
         if (neoSession) {
-          try { await neoSession.close(); } catch (e) {}
+          try { await neoSession.close(); } catch {}
         }
       }
       return {

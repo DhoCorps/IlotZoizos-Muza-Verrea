@@ -56,39 +56,39 @@ export const user = {
 };
 
 export const projects = {
-  getAll: () => apiFetch<IProject[]>('/projects'),
-  getById: (projectSlug: string) => apiFetch<IProject>(`/projects/${projectSlug}`),
+  getAll: () => apiFetch<IProject[]>('/tom-hat-toes/projects'),
+  getById: (projectSlug: string) => apiFetch<IProject>(`/tom-hat-toes/projects/${projectSlug}`),
   create: (data: Partial<IProject>) => 
-    apiFetch<IProject>('/projects', { method: 'POST', body: JSON.stringify(data) }),
+    apiFetch<IProject>('/tom-hat-toes/projects', { method: 'POST', body: JSON.stringify(data) }),
   update: (projectSlug: string, data: Partial<IProject>) => 
-    apiFetch<IProject>(`/projects/${projectSlug}`, { method: 'PATCH', body: JSON.stringify(data) }), 
-  delete: (projectSlug: string) => apiFetch<void>(`/projects/${projectSlug}`, { method: 'DELETE' }),
-  getStatuses: () => apiFetch<IStatus[]>('/projects/statuses/all'),
+    apiFetch<IProject>(`/tom-hat-toes/projects/${projectSlug}`, { method: 'PATCH', body: JSON.stringify(data) }), 
+  delete: (projectSlug: string) => apiFetch<void>(`/tom-hat-toes/projects/${projectSlug}`, { method: 'DELETE' }),
+  getStatuses: () => apiFetch<IStatus[]>('/tom-hat-toes/projects/statuses/all'),
 };
 
 export const tasks = {
-  getAll: (projectSlug?: string) => apiFetch<ITask[]>(`/tasks${projectSlug ? `?projectUid=${projectSlug}` : ''}`),
-  getBySlug: (taskSlug: string) => apiFetch<ITask>(`/tasks/${taskSlug}`),
-  create: (data: Partial<ITask>) => apiFetch<ITask>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  getAll: (projectSlug?: string) => apiFetch<ITask[]>(`/tom-hat-toes/tasks${projectSlug ? `?projectUid=${projectSlug}` : ''}`),
+  getBySlug: (taskSlug: string) => apiFetch<ITask>(`/tom-hat-toes/tasks/${taskSlug}`),
+  create: (data: Partial<ITask>) => apiFetch<ITask>('/tom-hat-toes/tasks', { method: 'POST', body: JSON.stringify(data) }),
   update: (taskSlug: string, data: Partial<ITask>) => apiFetch<ITask>(`/tasks/${taskSlug}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  delete: (taskSlug: string) => apiFetch<void>(`/tasks/${taskSlug}`, { method: 'DELETE' }),
-  irrigate: (taskSlug: string) => apiFetch<any>(`/tasks/${taskSlug}/irrigate`, { method: 'POST' }),
+  delete: (taskSlug: string) => apiFetch<void>(`/tom-hat-toes/tasks/${taskSlug}`, { method: 'DELETE' }),
+  irrigate: (taskSlug: string) => apiFetch<any>(`/tom-hat-toes/tasks/${taskSlug}/irrigate`, { method: 'POST' }),
 };
 
 export const teams = {
-  getAll: () => apiFetch<any[]>('/teams'), 
-  create: (data: any) => apiFetch<any>('/teams', { method: 'POST', body: JSON.stringify(data) }),
-  getById: (teamSlug: string) => apiFetch<ITeam>(`/teams/${teamSlug}`),
+  getAll: () => apiFetch<any[]>('/tom-hat-toes/teams'), 
+  create: (data: any) => apiFetch<any>('/tom-hat-toes/teams', { method: 'POST', body: JSON.stringify(data) }),
+  getById: (teamSlug: string) => apiFetch<ITeam>(`/tom-hat-toes/teams/${teamSlug}`),
   update: (teamSlug: string, data: Partial<ITeam>) => 
-    apiFetch<ITeam>(`/teams/${teamSlug}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  delete: (teamSlug: string) => apiFetch<void>(`/teams/${teamSlug}`, { method: 'DELETE' }),
-  getChirps: (teamSlug: string) => apiFetch<any[]>(`/teams/${teamSlug}/chirps`),
+    apiFetch<ITeam>(`/tom-hat-toes/teams/${teamSlug}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (teamSlug: string) => apiFetch<void>(`/tom-hat-toes/teams/${teamSlug}`, { method: 'DELETE' }),
+  getChirps: (teamSlug: string) => apiFetch<any[]>(`/tom-hat-toes/teams/${teamSlug}/chirps`),
   sendChirp: (teamSlug: string, content: string) => 
-    apiFetch<any>(`/teams/${teamSlug}/chirps`, { method: 'POST', body: JSON.stringify({ content }) }),
+    apiFetch<any>(`/tom-hat-toes/teams/${teamSlug}/chirps`, { method: 'POST', body: JSON.stringify({ content }) }),
   removeMember: (teamSlug: string, userSlug: string) => 
-    apiFetch<void>(`/teams/${teamSlug}/members/${userSlug}`, { method: 'DELETE' }),
+    apiFetch<void>(`/tom-hat-toes/teams/${teamSlug}/members/${userSlug}`, { method: 'DELETE' }),
   inviteBird: (teamSlug: string, userSlug: string, capabilities: string[]) => 
-    apiFetch<any>(`/teams/${teamSlug}/members`, { 
+    apiFetch<any>(`/tom-hat-toes/teams/${teamSlug}/members`, { 
       method: 'POST', 
       body: JSON.stringify({ userSlug, action: 'INVITE', capabilities }) 
     }),
@@ -113,10 +113,10 @@ export const users = {
 };
 
 export const sujets = {
-  getAll: () => apiFetch<any[]>('/sujets'),
-  create: (data: any) => apiFetch<any>('/sujets', { method: 'POST', body: JSON.stringify(data) }),
-  update: (sujetSlug: string, data: any) => apiFetch<any>(`/sujets/${sujetSlug}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (sujetSlug: string) => apiFetch<void>(`/sujets/${sujetSlug}`, { method: 'DELETE' }),
+  getAll: () => apiFetch<any[]>('/abyss-blog/sujets'),
+  create: (data: any) => apiFetch<any>('/abyss-blog/sujets', { method: 'POST', body: JSON.stringify(data) }),
+  update: (sujetSlug: string, data: any) => apiFetch<any>(`/abyss-blog/sujets/${sujetSlug}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (sujetSlug: string) => apiFetch<void>(`/abyss-blog/sujets/${sujetSlug}`, { method: 'DELETE' }),
 };
 
 export const partitions = {

@@ -3,6 +3,14 @@ import { OiseauModel } from '@ilot/infrastructure';
 import { DemopraxyOrchestrator } from '@ilot/shared-core';
 import { SanctionCategory } from '@ilot/types';
 
+interface LeanOiseauDocument {
+  uid: string;
+  slug: string;
+  sanctuaryVerrouille?: boolean;
+  demopraxyState?: unknown;
+  [key: string]: unknown;
+}
+
 // -------------------------------------------------------------------------
 // CACHE CHIRURGICAL : Récupération des métriques et rapports démopraxiques
 // -------------------------------------------------------------------------
@@ -12,7 +20,7 @@ export async function getCachedDemopraxicMetrics(userIdentifier: string) {
     
     const user = await OiseauModel.findOne({ 
       $or: [{ slug: userIdentifier }, { uid: userIdentifier }, { pseudo: userIdentifier }] 
-    }).lean() as any;
+    }).lean() as LeanOiseauDocument | null;
 
     if (!user) {
       throw new Error("Oiseau introuvable dans la Silice pour auscultation démopraxique.");

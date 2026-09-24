@@ -7,7 +7,7 @@ import { MessageModel } from '@ilot/infrastructure';
 // -------------------------------------------------------------------------
 export async function getCachedMessages(conversationSlug: string, limit: number, before?: string | null) {
   const fetcher = async () => {
-    const query: Record<string, any> = { conversationSlug };
+    const query: Record<string, unknown> = { conversationSlug };
     if (before) {
       query.createdAt = { $lt: new Date(before) };
     }

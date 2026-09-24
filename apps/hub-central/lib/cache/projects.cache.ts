@@ -8,20 +8,22 @@ import { ProjectModel } from '@ilot/infrastructure';
 export const getCachedProjects = (userUid?: string, requestedOwnerUid?: string, myProjectUids: string[] = []) => {
   return unstable_cache(
     async () => {
-      let queryFilter: any = { 
-        $or: [
-          { visibility: { $in: ['PUBLIC', 'OPEN_SOURCE'] } }, 
-          { uid: { $in: myProjectUids } }
-        ]
-      };
-      if (requestedOwnerUid) {
-        queryFilter = {
-          $and: [
-            { ownerUid: requestedOwnerUid },
-            { $or: queryFilter.$or }
-          ]
-        };
-      }
+      const baseOrCondition = [
+        { visibility: { $in: ['PUBLIC', 'OPEN_SOURCE'] } }, 
+        { uid: { $in: myProjectUids } }
+      ];
+
+      const queryFilter: Record<string, unknown> = requestedOwnerUid
+        ? {
+            $and: [
+              { ownerUid: requestedOwnerUid },
+              { $or: baseOrCondition }
+            ]
+          }
+        : {
+            $or: baseOrCondition
+          };
+
       return await ProjectModel.find(queryFilter)
         .select('-moderation.internalNotes') 
         .sort({ 'dates.lastActivity': -1 })

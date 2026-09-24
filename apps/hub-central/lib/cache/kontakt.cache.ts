@@ -7,7 +7,7 @@ import { CVTemplateModel, JobQuestModel, KontaktProfileModel } from '@ilot/infra
 // -------------------------------------------------------------------------
 export async function getCachedTemplates(authorUid?: string | null) {
   const fetcher = async () => {
-    const query: any = {};
+    const query: Record<string, unknown> = {};
     if (authorUid) query.authorUid = authorUid;
     return await CVTemplateModel.find(query).sort({ createdAt: -1 }).lean();
   };
@@ -61,7 +61,7 @@ export async function getCachedActiveQuests() {
 // -------------------------------------------------------------------------
 export async function getCachedKontaktProfiles(alignment?: string | null, status?: string | null) {
   const fetcher = async () => {
-    const query: any = {};
+    const query: Record<string, unknown> = {};
     if (alignment) query.alignment = alignment;
     if (status) query.availabilityStatus = status;
     return await KontaktProfileModel.find(query).sort({ createdAt: -1 }).lean();

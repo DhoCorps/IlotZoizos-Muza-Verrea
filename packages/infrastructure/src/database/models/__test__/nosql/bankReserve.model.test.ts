@@ -5,6 +5,8 @@ import { BankReserve } from '../../nosql/bankReserve.model';
 describe('BankReserve Model Test Suite', () => {
   beforeAll(async () => {
     await mongoose.connect(process.env.MONGO_URI_TEST || 'mongodb://localhost:27017/test_db');
+    // 🛠️ CORRECTION : On synchronise les index dès le démarrage pour que l'unicité soit active tout de suite
+    await BankReserve.syncIndexes();
   });
 
   afterAll(async () => {
@@ -45,9 +47,7 @@ describe('BankReserve Model Test Suite', () => {
   });
 
   it('🔴 devrait échouer si l\'on tente de créer deux réserves pour la même devise (Unicité)', async () => {
-    // 🛠️ CORRECTION : On utilise une devise valide de l'enum ('plumes') au lieu de 'KOSMIC'
     await BankReserve.create({ currency: 'plumes', totalAmount: 1000, equilibriumThreshold: 500 });
-    await BankReserve.syncIndexes(); // Force la création de l'index unique en base de test
 
     let err: any;
     try {
@@ -58,7 +58,6 @@ describe('BankReserve Model Test Suite', () => {
     expect(err).toBeDefined();
     // Selon la version de Mongoose ou le pilote, l'erreur d'index dupliqué peut remonter 
     // soit via l'objet d'erreur MongoDB (err.code === 11000) soit via une ValidationError Mongoose.
-    // On s'assure qu'une erreur est bien levée pour bloquer le doublon.
     expect(err.code === 11000 || err.name === 'MongoServerError' || err.errors).toBeTruthy();
   });
 

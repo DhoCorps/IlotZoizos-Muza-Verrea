@@ -6,8 +6,8 @@ import { ActionSignature } from '@ilot/types';
 // -------------------------------------------------------------------------
 // 1. SUBSIDIES (Subventions)
 // -------------------------------------------------------------------------
-export async function getCachedSubsidies() {
-  const fetcher = async () => {
+export async function getCachedSubsidies(): Promise<unknown[]> {
+  const fetcher = async (): Promise<unknown[]> => {
     return await SubsidyModel.find({}).sort({ voteCount: -1, createdAt: -1 }).lean().exec();
   };
 
@@ -22,13 +22,13 @@ export async function getCachedSubsidies() {
   )();
 }
 
-export async function executeCachedVote(subsidyId: string, userId: string) {
+export async function executeCachedVote(subsidyId: string, userId: string): Promise<unknown> {
   if (!subsidyId || !userId) {
     throw new Error("ID de subvention et identifiant utilisateur requis pour voter.");
   }
 
-  const performer = async () => {
-    // 🛡️ Correction : Utilisation de l'instance de CanopySubsidyOrchestrator et de castVote avec sa signature
+  const performer = async (): Promise<unknown> => {
+    // 🛡️ Utilisation de l'instance de CanopySubsidyOrchestrator et de castVote avec sa signature
     const orchestrator = new CanopySubsidyOrchestrator();
     const signature: ActionSignature = {
       actorUid: userId,
@@ -54,8 +54,8 @@ export async function executeCachedVote(subsidyId: string, userId: string) {
 // -------------------------------------------------------------------------
 // 2. STATS (Bilan de la Canopée)
 // -------------------------------------------------------------------------
-export async function getCachedCanopyStats() {
-  const fetcher = async () => {
+export async function getCachedCanopyStats(): Promise<IMessageDocument | null> {
+  const fetcher = async (): Promise<IMessageDocument | null> => {
     return await MessageModel.findOne({ isSystemBroadcast: true })
       .sort({ createdAt: -1 })
       .lean<IMessageDocument>()
@@ -76,11 +76,11 @@ export async function getCachedCanopyStats() {
 // -------------------------------------------------------------------------
 // 3. AWARDS (Trophées)
 // -------------------------------------------------------------------------
-export async function getCachedAwards(yearMonth?: string) {
+export async function getCachedAwards(yearMonth?: string): Promise<unknown[]> {
   const cleanYearMonth = yearMonth ? yearMonth.trim() : 'all';
   const query = cleanYearMonth !== 'all' ? { yearMonth: cleanYearMonth } : {};
 
-  const fetcher = async () => {
+  const fetcher = async (): Promise<unknown[]> => {
     return await CanopyAwardModel.find(query).sort({ createdAt: -1 }).lean().exec();
   };
 

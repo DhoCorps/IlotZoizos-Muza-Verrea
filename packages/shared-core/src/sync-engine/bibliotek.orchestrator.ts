@@ -4,11 +4,10 @@ import { ActionSignature, LibraryBookEconomyMetadata, CopyrightMetadata } from '
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
 import { generateSlug } from '../utils/string.engine';
-import { generateFileHash } from '../utils/crypto.engine';
 import { findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { ensureUniqueSlug } from '../utils/orchestrator.engine'; 
 import { NotificationOrchestrator } from './notification.orchestrator';
-import { sanitizeCopyright, getCopyrightCypherRelation } from '../utils/copyright.engine'; // 🚀 Import du Helper DRY
+import { sanitizeCopyright, getCopyrightCypherRelation, generateFileHash } from '../utils/copyright.engine'; // 🚀 Import du Helper DRY
 
 interface IStorageManager {
   deleteFile(key: string): Promise<unknown>;

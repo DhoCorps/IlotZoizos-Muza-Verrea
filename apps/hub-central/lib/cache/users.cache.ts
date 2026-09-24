@@ -4,6 +4,14 @@ import { connectToDatabase, OiseauModel } from "@ilot/infrastructure";
 import { IOiseau } from '@ilot/types';
 import { ObservatoryEngine } from '@ilot/shared-core';
 
+interface LeanOiseauDocument extends Omit<IOiseau, 'emotionalIntensity' | 'entropieActive' | 'currentAcceptance'> {
+  emotionalIntensity?: number;
+  entropieActive?: number;
+  currentAcceptance?: number;
+  username?: string;
+  [key: string]: unknown;
+}
+
 // -------------------------------------------------------------------------
 // CACHE : La Volière Publique (Recensement)
 // -------------------------------------------------------------------------
@@ -11,12 +19,15 @@ export const getCachedOiseaux = unstable_cache(
   async (searchPhrase: string | null) => {
     await connectToDatabase();
     
-    let query: Record<string, any> = {};
+    const query: Record<string, unknown> & {
+      $or?: Array<Record<string, unknown>>;
+    } = {};
+
     if (searchPhrase) {
       query.$or = [
-        { slug: { $regex: searchPhrase, $options: 'i' } },
-        { pseudo: { $regex: searchPhrase, $options: 'i' } },
-        { capabilities: { $regex: searchPhrase, $options: 'i' } }
+        { slug: { $regex: searchPhrase,$options: 'i' } },
+        { pseudo: { $regex: searchPhrase,$options: 'i' } },
+        { capabilities: { $regex: searchPhrase,$options: 'i' } }
       ];
     }
     
@@ -59,9 +70,9 @@ export const getCachedObservatoryReport = (targetSlug: string) => {
   return unstable_cache(
     async () => {
       await connectToDatabase();
-      const userProfile = await OiseauModel.findOne({
+      const userProfile = (await OiseauModel.findOne({
          $or: [{ slug: targetSlug }, { uid: targetSlug }]
-       }).lean() as any;
+       }).lean()) as LeanOiseauDocument | null;
        
       if (!userProfile) return null;
       
