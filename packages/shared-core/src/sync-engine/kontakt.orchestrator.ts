@@ -3,7 +3,8 @@ import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
-import { resolveCanonicalUid, safeSyncUniversalInteraction } from '../utils/orchestrator.engine'; // 🛡️ Import des utilitaires globaux
+import { resolveCanonicalUid, safeSyncUniversalInteraction } from '../utils/orchestrator.engine';
+import { NotificationOrchestrator } from './notification.orchestrator'; // 🔔 Import du Moteur d'Échos
 
 export interface RegisterSwipePayload {
   swiperUid: string;
@@ -17,6 +18,18 @@ export interface EndorseSkillPayload {
   skillName: string;
   comment?: string;
   [key: string]: unknown;
+}
+
+export interface RegisterEndorsementPayload {
+  targetUid: string;
+  skill: string;
+  comment?: string;
+}
+
+export interface LeaveReviewPayload {
+  targetUid: string;
+  rating: number;
+  comment: string;
 }
 
 export interface RequestIntroductionPayload {
@@ -48,6 +61,11 @@ export interface KontaktSyncResult {
 }
 
 export class KontaktOrchestrator {
+  private notificationOrchestrator: NotificationOrchestrator;
+
+  constructor(notificationOrchestrator?: NotificationOrchestrator) {
+    this.notificationOrchestrator = notificationOrchestrator || new NotificationOrchestrator();
+  }
 
   /**
    * 💘 GESTION D'UN SWIPE / MATCH (Le Tinder Pro & JDR)
@@ -115,16 +133,38 @@ export class KontaktOrchestrator {
       return { success: true, action: data.action, match: isMatch };
     });
 
-    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA LA DLQ CENTRALISÉE
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL
     if (swiperCanonicalUid !== targetCanonicalUid) {
       await safeSyncUniversalInteraction(swiperCanonicalUid, targetCanonicalUid, 'KONTAKT', 'registerSwipe');
+    }
+
+    // 🔔 NOTIFICATIONS CROISÉES SI MATCH
+    if (result.match) {
+      const sysSig: ActionSignature = { actorUid: 'system', capabilities: ['*'] };
+      
+      Promise.allSettled([
+        this.notificationOrchestrator.fosterNotification({
+          recipientUid: targetCanonicalUid,
+          senderUid: swiperCanonicalUid,
+          category: 'SOCIAL',
+          type: 'KONTAKT_MATCH',
+          payload: { message: "Nouvelle résonance ! Un oiseau a répondu à votre appel." }
+        }, sysSig),
+        this.notificationOrchestrator.fosterNotification({
+          recipientUid: swiperCanonicalUid,
+          senderUid: targetCanonicalUid,
+          category: 'SOCIAL',
+          type: 'KONTAKT_MATCH',
+          payload: { message: "Nouvelle résonance ! Un oiseau a répondu à votre appel." }
+        }, sysSig)
+      ]).catch(e => console.error("[Kontakt Orchestrator] Erreur de notification de Match :", e));
     }
 
     return result;
   }
 
   /**
-   * 🏅 LE SCEAU DE CONFIANCE (Endorsement Professionnel)
+   * 🏅 LE SCEAU DE CONFIANCE (Endorsement Professionnel via le concept de Skill)
    */
   async endorseSkill(
     data: EndorseSkillPayload,
@@ -166,6 +206,130 @@ export class KontaktOrchestrator {
     });
 
     await safeSyncUniversalInteraction(endorserCanonicalUid, targetCanonicalUid, 'KONTAKT', 'endorseSkill');
+
+    // 🔔 NOTIFICATION
+    await this.notificationOrchestrator.fosterNotification({
+      recipientUid: targetCanonicalUid,
+      senderUid: endorserCanonicalUid,
+      category: 'SOCIAL',
+      type: 'SKILL_ENDORSED',
+      payload: { message: `Un Oiseau a apposé un Sceau de Confiance sur votre compétence : ${data.skillName.toUpperCase()}.` }
+    }, signature).catch(e => console.error("[Kontakt Orchestrator] Erreur de notification Sceau :", e));
+
+    return result;
+  }
+
+  /**
+   * 🤝 RECOMMANDATION DIRECTE (Vouches For)
+   * Crée une relation directe (u1)-[:VOUCHES_FOR {skill}]->(u2)
+   */
+  async registerEndorsement(
+    data: RegisterEndorsementPayload,
+    signature: ActionSignature
+  ): Promise<KontaktSyncResult> {
+    if (!signature.actorUid) throw new IlotError("Identité requise.", "UNAUTHORIZED", 401);
+    if (signature.actorUid === data.targetUid) throw new IlotError("On ne peut pas s'auto-recommander.", "BAD_REQUEST", 400);
+
+    const endorserCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau émetteur");
+    const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, data.targetUid, "Oiseau cible");
+
+    const result = await TransactionManager.execute("Enregistrement VOUCHES_FOR", async (_mongoSession, neo4jTx) => {
+      const now = new Date();
+      const cypher = `
+        MATCH (u1:User {uid: $endorserUid})
+        MATCH (u2:User {uid: $targetUid})
+        MERGE (u1)-[r:VOUCHES_FOR { skill: $skill }]->(u2)
+        ON CREATE SET r.createdAt = datetime($now), r.comment = $comment
+        ON MATCH SET r.updatedAt = datetime($now), r.comment = $comment
+        RETURN r
+      `;
+
+      const neoResult = await neo4jTx.run(cypher, {
+        endorserUid: endorserCanonicalUid,
+        targetUid: targetCanonicalUid,
+        skill: data.skill.toUpperCase(),
+        comment: data.comment || "",
+        now: now.toISOString()
+      });
+
+      if (neoResult.records.length === 0) {
+        throw new IlotError("Échec de la recommandation dans la Matrice.", "INTERNAL_ERROR", 500);
+      }
+
+      return { success: true, skill: data.skill };
+    });
+
+    await safeSyncUniversalInteraction(endorserCanonicalUid, targetCanonicalUid, 'KONTAKT', 'registerEndorsement');
+
+    // 🔔 NOTIFICATION
+    await this.notificationOrchestrator.fosterNotification({
+      recipientUid: targetCanonicalUid,
+      senderUid: endorserCanonicalUid,
+      category: 'SOCIAL',
+      type: 'VOUCH_RECEIVED',
+      payload: { message: `Un Oiseau vient de vous recommander directement pour : ${data.skill.toUpperCase()}.` }
+    }, signature).catch(e => console.error("[Kontakt Orchestrator] Erreur de notification Recommandation :", e));
+
+    return result;
+  }
+
+  /**
+   * ⭐ LAISSER UN AVIS (Vérification de la relation HIRED)
+   */
+  async leaveReview(
+    data: LeaveReviewPayload,
+    signature: ActionSignature
+  ): Promise<KontaktSyncResult> {
+    if (!signature.actorUid) throw new IlotError("Identité requise.", "UNAUTHORIZED", 401);
+
+    const reviewerCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau évaluateur");
+    const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, data.targetUid, "Oiseau évalué");
+
+    const result = await TransactionManager.execute("Dépôt d'Avis", async (_mongoSession, neo4jTx) => {
+      const now = new Date();
+      
+      // 1. Contrôle : Vérifier l'existence de la relation HIRED entre les deux oiseaux
+      const checkCypher = `
+        MATCH (u1:User {uid: $reviewerUid})-[r:HIRED]-(u2:User {uid: $targetUid})
+        RETURN r
+      `;
+      const checkResult = await neo4jTx.run(checkCypher, {
+        reviewerUid: reviewerCanonicalUid,
+        targetUid: targetCanonicalUid
+      });
+
+      if (checkResult.records.length === 0) {
+        throw new IlotError("Vous ne pouvez évaluer qu'un oiseau avec lequel vous avez collaboré (lien :HIRED introuvable).", "FORBIDDEN", 403);
+      }
+
+      // 2. Création de la relation REVIEWED
+      const reviewCypher = `
+        MATCH (u1:User {uid: $reviewerUid})
+        MATCH (u2:User {uid: $targetUid})
+        CREATE (u1)-[r:REVIEWED { rating: $rating, comment: $comment, createdAt: datetime($now) }]->(u2)
+        RETURN r
+      `;
+      await neo4jTx.run(reviewCypher, {
+        reviewerUid: reviewerCanonicalUid,
+        targetUid: targetCanonicalUid,
+        rating: data.rating,
+        comment: data.comment,
+        now: now.toISOString()
+      });
+
+      return { success: true, status: 'REVIEW_PUBLISHED' };
+    });
+
+    await safeSyncUniversalInteraction(reviewerCanonicalUid, targetCanonicalUid, 'KONTAKT', 'leaveReview');
+
+    // 🔔 NOTIFICATION
+    await this.notificationOrchestrator.fosterNotification({
+      recipientUid: targetCanonicalUid,
+      senderUid: reviewerCanonicalUid,
+      category: 'SOCIAL',
+      type: 'REVIEW_RECEIVED',
+      payload: { message: `Un Oiseau a laissé un avis sur votre profil après votre collaboration.` }
+    }, signature).catch(e => console.error("[Kontakt Orchestrator] Erreur de notification Avis :", e));
 
     return result;
   }
@@ -215,6 +379,15 @@ export class KontaktOrchestrator {
     });
 
     await safeSyncUniversalInteraction(requesterCanonicalUid, intermediaryCanonicalUid, 'KONTAKT', 'requestIntroduction');
+
+    // 🔔 NOTIFICATION
+    await this.notificationOrchestrator.fosterNotification({
+      recipientUid: intermediaryCanonicalUid,
+      senderUid: requesterCanonicalUid,
+      category: 'SOCIAL',
+      type: 'INTRO_REQUESTED',
+      payload: { message: `Un Oiseau sollicite votre aide pour une mise en relation avec l'une de vos connexions.` }
+    }, signature).catch(e => console.error("[Kontakt Orchestrator] Erreur de notification Passerelle :", e));
 
     return result;
   }

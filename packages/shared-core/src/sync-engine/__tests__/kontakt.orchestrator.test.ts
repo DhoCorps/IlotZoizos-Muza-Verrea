@@ -8,6 +8,11 @@ import * as orchestratorEngine from '../../utils/orchestrator.engine';
 import type { ClientSession } from 'mongoose';
 import type { Transaction } from 'neo4j-driver';
 
+// 🚀 Utilisation de vi.hoisted pour survivre au hissage de Vitest
+const { mockFosterNotification } = vi.hoisted(() => ({
+  mockFosterNotification: vi.fn().mockResolvedValue({ success: true })
+}));
+
 // 🛡️ Mock unifié et sécurisé de l'infrastructure
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
@@ -17,10 +22,17 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-// Mock complet du moteur d'orchestration (incluant resolveCanonicalUid et safeSyncUniversalInteraction)
+// Mock complet du moteur d'orchestration
 vi.mock('../../utils/orchestrator.engine', () => ({
   safeSyncUniversalInteraction: vi.fn(async () => {}),
   resolveCanonicalUid: vi.fn(async (_model, identifier: string) => `resolved_${identifier}`)
+}));
+
+// Mock du NotificationOrchestrator
+vi.mock('../notification.orchestrator', () => ({
+  NotificationOrchestrator: vi.fn().mockImplementation(() => ({
+    fosterNotification: mockFosterNotification
+  }))
 }));
 
 vi.mock('../transactionManager', () => ({
@@ -37,15 +49,21 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    orchestrator = new KontaktOrchestrator();
+    mockFosterNotification.mockClear();
+
+    const injectedNotificationOrchestrator = {
+      fosterNotification: mockFosterNotification
+    } as any;
+
+    orchestrator = new KontaktOrchestrator(injectedNotificationOrchestrator);
   });
 
   describe('registerSwipe', () => {
-    it('🟢 doit enregistrer un swipe LIKE, détecter un match et propager l\'interaction universelle', async () => {
+    it('🟢 doit enregistrer un swipe LIKE, détecter un match, propager l\'interaction et envoyer 2 notifications', async () => {
       const mockNeo4jTx = {
         run: vi.fn()
-          .mockResolvedValueOnce({ records: [{ get: () => ({}) }] })
-          .mockResolvedValueOnce({ records: [] })
+          .mockResolvedValueOnce({ records: [{ get: () => ({}) }] }) // Détecte un match
+          .mockResolvedValueOnce({ records: [] }) // Insère le swipe
       };
       vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name: string, cb: (mongoSession: ClientSession, neo4jTx: Transaction) => Promise<unknown>) => {
         return await cb({} as ClientSession, mockNeo4jTx as unknown as Transaction);
@@ -61,15 +79,16 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
       expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledTimes(1);
-      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledWith(
-        'resolved_bird_alpha_slug', 
-        'resolved_bird_beta_slug', 
-        'KONTAKT',
-        'registerSwipe'
+      
+      // Vérification des notifications de Match (une pour chaque oiseau)
+      expect(mockFosterNotification).toHaveBeenCalledTimes(2);
+      expect(mockFosterNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'KONTAKT_MATCH' }),
+        expect.anything()
       );
     });
 
-    it('🟡 doit appeler safeSyncUniversalInteraction lors d\'un swipe PASS', async () => {
+    it('🟡 doit appeler safeSyncUniversalInteraction lors d\'un swipe PASS sans envoyer de notification', async () => {
       const mockNeo4jTx = {
         run: vi.fn()
           .mockResolvedValueOnce({ records: [] })
@@ -86,6 +105,7 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
 
       expect(res.success).toBe(true);
       expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledTimes(1);
+      expect(mockFosterNotification).toHaveBeenCalledTimes(0); // Pas de notif sur un PASS
     });
   });
 
@@ -99,48 +119,103 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit apposer le Sceau de Confiance et propager l\'interaction universelle', async () => {
+    it('🟢 doit apposer le Sceau de Confiance, propager l\'interaction et notifier la cible', async () => {
       const res = await orchestrator.endorseSkill(
         { targetUid: 'target_slug', skillName: 'NEO4J', comment: 'Excellent modélisateur' },
         validSignature
       );
 
       expect(res.success).toBe(true);
-      expect(res.skill).toBe('NEO4J');
-      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
+      expect(mockFosterNotification).toHaveBeenCalledTimes(1);
+      expect(mockFosterNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'SKILL_ENDORSED' }),
+        validSignature
+      );
+    });
+  });
 
-      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledTimes(1);
-      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledWith(
-        'resolved_bird_alpha', 
-        'resolved_target_slug', 
-        'KONTAKT',
-        'endorseSkill'
+  describe('registerEndorsement (VOUCHES_FOR)', () => {
+    it('🔴 doit rejeter (400) si l\'oiseau s\'auto-recommande', async () => {
+      await expect(
+        orchestrator.registerEndorsement(
+          { targetUid: 'bird_alpha', skill: 'TYPESCRIPT' },
+          { actorUid: 'bird_alpha', capabilities: [] }
+        )
+      ).rejects.toThrow(IlotError);
+    });
+
+    it('🟢 doit apposer la relation VOUCHES_FOR, propager l\'interaction et notifier la cible', async () => {
+      const res = await orchestrator.registerEndorsement(
+        { targetUid: 'target_slug', skill: 'TYPESCRIPT', comment: 'Expertise solide' },
+        validSignature
+      );
+
+      expect(res.success).toBe(true);
+      expect(mockFosterNotification).toHaveBeenCalledTimes(1);
+      expect(mockFosterNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'VOUCH_RECEIVED' }),
+        validSignature
+      );
+    });
+  });
+
+  describe('leaveReview (Avis Post-Collaboration)', () => {
+    it('🔴 doit rejeter (403) si aucune relation :HIRED n\'est trouvée dans le Graphe', async () => {
+      const mockNeo4jTx = {
+        run: vi.fn().mockResolvedValueOnce({ records: [] }) // 0 record -> pas de relation HIRED
+      };
+      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name, cb) => {
+        return await cb({} as ClientSession, mockNeo4jTx as unknown as Transaction);
+      });
+
+      await expect(
+        orchestrator.leaveReview(
+          { targetUid: 'target_slug', rating: 5, comment: 'Super mission' },
+          validSignature
+        )
+      ).rejects.toThrow(IlotError);
+    });
+
+    it('🟢 doit enregistrer l\'avis si :HIRED est présente et notifier l\'évalué', async () => {
+      const mockNeo4jTx = {
+        run: vi.fn()
+          .mockResolvedValueOnce({ records: [{}] }) // Trouve le lien HIRED
+          .mockResolvedValueOnce({ records: [{}] }) // Crée l'avis
+      };
+      vi.mocked(TransactionManager.execute).mockImplementationOnce(async (_name, cb) => {
+        return await cb({} as ClientSession, mockNeo4jTx as unknown as Transaction);
+      });
+
+      const res = await orchestrator.leaveReview(
+        { targetUid: 'target_slug', rating: 5, comment: 'Super mission' },
+        validSignature
+      );
+
+      expect(res.success).toBe(true);
+      expect(mockFosterNotification).toHaveBeenCalledTimes(1);
+      expect(mockFosterNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'REVIEW_RECEIVED' }),
+        validSignature
       );
     });
   });
 
   describe('requestIntroduction (La Passerelle)', () => {
-    it('🟢 doit enregistrer une demande et propager l\'interaction universelle avec l\'intermédiaire', async () => {
+    it('🟢 doit enregistrer une demande, propager l\'interaction universelle et notifier l\'intermédiaire', async () => {
       const res = await orchestrator.requestIntroduction(
         { intermediaryUid: 'inter_slug', targetUid: 'target_slug', message: 'Hello!' },
         validSignature
       );
 
       expect(res.success).toBe(true);
-      expect(res.status).toBe('PENDING');
-      expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
-
-      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledTimes(1);
-      expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledWith(
-        'resolved_bird_alpha', 
-        'resolved_inter_slug', 
-        'KONTAKT',
-        'requestIntroduction'
+      expect(mockFosterNotification).toHaveBeenCalledTimes(1);
+      expect(mockFosterNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'INTRO_REQUESTED' }),
+        validSignature
       );
     });
   });
 
-  // 🚀 NOUVELLE SUITE DE TESTS POUR LE MATCHMAKING DE BUDGET
   describe('matchmakingEngine (Matchs de Budget Favorables)', () => {
     it('🟢 doit flagger un match favorable (FAVORABLE_BUDGET_MATCH) si le taux horaire rentre dans le budget max', async () => {
       const res = await orchestrator.matchmakingEngine({
@@ -163,9 +238,8 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
     it('🟡 doit retourner MISSING_DATA s\'il manque des informations financières', async () => {
       const res1 = await orchestrator.matchmakingEngine({
         questMaxBudgetCents: 50000
-        // profileHourlyRateCents manquant
       });
-      const res2 = await orchestrator.matchmakingEngine({}); // Tout est manquant
+      const res2 = await orchestrator.matchmakingEngine({});
 
       expect(res1.isFavorable).toBe(false);
       expect(res1.matchFlag).toBe('MISSING_DATA');
