@@ -1,18 +1,7 @@
+// Fichier : packages/types/src/models/sujet.types.ts
 import { z } from 'zod';
 import { SeoMetadataSchema, CrossLinkSchema, SharedMediaSchema } from '../core/seo.types';
-
-// ==========================================
-// 0. COPYRIGHT & RÔLES ARTISTIQUES (DRY)
-// ==========================================
-export const CopyrightRoleSchema = z.enum(['CREATOR', 'SUBLIMATOR', 'CURATOR']);
-
-export const CopyrightMetadataSchema = z.object({
-  role: CopyrightRoleSchema.default('CREATOR'),
-  originalAuthor: z.string().optional(),
-  originalWorkTitle: z.string().optional(),
-  sublimationNotes: z.string().optional(),
-  isExclusiveIlot: z.boolean().default(false)
-});
+import { CopyrightMetadataSchema } from '../core/copyright.types'; // 🚀 Import propre
 
 // ==========================================
 // 1. ÉNUMÉRATIONS & TYPES DE CONNEXIONS
@@ -31,7 +20,6 @@ export const SujetStatusSchema = z.enum([
   'ARCHIVED'
 ]);
 
-// Harmonisation complète des types d'entités pour le graphe (CrossLinks)
 export const ExtendedEntityTypeSchema = z.enum([
   'BLOG', 
   'PROJECT', 
@@ -65,7 +53,7 @@ export const SujetSchema = z.object({
   // --- CHAMPS LITTÉRAIRES & JURIDIQUES ---
   lyrics: z.string().optional(),
   copyright: z.string().optional(),
-  copyrightMetadata: CopyrightMetadataSchema.default({}), // 🚀 Intégration DRY du Copyright unifié
+  copyrightMetadata: CopyrightMetadataSchema.default({}), // 🚀 Intégration modulaire
   
   authorUid: z.string(),
 
@@ -77,10 +65,10 @@ export const SujetSchema = z.object({
   publishedAt: z.string().datetime().optional(),
   readingTimeMinutes: z.number().default(1),    
 
-  // --- 🔍 OPTIMISATION SEO (Mutualisé) ---
+  // --- 🔍 OPTIMISATION SEO ---
   seo: SeoMetadataSchema.default({}),
 
-  // --- 🌐 LE TISSU CONNECTEUR (Mutualisé - Les defaults garantissent l'objet complet) ---
+  // --- 🌐 LE TISSU CONNECTEUR ---
   connections: z.object({
     relatedProjects: z.array(z.string()).default([]),
     relatedTasks: z.array(z.string()).default([]),
@@ -96,10 +84,10 @@ export const SujetSchema = z.object({
     displayMode: z.string().default('card')
   }).optional(),
 
-  // --- 🖼️ MÉDIAS & ANCRAGES SENSORIELS (Mutualisé) ---
+  // --- 🖼️ MÉDIAS & ANCRAGES SENSORIELS ---
   media: SharedMediaSchema.optional(),
 
-  // --- GOUVERNANCE & MODÉRATION (Mutualisé - Les defaults garantissent l'objet complet) ---
+  // --- GOUVERNANCE & MODÉRATION ---
   settings: z.object({
     allowComments: z.boolean().default(true),
     allowEmojiReactions: z.boolean().default(true),
@@ -121,7 +109,7 @@ export const SujetSchema = z.object({
     globalReach: z.number().default(0)
   }).default({}),
 
-  // --- 🌟 EXTENSIONS KOSMIQUES (Commentaires, SEO Fraîcheur & Gacha Karmique) ---
+  // --- 🌟 EXTENSIONS KOSMIQUES ---
   kosmicBoon: z.object({
     interactionCount: z.number().default(0),
     nextKosmicBoon: z.number().default(42) 
@@ -133,5 +121,3 @@ export const SujetSchema = z.object({
 export type ISujet = z.infer<typeof SujetSchema>;
 export type SujetCategory = z.infer<typeof SujetCategorySchema>;
 export type SujetStatus = z.infer<typeof SujetStatusSchema>;
-export type CopyrightRole = z.infer<typeof CopyrightRoleSchema>;
-export type CopyrightMetadata = z.infer<typeof CopyrightMetadataSchema>;

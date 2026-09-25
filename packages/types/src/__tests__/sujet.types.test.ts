@@ -1,24 +1,18 @@
+// Fichier : packages/types/src/__tests__/sujet.types.test.ts
 import { describe, it, expect } from 'vitest';
-import { SujetSchema, SujetCategorySchema, SujetStatusSchema, CopyrightRoleSchema } from '../models/sujet.types';
+import { SujetSchema, SujetCategorySchema } from '../models/sujet.types';
 
-describe('Schéma Zod : SujetSchema & Copyright (DRY Edition)', () => {
+describe('Schéma Zod : SujetSchema (DRY Edition)', () => {
   
-  describe('Validations des Énumérations & Copyright', () => {
+  describe('Validations des Catégories', () => {
     it('valide les catégories autorisées', () => {
       expect(SujetCategorySchema.parse('MONOLOGUE')).toBe('MONOLOGUE');
       expect(SujetCategorySchema.parse('MANIFESTO')).toBe('MANIFESTO');
       expect(() => SujetCategorySchema.parse('INCONNU')).toThrow();
     });
-
-    it('valide les rôles de copyright autorisés (Créateur, Sublimateur, Curateur)', () => {
-      expect(CopyrightRoleSchema.parse('CREATOR')).toBe('CREATOR');
-      expect(CopyrightRoleSchema.parse('SUBLIMATOR')).toBe('SUBLIMATOR');
-      expect(CopyrightRoleSchema.parse('CURATOR')).toBe('CURATOR');
-      expect(() => CopyrightRoleSchema.parse('HACKER')).toThrow();
-    });
   });
 
-  describe('Validation du Schéma Principal avec Copyright Sublimé', () => {
+  describe('Validation du Schéma Principal avec Intégration Copyright', () => {
     const validBaseSujet = {
       uid: 'sujet-uuid-123',
       title: 'Chronique des Profondeurs',
@@ -27,7 +21,7 @@ describe('Schéma Zod : SujetSchema & Copyright (DRY Edition)', () => {
       authorUid: 'oiseau-uid-789'
     };
 
-    it('valide un sujet avec les métadonnées de copyright par défaut', () => {
+    it('valide un sujet avec les métadonnées de copyright injectées par défaut', () => {
       const result = SujetSchema.safeParse(validBaseSujet);
       expect(result.success).toBe(true);
       if (result.success) {
@@ -36,24 +30,27 @@ describe('Schéma Zod : SujetSchema & Copyright (DRY Edition)', () => {
       }
     });
 
-    it('valide un sujet avec un rôle de Sublimateur et une exclusivité Îlot active', () => {
+    it('valide un sujet avec un rôle de Sublimateur et un Pacte de Filiation initié', () => {
       const sublimatedSujet = {
         ...validBaseSujet,
         copyrightMetadata: {
           role: 'SUBLIMATOR',
           originalAuthor: 'Georges Brassens',
-          originalWorkTitle: 'Les Copains d abord',
-          sublimationNotes: 'Arrangement acoustique en ré mineur',
-          isExclusiveIlot: true
+          filiation: {
+            isExternalSource: true,
+            sourceAuthorName: 'Georges Brassens',
+            sourceWorkTitle: 'Les Copains d abord',
+            claimStatus: 'PENDING_CLAIM',
+            escrowBalance: 0
+          }
         }
       };
 
       const result = SujetSchema.safeParse(sublimatedSujet);
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.copyrightMetadata.role).toBe('SUBLIMATOR');
-        expect(result.data.copyrightMetadata.originalAuthor).toBe('Georges Brassens');
-        expect(result.data.copyrightMetadata.isExclusiveIlot).toBe(true);
+        expect(result.data.copyrightMetadata.filiation?.sourceAuthorName).toBe('Georges Brassens');
+        expect(result.data.copyrightMetadata.filiation?.claimStatus).toBe('PENDING_CLAIM');
       }
     });
   });

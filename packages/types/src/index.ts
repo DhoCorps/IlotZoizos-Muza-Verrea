@@ -38,6 +38,7 @@ export * from './models/propagation.types';
 export * from './core/notification.types';
 export * from './core/subscription.types';
 export * from './core/raffle.types';
+export * from './core/copyright.types';
 
 export interface ActionSignature {
   actorUid: string;       
