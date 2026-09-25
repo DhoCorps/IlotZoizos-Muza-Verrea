@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/orchestrators/bibliotek.orchestrator.ts
 import { LibraryBookModel, ILibraryBook } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature, LibraryBookEconomyMetadata, CopyrightMetadata } from '@ilot/types';
@@ -39,8 +40,9 @@ export interface FosterBookPayload {
   fileUrl: string;
   coverUrl?: string | null;
   format?: string;
+  tags?: string[]; // 🚀 Ajout du squelette des tags
   economy?: Partial<LibraryBookEconomyMetadata>;
-  copyrightMetadata?: CopyrightMetadata; // 🚀
+  copyrightMetadata?: CopyrightMetadata;
   settings?: {
     allowReadExchange?: boolean;
     consentForShowcase?: boolean;
@@ -115,7 +117,7 @@ export class BibliotekOrchestrator {
       const digitalSignature = generateFileHash(canonicalContent);
       const now = new Date();
 
-      // 🛡️ Logique métier du Copyright centralisée via Helper DRY
+      // 🛡️ Logique métier du Copyright centralisée (Pacte de Filiation inclus)
       const cpMeta = sanitizeCopyright(data.copyrightMetadata);
 
       // ✨ OPTIMISATION SEO : Auto-génération de balises pour les moteurs de recherche
@@ -152,12 +154,13 @@ export class BibliotekOrchestrator {
         fileUrl: data.fileUrl,
         coverUrl: data.coverUrl || null,
         format: data.format || 'epub',
+        tags: data.tags || [],
         digitalSignature,
         timestampedAt: now,
         copyrightClaimed: true,
-        copyrightMetadata: cpMeta, // 🚀 Injecté proprement
+        copyrightMetadata: cpMeta, 
         economy: defaultEconomy,
-        seo: autoSeo, // 🚀 Injection SEO automatique
+        seo: autoSeo,
         emotionalHighlights: [],
         settings: {
           allowReadExchange: data.settings?.allowReadExchange ?? true,
@@ -170,6 +173,7 @@ export class BibliotekOrchestrator {
       // 🌐 Génération dynamique du lien Graphe selon le rôle de l'artiste
       const relationType = getCopyrightCypherRelation(cpMeta.role);
 
+      // 🚀 Injection des métadonnées de Filiation dans le Graphe Neo4j
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (b:LibraryBook {
@@ -185,6 +189,8 @@ export class BibliotekOrchestrator {
             barterAllowed: $barterAllowed,
             gachaTier: $gachaTier,
             isExclusiveIlot: $isExclusiveIlot,
+            hasFiliation: $hasFiliation,
+            filiationClaimStatus: $filiationClaimStatus,
             createdAt: datetime($now)
         })
         CREATE (u)-[:${relationType} { notes: $sublimationNotes }]->(b)
@@ -207,6 +213,8 @@ export class BibliotekOrchestrator {
         barterAllowed: defaultEconomy.barterAllowed,
         gachaTier: defaultEconomy.gachaTier,
         isExclusiveIlot: cpMeta.isExclusiveIlot,
+        hasFiliation: !!cpMeta.filiation, // 🪡 Trace dans le Graphe si c'est une œuvre dérivée
+        filiationClaimStatus: cpMeta.filiation?.claimStatus || 'NONE', // 🪡 État du Pacte
         sublimationNotes: cpMeta.sublimationNotes || '',
         now: now.toISOString()
       });
@@ -282,15 +290,16 @@ export class BibliotekOrchestrator {
       let neoResult = null;
       if (updates.title || updates.status || updates.economy || updates.copyrightMetadata) {
         
-        const isExclusiveUpdate = updates.copyrightMetadata 
-            ? sanitizeCopyright(updates.copyrightMetadata as any).isExclusiveIlot 
-            : null;
+        const cpUpdate = updates.copyrightMetadata ? sanitizeCopyright(updates.copyrightMetadata as any) : null;
+        const isExclusiveUpdate = cpUpdate ? cpUpdate.isExclusiveIlot : null;
+        const filiationClaimStatusUpdate = cpUpdate?.filiation ? cpUpdate.filiation.claimStatus : null;
 
         neoResult = await neo4jTx.run(`
           MATCH (b:LibraryBook { uid: $bookUid })
           SET b.title = coalesce($title, b.title),
               b.status = coalesce($status, b.status),
               b.isExclusiveIlot = coalesce($isExclusiveIlot, b.isExclusiveIlot),
+              b.filiationClaimStatus = coalesce($filiationClaimStatus, b.filiationClaimStatus),
               b.updatedAt = datetime($now)
           WITH b
           MATCH (author:User { uid: $authorUid })
@@ -302,6 +311,7 @@ export class BibliotekOrchestrator {
           title: updates.title || null,
           status: updates.status || null,
           isExclusiveIlot: isExclusiveUpdate,
+          filiationClaimStatus: filiationClaimStatusUpdate,
           now: now.toISOString()
         });
       }

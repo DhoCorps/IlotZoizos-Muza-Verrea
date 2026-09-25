@@ -1,4 +1,4 @@
-// src/games/atomik-k-fard-e/AtomikKFardETypes.ts
+// Fichier : src/games/atomik-k-fard-e/AtomikKFardETypes.ts
 import {
     BaseRoomData,
     PlayerInRoom,
@@ -86,12 +86,24 @@ export interface ConquestRoundResult {
     cafardBombPlayer2PropagationOrigin: CellCoordinates | null;
 }
 
+// 🚀 NOUVEAU : Interface extraite et exportée proprement
+export interface AtomikKFardEGameOptions {
+    nbPlayer: AtomikKFardENbPlayer;
+    mode: AtomikKFardEMode;
+    option: AtomikKFardEOption;
+    teamMode: AtomikKFardETeamMode;
+    gameStyle: AtomikKFardEStyle;
+    timePerRound: number;
+    maxRounds: number;
+    scoreToWin: number;
+}
+
 export interface AtomikKFardEGameRoom extends AtomikKFardERoomToSend {
     gameType: 'AtomikKFardE';
     id: string;
     ownerId: string;
     name: string;
-    players: AtomikKFardEPlayerClient[]; // 🌟 Utiliser AtomikKFardEPlayerClient pour satisfaire l'héritage de AtomikKFardERoomToSend
+    players: AtomikKFardEPlayerClient[]; 
     state: 'waitingForPlayers' | 'readyToStart' | 'inGame' | 'gameOver' | 'empty' | 'paused';
     winnerId: string | null;
     currentRound: number;
@@ -102,16 +114,7 @@ export interface AtomikKFardEGameRoom extends AtomikKFardERoomToSend {
     currentRoundTimer: NodeJS.Timeout | null;
     currentRoundTimeLeft: number;
     maxPlayers: number;
-    gameOptions: {
-        nbPlayer: AtomikKFardENbPlayer;
-        mode: AtomikKFardEMode;
-        option: AtomikKFardEOption;
-        teamMode: AtomikKFardETeamMode;
-        gameStyle: AtomikKFardEStyle;
-        timePerRound: number;
-        maxRounds: number;
-        scoreToWin: number;
-    };
+    gameOptions: AtomikKFardEGameOptions; // 🚀 Utilisation de l'interface propre
     deck: AtomikDeck;
     discardPile: AtomikDeck;
     grid: AtomikGrid;

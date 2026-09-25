@@ -1,5 +1,6 @@
+// Fichier : packages/types/src/core/ecommerce.types.ts
 import { z } from 'zod';
-import { CopyrightMetadataSchema } from '../../../shared-core/src/types/shared.types'; // 🚀 Import DRY pour le copyright unifié
+import { CopyrightMetadataSchema } from '../core/copyright.types'; // 🚀 Import local depuis notre nouveau fichier DRY (Pacte de Filiation inclus)
 
 export const CreationVisibilitySchema = z.enum(['PUBLIC', 'EXCHANGEABLE', 'VISIBLE', 'PRIVATE']);
 export type CreationVisibility = z.infer<typeof CreationVisibilitySchema>;
@@ -66,7 +67,7 @@ export const ProductSchema = z.object({
     description: z.string().optional(),
   }).optional(),
 
-  // 📜 COPYRIGHT ET EXCLUSIVITÉ ÎLOT (DRY)
+  // 📜 COPYRIGHT ET EXCLUSIVITÉ ÎLOT (DRY + Pacte de Filiation)
   copyrightMetadata: CopyrightMetadataSchema.optional(),
 
   // 🎡 OPTIONS DE LA ROULETTE KARMIQUE

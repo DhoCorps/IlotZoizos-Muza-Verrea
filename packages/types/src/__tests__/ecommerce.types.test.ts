@@ -1,3 +1,4 @@
+// Fichier : packages/types/src/__tests__/ecommerce.types.test.ts
 import { describe, it, expect } from 'vitest';
 import { 
   StoreSchema, 
@@ -20,7 +21,7 @@ describe('Ecommerce Types - Validation Zod Avancée (Coût, Marge Kompta, Roulet
     expect(StoreSchema.safeParse(store).success).toBe(true);
   });
 
-  it('🟢 doit valider un produit avec coût de revient et calcul de marge pour Kompta', () => {
+  it('🟢 doit valider un produit avec coût de revient, calcul de marge pour Kompta ET Pacte de Filiation', () => {
     const product = { 
       uid: 'prod-1', 
       storeUid: 'store-1', 
@@ -45,9 +46,29 @@ describe('Ecommerce Types - Validation Zod Avancée (Coût, Marge Kompta, Roulet
       wagerAmount: 5,
       variants: [
         { uid: 'var-1', name: 'Standard', priceOffsetCents: 0, costPriceCents: 300, stock: 50 }
-      ]
+      ],
+      // 🚀 Intégration du Copyright et Pacte de Filiation testée ici
+      copyrightMetadata: {
+        role: 'SUBLIMATOR',
+        originalAuthor: 'Graphiste Anonyme',
+        isExclusiveIlot: true,
+        filiation: {
+          isExternalSource: true,
+          sourceAuthorName: 'Graphiste Anonyme',
+          sourceWorkTitle: 'Cyber Font v1',
+          claimStatus: 'PENDING_CLAIM',
+          escrowBalance: 0
+        }
+      }
     };
-    expect(ProductSchema.safeParse(product).success).toBe(true);
+    
+    const result = ProductSchema.safeParse(product);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.copyrightMetadata?.role).toBe('SUBLIMATOR');
+      expect(result.data.copyrightMetadata?.filiation?.sourceWorkTitle).toBe('Cyber Font v1');
+      expect(result.data.copyrightMetadata?.filiation?.claimStatus).toBe('PENDING_CLAIM');
+    }
   });
 
   it('🟢 doit valider un produit de type LUCKY_DROP', () => {

@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/app/api/bibliotek/__tests__/route.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/bibliotek/route';
 import { LibraryBookModel } from '@ilot/infrastructure';
@@ -128,7 +129,7 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
     expect(res.status).toBe(401);
   });
 
-  it('🟢 POST : doit sédimenter l’ouvrage avec statuts et économie', async () => {
+  it('🟢 POST : doit sédimenter l’ouvrage avec statuts, économie, tags et Pacte de Filiation', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
 
     const req = new NextRequest('http://localhost:3000/api/bibliotek', {
@@ -137,6 +138,16 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
         title: 'Essai sur la Silice', 
         fileUrl: 'https://cdn.ilot/books/essai.epub',
         status: 'PUBLISHED',
+        tags: ['silice', 'filiation'], // 🚀 Validation des tags
+        copyrightMetadata: {
+          role: 'SUBLIMATOR',
+          isExclusiveIlot: true,
+          filiation: { // 🚀 Validation du transfert de la filiation
+            isExternalSource: true,
+            sourceAuthorName: 'Auteur Original',
+            sourceWorkTitle: 'La Source'
+          }
+        },
         economy: { priceCents: 1500, gachaTier: 'rare' }
       })
     });
@@ -147,6 +158,18 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
     expect(res.status).toBe(201);
     expect(json.success).toBe(true);
     expect(json.data.status).toBe('PUBLISHED');
+    
+    // 🚀 S'assure que l'Orchestrateur reçoit bien les données de tags et filiation validées par Zod
+    expect(BibliotekOrchestrator.prototype.fosterBook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tags: ['silice', 'filiation'],
+        copyrightMetadata: expect.objectContaining({
+          filiation: expect.objectContaining({ sourceWorkTitle: 'La Source' })
+        })
+      }),
+      expect.any(Object)
+    );
+
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek-user-bird_writer');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek-public');

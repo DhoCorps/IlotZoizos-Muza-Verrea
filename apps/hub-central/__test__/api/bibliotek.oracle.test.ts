@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/app/api/bibliotek/oracle/__tests__/route.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from '@/app/api/bibliotek/oracle/route';
 import { getCachedBookBySignature } from '@/lib/cache/bibliotek.cache';
@@ -59,13 +60,22 @@ describe('API Bibliotek - Oracle du Sceau (/api/bibliotek/oracle)', () => {
     expect(json.error).toContain('Antériorité non certifiée');
   });
 
-  it('🟢 GET : doit authentifier et retourner l\'ouvrage si le sceau SHA-256 est valide', async () => {
+  it('🟢 GET : doit authentifier et retourner l\'ouvrage (avec la Filiation et les tags) si le sceau SHA-256 est valide', async () => {
     const mockBook = {
       uid: 'book_abc',
       title: 'Le Chant de la Silice',
       authorSlug: 'Oiseau Solitaire',
       writingType: 'essai',
       style: 'philosophie',
+      tags: ['silice', 'filiation'], // 🚀
+      copyrightMetadata: { // 🚀
+        role: 'SUBLIMATOR',
+        filiation: {
+          isExternalSource: true,
+          sourceAuthorName: 'Auteur Original',
+          sourceWorkTitle: 'La Source'
+        }
+      },
       digitalSignature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
       timestampedAt: new Date(),
       createdAt: new Date(),
@@ -82,5 +92,10 @@ describe('API Bibliotek - Oracle du Sceau (/api/bibliotek/oracle)', () => {
     expect(json.verified).toBe(true);
     expect(json.data.title).toBe('Le Chant de la Silice');
     expect(json.data.digitalSignature).toBe(mockBook.digitalSignature);
+    
+    // 🚀 Vérification de la transparence de la propriété intellectuelle
+    expect(json.data.tags).toContain('filiation');
+    expect(json.data.copyrightMetadata.role).toBe('SUBLIMATOR');
+    expect(json.data.copyrightMetadata.filiation.sourceWorkTitle).toBe('La Source');
   });
 });

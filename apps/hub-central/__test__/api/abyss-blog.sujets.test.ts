@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/app/api/abyss-blog/sujets/__tests__/route.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/abyss-blog/sujets/route';
 import { getServerSession } from 'next-auth/next';
@@ -128,14 +129,25 @@ describe('Route API : Bibliothèque & Sujets (GET / POST /api/abyss-blog/sujets)
       ]).toContain(json.error);
     });
 
-    it('doit réussir (201) la création d\'un sujet, exécuter l\'orchestrateur et invalider le cache', async () => {
+    it('doit réussir (201) la création d\'un sujet avec copyright et filiation, exécuter l\'orchestrateur et invalider le cache', async () => {
       vi.mocked(getServerSession).mockResolvedValue({
         user: { uid: 'u-123', capabilities: [] }
       } as unknown as Awaited<ReturnType<typeof getServerSession>>);
 
       const req = new NextRequest('http://localhost/api/abyss-blog/sujets', {
         method: 'POST',
-        body: JSON.stringify({ title: 'La conscience de l\'Îlot', content: 'Contenu profond...' }),
+        body: JSON.stringify({ 
+          title: 'La conscience de l\'Îlot', 
+          content: 'Contenu profond...',
+          copyrightMetadata: {
+            role: 'SUBLIMATOR',
+            isExclusiveIlot: true,
+            filiation: {
+              sourceAuthorName: 'Auteur Source',
+              sourceWorkTitle: 'Monolithe'
+            }
+          }
+        }),
       });
 
       const response = await POST(req, { params: Promise.resolve({}) });

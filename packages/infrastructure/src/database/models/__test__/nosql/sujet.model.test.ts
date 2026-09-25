@@ -1,7 +1,8 @@
+// Fichier : packages/infrastructure/src/__tests__/sujet.model.test.ts
 import { describe, it, expect } from 'vitest';
 import { SujetModel } from '../../nosql/sujet.model';
 
-describe('Sujet Model (Ultimate Edition - SEO, Cross-Links, Propagation & Copyright)', () => {
+describe('Sujet Model (Ultimate Edition - SEO, Cross-Links, Propagation & Copyright avec Filiation)', () => {
     
     it('🟢 doit valider un sujet conforme avec toutes ses valeurs requises, par défaut et auto-générées', () => {
         const validData = {
@@ -21,11 +22,10 @@ describe('Sujet Model (Ultimate Edition - SEO, Cross-Links, Propagation & Copyri
         expect(sujet.status).toBe('DRAFT');      
         expect(sujet.readingTimeMinutes).toBe(1); 
         expect(sujet.settings.allowComments).toBe(true);
-        expect(sujet.settings.allowPropagation).toBe(true); // Vérification du module Propagation
+        expect(sujet.settings.allowPropagation).toBe(true);
         expect(sujet.connections.crossLinks).toEqual([]);
-        expect(sujet.propagation.shareCount).toBe(0); // Télémétrie initiale à 0
+        expect(sujet.propagation.shareCount).toBe(0);
         expect(sujet.kosmicBoon.nextKosmicBoon).toBe(42);
-        // Vérification des valeurs par défaut du copyright DRY
         expect(sujet.copyrightMetadata?.role).toBe('CREATOR');
         expect(sujet.copyrightMetadata?.isExclusiveIlot).toBe(false);
     });
@@ -57,7 +57,7 @@ describe('Sujet Model (Ultimate Edition - SEO, Cross-Links, Propagation & Copyri
         expect(error?.errors?.category).toBeDefined();
     });
 
-    it('🟢 doit valider un sujet riche intégrant le SEO, les cross-links, la propagation, les attributs média et le copyright sublimé', () => {
+    it('🟢 doit valider un sujet riche intégrant le SEO, les cross-links, la propagation, les attributs média et le copyright sublimé avec Pacte de Filiation', () => {
         const richData = {
             title: 'Chronique des Profondeurs',
             slug: 'chronique-des-profondeurs',
@@ -72,7 +72,14 @@ describe('Sujet Model (Ultimate Edition - SEO, Cross-Links, Propagation & Copyri
                 originalAuthor: 'Georges Brassens',
                 originalWorkTitle: 'Les Copains d abord',
                 sublimationNotes: 'Arrangement acoustique',
-                isExclusiveIlot: true
+                isExclusiveIlot: true,
+                filiation: {
+                    isExternalSource: true,
+                    sourceAuthorName: 'Georges Brassens',
+                    sourceWorkTitle: 'Les Copains d abord',
+                    claimStatus: 'SHARED',
+                    escrowBalance: 100
+                }
             },
             seo: {
                 metaTitle: 'Chronique des Profondeurs | Îlot',
@@ -91,7 +98,7 @@ describe('Sujet Model (Ultimate Edition - SEO, Cross-Links, Propagation & Copyri
             },
             settings: {
                 alchemicalTransmuted: true,
-                allowPropagation: false // L'auteur a bloqué le partage
+                allowPropagation: false
             },
             propagation: {
                 shareCount: 15,
@@ -112,6 +119,7 @@ describe('Sujet Model (Ultimate Edition - SEO, Cross-Links, Propagation & Copyri
         expect(sujet.publishedAt).toBeInstanceOf(Date);
         expect(sujet.copyrightMetadata.role).toBe('SUBLIMATOR');
         expect(sujet.copyrightMetadata.isExclusiveIlot).toBe(true);
+        expect(sujet.copyrightMetadata.filiation!.claimStatus).toBe('SHARED');
         expect(sujet.seo.metaTitle).toBe('Chronique des Profondeurs | Îlot');
         expect(sujet.connections.crossLinks).toHaveLength(1);
         expect(sujet.connections?.crossLinks?.[0]?.entityType).toBe('LYRIKA');

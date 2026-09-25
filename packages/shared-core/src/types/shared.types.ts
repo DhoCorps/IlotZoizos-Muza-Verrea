@@ -1,10 +1,23 @@
+// Fichier : packages/shared-core/src/types/shared.types.ts
 import { IUniversalAttachment, AttachmentSourceType } from '../../../types/src/models/message.types';
 import { IlotError } from '../errors/ilot.errors';
 import { CrazyMorpionSymbol, CrazyMorpionGrid } from '../games/crazymorpion/CrazyMorpionTypes';
+
 // 🚀 Export centralisé des types Copyright pour l'application globale (DRY)
 // 🚀 Export centralisé et sécurisé pour 'isolatedModules' (TypeScript)
-export type { CopyrightRole, CopyrightMetadata } from '../../../types/src/models/sujet.types';
-export { CopyrightRoleSchema, CopyrightMetadataSchema } from '../../../types/src/models/sujet.types';
+export type { 
+  CopyrightRole, 
+  CopyrightMetadata,
+  FiliationClaimStatus,  // 🚀 Ajout du Pacte de Filiation
+  IFiliationSource       // 🚀 Ajout du Pacte de Filiation
+} from '../../../types/src/core/copyright.types';
+
+export { 
+  CopyrightRoleSchema, 
+  CopyrightMetadataSchema,
+  FiliationClaimStatusSchema, // 🚀 Ajout du Pacte de Filiation
+  FiliationSourceSchema       // 🚀 Ajout du Pacte de Filiation
+} from '../../../types/src/core/copyright.types';
 
 import type { 
     CrazyMorpionGameRoom,  
@@ -48,7 +61,8 @@ import {
     ConquestRoundResult,
     CellCoordinates,
     AtomikGrid,
-    PlayerState
+    PlayerState,
+    AtomikKFardEGameOptions
 } from '../games/atomikkfar/Atomik-K-FarTypes';
 // 🎬 Import des types CineMax
 import {
@@ -184,8 +198,7 @@ export interface BaseRoomData {
     id: string;
     name: string;
     gameType: GameType;
-    state: 'waiting' | 'playing' | 'gameOver' | 'paused' | 'waitingForPlayers' | 'readyToStart' | 'inGame' | 'empty';
-    winnerId?: string | null;
+   state: 'waiting' | 'playing' | 'gameOver' | 'paused' | 'waitingForPlayers' | 'readyToStart' | 'inGame' | 'empty' | 'scanning' | 'marking';
     round: number;
     maxPlayers: number;
     scores: Record<string, number>;
@@ -220,16 +233,6 @@ export interface KoOonTreeZRoomToSend extends BaseRoomData {
     currentFlag?: CurrentFlag | null;
 }
 
-export interface AtomikKFardEGameOptions {
-    nbPlayer: AtomikKFardENbPlayer;
-    mode: AtomikKFardEMode;
-    option: AtomikKFardEOption;
-    gameStyle: AtomikKFardEStyle;
-    maxRounds: number;
-    timePerRound: number;
-    scoreToWin: number;
-    teamMode: AtomikKFardETeamMode;
-}
 
 export interface AtomikKFardERoomToSend extends BaseRoomData {
     gameType: 'AtomikKFardE';

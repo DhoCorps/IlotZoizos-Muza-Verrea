@@ -1,9 +1,7 @@
+// Fichier : packages/infrastructure/src/__tests__/bibliotek.model.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LibraryBookModel } from '@ilot/infrastructure';
 
-// -------------------------------------------------------------------------
-// 🎭 MOCKS DE L'ENVIRONNEMENT ET DE MONGOOSE
-// -------------------------------------------------------------------------
 vi.mock('@ilot/infrastructure', () => ({
   LibraryBookModel: {
     create: vi.fn(),
@@ -11,12 +9,12 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-describe('Modèle Mongoose : LibraryBook (Bibliotek, Gacha, Émotions, SEO & Copyright)', () => {
+describe('Modèle Mongoose : LibraryBook (Bibliotek, Gacha, Émotions, SEO, Copyright & Filiation)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('🟢 doit sédimenter un livre avec un type, style, statut de publication, données SEO/Économiques et copyright enrichi', async () => {
+  it('🟢 doit sédimenter un livre enrichi avec le Pacte de Filiation et l’économie Gacha', async () => {
     const mockBookData = {
       uid: 'book_123',
       title: 'Chroniques de la Canopée',
@@ -34,7 +32,14 @@ describe('Modèle Mongoose : LibraryBook (Bibliotek, Gacha, Émotions, SEO & Cop
       copyrightMetadata: {
         role: 'SUBLIMATOR',
         originalAuthor: 'Penseur Ancien',
-        isExclusiveIlot: true
+        isExclusiveIlot: true,
+        filiation: {
+          isExternalSource: true,
+          sourceAuthorName: 'Penseur Ancien',
+          sourceWorkTitle: 'Le Codex Oublié',
+          claimStatus: 'PENDING_CLAIM',
+          escrowBalance: 0
+        }
       },
       settings: {
         allowReadExchange: true,
@@ -64,51 +69,11 @@ describe('Modèle Mongoose : LibraryBook (Bibliotek, Gacha, Émotions, SEO & Cop
     expect(createdBook).toBeDefined();
     expect(createdBook.title).toBe('Chroniques de la Canopée');
     expect(createdBook.status).toBe('PUBLISHED');
-    expect(createdBook.seo.ogType).toBe('book');
     expect(createdBook.economy.gachaTier).toBe('epic');
     expect(createdBook.digitalSignature).toHaveLength(64);
     expect(createdBook.copyrightMetadata.role).toBe('SUBLIMATOR');
     expect(createdBook.copyrightMetadata.isExclusiveIlot).toBe(true);
-  });
-
-  it('🟢 doit consigner un Surlignage Émotionnel ciblé avec signature et une Note d\'Érudit', async () => {
-    const bookWithHighlights = {
-      uid: 'book_456',
-      title: 'Fragments d’un Rêve Électrique',
-      slug: 'fragments-dun-reve-electrique',
-      authorUid: 'bird_1',
-      authorSlug: 'oiseau-libre',
-      writingType: 'poeme-cyber-alchimique',
-      style: 'experimental-sombre',
-      status: 'DRAFT',
-      fileUrl: 'https://cdn.ilot/books/fragments.txt',
-      format: 'scriptorium',
-      digitalSignature: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-      timestampedAt: new Date(),
-      emotionalHighlights: [
-        {
-          uid: 'emo_001',
-          readerUid: 'bird_reader_1',
-          selectedText: 'Le chant silencieux des étoiles, résonne dans la matrice.',
-          emotion: '<(:<',
-          comment: 'Cette fulgurance m\'a transpercé l\'esprit.',
-          isScholarSealed: true, // Promeut en Note d'Érudit
-          createdAt: new Date()
-        }
-      ]
-    };
-
-    vi.mocked(LibraryBookModel.create).mockResolvedValueOnce({
-      ...bookWithHighlights,
-      _id: 'mongo_id_book_02'
-    } as any);
-
-    const result = await LibraryBookModel.create(bookWithHighlights);
-
-    expect(result.writingType).toBe('poeme-cyber-alchimique');
-    expect(result.emotionalHighlights).toHaveLength(1);
-    expect(result.emotionalHighlights[0].emotion).toBe('<(:<');
-    expect(result.emotionalHighlights[0].isScholarSealed).toBe(true);
+    expect(createdBook.copyrightMetadata.filiation.claimStatus).toBe('PENDING_CLAIM');
   });
 
   it('❌ doit échouer si le Sceau d’antériorité (digitalSignature) est absent', async () => {

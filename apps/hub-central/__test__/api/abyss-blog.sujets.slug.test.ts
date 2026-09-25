@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/app/api/abyss-blog/sujets/[slug]/__tests__/route.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PUT, DELETE } from '@/app/api/abyss-blog/sujets/[slug]/route';
 import { getServerSession } from 'next-auth/next';
@@ -142,7 +143,7 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
   });
 
   describe('PUT - Mutation du Sujet', () => {
-    it('doit réussir (200) en passant par l\'Orchestrator, valider via Zod et invalider le cache', async () => {
+    it('doit réussir (200) en passant par l\'Orchestrator, valider via Zod (y compris filiation) et invalider le cache', async () => {
       vi.mocked(getServerSession).mockResolvedValue({
         user: { uid: 'u-owner', capabilities: [] }
       } as unknown as Awaited<ReturnType<typeof getServerSession>>);
@@ -152,7 +153,14 @@ describe('Route API : Sujet Individuel ([slug]) (GET / PUT / DELETE)', () => {
         body: JSON.stringify({ 
           title: 'Titre Modifié', 
           media: { coverImageUrl: 'https://cdn.ilot/cover.jpg' },
-          copyrightMetadata: { role: 'SUBLIMATOR', isExclusiveIlot: true } // Vérification du Copyright DRY
+          copyrightMetadata: { 
+            role: 'SUBLIMATOR', 
+            isExclusiveIlot: true,
+            filiation: {
+              sourceAuthorName: 'Auteur Original',
+              sourceWorkTitle: 'Monolithe Source'
+            }
+          } // 🚀 Vérification du Copyright DRY et du Pacte de Filiation
         }),
       });
 

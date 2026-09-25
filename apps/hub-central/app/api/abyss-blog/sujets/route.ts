@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/app/api/abyss-blog/sujets/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
@@ -8,7 +9,7 @@ import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } 
 import { getCachedSujets } from '@/lib/cache/sujets.cache';
 import { z } from 'zod';
 
-// 🛡️ Schéma de validation Zod musclé pour la fondation d'un Sujet
+// 🛡️ Schéma de validation Zod musclé pour la fondation d'un Sujet (Copyright DRY & Filiation inclus)
 const FosterSujetSchema = z.object({
   title: z.string().min(1, "Le titre est requis."),
   content: z.string().min(1, "Le contenu est requis."),
@@ -19,6 +20,24 @@ const FosterSujetSchema = z.object({
   status: z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]).optional(),
   
   tags: z.array(z.string()).optional(),
+  
+  // 🚀 Intégration du Copyright DRY et du Pacte de Filiation
+  copyrightMetadata: z.object({
+    role: z.enum(['CREATOR', 'SUBLIMATOR', 'CURATOR']),
+    originalAuthor: z.string().optional(),
+    originalWorkTitle: z.string().optional(),
+    sublimationNotes: z.string().optional(),
+    isExclusiveIlot: z.boolean().default(false),
+    filiation: z.object({
+      isExternalSource: z.boolean().default(false),
+      sourceAuthorName: z.string(),
+      sourceWorkTitle: z.string(),
+      sourceReferenceUrl: z.string().optional(),
+      claimStatus: z.enum(['PENDING_CLAIM', 'SHARED', 'REVOKED']).default('PENDING_CLAIM'),
+      escrowBalance: z.number().min(0).default(0),
+      derivativeType: z.string().optional()
+    }).optional()
+  }).optional(),
   
   // Validation stricte des objets imbriqués
   media: z.object({
@@ -113,7 +132,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       const status = err.statusCode || err.status || 500;
       return NextResponse.json({ error: err.message || "L'îlot repousse ce fragment de pensée." }, { status });
     }
-         
+          
     // 3. Invalidation rigoureuse du cache en cascade
     revalidateTag('sujets');
     revalidateTag(`sujets-user-${currentUser.uid}`);

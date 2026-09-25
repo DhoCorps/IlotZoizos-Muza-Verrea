@@ -1,4 +1,6 @@
+// Fichier : packages/types/src/core/kontakt.types.ts
 import { z } from 'zod';
+import { SeoMetadataSchema } from './seo.types'; // 🚀 Intégration du squelette SEO
 
 export const TTRPGAlignmentEnum = z.enum([
   'LOYAL_GOOD', 'NEUTRAL_GOOD', 'CHAOTIC_GOOD',
@@ -13,6 +15,33 @@ export const CharacterAttributesSchema = z.object({
   intelligence: z.number().min(1).max(20).default(10),
   charisme: z.number().min(1).max(20).default(10),
   empathieVoightKampff: z.number().min(0).max(100).default(50),
+});
+
+// Sous-schémas Kontakt (Portfolio, Pricing, Budget, Review)
+export const PortfolioItemSchema = z.object({
+  type: z.enum(['IMAGE', 'GITHUB_REPO', 'AUDIO', '3D', 'WEB']),
+  url: z.string().url(),
+  title: z.string().min(1),
+  tags: z.array(z.string()).default([]),
+});
+
+export const PricingProfileSchema = z.object({
+  hourlyRateCents: z.number().min(0),
+  missionRateCents: z.number().min(0),
+  currency: z.string().default('EUR'),
+});
+
+export const BudgetConstraintSchema = z.object({
+  minBudgetCents: z.number().min(0),
+  maxBudgetCents: z.number().min(0),
+});
+
+export const ReviewSchema = z.object({
+  authorUid: z.string(),
+  rating: z.number().min(1).max(5),
+  comment: z.string(),
+  isVerifiedHire: z.boolean().default(false),
+  createdAt: z.date().optional(),
 });
 
 export const KontaktProfileSchema = z.object({
@@ -31,10 +60,23 @@ export const KontaktProfileSchema = z.object({
   specialArtifacts: z.array(z.string()).default([]),
   biographyLore: z.string().max(500, "Le lore ne doit pas dépasser le parchemin").default(''),
   
+  // Propriétés Kontakt existantes
+  portfolioItems: z.array(PortfolioItemSchema).default([]),
+  pricing: PricingProfileSchema.optional(),
+  reviews: z.array(ReviewSchema).default([]),
+
+  // 🚀 Squelette obligatoire mutualisé (Tags, SEO & Settings de gouvernance)
+  tags: z.array(z.string()).default([]),
+  seo: SeoMetadataSchema.default({}),
+  settings: z.object({
+    allowDirectContact: z.boolean().default(true),
+    showcaseBadge: z.boolean().default(true),
+  }).default({}),
+
   createdAt: z.date().optional(),
 });
 
-// Schéma pour les Quêtes JDR / Job Quests avec Slug
+// Schéma pour les Quêtes JDR / Job Quests avec Slug, Budget et Squelette mutualisé
 export const JobQuestSchema = z.object({
   uid: z.string(),
   title: z.string().min(3, "Le titre de la quête est requis"),
@@ -42,8 +84,23 @@ export const JobQuestSchema = z.object({
   description: z.string(),
   rewardXp: z.number().default(100),
   status: z.enum(['ACTIVE', 'COMPLETED', 'ARCHIVED']).default('ACTIVE'),
+  
+  budgetConstraint: BudgetConstraintSchema.optional(),
+
+  // 🚀 Squelette obligatoire mutualisé pour les quêtes
+  tags: z.array(z.string()).default([]),
+  seo: SeoMetadataSchema.default({}),
+  settings: z.object({
+    allowApplications: z.boolean().default(true),
+  }).default({}),
+
   createdAt: z.date().optional(),
 });
+
+export type PortfolioItem = z.infer<typeof PortfolioItemSchema>;
+export type PricingProfile = z.infer<typeof PricingProfileSchema>;
+export type BudgetConstraint = z.infer<typeof BudgetConstraintSchema>;
+export type Review = z.infer<typeof ReviewSchema>;
 
 export type KontaktProfile = z.infer<typeof KontaktProfileSchema>;
 export type JobQuest = z.infer<typeof JobQuestSchema>;

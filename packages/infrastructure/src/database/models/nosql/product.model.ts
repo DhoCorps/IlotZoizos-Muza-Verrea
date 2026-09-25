@@ -1,3 +1,4 @@
+// Fichier : packages/infrastructure/src/nosql/product.model.ts
 import mongoose from 'mongoose'; 
 import type { Document, Model, Types } from 'mongoose';
 
@@ -23,6 +24,17 @@ const ProductVariantSchema = new Schema({
   costPriceCents: { type: Number, min: 0, default: 0 },
   stock: { type: Number, min: 0, default: 1 },
   attributes: { type: Map, of: String }
+}, { _id: false });
+
+// 🚀 Sous-schéma Mongoose du Pacte de Filiation pour le Copyright
+const FiliationSourceSchema = new Schema({
+  isExternalSource: { type: Boolean, default: false },
+  sourceAuthorName: { type: String, trim: true },
+  sourceWorkTitle: { type: String, trim: true },
+  sourceReferenceUrl: { type: String, trim: true },
+  claimStatus: { type: String, enum: ['PENDING_CLAIM', 'SHARED', 'REVOKED'], default: 'PENDING_CLAIM' },
+  escrowBalance: { type: Number, default: 0, min: 0 },
+  derivativeType: { type: String, trim: true }
 }, { _id: false });
 
 const ProductSchema = new Schema<IProductDocument>(
@@ -73,13 +85,14 @@ const ProductSchema = new Schema<IProductDocument>(
       description: { type: String, trim: true }
     },
 
-    // --- 📜 COPYRIGHT ET EXCLUSIVITÉ ÎLOT (DRY) ---
+    // --- 📜 COPYRIGHT ET EXCLUSIVITÉ ÎLOT (DRY + Pacte de Filiation) ---
     copyrightMetadata: {
       role: { type: String, enum: ['CREATOR', 'SUBLIMATOR', 'CURATOR'], default: 'CREATOR' },
       originalAuthor: { type: String, trim: true },
       originalWorkTitle: { type: String, trim: true },
       sublimationNotes: { type: String, trim: true },
-      isExclusiveIlot: { type: Boolean, default: false }
+      isExclusiveIlot: { type: Boolean, default: false },
+      filiation: { type: FiliationSourceSchema } // 🚀 Intégration du Pacte de Filiation
     },
 
     // --- 🎡 OPTIONS DE LA ROULETTE KARMIQUE ---
@@ -119,4 +132,4 @@ ProductSchema.index({ tags: 1 });
 ProductSchema.index({ title: 'text', description: 'text', tags: 'text' });
 
 export const ProductModel = (mongoose.models.Product as Model<IProductDocument>) || 
-                            mongoose.model<IProductDocument>('Product', ProductSchema);
+                          mongoose.model<IProductDocument>('Product', ProductSchema);

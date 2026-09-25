@@ -90,7 +90,11 @@ export function SujetForm({
         content: overrideContent !== undefined ? overrideContent : formData.get('content')?.toString(),
         lyrics: formData.get('lyrics')?.toString() || undefined,
         copyright: formData.get('copyright')?.toString() || undefined,
-        copyrightMetadata, // 🚀 Intégration DRY des métadonnées de Copyright
+        copyrightMetadata: {
+          ...copyrightMetadata,
+          // S'assure que si une filiation est active dans le state, elle est transmise
+          filiation: copyrightMetadata.filiation ? copyrightMetadata.filiation : undefined
+        },
         category: formData.get('category'),
         status: formData.get('status'),
         visibility: formData.get('visibility')?.toString() || 'PUBLIC',

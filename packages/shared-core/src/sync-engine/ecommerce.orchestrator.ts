@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/orchestrators/ecommerce.orchestrator.ts
 import { TransactionManager } from './transactionManager';
 import { ActionSignature, CopyrightMetadata } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
@@ -36,7 +37,7 @@ export interface CreateProductPayload {
   tags?: string[];
   isRouletteActive?: boolean;
   wagerAmountCents?: number; // 🚀 En centimes stricts
-  copyrightMetadata?: CopyrightMetadata; // 🚀 Injection DRY
+  copyrightMetadata?: CopyrightMetadata; // 🚀 Injection DRY & Filiation
   [key: string]: unknown;
 }
 
@@ -100,7 +101,7 @@ export class EcommerceOrchestrator {
 
     return await TransactionManager.execute("Création Produit", async (mongoSession, neo4jTx) => {
       
-      // 🛡️ Logique métier du Copyright centralisée
+      // 🛡️ Logique métier du Copyright centralisée (Pacte de Filiation inclus)
       const cpMeta = sanitizeCopyright(data.copyrightMetadata);
       
       // ✨ OPTIMISATION SEO / UX : Génération auto d'une meta-description e-commerce propre
@@ -111,22 +112,32 @@ export class EcommerceOrchestrator {
         autoSeoDesc = data.description || `Découvrez ${data.title} dans la boutique.`;
       }
 
-      // 1. Sauvegarde dans MongoDB (Silice)
+      // 1. Sauvegarde dans MongoDB (Silice) avec préservation explicite de la filiation
       const newProductData = {
         ...data,
         ownerUid: signature.actorUid,
-        sellerUid: signature.actorUid, // Par défaut le vendeur est le créateur
+        sellerUid: signature.actorUid,
         seoMetadata: {
           title: `${data.title} | Artefact`,
           description: autoSeoDesc
         },
-        copyrightMetadata: cpMeta
+        copyrightMetadata: {
+          ...cpMeta,
+          filiation: data.copyrightMetadata?.filiation ? {
+            isExternalSource: data.copyrightMetadata.filiation.isExternalSource ?? false,
+            sourceAuthorName: data.copyrightMetadata.filiation.sourceAuthorName,
+            sourceWorkTitle: data.copyrightMetadata.filiation.sourceWorkTitle,
+            sourceReferenceUrl: data.copyrightMetadata.filiation.sourceReferenceUrl,
+            claimStatus: data.copyrightMetadata.filiation.claimStatus ?? 'PENDING_CLAIM',
+            escrowBalance: data.copyrightMetadata.filiation.escrowBalance ?? 0,
+            derivativeType: data.copyrightMetadata.filiation.derivativeType
+          } : undefined
+        }
       };
       
       await ProductModel.create([newProductData], { session: mongoSession });
 
-      // 2. Tissage dans le graphe (Neo4j)
-      // 🌐 Génération dynamique du lien selon le rôle (CREATED, SUBLIMATES, CURATES)
+      // 2. Tissage dans le graphe (Neo4j) avec Filiation
       const relationType = getCopyrightCypherRelation(cpMeta.role);
 
       const query = `
@@ -140,6 +151,8 @@ export class EcommerceOrchestrator {
           isRouletteActive: $isRouletteActive,
           wagerAmountCents: $wagerAmountCents,
           isExclusiveIlot: $isExclusiveIlot,
+          hasFiliation: $hasFiliation,
+          filiationClaimStatus: $filiationClaimStatus,
           createdAt: datetime() 
         })
         CREATE (s)-[:SELLS]->(p)
@@ -157,6 +170,8 @@ export class EcommerceOrchestrator {
         isRouletteActive: data.isRouletteActive || false,
         wagerAmountCents: data.wagerAmountCents || 0,
         isExclusiveIlot: cpMeta.isExclusiveIlot,
+        hasFiliation: !!data.copyrightMetadata?.filiation,
+        filiationClaimStatus: data.copyrightMetadata?.filiation?.claimStatus || 'NONE',
         sublimationNotes: cpMeta.sublimationNotes || ''
       });
 

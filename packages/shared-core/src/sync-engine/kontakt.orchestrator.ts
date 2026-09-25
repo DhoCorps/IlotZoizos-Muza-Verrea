@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/orchestrators/kontakt.orchestrator.ts
 import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
@@ -23,6 +24,18 @@ export interface RequestIntroductionPayload {
   targetUid: string;
   message: string;
   [key: string]: unknown;
+}
+
+export interface MatchmakingPayload {
+  questMaxBudgetCents?: number;
+  profileHourlyRateCents?: number;
+  questUid?: string;
+  profileUid?: string;
+}
+
+export interface MatchmakingResult {
+  isFavorable: boolean;
+  matchFlag: 'FAVORABLE_BUDGET_MATCH' | 'OUT_OF_BUDGET' | 'MISSING_DATA';
 }
 
 export interface KontaktSyncResult {
@@ -204,5 +217,24 @@ export class KontaktOrchestrator {
     await safeSyncUniversalInteraction(requesterCanonicalUid, intermediaryCanonicalUid, 'KONTAKT', 'requestIntroduction');
 
     return result;
+  }
+
+  /**
+   * ⚖️ MOTEUR DE MATCHMAKING (Quêtes & Profils)
+   * Logique qui compare le maxBudgetCents d'une quête avec le hourlyRateCents du profil 
+   * pour flagger les "Matchs de Budget Favorables".
+   */
+  async matchmakingEngine(payload: MatchmakingPayload): Promise<MatchmakingResult> {
+    if (payload.questMaxBudgetCents === undefined || payload.profileHourlyRateCents === undefined) {
+      return { isFavorable: false, matchFlag: 'MISSING_DATA' };
+    }
+
+    // Le budget est considéré comme favorable si le taux horaire du profil rentre dans le budget max de la quête
+    const isFavorable = payload.profileHourlyRateCents <= payload.questMaxBudgetCents;
+
+    return {
+      isFavorable,
+      matchFlag: isFavorable ? 'FAVORABLE_BUDGET_MATCH' : 'OUT_OF_BUDGET'
+    };
   }
 }

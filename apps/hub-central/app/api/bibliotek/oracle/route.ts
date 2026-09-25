@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/app/api/bibliotek/oracle/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
@@ -48,6 +49,8 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
         authorSlug: safeBook.authorSlug,
         writingType: safeBook.writingType,
         style: safeBook.style,
+        tags: safeBook.tags || [], // 🚀 Ajout des tags pour le contexte
+        copyrightMetadata: safeBook.copyrightMetadata, // 🚀 Transparence de la Propriété Intellectuelle (et Filiation)
         digitalSignature: safeBook.digitalSignature,
         timestampedAt: safeBook.timestampedAt,
         createdAt: safeBook.createdAt,

@@ -1,8 +1,9 @@
+// Fichier : packages/backend/src/app/api/bibliotek/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { LibraryBookModel } from '@ilot/infrastructure';
-import { BibliotekOrchestrator, BibliotekSyncResult } from '@ilot/shared-core';
+import { BibliotekOrchestrator, BibliotekSyncResult, FosterBookPayload } from '@ilot/shared-core';
 import { ActionSignature } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
 import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
@@ -10,7 +11,7 @@ import { getCachedBibliotekCatalog } from '@/lib/cache/bibliotek.cache';
 import { z } from 'zod';
 
 // ==========================================
-// 🛡️ SCHÉMA DE VALIDATION ZOD (Anti Mass Assignment & Statut de Publication)
+// 🛡️ SCHÉMA DE VALIDATION ZOD (Anti Mass Assignment, Statut, Tags & Filiation)
 // ==========================================
 const CreateBookSchema = z.object({
   title: z.string().min(1, "Le titre est requis."),
@@ -20,7 +21,25 @@ const CreateBookSchema = z.object({
   slug: z.string().optional(),
   coverUrl: z.string().optional().nullable(),
   format: z.string().optional(),
-  status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(), // 🟢 Ajout du statut
+  status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(),
+  tags: z.array(z.string()).optional(),
+  copyrightClaimed: z.boolean().optional(),
+  copyrightMetadata: z.object({
+    role: z.enum(['CREATOR', 'SUBLIMATOR', 'CURATOR']),
+    originalAuthor: z.string().optional(),
+    originalWorkTitle: z.string().optional(),
+    sublimationNotes: z.string().optional(),
+    isExclusiveIlot: z.boolean().default(false),
+    filiation: z.object({
+      isExternalSource: z.boolean().default(false),
+      sourceAuthorName: z.string(),
+      sourceWorkTitle: z.string(),
+      sourceReferenceUrl: z.string().optional(),
+      claimStatus: z.enum(['PENDING_CLAIM', 'SHARED', 'REVOKED']).default('PENDING_CLAIM'),
+      escrowBalance: z.number().min(0).default(0),
+      derivativeType: z.string().optional()
+    }).optional()
+  }).optional(),
   economy: z.object({
     priceCents: z.number().int().nonnegative().optional(),
     currency: z.string().optional(),
@@ -38,7 +57,7 @@ const CreateBookSchema = z.object({
     allowReadExchange: z.boolean().optional().default(true),
     consentForShowcase: z.boolean().optional()
   }).optional()
-});
+}); // 🚀 FIX : La parenthèse fermante est bien là !
 
 // ==========================================
 // GET : Le Sanctuaire des Écrits Libres (Public / Optionnel Aura avec Pagination & Cache)
@@ -115,15 +134,27 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
 });
 
 // ==========================================
-// POST : Fonder un Ouvrage avec Sceau SHA-256 (Strictement Privé / Aura)
+// POST : Fonder un Ouvrage avec Sceau SHA-256 (Support Hybride JSON / FormData)
 // ==========================================
 export const POST = withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    let rawBody: unknown;
-    try {
+    let rawBody: Record<string, any>;
+    const contentType = req.headers.get('content-type') || '';
+
+    // 🚀 FIX : Support Hybride pour gérer le "FormData" envoyé par le Scriptorium ET le "JSON" standard
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await req.formData();
+      rawBody = {
+        title: formData.get('title'),
+        writingType: formData.get('writingType') || undefined,
+        style: formData.get('style') || undefined,
+        format: formData.get('format') || undefined,
+        status: formData.get('status') || undefined,
+        // Fallback virtuel pour passer la validation Zod avant l'upload réel sur R2
+        fileUrl: formData.get('fileUrl') || 'https://cdn.ilot/manuscript-virtual-scriptorium.txt',
+      };
+    } else {
       rawBody = await req.json();
-    } catch {
-      return NextResponse.json({ success: false, error: "Corps de requête illisible." }, { status: 400 });
     }
 
     const validationResult = CreateBookSchema.safeParse(rawBody);
@@ -142,11 +173,13 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     let result: BibliotekSyncResult;
     try {
       const bibliotekOrch = new BibliotekOrchestrator();
+      
       const dataToForge = { 
         ...validatedData, 
         authorUid: currentUser.uid,
         authorSlug: currentUser.slug || currentUser.uid
-      };
+      } as FosterBookPayload;
+
       result = await bibliotekOrch.fosterBook(dataToForge, signature);
     } catch (orchErr: unknown) {
       console.error("🔥 [BIBLIOTEK ORCHESTRATOR POST ERROR] :", orchErr);

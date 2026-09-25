@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/app/api/bibliotek/[slug]/__tests__/route.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PUT, DELETE } from '@/app/api/bibliotek/[slug]/route';
 import { LibraryBookModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
@@ -160,7 +161,7 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Statuts', () => {
     expect(res.status).toBe(401);
   });
 
-  it('🟢 PUT : doit muter l’ouvrage avec succès (200) y compris son statut de publication et métadonnées de copyright', async () => {
+  it('🟢 PUT : doit muter l’ouvrage avec succès y compris son statut, ses tags et sa filiation (Pacte)', async () => {
     global.__mockUser = { uid: 'bird_writer', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
@@ -174,9 +175,15 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Statuts', () => {
       body: JSON.stringify({ 
         title: 'Titre Muté',
         status: 'PUBLISHED',
+        tags: ['silice', 'mutation'], // 🚀 Validation du transfert des tags
         copyrightMetadata: {
           role: 'SUBLIMATOR',
-          isExclusiveIlot: true
+          isExclusiveIlot: true,
+          filiation: { // 🚀 Validation du transfert de la filiation
+            isExternalSource: true,
+            sourceAuthorName: 'Auteur Original',
+            sourceWorkTitle: 'La Source'
+          }
         },
         economy: {
           priceCents: 2500,
@@ -192,7 +199,18 @@ describe('API Bibliotek - Ouvrage Individuel ([slug]) & Statuts', () => {
     expect(json.success).toBe(true);
     expect(json.mongo.title).toBe('Titre Muté');
     expect(json.mongo.status).toBe('PUBLISHED');
-    expect(BibliotekOrchestrator.prototype.updateBook).toHaveBeenCalledWith('book_canonique_123', expect.any(Object), expect.any(Object));
+    
+    // On s'assure que l'orchestrateur a été appelé avec les bonnes données validées par Zod
+    expect(BibliotekOrchestrator.prototype.updateBook).toHaveBeenCalledWith(
+      'book_canonique_123', 
+      expect.objectContaining({ 
+        tags: ['silice', 'mutation'],
+        copyrightMetadata: expect.objectContaining({
+          filiation: expect.objectContaining({ sourceWorkTitle: 'La Source' })
+        })
+      }), 
+      expect.any(Object)
+    );
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek');
     expect(revalidateTag).toHaveBeenCalledWith('bibliotek-essai-sur-la-silice');
   });

@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/app/api/ecommerce/products/__tests__/route.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/ecommerce/products/route';
 import { ProductModel, OiseauModel } from '@ilot/infrastructure';
@@ -6,15 +7,19 @@ import type { ApiContext } from '@/lib/api-guards';
 import { EcommerceOrchestrator } from '@ilot/shared-core';
 
 // Mock global de l'infrastructure
-vi.mock('@ilot/infrastructure', () => ({
-    ProductModel: {
-        findOne: vi.fn(),
-        find: vi.fn(),
-    },
-    OiseauModel: {
-        findOne: vi.fn(),
-    },
-}));
+vi.mock('@ilot/infrastructure', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
+    return {
+        ...actual,
+        ProductModel: {
+            findOne: vi.fn(),
+            find: vi.fn(),
+        },
+        OiseauModel: {
+            findOne: vi.fn(),
+        },
+    };
+});
 
 // Mock des gardiens d'API (`withAura`)
 vi.mock('@/lib/api-guards', async (importOriginal) => {
@@ -27,8 +32,7 @@ vi.mock('@/lib/api-guards', async (importOriginal) => {
                 if (!mockUser || !mockUser.uid) {
                     return NextResponse.json({ success: false, error: "Oiseau non identifié." }, { status: 401 });
                 }
-                // @ts-ignore
-                return await handler(req, context, mockUser);
+                return await (handler as Function)(req, context, mockUser);
             };
         },
         withSilice: (handler: unknown) => handler,
@@ -47,19 +51,19 @@ vi.mock('next/cache', () => ({
 }));
 
 declare global {
-  var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
+    var __mockUser: { [key: string]: unknown; uid: string; capabilities: string[] } | undefined;
 }
 
 type RouteHandler = (req: NextRequest, ctx: ApiContext) => Promise<Response>;
 
-describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => {
+describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue & Filiation)', () => {
     const postHandler = POST as unknown as RouteHandler;
 
     beforeEach(() => {
         vi.clearAllMocks();
         global.__mockUser = { uid: 'bird_clean_1', capabilities: ['*'] };
 
-        // 🛡️ Espion/Mock de l'orchestrateur exactement comme pour la Bibliotek pour éviter de toucher à Mongoose/Neo4j
+        // 🛡️ Espion/Mock de l'orchestrateur pour éviter de toucher directement à Mongoose/Neo4j
         vi.spyOn(EcommerceOrchestrator.prototype, 'createProduct').mockResolvedValue({
             success: true,
             productUid: 'prod_123'
@@ -108,7 +112,7 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
         expect(json.error).toContain('Contrat souverain invalide');
     });
 
-    it('🟢 doit autoriser l\'ajout et transmettre tags, roulette et mise à l\'Orchestrateur', async () => {
+    it('🟢 doit autoriser l\'ajout et transmettre tags, roulette, copyright et filiation à l\'Orchestrateur', async () => {
         vi.mocked(OiseauModel.findOne).mockReturnValue({
             lean: vi.fn().mockResolvedValueOnce({
                 uid: 'bird_clean_1',
@@ -135,7 +139,16 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
                 slug: 'artefact-lumineux',
                 tags: ['magie', 'rare'],
                 isRouletteActive: true,
-                wagerAmount: 5
+                wagerAmount: 5,
+                copyrightMetadata: {
+                    role: 'SUBLIMATOR',
+                    isExclusiveIlot: true,
+                    filiation: {
+                        isExternalSource: true,
+                        sourceAuthorName: 'Auteur Original',
+                        sourceWorkTitle: 'Monolithe Source'
+                    }
+                }
             }),
         });
 
@@ -146,14 +159,21 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue)', () => 
         expect(json.success).toBe(true);
         expect(json.data).toHaveProperty('uid');
         
-        // Vérification de la transmission des champs vers l'orchestrateur espionné
+        // Vérification de la transmission des champs vers l'orchestrateur espionné (y compris le copyright & filiation)
         expect(EcommerceOrchestrator.prototype.createProduct).toHaveBeenCalledTimes(1);
         expect(EcommerceOrchestrator.prototype.createProduct).toHaveBeenCalledWith(
             expect.objectContaining({
                 title: 'Artefact Lumineux',
                 tags: ['magie', 'rare'],
                 isRouletteActive: true,
-                wagerAmount: 5
+                wagerAmount: 5,
+                copyrightMetadata: expect.objectContaining({
+                    role: 'SUBLIMATOR',
+                    isExclusiveIlot: true,
+                    filiation: expect.objectContaining({
+                        sourceWorkTitle: 'Monolithe Source'
+                    })
+                })
             }),
             expect.objectContaining({
                 actorUid: 'bird_clean_1'

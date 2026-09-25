@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ShieldCheck, ShieldAlert, Loader2, Search, CheckCircle2, XCircle } from 'lucide-react';
+import { ShieldCheck, Loader2, Search, CheckCircle2, XCircle, Tag, GitFork } from 'lucide-react';
 
 interface OracleVerificationResult {
   uid: string;
@@ -11,6 +11,16 @@ interface OracleVerificationResult {
   style: string;
   digitalSignature: string;
   timestampedAt: string;
+  tags?: string[];
+  copyrightMetadata?: {
+    role: string;
+    isExclusiveIlot?: boolean;
+    filiation?: {
+      sourceAuthorName: string;
+      sourceWorkTitle: string;
+      claimStatus: string;
+    };
+  };
 }
 
 export function OracleVerifierWidget() {
@@ -104,6 +114,32 @@ export function OracleVerifierWidget() {
               <span className="text-[#C9D1D9]">{new Date(verificationResult.timestampedAt).toLocaleString()}</span>
             </div>
           </div>
+
+          {/* Pacte de Filiation & Copyright */}
+          {verificationResult.copyrightMetadata?.filiation && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-1 text-xs">
+              <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest flex items-center gap-1.5">
+                <GitFork size={12} /> Pacte de Filiation Déclaré ({verificationResult.copyrightMetadata.role})
+              </span>
+              <p className="text-slate-300">
+                Source : <span className="text-white font-bold">{verificationResult.copyrightMetadata.filiation.sourceWorkTitle}</span> par {verificationResult.copyrightMetadata.filiation.sourceAuthorName}
+              </p>
+              <p className="text-[10px] text-amber-500/80 font-mono">
+                Statut : {verificationResult.copyrightMetadata.filiation.claimStatus}
+              </p>
+            </div>
+          )}
+
+          {/* Tags */}
+          {verificationResult.tags && verificationResult.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {verificationResult.tags.map((tag) => (
+                <span key={tag} className="text-[10px] font-mono text-slate-400 bg-white/5 border border-white/10 px-2 py-0.5 rounded-md flex items-center gap-1">
+                  <Tag size={10} /> {tag}
+                </span>
+              ))}
+            </div>
+          )}
 
           <div className="pt-2 border-t border-[#2A2E39] text-[10px] text-[#8B949E] font-mono truncate">
             Sceau SHA-256 : <span className="text-slate-300">{verificationResult.digitalSignature}</span>

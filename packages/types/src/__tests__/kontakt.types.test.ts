@@ -1,7 +1,8 @@
+// Fichier : packages/types/src/__tests__/kontakt.types.test.ts
 import { describe, it, expect } from 'vitest';
-import { KontaktProfileSchema } from '../core/kontakt.types';
+import { KontaktProfileSchema, JobQuestSchema } from '../core/kontakt.types';
 
-describe('KontaktProfile - Validation Zod des Profils Hybrides', () => {
+describe('KontaktProfile - Validation Zod des Profils Hybrides & Squelette Mutualisé', () => {
   const validProfile = {
     uid: 'kontakt-001',
     userUid: 'bird-alpha',
@@ -20,12 +21,36 @@ describe('KontaktProfile - Validation Zod des Profils Hybrides', () => {
       empathieVoightKampff: 85
     },
     specialArtifacts: ['Clavier mécanique de l\'Ombre'],
-    biographyLore: 'Ancien vagabond du code, capable de plier la Silice à volonté.'
+    biographyLore: 'Ancien vagabond du code, capable de plier la Silice à volonté.',
+    portfolioItems: [
+      { type: 'GITHUB_REPO', url: 'https://github.com/ilot/zoizos', title: 'Repo Principal', tags: ['ts', 'nextjs'] }
+    ],
+    pricing: {
+      hourlyRateCents: 5000,
+      missionRateCents: 40000,
+      currency: 'EUR'
+    },
+    reviews: [
+      { authorUid: 'bird-beta', rating: 5, comment: 'Un mage hors pair !', isVerifiedHire: true }
+    ],
+    tags: ['mage', 'fullstack', 'silice'],
+    seo: {
+      metaTitle: 'Mage Fullstack Next.js | Kontakt Îlot',
+      metaDescription: 'Profil de mage spécialisé Silice et Neo4j.'
+    }
   };
 
-  it('🟢 doit valider un profil Kontakt complet et hybride', () => {
+  it('🟢 doit valider un profil Kontakt complet avec son squelette SEO, tags et settings', () => {
     const result = KontaktProfileSchema.safeParse(validProfile);
     expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.portfolioItems.length).toBe(1);
+      expect(result.data.pricing?.hourlyRateCents).toBe(5000);
+      expect(result.data.reviews[0].rating).toBe(5);
+      expect(result.data.tags).toContain('silice');
+      expect(result.data.seo.metaTitle).toBeDefined();
+      expect(result.data.settings.allowDirectContact).toBe(true);
+    }
   });
 
   it('🔴 doit rejeter un profil avec un intitulé de poste trop court', () => {
@@ -34,7 +59,7 @@ describe('KontaktProfile - Validation Zod des Profils Hybrides', () => {
     expect(result.success).toBe(false);
   });
 
-  it('🐣 doit appliquer les valeurs par défaut (alignment, attributs à 10)', () => {
+  it('🐣 doit appliquer les valeurs par défaut (alignment, attributs à 10, seo vide, tags vides)', () => {
     const minimal = {
       uid: 'kontakt-002',
       userUid: 'bird-beta',
@@ -46,5 +71,33 @@ describe('KontaktProfile - Validation Zod des Profils Hybrides', () => {
     expect(parsed.alignment).toBe('TRUE_NEUTRAL');
     expect(parsed.attributes.force).toBe(10);
     expect(parsed.availabilityStatus).toBe('OPEN_TO_WORK');
+    expect(parsed.portfolioItems).toEqual([]);
+    expect(parsed.reviews).toEqual([]);
+    expect(parsed.tags).toEqual([]);
+    expect(parsed.seo).toBeDefined();
+  });
+
+  it('🟢 doit valider une JobQuest avec ses contraintes budgétaires et son squelette mutualisé', () => {
+    const validQuest = {
+      uid: 'quest-01',
+      title: 'Quête de la Canopée',
+      slug: 'quete-de-la-canopee',
+      description: 'Refondre le routeur Neo4j',
+      budgetConstraint: {
+        minBudgetCents: 10000,
+        maxBudgetCents: 50000
+      },
+      tags: ['neo4j', 'backend'],
+      seo: {
+        metaTitle: 'Quête Canopée | Kontakt'
+      }
+    };
+    const result = JobQuestSchema.safeParse(validQuest);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.budgetConstraint?.maxBudgetCents).toBe(50000);
+      expect(result.data.tags).toContain('neo4j');
+      expect(result.data.settings.allowApplications).toBe(true);
+    }
   });
 });

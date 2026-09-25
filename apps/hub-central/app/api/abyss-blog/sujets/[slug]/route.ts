@@ -1,16 +1,17 @@
+// Fichier : packages/backend/src/app/api/abyss-blog/sujets/[slug]/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { SujetOrchestrator, UpdateSujetPayload } from '@ilot/shared-core'; 
-import { ActionSignature, ISujet } from '@ilot/types'; // 🟢 CORRECTION : Ajout de l'import ISujet
+import { ActionSignature, ISujet } from '@ilot/types'; 
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedSujetDetails } from '@/lib/cache/sujets.cache';
 import { z } from 'zod';
 
-// 🛡️ Schéma de validation Zod strict
+// 🛡️ Schéma de validation Zod strict (Copyright DRY & Filiation inclus)
 const UpdateSujetSchema = z.object({
   title: z.string().min(1, "Le titre est requis.").optional(),
   content: z.string().optional(),
@@ -21,13 +22,22 @@ const UpdateSujetSchema = z.object({
     coverImageUrl: z.string().url("URL de couverture invalide.").optional(),
     audioTrackUrl: z.string().url("URL audio invalide.").optional(),
   }).nullable().optional(),
-  // 🚀 Injection de la validation du Copyright DRY
+  // 🚀 Injection de la validation du Copyright DRY et du Pacte de Filiation
   copyrightMetadata: z.object({
     role: z.enum(['CREATOR', 'SUBLIMATOR', 'CURATOR']),
     originalAuthor: z.string().optional(),
     originalWorkTitle: z.string().optional(),
     sublimationNotes: z.string().optional(),
-    isExclusiveIlot: z.boolean().optional()
+    isExclusiveIlot: z.boolean().optional(),
+    filiation: z.object({
+      isExternalSource: z.boolean().default(false),
+      sourceAuthorName: z.string(),
+      sourceWorkTitle: z.string(),
+      sourceReferenceUrl: z.string().optional(),
+      claimStatus: z.enum(['PENDING_CLAIM', 'SHARED', 'REVOKED']).default('PENDING_CLAIM'),
+      escrowBalance: z.number().min(0).default(0),
+      derivativeType: z.string().optional()
+    }).optional()
   }).optional(),
 }).passthrough();
 
@@ -44,7 +54,6 @@ export const GET = withOptionalAura(async (req: NextRequest, context: ApiContext
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 🔍 🟢 CORRECTION : Remplacement du "any" par "ISujet | null" avec assertion de type
     let sujet: ISujet | null = (await getCachedSujetDetails(identifier)) as ISujet | null;
     if (!sujet) {
       sujet = (await findEntityBySlugOrUid(SujetModel, identifier)) as ISujet | null;

@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/orchestrators/__tests__/kontakt.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KontaktOrchestrator } from '../kontakt.orchestrator';
 import { TransactionManager } from '../transactionManager';
@@ -136,6 +137,40 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
         'KONTAKT',
         'requestIntroduction'
       );
+    });
+  });
+
+  // 🚀 NOUVELLE SUITE DE TESTS POUR LE MATCHMAKING DE BUDGET
+  describe('matchmakingEngine (Matchs de Budget Favorables)', () => {
+    it('🟢 doit flagger un match favorable (FAVORABLE_BUDGET_MATCH) si le taux horaire rentre dans le budget max', async () => {
+      const res = await orchestrator.matchmakingEngine({
+        questMaxBudgetCents: 50000,
+        profileHourlyRateCents: 6000
+      });
+      expect(res.isFavorable).toBe(true);
+      expect(res.matchFlag).toBe('FAVORABLE_BUDGET_MATCH');
+    });
+
+    it('🔴 doit flagger OUT_OF_BUDGET si le taux horaire dépasse le budget max de la quête', async () => {
+      const res = await orchestrator.matchmakingEngine({
+        questMaxBudgetCents: 4500,
+        profileHourlyRateCents: 6000
+      });
+      expect(res.isFavorable).toBe(false);
+      expect(res.matchFlag).toBe('OUT_OF_BUDGET');
+    });
+
+    it('🟡 doit retourner MISSING_DATA s\'il manque des informations financières', async () => {
+      const res1 = await orchestrator.matchmakingEngine({
+        questMaxBudgetCents: 50000
+        // profileHourlyRateCents manquant
+      });
+      const res2 = await orchestrator.matchmakingEngine({}); // Tout est manquant
+
+      expect(res1.isFavorable).toBe(false);
+      expect(res1.matchFlag).toBe('MISSING_DATA');
+      expect(res2.isFavorable).toBe(false);
+      expect(res2.matchFlag).toBe('MISSING_DATA');
     });
   });
 });

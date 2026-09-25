@@ -1,14 +1,31 @@
+// Fichier : packages/infrastructure/src/__tests__/kontaktProfile.model.test.ts
 import { describe, it, expect } from 'vitest';
-import { KontaktProfileModel } from '../../nosql/kontaktProfile.model'; // Ajuste le chemin relatif selon ton arborescence
+import { KontaktProfileModel } from '../../nosql/kontaktProfile.model';
 
-describe('KontaktProfile Model', () => {
-    it('🟢 doit valider un profil Kontakt conforme avec toutes ses valeurs requises et par défaut', () => {
+describe('KontaktProfile Model (Hybrid, TTRPG & Skeleton Edition)', () => {
+    it('🟢 doit valider un profil Kontakt conforme avec toutes ses valeurs requises, par défaut, son portfolio, ses tarifs, ses avis, ses tags et son SEO', () => {
         const validData = {
             uid: 'kontakt_123',
             userUid: 'bird_456',
             professionalTitle: 'Architecte Sélénite',
             slug: 'architecte-selenite',
             archetypeClass: 'Mage Silice',
+            portfolioItems: [
+                { type: 'GITHUB_REPO', url: 'https://github.com/ilot/core', title: 'Core Repo', tags: ['ts'] }
+            ],
+            pricing: {
+                hourlyRateCents: 6000,
+                missionRateCents: 45000,
+                currency: 'EUR'
+            },
+            reviews: [
+                { authorUid: 'bird_789', rating: 5, comment: 'Excellente collaboration.', isVerifiedHire: true }
+            ],
+            tags: ['architecture', 'silice'],
+            seo: {
+                metaTitle: 'Architecte Sélénite | Kontakt',
+                metaDescription: 'Profil d\'architecte spécialiste de la Silice.'
+            }
         };
 
         const profile = new KontaktProfileModel(validData);
@@ -22,12 +39,18 @@ describe('KontaktProfile Model', () => {
         expect(profile.alignment).toBe('TRUE_NEUTRAL'); // Valeur par défaut
         expect(profile.attributes.force).toBe(10); // Valeur par défaut
         expect(profile.attributes.empathieVoightKampff).toBe(50); // Valeur par défaut
+        expect(profile.portfolioItems).toHaveLength(1);
+        expect(profile.pricing?.hourlyRateCents).toBe(6000);
+        expect(profile.reviews).toHaveLength(1);
+        expect(profile.reviews[0].rating).toBe(5);
+        expect(profile.tags).toContain('silice');
+        expect(profile.seo.metaTitle).toBe('Architecte Sélénite | Kontakt');
+        expect(profile.settings.allowDirectContact).toBe(true);
     });
 
     it('🔴 doit rejeter un profil si les champs obligatoires (uid, userUid, professionalTitle, slug, archetypeClass) manquent', () => {
         const invalidData = {
             seniorityYears: 5,
-            // Tous les champs required sont omis
         };
 
         const error = new KontaktProfileModel(invalidData).validateSync();

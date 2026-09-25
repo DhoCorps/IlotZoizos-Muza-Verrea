@@ -1,9 +1,20 @@
+// Fichier : packages/infrastructure/src/nosql/sujet.model.ts
 import mongoose from 'mongoose';
 import type { Document, Model, Types } from 'mongoose';
 const { Schema, model, models } = mongoose;
 
 import { v4 as uuidv4 } from 'uuid';
-import { ISujet, SujetCategorySchema, SujetStatusSchema } from '@ilot/types'; 
+import { IFiliationSource, ISujet, SujetCategorySchema, SujetStatusSchema } from '@ilot/types'; 
+
+export interface ISujetFiliationSource {
+  isExternalSource: boolean;
+  sourceAuthorName: string;
+  sourceWorkTitle: string;
+  sourceReferenceUrl?: string;
+  claimStatus: 'PENDING_CLAIM' | 'SHARED' | 'REVOKED';
+  escrowBalance: number;
+  derivativeType?: string;
+}
 
 export interface ISujetDocument extends Omit<ISujet, '_id' | 'publishedAt' | 'lastCommentedAt'>, Document {
   _id: Types.ObjectId;
@@ -12,6 +23,17 @@ export interface ISujetDocument extends Omit<ISujet, '_id' | 'publishedAt' | 'la
   createdAt: Date;
   updatedAt: Date;
 }
+
+// 🚀 Sous-schéma Mongoose du Pacte de Filiation
+const FiliationSourceSchema = new Schema<ISujetFiliationSource>({
+  isExternalSource: { type: Boolean, default: false },
+  sourceAuthorName: { type: String, trim: true },
+  sourceWorkTitle: { type: String, trim: true },
+  sourceReferenceUrl: { type: String, trim: true },
+  claimStatus: { type: String, enum: ['PENDING_CLAIM', 'SHARED', 'REVOKED'], default: 'PENDING_CLAIM' },
+  escrowBalance: { type: Number, default: 0, min: 0 },
+  derivativeType: { type: String, trim: true }
+}, { _id: false });
 
 const SujetSchema = new Schema<ISujetDocument>(
   {
@@ -30,7 +52,7 @@ const SujetSchema = new Schema<ISujetDocument>(
     excerpt: { type: String, trim: true, maxlength: 300 },
     content: { type: String, required: true },
     
-    // --- CHAMPS LITTÉRAIRES & COPYRIGHT (DRY) ---
+    // --- CHAMPS LITTÉRAIRES & COPYRIGHT (DRY + Filiation) ---
     lyrics: { type: String },
     copyright: { type: String },
     copyrightMetadata: {
@@ -38,7 +60,8 @@ const SujetSchema = new Schema<ISujetDocument>(
       originalAuthor: { type: String, trim: true },
       originalWorkTitle: { type: String, trim: true },
       sublimationNotes: { type: String, trim: true },
-      isExclusiveIlot: { type: Boolean, default: false }
+      isExclusiveIlot: { type: Boolean, default: false },
+      filiation: { type: FiliationSourceSchema } // 🚀 Intégration du Pacte de Filiation
     },
 
     authorUid: { type: String, required: true, index: true },
@@ -104,7 +127,7 @@ const SujetSchema = new Schema<ISujetDocument>(
     settings: {
       allowComments: { type: Boolean, default: true },
       allowEmojiReactions: { type: Boolean, default: true },
-      allowPropagation: { type: Boolean, default: true }, // Autorise la propagation
+      allowPropagation: { type: Boolean, default: true },
       isAgeRestricted: { type: Boolean, default: false },
       alchemicalTransmuted: { type: Boolean, default: false }
     },
@@ -122,12 +145,11 @@ const SujetSchema = new Schema<ISujetDocument>(
       globalReach: { type: Number, default: 0 }
     },
 
-    // --- 🌟 EXTENSIONS KOSMIQUES (Gacha Karmique & Fraîcheur SEO) ---
+    // --- 🌟 EXTENSIONS KOSMIQUES ---
     kosmicBoon: {
       interactionCount: { type: Number, default: 0 },
       nextKosmicBoon: { type: Number, default: 42 }
     },
-    // Index essentiel pour les requêtes SEO
     lastCommentedAt: { type: Date, index: true }
   },
   {

@@ -42,6 +42,17 @@ export interface ILibraryBookEconomy {
   isTradable: boolean;
 }
 
+// 🚀 Ajout de l'interface Filiation Mongoose pour correspondre au Pacte
+export interface ILibraryBookFiliationSource {
+  isExternalSource: boolean;
+  sourceAuthorName: string;
+  sourceWorkTitle: string;
+  sourceReferenceUrl?: string;
+  claimStatus: 'PENDING_CLAIM' | 'SHARED' | 'REVOKED';
+  escrowBalance: number;
+  derivativeType?: string;
+}
+
 export interface ILibraryBook extends Document {
   uid: string;
   title: string;
@@ -58,7 +69,7 @@ export interface ILibraryBook extends Document {
   coverUrl?: string;
   format: 'epub' | 'pdf' | 'txt' | 'scriptorium';
   
-  // 🛡️ Sceau Cryptographique d'Antériorité & Copyright DRY
+  // 🛡️ Sceau Cryptographique d'Antériorité & Copyright DRY (Pacte de Filiation inclus)
   digitalSignature: string;
   timestampedAt: Date;
   copyrightClaimed: boolean;
@@ -68,6 +79,7 @@ export interface ILibraryBook extends Document {
     originalWorkTitle?: string;
     sublimationNotes?: string;
     isExclusiveIlot: boolean;
+    filiation?: ILibraryBookFiliationSource; // 🚀 Suture du Pacte de Filiation
   };
 
   settings: {
@@ -118,6 +130,17 @@ const LibraryBookEconomySchema = new Schema<ILibraryBookEconomy>({
   isTradable: { type: Boolean, default: false }
 }, { _id: false });
 
+// 🚀 Sous-schéma Mongoose du Pacte de Filiation
+const FiliationSourceSchema = new Schema<ILibraryBookFiliationSource>({
+  isExternalSource: { type: Boolean, default: false },
+  sourceAuthorName: { type: String, trim: true },
+  sourceWorkTitle: { type: String, trim: true },
+  sourceReferenceUrl: { type: String, trim: true },
+  claimStatus: { type: String, enum: ['PENDING_CLAIM', 'SHARED', 'REVOKED'], default: 'PENDING_CLAIM' },
+  escrowBalance: { type: Number, default: 0, min: 0 },
+  derivativeType: { type: String, trim: true }
+}, { _id: false });
+
 const LibraryBookSchema = new Schema<ILibraryBook>({
   uid: { type: String, required: true, unique: true, index: true },
   title: { type: String, required: true, trim: true },
@@ -141,7 +164,8 @@ const LibraryBookSchema = new Schema<ILibraryBook>({
     originalAuthor: { type: String, trim: true },
     originalWorkTitle: { type: String, trim: true },
     sublimationNotes: { type: String, trim: true },
-    isExclusiveIlot: { type: Boolean, default: false }
+    isExclusiveIlot: { type: Boolean, default: false },
+    filiation: { type: FiliationSourceSchema } // 🚀 Intégration Mongoose du Pacte de Filiation
   },
 
   settings: {

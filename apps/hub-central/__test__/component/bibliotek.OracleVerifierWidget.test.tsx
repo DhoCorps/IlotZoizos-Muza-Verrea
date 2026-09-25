@@ -17,7 +17,7 @@ describe('UI & Logique : OracleVerifierWidget (Vérification d’antériorité)'
     expect(screen.getByTestId('oracle-submit-btn')).toBeDefined();
   });
 
-  it('🟢 doit interroger l’API oracle et afficher les métadonnées de l’ouvrage en cas de sceau valide', async () => {
+  it('🟢 doit interroger l’API oracle et afficher les métadonnées de l’ouvrage en cas de sceau valide (y compris Tags et Pacte de Filiation)', async () => {
     const mockBookData = {
       uid: 'book_abc',
       title: 'Le Chant de la Silice',
@@ -26,6 +26,15 @@ describe('UI & Logique : OracleVerifierWidget (Vérification d’antériorité)'
       style: 'philosophie',
       digitalSignature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
       timestampedAt: new Date().toISOString(),
+      tags: ['cyberpunk', 'filiation'], // 🚀 Injection des tags
+      copyrightMetadata: { // 🚀 Injection des métadonnées de filiation
+        role: 'SUBLIMATOR',
+        filiation: {
+          sourceAuthorName: 'Auteur Original',
+          sourceWorkTitle: 'La Source',
+          claimStatus: 'PENDING_CLAIM'
+        }
+      }
     };
 
     (global.fetch as any).mockResolvedValueOnce({
@@ -50,6 +59,17 @@ describe('UI & Logique : OracleVerifierWidget (Vérification d’antériorité)'
       expect(screen.getByTestId('oracle-success-box')).toBeDefined();
       expect(screen.getByText('Le Chant de la Silice')).toBeDefined();
       expect(screen.getByText('Oiseau Solitaire')).toBeDefined();
+      
+      // 🚀 Assertions de transparence de la Propriété Intellectuelle (Pacte de Filiation)
+      expect(screen.getByText(/Pacte de Filiation Déclaré/i)).toBeDefined();
+      expect(screen.getByText(/SUBLIMATOR/i)).toBeDefined();
+      expect(screen.getByText('La Source')).toBeDefined();
+      expect(screen.getByText(/Auteur Original/i)).toBeDefined();
+      expect(screen.getByText(/PENDING_CLAIM/i)).toBeDefined();
+
+      // 🚀 Assertions d'affichage des Tags transversaux
+      expect(screen.getByText('cyberpunk')).toBeDefined();
+      expect(screen.getByText('filiation')).toBeDefined();
     });
   });
 

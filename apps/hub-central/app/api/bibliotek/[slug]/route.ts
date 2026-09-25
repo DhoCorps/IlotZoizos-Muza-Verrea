@@ -1,3 +1,4 @@
+// Fichier : app/api/bibliotek/[slug]/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
@@ -19,13 +20,23 @@ const UpdateLibraryBookSchema = z.object({
   style: z.string().optional(),
   fileUrl: z.string().url().optional(),
   coverUrl: z.string().url().nullable().optional(),
+  tags: z.array(z.string()).optional(), // 🚀 Ouverture de la vanne pour les Tags
   copyrightClaimed: z.boolean().optional(),
   copyrightMetadata: z.object({
     role: z.enum(['CREATOR', 'SUBLIMATOR', 'CURATOR']),
     originalAuthor: z.string().optional(),
     originalWorkTitle: z.string().optional(),
     sublimationNotes: z.string().optional(),
-    isExclusiveIlot: z.boolean().optional()
+    isExclusiveIlot: z.boolean().optional(),
+    filiation: z.object({ // 🚀 Intégration du Pacte de Filiation dans le validateur
+      isExternalSource: z.boolean().default(false),
+      sourceAuthorName: z.string(),
+      sourceWorkTitle: z.string(),
+      sourceReferenceUrl: z.string().optional(),
+      claimStatus: z.enum(['PENDING_CLAIM', 'SHARED', 'REVOKED']).default('PENDING_CLAIM'),
+      escrowBalance: z.number().min(0).default(0),
+      derivativeType: z.string().optional()
+    }).optional()
   }).optional(),
   status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(), // 🟢 Ajout du cycle de vie
   economy: z.object({

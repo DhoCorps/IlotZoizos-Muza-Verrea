@@ -1,11 +1,11 @@
+// Fichier : packages/types/src/core/bibliotek.types.ts
 import { ISeoMetadata } from './seo.types';
-import { CopyrightMetadata } from '../../../shared-core/src/types/shared.types'; // 🚀 Import DRY pour le copyright unifié
+import { CopyrightMetadata } from './copyright.types'; // 🚀 Import DRY pour le copyright unifié et le Pacte de Filiation
 
 // ==========================================
 // 📚 TYPES & SCHÉMAS : BIBLIOTEK, GACHA & BARTER
 // ==========================================
 
-// Listes riches préétablies (extensibles)
 export type WritingTypeCode = 
   | 'roman' 
   | 'essai' 
@@ -50,7 +50,7 @@ export type WritingStyleCode =
 // 💎 Niveaux de rareté pour le Gacha Littéraire
 export type GachaTierCode = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
 
-// 📜 Statuts de publication (Cycle de vie du Scriptorium vers la Bibliotek)
+// 📜 Statuts de publication
 export type PublicationStatusCode = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 
 // 🌐 Règles de droits issus du UniversalMediaSchema interfacées avec le Barter
@@ -98,7 +98,7 @@ export interface ILibraryBookMediaEntity {
   digitalSignature: string;      // Sceau SHA-256 d'antériorité
   timestampedAt: string | Date;
   economy: LibraryBookEconomyMetadata;
-  copyrightMetadata?: CopyrightMetadata; // 🚀 Intégration DRY des métadonnées de Copyright et d'Exclusivité Îlot
+  copyrightMetadata?: CopyrightMetadata; // 🚀 Intégration DRY + Filiation
   createdAt: string | Date;
   seo?: ISeoMetadata;            // Métadonnées d'indexation irréprochable
 }

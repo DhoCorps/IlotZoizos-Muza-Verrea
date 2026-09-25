@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/app/api/ecommerce/products/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
@@ -25,10 +26,10 @@ export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => 
 
     const storeUid = url.searchParams.get('storeUid');
     const category = url.searchParams.get('category');
-    // Extraction des tags pour filtrer le catalogue marchand
+    // Extraction des tags pour filtrer le catalogue marchand[cite: 16]
     const tags = url.searchParams.getAll('tag');
     
-    // Transmission des tags au cache (qui lui-même devra faire le pont vers l'orchestrateur ou la DB)
+    // Transmission des tags au cache[cite: 16]
     const products = await getCachedProducts(storeUid, category);
     
     return NextResponse.json(products, { status: 200 });
@@ -44,7 +45,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
   try {
     const userUid = currentUser.uid;
     
-    // 🛡️ DOUANE VIBRATOIRE : Vérification du Tribunal de la Canopée
+    // 🛡️ DOUANE VIBRATOIRE : Vérification du Tribunal de la Canopée[cite: 16]
     const oiseauProfile = await OiseauModel.findOne({ uid: userUid }).lean() as IOiseau | null;
     if (oiseauProfile && (oiseauProfile.isBanned || oiseauProfile.profileStatus === 'INDESIRABLE')) {
       return NextResponse.json({ 
@@ -60,7 +61,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       return NextResponse.json({ success: false, error: "Corps de requête illisible." }, { status: 400 });
     }
 
-    // 🛡️ BLINDAGE MASS ASSIGNMENT : Validation stricte via ProductSchema
+    // 🛡️ BLINDAGE MASS ASSIGNMENT : Validation stricte via ProductSchema[cite: 16]
     const validation = ProductSchema.safeParse(rawBody);
     if (!validation.success) {
       return NextResponse.json({ 
@@ -73,7 +74,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     const validatedData = validation.data;
     const productUid = `prod_${uuidv4()}`;
     
-    // 1. Génération sécurisée et unique du Slug avec garde-fou anti-boucle
+    // 1. Génération sécurisée et unique du Slug avec garde-fou anti-boucle[cite: 16]
     const baseSlug = slugify(validatedData.title || 'artefact');
     let finalSlug = baseSlug;
          
@@ -87,7 +88,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       safetyCounter++;
     }
     
-    // 2. Préparation de la signature souveraine pour l'Orchestrateur
+    // 2. Préparation de la signature souveraine pour l'Orchestrateur[cite: 16]
     const signature: ActionSignature = {
       actorUid: userUid,
       capabilities: currentUser.capabilities || []
@@ -96,30 +97,30 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     const orchestrator = new EcommerceOrchestrator();
     let createdProductUid: string | undefined;
 
-    // 3. Délégation Atomique (Mongoose + Neo4j) à l'Orchestrateur
+    // 3. Délégation Atomique (Mongoose + Neo4j) à l'Orchestrateur[cite: 16]
     try {
       const result = await orchestrator.createProduct({
-        ...validatedData, // Contient déjà les `tags`, `isRouletteActive`, `wagerAmount`, `seoMetadata`
+        ...validatedData, // Contient les tags, roulette, wagerAmount, et copyrightMetadata/filiation
         uid: productUid,
         slug: finalSlug,
-        ownerUid: validatedData.ownerUid || userUid,
+        ownerUid: (validatedData as any).ownerUid || userUid,
       }, signature);
 
       createdProductUid = result.productUid;
     } catch (orchError: unknown) {
-      throw orchError; // La capture se fera par le bloc catch principal ou handleRouteError
+      throw orchError;
     }
     
-    // 💥 Invalidation chirurgicale du cache en cascade
+    // 💥 Invalidation chirurgicale du cache en cascade[cite: 16]
     revalidateTag('products');
-    if (validatedData.storeUid) {
-      revalidateTag(`store-products-${validatedData.storeUid}`);
+    if ((validatedData as any).storeUid) {
+      revalidateTag(`store-products-${(validatedData as any).storeUid}`);
     }
     
     return NextResponse.json({
       success: true,
       message: "Artefact ajouté au catalogue et tissé dans la matrice.",
-      data: { uid: createdProductUid || productUid, slug: finalSlug } // Retour minimalisé par sécurité
+      data: { uid: createdProductUid || productUid, slug: finalSlug }
     }, { status: 201 });
   } catch (error: unknown) {
     return handleRouteError(error, "Échec lors de l'ajout de l'artefact.");

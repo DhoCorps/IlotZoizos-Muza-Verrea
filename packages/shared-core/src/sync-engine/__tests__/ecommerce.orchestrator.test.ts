@@ -1,3 +1,4 @@
+// Fichier : packages/shared-core/src/sync-engine/__tests__/ecommerce.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EcommerceOrchestrator } from '../ecommerce.orchestrator';
 import { TransactionManager } from '../transactionManager';
@@ -32,9 +33,10 @@ vi.mock('@ilot/shared-core', () => ({
   safeSyncUniversalInteraction: vi.fn().mockResolvedValue(true),
 }));
 
-// 🚀 MOCK DU COPYRIGHT ENGINE
+// 🚀 MOCK ROBUSTE DU COPYRIGHT ENGINE (Préservation de la Filiation)
 vi.mock('../utils/copyright.engine', () => ({
   sanitizeCopyright: vi.fn((meta) => {
+    if (meta && meta.filiation) return { ...meta, filiation: meta.filiation };
     if (!meta) return { role: 'CREATOR', isExclusiveIlot: false };
     if (meta.role === 'CURATOR') return { ...meta, isExclusiveIlot: false };
     return meta;
@@ -79,7 +81,7 @@ describe('EcommerceOrchestrator - Boutique, SEO & Copyright DRY', () => {
       expect((mongoCallArg as any)[0].seoMetadata.description).toBe('Un magnifique artefact pour vos oreilles');
     });
 
-    it('🟢 doit injecter la bonne relation Neo4j et préserver l\'exclusivité pour un SUBLIMATOR', async () => {
+    it('🟢 doit injecter la bonne relation Neo4j, préserver l\'exclusivité et propager la Filiation pour un SUBLIMATOR', async () => {
       
       vi.mocked(ProductModel.create).mockResolvedValueOnce([{ toObject: () => ({}) }] as any);
 
@@ -88,8 +90,17 @@ describe('EcommerceOrchestrator - Boutique, SEO & Copyright DRY', () => {
         storeUid: 'store_1',
         title: 'Oeuvre Sublimée',
         priceCents: 5000,
-        // 🚀 CORRECTION TS : "as const" permet de figer le type litéral au lieu d'un 'string' générique
-        copyrightMetadata: { role: 'SUBLIMATOR' as const, isExclusiveIlot: true }
+        copyrightMetadata: { 
+          role: 'SUBLIMATOR' as const, 
+          isExclusiveIlot: true,
+          filiation: {
+            isExternalSource: true,
+            sourceAuthorName: 'Auteur Source',
+            sourceWorkTitle: 'Monolithe Originel',
+            claimStatus: 'PENDING_CLAIM' as const,
+            escrowBalance: 0
+          }
+        }
       };
 
       const result = await orchestrator.createProduct(payload, adminSignature as any);
@@ -99,6 +110,7 @@ describe('EcommerceOrchestrator - Boutique, SEO & Copyright DRY', () => {
       const mongoCallArg = vi.mocked(ProductModel.create).mock.calls[0][0];
       expect((mongoCallArg as any)[0].copyrightMetadata.role).toBe('SUBLIMATOR');
       expect((mongoCallArg as any)[0].copyrightMetadata.isExclusiveIlot).toBe(true);
+      expect((mongoCallArg as any)[0].copyrightMetadata.filiation.sourceWorkTitle).toBe('Monolithe Originel');
     });
 
     it('🟢 doit briser l\'exclusivité Îlot si le rôle est CURATOR (Sécurité DRY)', async () => {
@@ -110,7 +122,6 @@ describe('EcommerceOrchestrator - Boutique, SEO & Copyright DRY', () => {
         storeUid: 'store_1',
         title: 'Oeuvre Relayée',
         priceCents: 1000,
-        // 🚀 CORRECTION TS : "as const" ici aussi
         copyrightMetadata: { role: 'CURATOR' as const, isExclusiveIlot: true } // Demande abusive
       };
 
