@@ -1,3 +1,4 @@
+// Fichier : recruitable/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
@@ -8,7 +9,7 @@ import { withAura, withSilice, OiseauUser, ApiContext, handleRouteError } from '
 import { getCachedOiseaux } from '@/lib/cache/users.cache';
 
 // -------------------------------------------------------------------------
-// GET : Recensement des Oiseaux (Volière Publique)
+// GET : Recensement des Oiseaux & Filtres RH (Volière / Recherche)
 // -------------------------------------------------------------------------
 export const GET = withAura(async (req: NextRequest, _context: ApiContext, _currentUser: OiseauUser) => {
   try {
@@ -19,12 +20,25 @@ export const GET = withAura(async (req: NextRequest, _context: ApiContext, _curr
       return NextResponse.json({ success: false, error: "URL de requête invalide." }, { status: 400 });
     }
 
+    // 💼 Consigne 1 : Extraire les nouveaux paramètres de recherche depuis l'URL
     const search = url.searchParams.get('search');
-    
-    // Appel direct au cache centralisé
-    const users = await getCachedOiseaux(search);
-    
-    return NextResponse.json(users, { status: 200 });
+    const professionalStatus = url.searchParams.get('professionalStatus') || undefined;
+    const remotePreference = url.searchParams.get('remotePreference') || undefined;
+    const maxRateParam = url.searchParams.get('maxRate');
+    const maxRate = maxRateParam ? Number(maxRateParam) : undefined;
+
+    // 💼 Consigne 2 : Transmettre ces paramètres à getCachedOiseaux()
+    const users = await getCachedOiseaux({
+      search,
+      professionalStatus,
+      remotePreference,
+      maxRate
+    });
+
+    // Sérialisation propre pour s'assurer de la compatibilité JSON
+    const serializedUsers = JSON.parse(JSON.stringify(users || []));
+
+    return NextResponse.json(serializedUsers, { status: 200 });
   } catch (error: unknown) {
     return handleRouteError(error, "USERS RECRUITABLE GET FATAL ERROR");
   }

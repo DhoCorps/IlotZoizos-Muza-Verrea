@@ -1,3 +1,4 @@
+// Fichier : packages/shared-core/src/sync-engine/__tests__/user.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OiseauOrchestrator } from '../user.orchestrator';
 import { OiseauModel, TeamModel, ProjectModel, TaskModel } from '@ilot/infrastructure';
@@ -16,37 +17,15 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       })),
     },
     TeamModel: { 
-      find: vi.fn().mockImplementation(() => ({
-        session: vi.fn().mockReturnValue({
-          lean: vi.fn().mockResolvedValue([])
-        })
-      })),
+      find: vi.fn(),
       deleteMany: vi.fn() 
     },
     ProjectModel: { 
-      find: vi.fn().mockImplementation(() => ({
-        select: vi.fn().mockReturnThis(),
-        session: vi.fn().mockReturnThis(),
-        lean: vi.fn().mockResolvedValue([]),
-        cursor: vi.fn().mockReturnValue({
-          [Symbol.asyncIterator]: async function* () {
-            yield { uid: 'proj_123', documents: [{ url: 'http://cdn/proj.png' }] };
-          }
-        })
-      })),
+      find: vi.fn(),
       deleteMany: vi.fn() 
     },
     TaskModel: { 
-      find: vi.fn().mockImplementation(() => ({
-        select: vi.fn().mockReturnThis(),
-        session: vi.fn().mockReturnThis(),
-        lean: vi.fn().mockResolvedValue([]),
-        cursor: vi.fn().mockReturnValue({
-          [Symbol.asyncIterator]: async function* () {
-            yield { uid: 'task_1', documents: [{ url: 'http://cdn/task.pdf' }] };
-          }
-        })
-      })),
+      find: vi.fn(),
       deleteMany: vi.fn() 
     },
   };
@@ -67,7 +46,7 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-describe('OiseauOrchestrator - Souveraineté de l\'Oiseau (Phase 2)', () => {
+describe('OiseauOrchestrator - Souveraineté de l\'Oiseau (Phase 2 & SSOT CV)', () => {
   let orchestrator: OiseauOrchestrator;
   const selfSignature = { actorUid: 'bird_canonical_1', capabilities: [] };
 
@@ -98,6 +77,7 @@ describe('OiseauOrchestrator - Souveraineté de l\'Oiseau (Phase 2)', () => {
       })
     } as any));
 
+    // 🔗 Chaînage Mongoose fluide garanti pour TaskModel (.find().select().session().cursor())
     vi.mocked(TaskModel.find).mockImplementation(() => ({
       select: vi.fn().mockReturnThis(),
       session: vi.fn().mockReturnThis(),
@@ -109,6 +89,7 @@ describe('OiseauOrchestrator - Souveraineté de l\'Oiseau (Phase 2)', () => {
       })
     } as any));
 
+    // 🔗 Chaînage Mongoose fluide garanti pour ProjectModel (.find().select().session().cursor())
     vi.mocked(ProjectModel.find).mockImplementation(() => ({
       select: vi.fn().mockReturnThis(),
       session: vi.fn().mockReturnThis(),
@@ -131,7 +112,7 @@ describe('OiseauOrchestrator - Souveraineté de l\'Oiseau (Phase 2)', () => {
     });
   });
 
-  describe('syncOiseau', () => {
+  describe('syncOiseau (Incluant la synchronisation du Profil CV)', () => {
     it('🔴 doit rejeter (403) si l\'acteur usurpe un autre profil', async () => {
       vi.mocked(orchestratorEngine.resolveCanonicalUid).mockImplementation(async (_model, identifier: any) => {
         return identifier; // Retourne l'identifiant brut pour simuler l'écart entre l'acteur et la cible
@@ -155,6 +136,32 @@ describe('OiseauOrchestrator - Souveraineté de l\'Oiseau (Phase 2)', () => {
       expect(res.success).toBe(true);
       expect((res.mongo as any).pseudo).toBe('Modifié');
       expect(orchestratorEngine.resolveCanonicalUid).toHaveBeenCalled();
+    });
+
+    it('🟢 doit synchroniser le cvProfile (SSOT) vers MongoDB et les attributs RH clés vers Neo4j', async () => {
+      vi.mocked(OiseauModel.findOneAndUpdate).mockReturnValue({
+        lean: vi.fn().mockResolvedValueOnce({ 
+          uid: 'bird_canonical_1', 
+          cvProfile: { professionalStatus: 'FREELANCE', remotePreference: 'FULL_REMOTE', freelanceDailyRateCents: 50000 } 
+        })
+      } as any);
+
+      const res = await orchestrator.syncOiseau(
+        { 
+          uid: 'bird_canonical_1', 
+          cvProfile: { 
+            professionalStatus: 'FREELANCE', 
+            remotePreference: 'FULL_REMOTE', 
+            freelanceDailyRateCents: 50000,
+            catchphrase: "Prêt au combat" 
+          } as any
+        }, 
+        selfSignature
+      );
+
+      expect(res.success).toBe(true);
+      expect((res.mongo as any).cvProfile.professionalStatus).toBe('FREELANCE');
+      expect((res.mongo as any).cvProfile.freelanceDailyRateCents).toBe(50000);
     });
   });
 

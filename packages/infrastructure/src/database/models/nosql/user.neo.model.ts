@@ -1,6 +1,6 @@
 // apps/infrastructure/src/database/models/nosql/user.model.neo.ts
 import mongoose from 'mongoose'; 
-import type{ Model } from 'mongoose';
+import type { Model, Document } from 'mongoose';
 
 const { Schema } = mongoose;
 
@@ -11,6 +11,26 @@ import { connectToDatabase } from '../../mongoose';
 // ⚡ Réveil de la Silice
 connectToDatabase().catch((err: any) => console.error("MongoDB Message Error:", err));
 
+// 🚀 CRÉATION DE L'INTERFACE SPÉCIFIQUE AU PONT NEO4J
+// On étend l'Oiseau moderne pour y ajouter les modules RPG et de Modération hérités
+export interface INeoUser extends Omit<IOiseau, 'status'>, Document {
+  status: 'pending' | 'active' | 'inactive' | 'banned';
+  level: number;
+  xp: number;
+  mood: string;
+  moderation: {
+    reportCount: number;
+    isFlagged: boolean;
+  };
+  collectiveData: {
+    contributionScore: number;
+  };
+  wellbeing: {
+    mentalLoadScore: number;
+    lastCheckIn?: Date;
+  };
+}
+
 const UserSchema = new Schema({
   // --- 🌉 LE PONT NEO4J ---
   uid: { type: String, required: true, unique: true, default: () => uuidv4(), index: true },
@@ -20,17 +40,25 @@ const UserSchema = new Schema({
   email: { type: String, required: true, unique: true, lowercase: true, trim: true, select: false },
   password: { type: String, select: false },
   
-  // L'Aura remplace les rôles figés : c'est un tableau de pouvoirs
+  // L'Aura remplace les rôles figés : c'est un tableau de pouvoirs (Critique pour le Matchmaking Graphe !)
   capabilities: { type: [String], default: [] }, 
   
-  // La Signature visuelle et textuelle [cite: 2025-06-14]
+  // La Signature visuelle et textuelle
   signature: { type: String, default: "<(:<" }, 
-  frequenceHEX: { type: String, default: '#8b9dc3' }, // Gris bleuté par défaut [cite: 2026-03-27]
+  frequenceHEX: { type: String, default: '#8b9dc3' }, // Gris bleuté par défaut
 
   status: { 
     type: String, 
     enum: ['pending', 'active', 'inactive', 'banned'], 
     default: 'pending' 
+  },
+
+  // 💼 LE PROFIL RH (Réduit pour le Matchmaking Rapide du Graphe)
+  cvProfile: {
+    professionalStatus: { type: String, default: 'EMPLOYEE' },
+    remotePreference: { type: String, default: 'FLEXIBLE' },
+    freelanceDailyRateCents: { type: Number },
+    // Les compétences (Aura) gèrent le reste du match !
   },
   
   // --- 📈 ÉVOLUTION & RÉSILIENCE ---
@@ -38,7 +66,7 @@ const UserSchema = new Schema({
   xp: { type: Number, default: 0 },
   mood: { type: String, default: '😐' },
 
-  // --- 🧠 MODULES ILOT-ZOIZOS (Maintenus) [cite: 2026-02-11] ---
+  // --- 🧠 MODULES ILOT-ZOIZOS (Maintenus) ---
   moderation: {
     reportCount: { type: Number, default: 0 },
     isFlagged: { type: Boolean, default: false }
@@ -54,5 +82,5 @@ const UserSchema = new Schema({
   timestamps: true 
 });
 
-// Exportation sécurisée pour le Nexus
-export const UserModelNeo = (mongoose.models.User as Model<IOiseau>) || mongoose.model<IOiseau>('User', UserSchema);
+// 🚀 Exportation sécurisée avec la nouvelle interface typée
+export const UserModelNeo = (mongoose.models.User as Model<INeoUser>) || mongoose.model<INeoUser>('User', UserSchema);

@@ -1,3 +1,4 @@
+// Fichier : apps/hub-central/__test__/api/users.leave.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/users/[slug]/actions/leave/route';
 import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
@@ -22,7 +23,6 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     OiseauModel: {
       findOne: vi.fn(),
     },
-    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
     findEntityBySlugOrUid: vi.fn(),
   };
 });
@@ -59,7 +59,7 @@ declare global {
   } | undefined;
 }
 
-describe('Route API : Miroir & Envol (GET / POST)', () => {
+describe('Route API : Miroir, Envol & SSOT CV (GET / POST)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete global.__mockUser;
@@ -71,15 +71,26 @@ describe('Route API : Miroir & Envol (GET / POST)', () => {
     } as unknown as Awaited<ReturnType<TeamOrchestrator['leaveTeam']>>);
   });
 
-  describe('GET - Miroir', () => {
-    it('doit renvoyer les données privées si c\'est le propriétaire', async () => {
+  const mockOiseauDb = {
+    uid: 'dho',
+    slug: 'dho',
+    pseudo: 'DhÖ',
+    email: 'secret@zoizos.fr',
+    frequenceHEX: '#8b9dc3',
+    cvProfile: {
+      professionalStatus: 'FREELANCE',
+      experiences: [
+        { title: 'Architecte Canopée', isVisibleInCv: true },
+        { title: 'Expérience Secrète', isVisibleInCv: false }
+      ],
+      educations: []
+    }
+  };
+
+  describe('GET - Miroir & Profil CV', () => {
+    it('doit renvoyer les données privées et le cvProfile complet si c\'est le propriétaire', async () => {
       global.__mockUser = { uid: 'dho', capabilities: [] };
-      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
-        uid: 'dho',
-        slug: 'dho',
-        pseudo: 'DhÖ',
-        email: 'secret@zoizos.fr'
-      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb as any);
 
       const req = new NextRequest('http://localhost/api/users/dho');
       const response = await GET(req, { params: Promise.resolve({ slug: 'dho' }) });
@@ -87,17 +98,13 @@ describe('Route API : Miroir & Envol (GET / POST)', () => {
 
       expect(response.status).toBe(200);
       expect(json.email).toBe('secret@zoizos.fr');
+      expect(json.cvProfile.experiences.length).toBe(2); // Le propriétaire voit tout
       expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'dho');
     });
 
-    it('doit masquer l\'email pour un visiteur anonyme', async () => {
+    it('doit masquer l\'email et filtrer les expériences non visibles pour un visiteur anonyme', async () => {
       delete global.__mockUser;
-      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
-        uid: 'dho',
-        slug: 'dho',
-        pseudo: 'DhÖ',
-        email: 'secret@zoizos.fr'
-      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb as any);
 
       const req = new NextRequest('http://localhost/api/users/dho');
       const response = await GET(req, { params: Promise.resolve({ slug: 'dho' }) });
@@ -105,6 +112,8 @@ describe('Route API : Miroir & Envol (GET / POST)', () => {
 
       expect(response.status).toBe(200);
       expect(json.email).toBeUndefined();
+      expect(json.cvProfile.experiences.length).toBe(1); // Filtré (isVisibleInCv: false retiré)
+      expect(json.cvProfile.experiences[0].title).toBe('Architecte Canopée');
       expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'dho');
     });
   });
@@ -116,7 +125,7 @@ describe('Route API : Miroir & Envol (GET / POST)', () => {
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 'dho',
         slug: 'dho'
-      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+      } as any);
 
       const req = new NextRequest('http://localhost/api/users/dho', {
         method: 'POST',
@@ -133,7 +142,7 @@ describe('Route API : Miroir & Envol (GET / POST)', () => {
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
         uid: 'dho',
         slug: 'dho'
-      } as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+      } as any);
 
       const req = new NextRequest('http://localhost/api/users/dho', {
         method: 'POST',

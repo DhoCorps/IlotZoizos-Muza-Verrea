@@ -8,7 +8,7 @@ import { withAura, withSilice, OiseauUser, ApiContext, handleRouteError } from '
 import { getCachedOiseaux } from '@/lib/cache/users.cache';
 
 // -------------------------------------------------------------------------
-// GET : Recensement des Oiseaux (Volière Publique)
+// GET : Recensement des Oiseaux & Filtres RH (Volière Publique)
 // -------------------------------------------------------------------------
 export const GET = withAura(async (req: NextRequest, _context: ApiContext, _currentUser: OiseauUser) => {
   try {
@@ -19,11 +19,25 @@ export const GET = withAura(async (req: NextRequest, _context: ApiContext, _curr
       return NextResponse.json({ success: false, error: "URL de requête invalide." }, { status: 400 });
     }
 
+    // 💼 Extraction des paramètres de recherche et des filtres RH avancés (SSOT)
     const search = url.searchParams.get('search');
-    
-    const users = await getCachedOiseaux(search);
-    
-    return NextResponse.json(users, { status: 200 });
+    const professionalStatus = url.searchParams.get('professionalStatus') || undefined;
+    const remotePreference = url.searchParams.get('remotePreference') || undefined;
+    const maxRateParam = url.searchParams.get('maxRate');
+    const maxRate = maxRateParam ? Number(maxRateParam) : undefined;
+
+    // Transmission des filtres RH au cache / moteur de recherche unifié
+    const users = await getCachedOiseaux({
+      search,
+      professionalStatus,
+      remotePreference,
+      maxRate
+    });
+
+    // Sérialisation propre pour éviter l'erreur de non-sérialisabilité en test
+    const serializedUsers = JSON.parse(JSON.stringify(users || []));
+
+    return NextResponse.json(serializedUsers, { status: 200 });
   } catch (error: unknown) {
     return handleRouteError(error, "USERS LIST GET FATAL ERROR");
   }
@@ -67,7 +81,7 @@ export const POST = withSilice(async (req: NextRequest, _context: ApiContext) =>
         email: body.email,
         pseudo: body.pseudo,
         password: body.password,
-        frequenceHEX: body.frequenceHEX || '#2D3748' // Le gris bleuté ou bleuish grey pour des raisons écologiques !
+        frequenceHEX: body.frequenceHEX || '#2D3748'
       });
     } catch (orchErr: unknown) {
       const err = orchErr as { status?: number; statusCode?: number; message?: string };

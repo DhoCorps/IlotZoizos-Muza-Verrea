@@ -31,8 +31,27 @@ export const GET = withOptionalAura(async (_req: NextRequest, context: ApiContex
       return NextResponse.json({ success: false, message: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 🔍 1. Résolution unifiée de l'Oiseau en premier
-    let oiseau = (await getCachedOiseau(identifier)) as { uid?: string; pseudo?: string; email?: string; frequenceHEX?: string; avatarUrl?: string | null; coverPicture?: string | null; capabilities?: string[]; sanctuaire?: { signature?: string; characterSheet?: Record<string, unknown>; [key: string]: unknown }; sanctuaireVerrouille?: boolean; isGhostMode?: boolean; [key: string]: unknown } | null;
+    // 🔍 1. Résolution unifiée de l'Oiseau en premier avec son cvProfile
+    let oiseau = (await getCachedOiseau(identifier)) as { 
+      uid?: string; 
+      slug?: string;
+      pseudo?: string; 
+      email?: string; 
+      frequenceHEX?: string; 
+      avatarUrl?: string | null; 
+      coverPicture?: string | null; 
+      capabilities?: string[]; 
+      sanctuaire?: { signature?: string; characterSheet?: Record<string, unknown>; [key: string]: unknown }; 
+      sanctuaireVerrouille?: boolean; 
+      isGhostMode?: boolean;
+      cvProfile?: {
+        experiences?: Array<{ isVisibleInCv?: boolean; [key: string]: unknown }>;
+        educations?: Array<{ isVisibleInCv?: boolean; [key: string]: unknown }>;
+        [key: string]: unknown;
+      };
+      [key: string]: unknown 
+    } | null;
+
     if (!oiseau) {
       oiseau = (await findEntityBySlugOrUid(OiseauModel, identifier)) as typeof oiseau;
     }
@@ -63,7 +82,8 @@ export const GET = withOptionalAura(async (_req: NextRequest, context: ApiContex
         sanctuaire: oiseau.sanctuaire,
         sanctuaireVerrouille: oiseau.sanctuaireVerrouille,
         isGhostMode: oiseau.isGhostMode,
-        characterSheet: oiseau.sanctuaire?.characterSheet || {}
+        characterSheet: oiseau.sanctuaire?.characterSheet || {},
+        cvProfile: oiseau.cvProfile || null
       }, { status: 200 });
     }
     
@@ -74,7 +94,8 @@ export const GET = withOptionalAura(async (_req: NextRequest, context: ApiContex
         signature: "L'écho s'est éteint.",
         sanctuaire: oiseau.sanctuaire,
         avatarUrl: null,
-        coverPicture: null
+        coverPicture: null,
+        cvProfile: null
       }, { status: 200 });
     }
     
@@ -84,14 +105,23 @@ export const GET = withOptionalAura(async (_req: NextRequest, context: ApiContex
         frequenceHEX: oiseau.frequenceHEX,
         signature: "Cet esprit observe en silence.",
         avatarUrl: oiseau.avatarUrl,
-        capabilities: oiseau.capabilities
+        capabilities: oiseau.capabilities,
+        cvProfile: null
       }, { status: 200 });
     }
+
+    // Filtrage public des expériences non visibles
+    const publicCvProfile = oiseau.cvProfile ? {
+      ...oiseau.cvProfile,
+      experiences: (oiseau.cvProfile.experiences || []).filter(exp => exp.isVisibleInCv !== false),
+      educations: (oiseau.cvProfile.educations || []).filter(edu => edu.isVisibleInCv !== false),
+    } : null;
     
     return NextResponse.json({
       ...baseProfile,
       sanctuaire: oiseau.sanctuaire,
-      characterSheet: oiseau.sanctuaire?.characterSheet || {}
+      characterSheet: oiseau.sanctuaire?.characterSheet || {},
+      cvProfile: publicCvProfile
     }, { status: 200 });
   } catch (error: unknown) {
     return handleRouteError(error, "USERS MIRROR GET FATAL ERROR");

@@ -94,4 +94,60 @@ describe('Oiseau Zod Schemas (L\'Identité et le Sanctuaire)', () => {
         const result = OiseauLeafSchema.safeParse(leafDataOutOfRange);
         expect(result.success).toBe(false);
     });
+
+    describe('💼 Validation du Profil Professionnel (CV Source of Truth)', () => {
+        it('🟢 doit valider un profil CV complet avec le TJM Freelance et préférences de télétravail', () => {
+            const leafWithCv = {
+                cvProfile: {
+                    catchphrase: "Développeur full-stack passionné par les graphes.",
+                    professionalStatus: "FREELANCE",
+                    remotePreference: "FULL_REMOTE",
+                    freelanceDailyRateCents: 45000, // 450€ / jour
+                    isRateNegotiable: true,
+                    experiences: [
+                        {
+                            title: "Lead Dev",
+                            company: "Muza-Verrea",
+                            startDate: "2023-01-01",
+                            isVisibleInCv: true // Expérience publique
+                        },
+                        {
+                            title: "Stagiaire",
+                            company: "Ancienne Boite Nulle",
+                            startDate: "2018-01-01",
+                            endDate: "2018-06-30",
+                            isVisibleInCv: false // 👁️ Masqué intelligemment du CV final
+                        }
+                    ],
+                    hobbies: ["Origami", "Guitare"]
+                }
+            };
+
+            const result = OiseauLeafSchema.safeParse(leafWithCv);
+            expect(result.success).toBe(true);
+
+            if (result.success && result.data.cvProfile) {
+                expect(result.data.cvProfile.professionalStatus).toBe("FREELANCE");
+                expect(result.data.cvProfile.freelanceDailyRateCents).toBe(45000);
+                expect(result.data.cvProfile.experiences[1].isVisibleInCv).toBe(false);
+            }
+        });
+
+        it('🔴 doit rejeter une expérience pro si les dates ou informations clés sont invalides', () => {
+            const badCvLeaf = {
+                cvProfile: {
+                    experiences: [
+                        {
+                            title: "D", // Trop court
+                            company: "", // Vide
+                            startDate: "not-a-date"
+                        }
+                    ]
+                }
+            };
+
+            const result = OiseauLeafSchema.safeParse(badCvLeaf);
+            expect(result.success).toBe(false);
+        });
+    });
 });

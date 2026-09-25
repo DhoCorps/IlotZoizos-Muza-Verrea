@@ -87,7 +87,8 @@ export function UserUploadZone({ imageType, onSuccess }: UserUploadZoneProps) {
       >
         <input
           type="file"
-          id="file-upload-zone"
+          id={`file-upload-${imageType}`}
+          data-testid="file-input"
           className="hidden"
           disabled={loading}
           onChange={(e) => e.target.files?.[0] && processFile(e.target.files[0])}
@@ -95,12 +96,12 @@ export function UserUploadZone({ imageType, onSuccess }: UserUploadZoneProps) {
         />
 
         {loading ? (
-          <div className="flex flex-col items-center gap-3 animate-in fade-in">
+          <div className="flex flex-col items-center gap-3 animate-in fade-in" data-testid="loading-state">
             <Loader2 className="w-10 h-10 animate-spin text-[#E5484D]" />
             <p className="text-xs font-mono uppercase tracking-widest text-slate-400">Alchimie mémorielle S3 / R2...</p>
           </div>
         ) : (
-          <label htmlFor="file-upload-zone" className="cursor-pointer flex flex-col items-center gap-3 w-full h-full justify-center">
+          <label htmlFor={`file-upload-${imageType}`} className="cursor-pointer flex flex-col items-center gap-3 w-full h-full justify-center">
             <FileImage className={`w-10 h-10 transition-colors ${isDragActive ? 'text-[#E5484D]' : 'text-slate-600'}`} />
             <div>
               <p className="text-xs font-bold text-slate-300 uppercase tracking-tight">
@@ -115,7 +116,7 @@ export function UserUploadZone({ imageType, onSuccess }: UserUploadZoneProps) {
       </div>
 
       {statusMsg && (
-        <div className={`p-4 rounded-xl border flex items-center gap-3 animate-in fade-in text-xs font-mono uppercase tracking-wider ${
+        <div data-testid="status-message" className={`p-4 rounded-xl border flex items-center gap-3 animate-in fade-in text-xs font-mono uppercase tracking-wider ${
           statusMsg.type === 'success' 
             ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' 
             : 'bg-red-500/5 border-red-500/20 text-red-400'

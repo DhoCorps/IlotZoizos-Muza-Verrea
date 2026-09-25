@@ -2,13 +2,20 @@
 'use client';
 
 import { useState } from 'react';
-import { Shield, Upload, Loader2, Edit3, MapPin, Trash2 } from 'lucide-react';
+import { Shield, Upload, Loader2, Edit3, MapPin, Trash2, Briefcase, Globe, DollarSign } from 'lucide-react';
 import { IOiseau } from '@ilot/types';
 import { toast } from 'sonner';
 import { useMutation } from '@tanstack/react-query';
 
 interface UserCardProps {
-  user: IOiseau; // L'objet oiseau (IOiseau)
+  user: IOiseau & {
+    cvProfile?: {
+      professionalStatus?: string;
+      remotePreference?: string;
+      freelanceDailyRateCents?: number;
+      experiences?: Array<{ title?: string; company?: string; isVisibleInCv?: boolean }>;
+    };
+  };
   currentUserCapabilities?: string[];
   onEditProfile?: (uid: string) => void;
   onUploadSuccess?: () => void;
@@ -104,6 +111,10 @@ export function UserCard({ user, currentUserCapabilities = [], onEditProfile, on
     deleteImageMutation.mutate(imageType);
   };
 
+  const dailyRateEuro = user?.cvProfile?.freelanceDailyRateCents 
+    ? user.cvProfile.freelanceDailyRateCents / 100 
+    : null;
+
   return (
     <div className="w-full max-w-2xl mx-auto bg-[#05070A]/90 border border-white/5 rounded-3xl overflow-hidden shadow-2xl relative group/user">
       
@@ -191,6 +202,29 @@ export function UserCard({ user, currentUserCapabilities = [], onEditProfile, on
         {user?.sanctuaire?.biographie && (
           <div className="mt-6 p-4 bg-white/[0.01] border border-white/5 rounded-2xl">
             <p className="text-sm text-slate-400 leading-relaxed font-sans">{user.sanctuaire.biographie}</p>
+          </div>
+        )}
+
+        {/* 💼 INDICATEURS RH & MATCHMAKING (KONTAKT) */}
+        {user?.cvProfile && (
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-3 p-4 bg-white/[0.02] border border-white/5 rounded-2xl font-mono text-xs text-slate-300">
+            <div className="flex items-center gap-2">
+              <Briefcase size={14} className="text-[#E5484D]" />
+              <span className="text-slate-400">Statut :</span> 
+              <span className="font-bold">{user.cvProfile.professionalStatus || 'N/A'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Globe size={14} className="text-[#E5484D]" />
+              <span className="text-slate-400">Mode :</span> 
+              <span className="font-bold">{user.cvProfile.remotePreference || 'N/A'}</span>
+            </div>
+            {dailyRateEuro !== null && (
+              <div className="flex items-center gap-2">
+                <DollarSign size={14} className="text-[#E5484D]" />
+                <span className="text-slate-400">TJM :</span> 
+                <span className="font-bold">{dailyRateEuro} €</span>
+              </div>
+            )}
           </div>
         )}
 

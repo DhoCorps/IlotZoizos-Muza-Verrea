@@ -1,7 +1,8 @@
+// Fichier : packages/infrastructure/src/database/models/nosql/__tests__/user.model.test.ts
 import { describe, it, expect } from 'vitest';
 import { OiseauModel } from '../../nosql/user.model';
 
-describe('Oiseau Model Test', () => {
+describe('Oiseau Model Test (La Silice Canonique)', () => {
   it('should create an oiseau with default values, clear karma, active ghost mode for #2F4F4F, and default moderation status', async () => {
     const oiseauData = {
       pseudo: 'OiseauLibreTest',
@@ -45,5 +46,39 @@ describe('Oiseau Model Test', () => {
 
     expect(validationError).toBeDefined();
     expect(validationError?.errors?.gracesUsed).toBeDefined();
+  });
+
+  it('should initialize a complete cvProfile with RPG defaults and SSOT structures', () => {
+    const oiseauData = {
+      pseudo: 'WorkerBird',
+      email: 'work@ilot.test',
+      cvProfile: {
+        catchphrase: 'Prêt à forger le code',
+        freelanceDailyRateCents: 50000,
+        kryptonite: 'Les réunions de 2h qui auraient pu être un email.'
+      }
+    };
+
+    const oiseau = new OiseauModel(oiseauData);
+
+    expect(oiseau.cvProfile).toBeDefined();
+    expect(oiseau.cvProfile?.catchphrase).toBe('Prêt à forger le code');
+    expect(oiseau.cvProfile?.professionalStatus).toBe('EMPLOYEE'); // Défaut
+    expect(oiseau.cvProfile?.remotePreference).toBe('FLEXIBLE'); // Défaut
+    expect(oiseau.cvProfile?.freelanceDailyRateCents).toBe(50000);
+    expect(oiseau.cvProfile?.isRateNegotiable).toBe(false); // Défaut
+    
+    // Vérification des "Flavors" RPG de l'Îlot
+    expect(oiseau.cvProfile?.workSoundtrack).toBe('LOFI');
+    expect(oiseau.cvProfile?.alignment).toBe('TRUE_NEUTRAL');
+    expect(oiseau.cvProfile?.kryptonite).toBe('Les réunions de 2h qui auraient pu être un email.');
+
+    // Vérification de la préparation des tableaux SSOT
+    expect(oiseau.cvProfile?.experiences).toBeDefined();
+    expect(oiseau.cvProfile?.experiences.length).toBe(0);
+    expect(oiseau.cvProfile?.educations).toBeDefined();
+    expect(oiseau.cvProfile?.educations.length).toBe(0);
+    expect(oiseau.cvProfile?.languages).toBeDefined();
+    expect(oiseau.cvProfile?.languages.length).toBe(0);
   });
 });

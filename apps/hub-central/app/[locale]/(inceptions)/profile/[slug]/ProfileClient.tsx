@@ -1,3 +1,4 @@
+// apps/hub-central/app/profile/[slug]/ProfileClient.tsx
 'use client';
 
 import React, { useState } from 'react';
@@ -10,31 +11,31 @@ import {
     Loader2, 
     Lock, 
     Unlock, 
-    User, 
     Skull,
     Trophy,
     Scale,
     Heart
 } from 'lucide-react';
-import { BirdProfile } from '@/components/profile/BirdProfile';
+import { UserCard } from '@/components/users/UserCard';
 import SovereignLeaderboard from '@/components/sovereign/SovereignLeaderboard';
-import { MediationModal } from '@/components/mediation/MediationModal'; // 🕊️ Sas de Médiation
-import { PantheonPraises } from '@/components/pantheon/PantheonPraises'; // 🌟 Panthéon des Éloges
+import { MediationModal } from '@/components/mediation/MediationModal';
+import { PantheonPraises } from '@/components/pantheon/PantheonPraises';
 
-export default function ProfilePage({ params }: { params?: { slug?: string } }) {
+interface ProfileClientProps {
+    slug?: string;
+}
+
+export default function ProfileClient({ slug }: ProfileClientProps) {
     const { data: session, status } = useSession();
     const queryClient = useQueryClient();
     const [guessInput, setGuessInput] = useState('');
     
-    // 🕊️ État d'ouverture de la modale de médiation
     const [isMediationOpen, setIsMediationOpen] = useState(false);
 
-    // Détermination de l'Oiseau ciblé (soit via l'URL, soit soi-même par défaut)
     const currentUserUid = (session?.user as any)?.uid;
-    const targetSlug = params?.slug || currentUserUid;
+    const targetSlug = slug || currentUserUid;
     const isOwner = currentUserUid === targetSlug;
 
-    // 📡 SUTURE REACT QUERY : Récupération des données du profil et du statut du mini-jeu
     const { data: profileData, isLoading } = useQuery({
         queryKey: ['profile', targetSlug],
         queryFn: async () => {
@@ -45,7 +46,6 @@ export default function ProfilePage({ params }: { params?: { slug?: string } }) 
         enabled: status === 'authenticated' && !!targetSlug,
     });
 
-    // ⚔️ SUTURE REACT QUERY : Mutation pour tenter de deviner le sobriquet
     const guessMutation = useMutation({
         mutationFn: async (guess: string) => {
             const res = await fetch(`/api/users/${targetSlug}/guess-pseudo`, {
@@ -99,20 +99,17 @@ export default function ProfilePage({ params }: { params?: { slug?: string } }) 
             
             {/* 🛡️ LE JEU DU SOBRIQUET (Zone de Pillage) */}
             <div className="relative overflow-hidden p-8 bg-slate-900/60 border border-slate-800 rounded-3xl shadow-2xl">
-                {/* Aura visuelle de fond (Gris bleuté et teintes sombres) */}
                 <div className="absolute -right-20 -top-20 w-64 h-64 bg-slate-700/10 rounded-full blur-[100px] pointer-events-none" />
                 <div className="absolute -left-20 -bottom-20 w-64 h-64 bg-slate-800/20 rounded-full blur-[100px] pointer-events-none" />
 
                 <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-8">
                     
-                    {/* Explications et Lore */}
                     <div className="space-y-3 flex-1">
                         <div className="flex items-center gap-2">
                             <span className="px-3 py-1 bg-slate-800 border border-slate-700 rounded-full text-[10px] font-black text-slate-300 uppercase tracking-widest flex items-center gap-1.5">
                                 <ShieldQuestion size={12} /> Sceau d'Identité
                             </span>
                             
-                            {/* 🕊️ Bouton de signalement (uniquement sur le profil des autres) */}
                             {!isOwner && (
                                 <button
                                     onClick={() => setIsMediationOpen(true)}
@@ -140,7 +137,6 @@ export default function ProfilePage({ params }: { params?: { slug?: string } }) 
                         )}
                     </div>
 
-                    {/* Zone d'Interaction (Propriétaire vs Visiteur) */}
                     <div className="flex-1 w-full max-w-md bg-slate-950 border border-slate-800 p-6 rounded-2xl">
                         {isOwner ? (
                             <div className="space-y-4">
@@ -192,19 +188,17 @@ export default function ProfilePage({ params }: { params?: { slug?: string } }) 
             {/* 🌿 LE PROFIL CLASSIQUE & SANCTUAIRE */}
             <div className="pt-8 border-t border-slate-800/50 space-y-12">
                 <div>
-                    <div className="flex items-center gap-2 mb-6">
-                        <User size={18} className="text-slate-500" />
-                        <h3 className="text-lg font-black uppercase tracking-widest text-slate-300">
-                            Sanctuaire & Artefacts
-                        </h3>
-                    </div>
-                    
-                    <BirdProfile 
-                        birdName={profileData.nickname || profileData.pseudo || "Oiseau Anonyme"} 
+                    <UserCard 
+                        user={profileData} 
+                        currentUserCapabilities={session?.user ? (session.user as any).capabilities : []}
+                        onEditProfile={() => {
+                            window.location.href = `/settings/profile`;
+                        }}
+                        onUploadSuccess={() => queryClient.invalidateQueries({ queryKey: ['profile', targetSlug] })}
                     />
                 </div>
 
-                {/* 🌟 LE PANTHÉON DES ÉLOGES (Alimente le Bouclier Karmique) */}
+                {/* 🌟 LE PANTHÉON DES ÉLOGES */}
                 <div className="pt-8 border-t border-slate-800/50 flex flex-col items-center">
                     <div className="w-full flex items-center gap-2 mb-6">
                         <Heart size={18} className="text-amber-400" />

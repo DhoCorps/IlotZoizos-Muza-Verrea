@@ -1,8 +1,8 @@
+// Fichier : apps/hub-central/__test__/api/users.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/users/route';
 import { OiseauModel } from '@ilot/infrastructure';
-import { OiseauOrchestrator } from '@ilot/shared-core';
-import { revalidateTag } from 'next/cache';
+import { getCachedOiseaux } from '@/lib/cache/users.cache';
 import { NextRequest, NextResponse } from 'next/server';
 
 // -------------------------------------------------------------------------
@@ -11,6 +11,10 @@ import { NextRequest, NextResponse } from 'next/server';
 vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb: Function) => cb),
   revalidateTag: vi.fn(),
+}));
+
+vi.mock('@/lib/cache/users.cache', () => ({
+  getCachedOiseaux: vi.fn().mockResolvedValue([{ uid: '123', pseudo: 'Alpha' }]),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
@@ -55,13 +59,15 @@ declare global {
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
-describe('Route API : Volière Publique (GET / POST)', () => {
+describe('Route API : Volière Publique & Filtres RH (GET / POST)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete global.__mockUser;
+    // Ré-affirmation explicite de la valeur résolue pour le cache
+    vi.mocked(getCachedOiseaux).mockResolvedValue([{ uid: '123', pseudo: 'Alpha' }] as any);
   });
 
-  describe('GET - Recensement', () => {
+  describe('GET - Recensement et Filtres RH', () => {
     it('doit rejeter (401) si l\'Oiseau n\'a pas d\'Aura', async () => {
       delete global.__mockUser;
 
@@ -73,27 +79,23 @@ describe('Route API : Volière Publique (GET / POST)', () => {
       expect(json.error).toBe("Le Nexus est invisible aux étrangers.");
     });
 
-    it('doit renvoyer (200) la liste des oiseaux filtrés pour un utilisateur connecté', async () => {
+    it('doit transmettre les paramètres de recherche et les filtres RH à getCachedOiseaux', async () => {
       global.__mockUser = { uid: 'u-123', capabilities: [] };
-      
-      const mockOiseaux = [{ uid: '123', pseudo: 'Alpha' }];
-      const chainMock = {
-        select: vi.fn().mockReturnThis(),
-        sort: vi.fn().mockReturnThis(),
-        limit: vi.fn().mockReturnThis(),
-        lean: vi.fn().mockResolvedValue(mockOiseaux),
-      };
-      vi.mocked(OiseauModel.find).mockReturnValue(chainMock as unknown as ReturnType<typeof OiseauModel.find>);
 
-      const req = new NextRequest('http://localhost/api/users?search=Alpha');
+      const req = new NextRequest('http://localhost/api/users?search=Alpha&professionalStatus=FREELANCE&remotePreference=FULL_REMOTE&maxRate=500');
       const response = await GET(req, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(200);
-      expect(json).toEqual(mockOiseaux);
-      expect(OiseauModel.find).toHaveBeenCalledWith(expect.objectContaining({
-        $or: expect.any(Array)
-      }));
+      expect(json).toEqual([{ uid: '123', pseudo: 'Alpha' }]);
+      
+      // Vérification que les filtres de recherche et RH ont bien été extraits et passés au cache
+      expect(getCachedOiseaux).toHaveBeenCalledWith({
+        search: 'Alpha',
+        professionalStatus: 'FREELANCE',
+        remotePreference: 'FULL_REMOTE',
+        maxRate: 500
+      });
     });
   });
 

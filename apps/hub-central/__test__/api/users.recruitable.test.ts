@@ -1,7 +1,9 @@
+// Fichier : __tests__/recruitable.route.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/users/recruitable/route';
 import { OiseauModel } from '@ilot/infrastructure';
 import { OiseauOrchestrator } from '@ilot/shared-core';
+import { getCachedOiseaux } from '@/lib/cache/users.cache';
 import { revalidateTag } from 'next/cache';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -9,8 +11,12 @@ import { NextRequest, NextResponse } from 'next/server';
 // 🎭 MOCKS DE L'ENVIRONNEMENT
 // -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
-  unstable_cache: vi.fn((cb: Function) => cb), // Laisse passer pour tester la logique
+  unstable_cache: vi.fn((cb: Function) => cb),
   revalidateTag: vi.fn(),
+}));
+
+vi.mock('@/lib/cache/users.cache', () => ({
+  getCachedOiseaux: vi.fn().mockResolvedValue([{ uid: '123', pseudo: 'Alpha' }]),
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
@@ -55,17 +61,18 @@ declare global {
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
-describe('Route API : Volière Publique (GET / POST)', () => {
+describe('Route API : Volière Publique & Filtres RH (GET / POST)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete global.__mockUser;
+    vi.mocked(getCachedOiseaux).mockResolvedValue([{ uid: '123', pseudo: 'Alpha' }] as any);
   });
 
-  describe('GET - Recensement', () => {
+  describe('GET - Recensement et Filtres RH', () => {
     it('doit rejeter (401) si l\'utilisateur n\'est pas connecté (pas d\'Aura)', async () => {
       delete global.__mockUser;
 
-      const req = new NextRequest('http://localhost/api/users');
+      const req = new NextRequest('http://localhost/api/users/recruitable');
       const response = await GET(req, { params: Promise.resolve({}) });
       const json = await response.json();
 
@@ -73,33 +80,29 @@ describe('Route API : Volière Publique (GET / POST)', () => {
       expect(json.error).toBe("Le Nexus est invisible aux étrangers.");
     });
 
-    it('doit renvoyer (200) la liste des oiseaux filtrés pour un utilisateur connecté', async () => {
+    it('doit transmettre les paramètres de recherche et les filtres RH (professionalStatus, remotePreference, maxRate) à getCachedOiseaux', async () => {
       global.__mockUser = { uid: 'u-123', capabilities: [] };
-      
-      const mockOiseaux = [{ uid: '123', pseudo: 'Alpha' }];
-      const chainMock = {
-        select: vi.fn().mockReturnThis(),
-        sort: vi.fn().mockReturnThis(),
-        limit: vi.fn().mockReturnThis(),
-        lean: vi.fn().mockResolvedValue(mockOiseaux),
-      };
-      vi.mocked(OiseauModel.find).mockReturnValue(chainMock as unknown as ReturnType<typeof OiseauModel.find>);
 
-      const req = new NextRequest('http://localhost/api/users?search=Alpha');
+      const req = new NextRequest('http://localhost/api/users/recruitable?search=Alpha&professionalStatus=FREELANCE&remotePreference=FULL_REMOTE&maxRate=600');
       const response = await GET(req, { params: Promise.resolve({}) });
       const json = await response.json();
 
       expect(response.status).toBe(200);
-      expect(json).toEqual(mockOiseaux);
-      expect(OiseauModel.find).toHaveBeenCalledWith(expect.objectContaining({
-        $or: expect.any(Array)
-      }));
+      expect(json).toEqual([{ uid: '123', pseudo: 'Alpha' }]);
+      
+      // Validation de l'appel au cache avec l'objet de critères consolidé
+      expect(getCachedOiseaux).toHaveBeenCalledWith({
+        search: 'Alpha',
+        professionalStatus: 'FREELANCE',
+        remotePreference: 'FULL_REMOTE',
+        maxRate: 600
+      });
     });
   });
 
   describe('POST - Éclosion (Inscription)', () => {
     it('doit rejeter (400) si l\'oeuf est incomplet', async () => {
-      const req = new NextRequest('http://localhost/api/users', {
+      const req = new NextRequest('http://localhost/api/users/recruitable', {
         method: 'POST',
         body: JSON.stringify({ email: 'test@mail.com' }), // Manque pseudo et password
       });
@@ -116,7 +119,7 @@ describe('Route API : Volière Publique (GET / POST)', () => {
         lean: vi.fn().mockResolvedValue({ uid: 'existing' }),
       } as unknown as ReturnType<typeof OiseauModel.findOne>);
 
-      const req = new NextRequest('http://localhost/api/users', {
+      const req = new NextRequest('http://localhost/api/users/recruitable', {
         method: 'POST',
         body: JSON.stringify({ email: 'clone@mail.com', pseudo: 'Clone', password: '123' }),
       });
@@ -133,7 +136,7 @@ describe('Route API : Volière Publique (GET / POST)', () => {
       const mockFoster = vi.fn().mockResolvedValue({ uid: 'new-uid', slug: 'new-slug' });
       vi.mocked(OiseauOrchestrator).mockImplementation(() => ({ fosterOiseau: mockFoster } as unknown as OiseauOrchestrator));
 
-      const req = new NextRequest('http://localhost/api/users', {
+      const req = new NextRequest('http://localhost/api/users/recruitable', {
         method: 'POST',
         body: JSON.stringify({ email: 'new@mail.com', pseudo: 'NewBird', password: '123' }),
       });
@@ -144,7 +147,7 @@ describe('Route API : Volière Publique (GET / POST)', () => {
       expect(response.status).toBe(201);
       expect(json.uid).toBe('new-uid');
       
-      // Vérification cruciale de l'invalidation du cache de la volière
+      // Vérification de l'invalidation du cache de la volière
       expect(revalidateTag).toHaveBeenCalledWith('users');
       expect(mockFoster).toHaveBeenCalledWith(expect.objectContaining({ pseudo: 'NewBird' }));
     });

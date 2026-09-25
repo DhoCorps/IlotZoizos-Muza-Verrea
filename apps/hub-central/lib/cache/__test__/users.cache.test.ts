@@ -7,7 +7,6 @@ import {
 } from '@/lib/cache/users.cache';
 import { connectToDatabase, OiseauModel } from '@ilot/infrastructure';
 import { ObservatoryEngine } from '@ilot/shared-core';
-import { unstable_cache } from 'next/cache';
 
 vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb) => cb),
@@ -27,14 +26,14 @@ vi.mock('@ilot/shared-core', () => ({
   },
 }));
 
-describe('Cache : Users Cache Helpers (Volière & Observatoire)', () => {
+describe('Cache : Users Cache Helpers (Volière, Filtres RH & Observatoire)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
   });
 
   describe('getCachedOiseaux', () => {
-    it('doit récupérer la liste des oiseaux filtrée par phrase de recherche', async () => {
+    it('doit récupérer la liste des oiseaux filtrée par phrase de recherche simple (rétrocompatibilité string)', async () => {
       const mockOiseaux = [{ uid: 'bird_1', slug: 'architecte', pseudo: 'Architecte' }];
       
       const mockExecChain = {
@@ -62,8 +61,43 @@ describe('Cache : Users Cache Helpers (Volière & Observatoire)', () => {
       });
     });
 
-    it('doit récupérer la liste complète sans filtre si searchPhrase est null', async () => {
-      const mockOiseaux = [{ uid: 'bird_2', slug: 'libre' }];
+    it('doit récupérer la liste des oiseaux filtrée avec un objet de critères RH avancés', async () => {
+      const mockOiseaux = [{ uid: 'bird_2', slug: 'freelance-remote', pseudo: 'Nomade' }];
+      
+      const mockExecChain = {
+        select: vi.fn().mockReturnValue({
+          sort: vi.fn().mockReturnValue({
+            limit: vi.fn().mockReturnValue({
+              lean: vi.fn().mockResolvedValue(mockOiseaux),
+            }),
+          }),
+        }),
+      };
+
+      vi.mocked(OiseauModel.find).mockReturnValue(mockExecChain as any);
+
+      const result = await getCachedOiseaux({
+        search: 'Nomade',
+        professionalStatus: 'FREELANCE',
+        remotePreference: 'FULL_REMOTE',
+        maxRate: 500
+      });
+
+      expect(result).toEqual(mockOiseaux);
+      expect(OiseauModel.find).toHaveBeenCalledWith({
+        $or: [
+          { slug: { $regex: 'Nomade', $options: 'i' } },
+          { pseudo: { $regex: 'Nomade', $options: 'i' } },
+          { capabilities: { $regex: 'Nomade', $options: 'i' } },
+        ],
+        'cvProfile.professionalStatus': 'FREELANCE',
+        'cvProfile.remotePreference': 'FULL_REMOTE',
+        'cvProfile.freelanceDailyRateCents': { $lte: 50000 }, // 500 * 100 centimes
+      });
+    });
+
+    it('doit récupérer la liste complète sans filtre si filters est null ou vide', async () => {
+      const mockOiseaux = [{ uid: 'bird_3', slug: 'libre' }];
       
       const mockExecChain = {
         select: vi.fn().mockReturnValue({

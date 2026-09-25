@@ -12,17 +12,32 @@ interface LeanOiseauDocument extends Omit<IOiseau, 'emotionalIntensity' | 'entro
   [key: string]: unknown;
 }
 
+// Type pour les filtres de la volière publique (Rétrocompatible string ou objet RH)
+export type OiseauSearchFilters = string | null | {
+  search?: string | null;
+  professionalStatus?: string;
+  remotePreference?: string;
+  maxRate?: number;
+};
+
 // -------------------------------------------------------------------------
-// CACHE : La Volière Publique (Recensement)
+// CACHE : La Volière Publique (Recensement & Filtres RH SSOT)
 // -------------------------------------------------------------------------
 export const getCachedOiseaux = unstable_cache(
-  async (searchPhrase: string | null) => {
+  async (filters?: OiseauSearchFilters) => {
     await connectToDatabase();
     
     const query: Record<string, unknown> & {
       $or?: Array<Record<string, unknown>>;
     } = {};
 
+    // Normalisation des arguments (supporte un string direct ou un objet de filtres avancés)
+    const searchPhrase = typeof filters === 'string' ? filters : filters?.search;
+    const professionalStatus = typeof filters === 'object' && filters !== null ? filters.professionalStatus : undefined;
+    const remotePreference = typeof filters === 'object' && filters !== null ? filters.remotePreference : undefined;
+    const maxRate = typeof filters === 'object' && filters !== null ? filters.maxRate : undefined;
+
+    // 🔍 Filtre textuel (Recherche globale)
     if (searchPhrase) {
       query.$or = [
         { slug: { $regex: searchPhrase,$options: 'i' } },
@@ -30,9 +45,23 @@ export const getCachedOiseaux = unstable_cache(
         { capabilities: { $regex: searchPhrase,$options: 'i' } }
       ];
     }
+
+    // 💼 Filtres RH unifiés (SSOT cvProfile)
+    if (professionalStatus) {
+      query['cvProfile.professionalStatus'] = professionalStatus;
+    }
+
+    if (remotePreference) {
+      query['cvProfile.remotePreference'] = remotePreference;
+    }
+
+    if (maxRate !== undefined) {
+      // Le TJM est stocké en centimes dans la Silice
+      query['cvProfile.freelanceDailyRateCents'] = { $lte: maxRate * 100 };
+    }
     
     return await OiseauModel.find(query)
-      .select('uid slug pseudo frequenceHEX capabilities signature')
+      .select('uid slug pseudo frequenceHEX capabilities signature cvProfile')
       .sort({ createdAt: -1 })
       .limit(20)
       .lean();
@@ -46,7 +75,7 @@ export const getCachedOiseaux = unstable_cache(
 
 // -------------------------------------------------------------------------
 // CACHE CHIRURGICAL : Récupération d'un profil spécifique
-// -------------------------------------------------------------------------
+// ---------------------------------------------------------
 export const getCachedOiseau = (targetSlug: string) => {
   return unstable_cache(
     async () => {
@@ -60,7 +89,7 @@ export const getCachedOiseau = (targetSlug: string) => {
       revalidate: 60,
       tags: ['users', 'profile', `profile-${targetSlug}`]
     }
-  )(); // Exécution immédiate encapsulée
+  )();
 };
 
 // -------------------------------------------------------------------------
@@ -76,7 +105,6 @@ export const getCachedObservatoryReport = (targetSlug: string) => {
        
       if (!userProfile) return null;
       
-      // Synthèse de la Sève
       const observatoryData = {
         dependencies: [
           { id: 'dep-1', status: 1 },

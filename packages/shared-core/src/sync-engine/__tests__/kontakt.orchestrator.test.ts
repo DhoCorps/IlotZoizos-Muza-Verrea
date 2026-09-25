@@ -9,9 +9,11 @@ import type { ClientSession } from 'mongoose';
 import type { Transaction } from 'neo4j-driver';
 
 // 🚀 Utilisation de vi.hoisted pour survivre au hissage de Vitest
-const { mockFosterNotification } = vi.hoisted(() => ({
-  mockFosterNotification: vi.fn().mockResolvedValue({ success: true })
-}));
+const { mockFosterNotification } = vi.hoisted(() => {
+  return {
+    mockFosterNotification: vi.fn().mockResolvedValue({ success: true })
+  };
+});
 
 // 🛡️ Mock unifié et sécurisé de l'infrastructure
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -43,13 +45,16 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
+describe('KontaktOrchestrator - Réseau RH, Swipes & Matchmaking Avancé', () => {
   let orchestrator: KontaktOrchestrator;
   const validSignature: ActionSignature = { actorUid: 'bird_alpha', capabilities: [] };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    
+    // 🛡️ Ré-affirmation du comportement pour pallier au "mockReset" global éventuel de Vitest
     mockFosterNotification.mockClear();
+    mockFosterNotification.mockResolvedValue({ success: true });
 
     const injectedNotificationOrchestrator = {
       fosterNotification: mockFosterNotification
@@ -216,31 +221,81 @@ describe('KontaktOrchestrator - Réseau RH & Swipes', () => {
     });
   });
 
-  describe('matchmakingEngine (Matchs de Budget Favorables)', () => {
-    it('🟢 doit flagger un match favorable (FAVORABLE_BUDGET_MATCH) si le taux horaire rentre dans le budget max', async () => {
+  describe('matchmakingEngine (Règles SSOT : Télétravail, Statut & Budget)', () => {
+    it('🟢 doit flagger FAVORABLE_MATCH si toutes les conditions CV et Quête sont réunies', async () => {
       const res = await orchestrator.matchmakingEngine({
         questMaxBudgetCents: 50000,
-        profileHourlyRateCents: 6000
+        profileHourlyRateCents: 45000, // Budget OK
+        questWorkArrangement: 'FULL_REMOTE',
+        profileRemotePreference: 'FULL_REMOTE', // Geo OK
+        questContractType: 'FREELANCE',
+        profileProfessionalStatus: 'FREELANCE' // Statut OK
       });
       expect(res.isFavorable).toBe(true);
-      expect(res.matchFlag).toBe('FAVORABLE_BUDGET_MATCH');
+      expect(res.matchFlag).toBe('FAVORABLE_MATCH');
     });
 
-    it('🔴 doit flagger OUT_OF_BUDGET si le taux horaire dépasse le budget max de la quête', async () => {
+    it('🔴 doit flagger INCOMPATIBLE_WORK_ARRANGEMENT si le recruteur exige du présentiel et l\'Oiseau du full remote', async () => {
       const res = await orchestrator.matchmakingEngine({
-        questMaxBudgetCents: 4500,
-        profileHourlyRateCents: 6000
+        questMaxBudgetCents: 50000,
+        profileHourlyRateCents: 40000, 
+        questWorkArrangement: 'ON_SITE', // Mission sur site
+        profileRemotePreference: 'FULL_REMOTE', // L'oiseau refuse de se déplacer
+        questContractType: 'FREELANCE',
+        profileProfessionalStatus: 'FREELANCE'
+      });
+      expect(res.isFavorable).toBe(false);
+      expect(res.matchFlag).toBe('INCOMPATIBLE_WORK_ARRANGEMENT');
+    });
+
+    it('🔴 doit flagger INCOMPATIBLE_WORK_ARRANGEMENT si la quête est full remote mais l\'Oiseau préfère le présentiel', async () => {
+      const res = await orchestrator.matchmakingEngine({
+        questMaxBudgetCents: 50000,
+        profileHourlyRateCents: 40000,
+        questWorkArrangement: 'FULL_REMOTE', // Quête sans bureau
+        profileRemotePreference: 'ON_SITE', // Oiseau veut voir des collègues
+        questContractType: 'CDI',
+        profileProfessionalStatus: 'JOB_SEEKER'
+      });
+      expect(res.isFavorable).toBe(false);
+      expect(res.matchFlag).toBe('INCOMPATIBLE_WORK_ARRANGEMENT');
+    });
+
+    it('🔴 doit flagger INCOMPATIBLE_CONTRACT_TYPE si un freelance refuse un CDI', async () => {
+      const res = await orchestrator.matchmakingEngine({
+        questMaxBudgetCents: 50000,
+        profileHourlyRateCents: 40000,
+        questWorkArrangement: 'FULL_REMOTE',
+        profileRemotePreference: 'FULL_REMOTE',
+        questContractType: 'CDI', // Contrat Salarié
+        profileProfessionalStatus: 'FREELANCE' // Profil Indépendant pur
+      });
+      expect(res.isFavorable).toBe(false);
+      expect(res.matchFlag).toBe('INCOMPATIBLE_CONTRACT_TYPE');
+    });
+
+    it('🔴 doit flagger OUT_OF_BUDGET si le TJM de l\'Oiseau dépasse le budget de la mission', async () => {
+      const res = await orchestrator.matchmakingEngine({
+        questMaxBudgetCents: 40000,
+        profileHourlyRateCents: 60000, // Trop cher
+        questWorkArrangement: 'FULL_REMOTE',
+        profileRemotePreference: 'FULL_REMOTE',
+        questContractType: 'FREELANCE',
+        profileProfessionalStatus: 'FREELANCE'
       });
       expect(res.isFavorable).toBe(false);
       expect(res.matchFlag).toBe('OUT_OF_BUDGET');
     });
 
-    it('🟡 doit retourner MISSING_DATA s\'il manque des informations financières', async () => {
+    it('🟡 doit retourner MISSING_DATA s\'il manque un champ vital (Budget ou Télétravail)', async () => {
       const res1 = await orchestrator.matchmakingEngine({
-        questMaxBudgetCents: 50000
+        questMaxBudgetCents: 50000,
+        profileHourlyRateCents: 40000,
+        // Manque le télétravail et les statuts
       });
-      const res2 = await orchestrator.matchmakingEngine({});
-
+      
+      const res2 = await orchestrator.matchmakingEngine({}); // Objet totalement vide
+      
       expect(res1.isFavorable).toBe(false);
       expect(res1.matchFlag).toBe('MISSING_DATA');
       expect(res2.isFavorable).toBe(false);

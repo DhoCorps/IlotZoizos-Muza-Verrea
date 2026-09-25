@@ -1,8 +1,9 @@
+// Fichier : packages/infrastructure/src/database/models/nosql/__tests__/jobQuest.model.test.ts
 import { describe, it, expect } from 'vitest';
-import { JobQuestModel } from '../../nosql/jobQuest.model'; // Ajuste le chemin relatif selon ton arborescence
+import { JobQuestModel } from '../../nosql/jobQuest.model'; 
 
-describe('JobQuest Model', () => {
-    it('🟢 doit valider une quête de poste conforme avec toutes ses valeurs requises et par défaut', () => {
+describe('JobQuest Model (Recrutement & Quêtes)', () => {
+    it('🟢 doit valider une quête conforme avec ses valeurs requises, logistiques et RPG par défaut', () => {
         const validData = {
             uid: 'quest_123',
             projectUid: 'proj_456',
@@ -11,6 +12,8 @@ describe('JobQuest Model', () => {
             description: 'Recherche un oiseau capable de structurer les flux Silice.',
             requiredSkills: ['TypeScript', 'Next.js'],
             rewardLore: 'Un fragment d\'étoile éternel',
+            maxBudgetCents: 50000,
+            perks: ['Setup triple écran', 'Café infusé à froid']
         };
 
         const quest = new JobQuestModel(validData);
@@ -21,7 +24,17 @@ describe('JobQuest Model', () => {
         expect(quest.description).toBe('Recherche un oiseau capable de structurer les flux Silice.');
         expect(quest.requiredSkills).toEqual(['TypeScript', 'Next.js']);
         expect(quest.rewardLore).toBe('Un fragment d\'étoile éternel');
-        expect(quest.status).toBe('ACTIVE'); // Vérifie la valeur par défaut
+        expect(quest.maxBudgetCents).toBe(50000);
+        expect(quest.perks).toEqual(['Setup triple écran', 'Café infusé à froid']);
+        
+        // Vérification des valeurs injectées par défaut (Mongoose)
+        expect(quest.status).toBe('ACTIVE'); 
+        expect(quest.workArrangement).toBe('FULL_REMOTE');
+        expect(quest.contractType).toBe('FREELANCE');
+        expect(quest.experienceLevel).toBe('CONFIRMED');
+        expect(quest.currency).toBe('EUR');
+        expect(quest.questDifficulty).toBe('NORMAL');
+        expect(quest.dangerLevel).toBe(10);
     });
 
     it('🔴 doit rejeter une quête si les champs obligatoires (uid, projectUid, title, slug, description) manquent', () => {
@@ -37,7 +50,7 @@ describe('JobQuest Model', () => {
         expect(error?.errors?.description).toBeDefined();
     });
 
-    it('🔴 doit rejeter une quête avec un status non valide par rapport à l\'énumération', () => {
+    it('🔴 doit rejeter une quête avec un status ou un mode de travail non valide par rapport à l\'énumération', () => {
         const invalidData = {
             uid: 'quest_789',
             projectUid: 'proj_456',
@@ -45,9 +58,27 @@ describe('JobQuest Model', () => {
             slug: 'test-quete',
             description: 'Description de test',
             status: 'UNKNOWN_STATUS', // Invalide
+            workArrangement: 'TELEPORTATION' // Invalide
         };
 
         const error = new JobQuestModel(invalidData).validateSync();
         expect(error?.errors?.status).toBeDefined();
+        expect(error?.errors?.workArrangement).toBeDefined();
+    });
+
+    it('🔴 doit rejeter une quête avec un budget de matchmaking négatif ou une jauge de danger hors limite', () => {
+        const invalidNumericData = {
+            uid: 'quest_999',
+            projectUid: 'proj_456',
+            title: 'Test Quête Extrême',
+            slug: 'test-quete-extreme',
+            description: 'Mission impossible',
+            maxBudgetCents: -5000, // Invalide (min: 0)
+            dangerLevel: 150 // Invalide (max: 100)
+        };
+
+        const error = new JobQuestModel(invalidNumericData).validateSync();
+        expect(error?.errors?.maxBudgetCents).toBeDefined();
+        expect(error?.errors?.dangerLevel).toBeDefined();
     });
 });

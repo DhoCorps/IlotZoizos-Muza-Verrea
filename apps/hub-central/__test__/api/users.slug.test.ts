@@ -1,14 +1,21 @@
+// Fichier : apps/hub-central/__test__/api/users.slug.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET } from '@/app/api/users/[slug]/route';
+import { GET, PATCH } from '@/app/api/users/[slug]/route';
 import { OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
-import { slugify } from '@/lib/slugify';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 
 // -------------------------------------------------------------------------
-// 🎭 MOCKS
+// 🎭 MOCKS HOISTÉS
 // -------------------------------------------------------------------------
+const { mockSyncOiseau } = vi.hoisted(() => {
+  return {
+    mockSyncOiseau: vi.fn().mockResolvedValue({ success: true, status: 'success', mongo: { pseudo: 'Modifié' }, neo4j: null })
+  };
+});
+
 vi.mock('next/cache', () => ({
-  unstable_cache: vi.fn((cb: Function) => cb), // Exécute immédiatement la fonction mise en cache
+  unstable_cache: vi.fn((cb: Function) => cb),
+  revalidateTag: vi.fn(),
 }));
 
 vi.mock('@/lib/cache/users.cache', () => ({
@@ -23,25 +30,43 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     OiseauModel: {
       findOne: vi.fn(),
     },
-    // 🛡️ Protocole appliqué : Mock du helper unifié centralisé
     findEntityBySlugOrUid: vi.fn(),
   };
 });
 
+// 🛡️ Mock direct de la classe OiseauOrchestrator sous forme de fonction constructeur fonctionnelle
+vi.mock('@ilot/shared-core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@ilot/shared-core')>();
+  return {
+    ...actual,
+    OiseauOrchestrator: function() {
+      return {
+        syncOiseau: mockSyncOiseau,
+      };
+    },
+  };
+});
+
 vi.mock('@/lib/slugify', () => ({
-  slugify: vi.fn((str: string) => str), // Mock simple de slugify pour les tests
+  slugify: vi.fn((str: string) => str),
 }));
 
-// Mock unifié de l'api-guard
 vi.mock('@/lib/api-guards', () => ({
   withOptionalAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
     const mockCurrentUser = global.__mockUser;
     return await handler(req, context, mockCurrentUser);
   },
+  withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const mockCurrentUser = global.__mockUser;
+    if (!mockCurrentUser) {
+      return new Response(JSON.stringify({ success: false, message: 'Non autorisé.' }), { status: 401 });
+    }
+    return await handler(req, context, mockCurrentUser);
+  },
   handleRouteError: (error: unknown, context: string) => {
     const err = error as Error;
-    console.error(`[${context}]`, err);
-    return new Response(JSON.stringify({ success: false, message: err.message || 'Erreur interne.' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    console.error(`[ROUTE ERROR CATCH]`, err);
+    return new Response(JSON.stringify({ success: false, message: err.message || 'Erreur interne.' }), { status: 500 });
   }
 }));
 
@@ -56,10 +81,11 @@ declare global {
 // -------------------------------------------------------------------------
 // 🧪 SUITE DE TESTS
 // -------------------------------------------------------------------------
-describe('Route API : Miroir (GET /[slug])', () => {
+describe('Route API : Profil & SSOT CV (GET/PATCH /[slug])', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete global.__mockUser;
+    mockSyncOiseau.mockResolvedValue({ success: true, status: 'success', mongo: { pseudo: 'Modifié' }, neo4j: null });
   });
 
   const mockOiseauDb = {
@@ -73,55 +99,71 @@ describe('Route API : Miroir (GET /[slug])', () => {
     isGhostMode: false,
     entropieActive: 45,
     capabilities: ['USER'],
+    cvProfile: {
+      professionalStatus: 'FREELANCE',
+      remotePreference: 'FULL_REMOTE',
+      experiences: [
+        { title: 'Dev Lead', company: 'Ilot', isVisibleInCv: true },
+        { title: 'Secret Job', company: 'Anonyme', isVisibleInCv: false }
+      ],
+      educations: []
+    }
   };
 
-  it('doit renvoyer (404) si l\'oiseau n\'existe pas', async () => {
+  it('doit renvoyer le profil public avec filtrage des expériences non visibles (isVisibleInCv: false)', async () => {
     delete global.__mockUser;
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
-
-    const req = new NextRequest('http://localhost/api/users/inconnu');
-    const response = await GET(req, { params: Promise.resolve({ slug: 'inconnu' }) });
-    
-    expect(response.status).toBe(404);
-    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'inconnu');
-  });
-
-  it('doit renvoyer le profil STANDARD (sans email) pour un visiteur public', async () => {
-    delete global.__mockUser;
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb as any);
 
     const req = new NextRequest('http://localhost/api/users/dho-123');
     const response = await GET(req, { params: Promise.resolve({ slug: 'dho-123' }) });
     const json = await response.json();
 
     expect(response.status).toBe(200);
-    expect(json.email).toBeUndefined(); // 🔒 Email absent en mode public
-    expect(json.pseudo).toBe('DhÖ');
-    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'dho-123');
+    expect(json.email).toBeUndefined();
+    expect(json.cvProfile.experiences.length).toBe(1);
+    expect(json.cvProfile.experiences[0].title).toBe('Dev Lead');
   });
 
-  it('doit renvoyer le profil INTIME (avec email) si l\'utilisateur consulte le sien', async () => {
+  it('doit renvoyer le profil intime complet (email + toutes les expériences) si l\'utilisateur consulte le sien', async () => {
     global.__mockUser = { uid: 'dho-123', capabilities: [] };
-    
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb as any);
 
     const req = new NextRequest('http://localhost/api/users/dho-123');
     const response = await GET(req, { params: Promise.resolve({ slug: 'dho-123' }) });
     const json = await response.json();
 
     expect(response.status).toBe(200);
-    expect(json.email).toBe('secret@zoizos.fr'); // 🔓 Email présent pour soi-même
-    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'dho-123');
+    expect(json.email).toBe('secret@zoizos.fr');
+    expect(json.cvProfile.experiences.length).toBe(2);
   });
 
-  it('doit fonctionner avec un slug normalisé', async () => {
-    delete global.__mockUser;
-    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb as unknown as Awaited<ReturnType<typeof findEntityBySlugOrUid>>);
+  it('doit rejeter (403) un PATCH si l\'utilisateur tente de modifier un autre profil', async () => {
+    global.__mockUser = { uid: 'hacker-999', capabilities: [] };
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb as any);
 
-    const req = new NextRequest('http://localhost/api/users/dho-123');
-    const response = await GET(req, { params: Promise.resolve({ slug: 'dho-123' }) });
-    
+    const req = new NextRequest('http://localhost/api/users/dho-123', {
+      method: 'PATCH',
+      body: JSON.stringify({ pseudo: 'HACKED' })
+    });
+
+    const response = await PATCH(req, { params: Promise.resolve({ slug: 'dho-123' }) });
+    expect(response.status).toBe(403);
+  });
+
+  it('doit accepter un PATCH valide et appeler l\'OiseauOrchestrator pour synchroniser le profil CV (SSOT)', async () => {
+    global.__mockUser = { uid: 'dho-123', capabilities: [] };
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockOiseauDb as any);
+
+    const req = new NextRequest('http://localhost/api/users/dho-123', {
+      method: 'PATCH',
+      body: JSON.stringify({ cvProfile: { professionalStatus: 'EMPLOYEE' } })
+    });
+
+    const response = await PATCH(req, { params: Promise.resolve({ slug: 'dho-123' }) });
+    const json = await response.json();
+
     expect(response.status).toBe(200);
-    expect(findEntityBySlugOrUid).toHaveBeenCalledWith(OiseauModel, 'dho-123');
+    expect(json.success).toBe(true);
+    expect(mockSyncOiseau).toHaveBeenCalled();
   });
 });

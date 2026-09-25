@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/orchestrators/user.orchestrator.ts
 import { OiseauModel, TeamModel, ProjectModel, TaskModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
@@ -93,12 +94,15 @@ export class OiseauOrchestrator {
 
       const [nouvelOiseau] = await OiseauModel.create([newOiseauData], { session: mongoSession });
 
+      // 🌐 Injection par défaut dans Neo4j des stats de Matchmaking CV
       const cypher = `
         CREATE (u:User {
             uid: $uid,
             pseudo: $pseudo,
             frequenceHEX: $frequenceHEX,
             capabilities: $capabilities,
+            professionalStatus: 'EMPLOYEE',
+            remotePreference: 'FLEXIBLE',
             createdAt: datetime($now),
             updatedAt: datetime($now)
         })
@@ -123,7 +127,7 @@ export class OiseauOrchestrator {
   }
 
   /**
-   * 🕊️ L'ENVOL (Mise à jour de l'essence)
+   * 🕊️ L'ENVOL (Mise à jour de l'essence et du Profil CV SSOT)
    */
   public async syncOiseau(
     oiseauData: Partial<IOiseau> & { uid: string; capabilities?: string[] }, 
@@ -147,6 +151,11 @@ export class OiseauOrchestrator {
       if (oiseauData.pseudo) updatePayload.pseudo = oiseauData.pseudo;
       if (oiseauData.frequenceHEX) updatePayload.frequenceHEX = oiseauData.frequenceHEX;
       
+      // 💼 MAJ du Profil CV Unique (Single Source of Truth)
+      if (oiseauData.cvProfile) {
+        updatePayload.cvProfile = oiseauData.cvProfile;
+      }
+      
       if (oiseauData.capabilities !== undefined) {
         if (!hasGlobalPower) {
           throw new IlotError("Tentative d'élévation de privilèges détectée.", "FORBIDDEN", 403);
@@ -166,11 +175,15 @@ export class OiseauOrchestrator {
         throw new IlotError("Oiseau introuvable dans la Silice", "NOT_FOUND", 404);
       }
 
+      // 🌐 Suture Matchmaking Neo4j : Extraction des données RH clés pour les Quêtes
       const cypher = `
         MATCH (u:User {uid: $canonicalUid})
         SET u.pseudo = coalesce($pseudo, u.pseudo), 
             u.frequenceHEX = coalesce($frequenceHEX, u.frequenceHEX),
             u.capabilities = coalesce($capabilities, u.capabilities), 
+            u.professionalStatus = coalesce($professionalStatus, u.professionalStatus),
+            u.remotePreference = coalesce($remotePreference, u.remotePreference),
+            u.freelanceDailyRateCents = CASE WHEN $freelanceDailyRateCents IS NOT NULL THEN $freelanceDailyRateCents ELSE u.freelanceDailyRateCents END,
             u.updatedAt = datetime($now)
         RETURN u
       `;
@@ -180,6 +193,9 @@ export class OiseauOrchestrator {
         pseudo: oiseauData.pseudo || null,
         frequenceHEX: oiseauData.frequenceHEX || null,
         capabilities: updatePayload.capabilities !== undefined ? (updatePayload.capabilities as string[]) : null,
+        professionalStatus: oiseauData.cvProfile?.professionalStatus || null,
+        remotePreference: oiseauData.cvProfile?.remotePreference || null,
+        freelanceDailyRateCents: oiseauData.cvProfile?.freelanceDailyRateCents ?? null, // Autorise 0
         now: now.toISOString()
       })) as QueryResult;
 
@@ -236,7 +252,7 @@ export class OiseauOrchestrator {
         if (taskDoc.documents && Array.isArray(taskDoc.documents)) {
           for (const doc of taskDoc.documents) {
             if (doc && doc.url) {
-              filesBatch.push(this.storageService.extractKeyFromUrl(doc.url));
+              filesBatch.push(this.storageService.extractKeyFromUrl(doc.url as string));
               if (filesBatch.length >= batchSize) {
                 await processBatch(filesBatch);
                 filesBatch = [];
@@ -253,7 +269,7 @@ export class OiseauOrchestrator {
         if (projDoc.documents && Array.isArray(projDoc.documents)) {
           for (const doc of projDoc.documents) {
             if (doc && doc.url) {
-              filesBatch.push(this.storageService.extractKeyFromUrl(doc.url));
+              filesBatch.push(this.storageService.extractKeyFromUrl(doc.url as string));
               if (filesBatch.length >= batchSize) {
                 await processBatch(filesBatch);
                 filesBatch = [];
@@ -298,7 +314,7 @@ export class OiseauOrchestrator {
       const projects = (await ProjectModel.find({ ownerUid: { $in: teamUids } }).session(mongoSession).lean()) as unknown as IProjectUidEntity[];
       const projectUids = projects.map(p => p.uid);
 
-      await TaskModel.deleteMany({ $or: [{ projectUid: { $in: projectUids } }, { creatorUid: targetCanonicalUid }] }, { session: mongoSession });
+      await TaskModel.deleteMany({ $or: [{ projectUid: {$in: projectUids } }, { creatorUid: targetCanonicalUid }] }, { session: mongoSession });
       await ProjectModel.deleteMany({ ownerUid: { $in: teamUids } }, { session: mongoSession });
       await TeamModel.deleteMany({ ownerUid: targetCanonicalUid }, { session: mongoSession });
       await OiseauModel.findOneAndDelete({ uid: targetCanonicalUid }, { session: mongoSession }).lean();
