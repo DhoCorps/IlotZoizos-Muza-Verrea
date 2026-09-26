@@ -96,7 +96,7 @@ describe('API Kontakt Profiles [slug] - GET, PUT, DELETE', () => {
       expect(res.status).toBe(403);
     });
 
-    it('🟢 doit mettre à jour le profil (200) si c\'est le propriétaire', async () => {
+    it('🟢 doit mettre à jour le profil (200) si c\'est le propriétaire, en acceptant les champs hybrides', async () => {
       global.__mockUser = { uid: 'bird_owner', capabilities: [] };
 
       vi.mocked(findEntityBySlugOrUid)
@@ -104,12 +104,22 @@ describe('API Kontakt Profiles [slug] - GET, PUT, DELETE', () => {
         .mockResolvedValueOnce(null);
 
       vi.mocked(KontaktProfileModel.findOneAndUpdate).mockReturnValue({
-        lean: vi.fn().mockResolvedValue({ uid: 'kontakt_1', slug: 'nouveau-titre', professionalTitle: 'Nouveau Titre' })
+        lean: vi.fn().mockResolvedValue({ 
+          uid: 'kontakt_1', 
+          slug: 'nouveau-titre', 
+          professionalTitle: 'Nouveau Titre',
+          archetypeClass: 'Cyber-Samurai'
+        })
       } as unknown as ReturnType<typeof KontaktProfileModel.findOneAndUpdate>);
 
       const req = new NextRequest('http://localhost/api/kontakt/profiles/dev-matrix', {
         method: 'PUT',
-        body: JSON.stringify({ professionalTitle: 'Nouveau Titre' })
+        body: JSON.stringify({ 
+          professionalTitle: 'Nouveau Titre',
+          archetypeClass: 'Cyber-Samurai',
+          tags: ['neo4j', 'silice'],
+          seo: { metaTitle: 'Nouveau Titre | Kontakt' }
+        })
       });
 
       const res = await PUT(req, { params: Promise.resolve({ slug: 'dev-matrix' }) });

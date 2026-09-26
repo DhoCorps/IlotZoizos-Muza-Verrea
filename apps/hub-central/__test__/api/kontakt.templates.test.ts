@@ -79,6 +79,23 @@ describe('API CV Templates - Gestion des modèles de CV', () => {
     expect(res.status).toBe(401);
   });
 
+  it('🔴 doit rejeter la publication (400) si le prix en Shards est négatif', async () => {
+    global.__mockUser = { uid: 'bird_1', name: 'Oiseau Fer', capabilities: [] };
+
+    const req = new NextRequest('http://localhost/api/cv-templates', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Modèle Hack', priceShards: -50 }) // Prix illégal
+    });
+
+    const res = await POST(req, { params: Promise.resolve({}) });
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.error).toBe("Données de modèle de CV invalides.");
+    expect(json.details.fieldErrors.priceShards[0]).toContain("négatif");
+    expect(CVTemplateModel.create).not.toHaveBeenCalled();
+  });
+
   it('🟢 doit créer un modèle de CV avec succès et invalider le cache (201)', async () => {
     global.__mockUser = { uid: 'bird_1', name: 'Oiseau Fer', capabilities: [] };
 
@@ -103,5 +120,37 @@ describe('API CV Templates - Gestion des modèles de CV', () => {
     expect(json.data.uid).toBe('tmpl_new');
     expect(revalidateTag).toHaveBeenCalledWith('cv-templates');
     expect(revalidateTag).toHaveBeenCalledWith('author-bird_1');
+  });
+
+  it('🟢 doit créer un modèle de CV avec les valeurs par défaut de Zod si le corps est vide', async () => {
+    global.__mockUser = { uid: 'bird_1', name: 'Oiseau Fer', capabilities: [] };
+
+    const mockCreatedTemplate = {
+      uid: 'tmpl_default',
+      title: 'Parchemin Sans Nom', // Valeur par défaut Zod
+      authorUid: 'bird_1'
+    };
+
+    vi.mocked(CVTemplateModel.create).mockResolvedValueOnce(mockCreatedTemplate as unknown as Awaited<ReturnType<typeof CVTemplateModel.create>>);
+
+    const req = new NextRequest('http://localhost/api/cv-templates', {
+      method: 'POST',
+      body: JSON.stringify({}) // Corps vide !
+    });
+
+    const res = await POST(req, { params: Promise.resolve({}) });
+    const json = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(json.success).toBe(true);
+    // Vérifie que Zod a bien injecté les defaults dans l'appel Mongoose
+    expect(CVTemplateModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Parchemin Sans Nom',
+        description: 'Modèle forgé dans la matrice.',
+        priceShards: 0,
+        barterAccepted: true,
+      })
+    );
   });
 });

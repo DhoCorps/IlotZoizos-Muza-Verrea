@@ -9,6 +9,7 @@ import { revalidateTag } from 'next/cache';
 import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
 import { handleRouteError } from '@/lib/api-guards';
+import { z } from 'zod'; // 🚀 Ajout de Zod pour la validation d'URL
 
 interface CVTemplateDocument {
   uid: string;
@@ -106,7 +107,6 @@ export const POST = withRateLimit('upload-kontakt', 10, 60, withAura(async (req:
     const uploadResult = await storageService.uploadFile(file, customKey);
 
     // Résilience de l'URL publique
-     // Résilience de l'URL publique
     let publicUrl = '';
     if (typeof uploadResult === 'string') {
       publicUrl = uploadResult;
@@ -179,8 +179,10 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
     const { searchParams } = new URL(req.url);
     const fileUrl = searchParams.get('url');
 
-    if (!fileUrl) {
-      return NextResponse.json({ error: 'URL de l\'artefact à purger manquante.' }, { status: 400 });
+    // 🛡️ Zod Validation pour sécuriser l'input URL
+    const urlValidation = z.string().url().safeParse(fileUrl);
+    if (!urlValidation.success) {
+      return NextResponse.json({ error: 'URL de l\'artefact à purger manquante ou invalide.' }, { status: 400 });
     }
 
     // 🛡️ SUTURE DE SÉCURITÉ IDOR : Normalisation et validation stricte par extraction de clés de stockage
@@ -192,7 +194,7 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
     let providedKey: string;
     try {
       expectedKey = storageService.extractKeyFromUrl(template.previewUrl);
-      providedKey = storageService.extractKeyFromUrl(fileUrl);
+      providedKey = storageService.extractKeyFromUrl(urlValidation.data);
     } catch {
       return NextResponse.json({ error: "Format d'URL d'artefact invalide." }, { status: 400 });
     }

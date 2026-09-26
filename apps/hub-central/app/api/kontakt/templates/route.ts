@@ -9,14 +9,15 @@ import { getCachedTemplates } from '@/lib/cache/kontakt.cache';
 import { handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
-// 🛡️ Schéma Zod strict pour valider la création d'un modèle de CV
+// 🛡️ Schéma Zod optimisé : Délégation des valeurs par défaut au validateur
 const CreateCVTemplateSchema = z.object({
-  title: z.string().min(1, "Le titre est requis.").optional(),
-  description: z.string().optional(),
-  priceShards: z.number().min(0).optional(),
-  barterAccepted: z.boolean().optional(),
-  letrinFontFamily: z.string().optional(),
-  blocks: z.array(z.unknown()).optional(),
+  title: z.string().min(1, "Le titre est requis.").default('Parchemin Sans Nom'),
+  description: z.string().default('Modèle forgé dans la matrice.'),
+  priceShards: z.number().min(0, "Le prix en Shards ne peut être négatif.").default(0),
+  barterAccepted: z.boolean().default(true),
+  letrinFontFamily: z.string().default('sans'),
+  blocks: z.array(z.unknown()).default([]),
+  tags: z.array(z.string()).default([]), // 🏷️ Tags cosmétiques utiles pour l'indexation
 });
 
 type CreateCVTemplateInput = z.infer<typeof CreateCVTemplateSchema>;
@@ -50,7 +51,8 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     try {
       body = await req.json();
     } catch {
-      return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
+      // Si le corps est illisible ou vide, on passera un objet vide pour que Zod applique les valeurs par défaut
+      body = {}; 
     }
 
     // 🛡️ Validation et assainissement via Zod
@@ -66,17 +68,12 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
 
     let newTemplate: CVTemplateDocument;
     try {
+      // 🔮 L'insertion en base est maintenant très épurée grâce au typage strict de Zod
       newTemplate = (await CVTemplateModel.create({
         ...sanitizedData,
         uid: templateUid,
         authorUid: userUid,
         authorName: userName,
-        title: sanitizedData.title || 'Parchemin Sans Nom',
-        description: sanitizedData.description || 'Modèle forgé dans la matrice.',
-        priceShards: sanitizedData.priceShards || 0,
-        barterAccepted: sanitizedData.barterAccepted ?? true,
-        letrinFontFamily: sanitizedData.letrinFontFamily || 'sans',
-        blocks: sanitizedData.blocks || []
       })) as unknown as CVTemplateDocument;
     } catch (createErr) {
       console.error("  [TEMPLATE CREATE ERROR]", createErr);

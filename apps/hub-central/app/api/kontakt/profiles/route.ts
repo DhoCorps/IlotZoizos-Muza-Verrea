@@ -10,14 +10,62 @@ import { getCachedKontaktProfiles } from '@/lib/cache/kontakt.cache';
 import { handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
-// 🛡️ Schéma Zod pour la création/sédimentation de profil Kontakt
+// 🛡️ Schéma Zod pour la création/sédimentation de profil Kontakt (Harmonisé)
 const CreateKontaktProfileSchema = z.object({
   professionalTitle: z.string().min(1, "Le titre professionnel est requis."),
-  bio: z.string().max(1000).optional(),
-  alignment: z.string().optional(),
-  skills: z.array(z.string()).optional(),
-  status: z.string().optional(),
+  seniorityYears: z.number().min(0).default(0),
+  skills: z.array(z.string()).default([]),
+  availabilityStatus: z.enum(['OPEN_TO_WORK', 'ON_A_QUEST', 'RECRUITED']).default('OPEN_TO_WORK'),
   portfolioUrl: z.string().url().nullable().optional(),
+  
+  // 🎲 --- LE SUPERFLU NÉCESSAIRE (Le "Flavor" RPG) ---
+  archetypeClass: z.string().min(1, "L'archétype est requis"),
+  alignment: z.enum([
+    'LOYAL_GOOD', 'NEUTRAL_GOOD', 'CHAOTIC_GOOD',
+    'LOYAL_NEUTRAL', 'TRUE_NEUTRAL', 'CHAOTIC_NEUTRAL',
+    'LOYAL_EVIL', 'NEUTRAL_EVIL', 'CHAOTIC_EVIL',
+    'ANGE_INS', 'DEMON_INS', 'REPLICANT_BR', 'HUMAIN_BR'
+  ]).default('TRUE_NEUTRAL'),
+  attributes: z.object({
+    force: z.number().min(1).max(20).default(10),
+    agilite: z.number().min(1).max(20).default(10),
+    intelligence: z.number().min(1).max(20).default(10),
+    charisme: z.number().min(1).max(20).default(10),
+    empathieVoightKampff: z.number().min(0).max(100).default(50),
+  }).default({ force: 10, agilite: 10, intelligence: 10, charisme: 10, empathieVoightKampff: 50 }),
+  specialArtifacts: z.array(z.string()).default([]),
+  biographyLore: z.string().max(500, "Le lore ne doit pas dépasser le parchemin").default(''),
+  
+  // 💼 --- PORTFOLIO & REVIEWS ---
+  portfolioItems: z.array(z.object({
+    type: z.enum(['IMAGE', 'GITHUB_REPO', 'AUDIO', '3D', 'WEB']),
+    url: z.string().url(),
+    title: z.string().min(1),
+    tags: z.array(z.string()).default([]),
+  })).default([]),
+  pricing: z.object({
+    hourlyRateCents: z.number().min(0),
+    missionRateCents: z.number().min(0),
+    currency: z.string().default('EUR'),
+  }).optional(),
+  reviews: z.array(z.object({
+    authorUid: z.string(),
+    rating: z.number().min(1).max(5),
+    comment: z.string(),
+    isVerifiedHire: z.boolean().default(false),
+    createdAt: z.coerce.date().optional(),
+  })).default([]),
+
+  // 🚀 --- SQUELETTE MUTUALISÉ ---
+  tags: z.array(z.string()).default([]),
+  seo: z.object({
+    metaTitle: z.string().optional(),
+    metaDescription: z.string().optional()
+  }).default({}),
+  settings: z.object({
+    allowDirectContact: z.boolean().default(true),
+    showcaseBadge: z.boolean().default(true),
+  }).default({ allowDirectContact: true, showcaseBadge: true }),
 });
 
 type CreateKontaktProfileInput = z.infer<typeof CreateKontaktProfileSchema>;
@@ -75,7 +123,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     // Génération du Slug basé sur le titre professionnel avec gestion des collisions
     const baseSlug = slugify(sanitizedData.professionalTitle);
     let finalSlug = baseSlug;
-         
+          
     let slugExists: KontaktProfileDocument | null = null;
     try {
       slugExists = (await KontaktProfileModel.findOne({ slug: finalSlug, userUid: { $ne: userUid } }).lean()) as KontaktProfileDocument | null;
@@ -103,7 +151,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     } catch (findErr) {
       console.error("  [KONTAKT EXISTING CHECK ERROR]", findErr);
     }
-         
+          
     let profile: KontaktProfileDocument | null = null;
     try {
       if (existing) {

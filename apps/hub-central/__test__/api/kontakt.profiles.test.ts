@@ -81,7 +81,10 @@ describe('API Kontakt Profiles - Gestion des profils de la canopée', () => {
 
     const req = new NextRequest('http://localhost/api/kontakt/profiles', {
       method: 'POST',
-      body: JSON.stringify({ professionalTitle: 'Développeur' })
+      body: JSON.stringify({ 
+        professionalTitle: 'Développeur',
+        archetypeClass: 'Cyber-Artisan' 
+      })
     });
 
     const res = await POST(req, { params: Promise.resolve({}) });
@@ -95,14 +98,20 @@ describe('API Kontakt Profiles - Gestion des profils de la canopée', () => {
       uid: 'kontakt_new',
       userUid: 'bird_1',
       professionalTitle: 'Mage Silice',
-      slug: 'mage-silice'
+      slug: 'mage-silice',
+      archetypeClass: 'Mage'
     };
 
     vi.mocked(KontaktProfileModel.create).mockResolvedValueOnce(mockCreatedProfile as unknown as Awaited<ReturnType<typeof KontaktProfileModel.create>>);
 
     const req = new NextRequest('http://localhost/api/kontakt/profiles', {
       method: 'POST',
-      body: JSON.stringify({ professionalTitle: 'Mage Silice', alignment: 'CHAOS' })
+      body: JSON.stringify({ 
+        professionalTitle: 'Mage Silice', 
+        archetypeClass: 'Mage',
+        alignment: 'CHAOTIC_NEUTRAL',
+        tags: ['silice', 'backend'] 
+      })
     });
 
     const res = await POST(req, { params: Promise.resolve({}) });

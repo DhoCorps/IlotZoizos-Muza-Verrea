@@ -78,14 +78,39 @@ describe('API Kontakt Job Quests - Gestion des quêtes de recrutement', () => {
 
     const req = new NextRequest('http://localhost/api/kontakt/quests', {
       method: 'POST',
-      body: JSON.stringify({ title: 'Nouvelle Quête', description: 'Test desc' })
+      body: JSON.stringify({ 
+        projectUid: 'proj_xyz',
+        title: 'Nouvelle Quête', 
+        description: 'Test desc' 
+      })
     });
 
     const res = await POST(req, { params: Promise.resolve({}) });
     expect(res.status).toBe(401);
   });
 
-  it('🟢 doit publier une nouvelle quête avec succès (201) et invalider le cache', async () => {
+  it('🔴 doit rejeter la publication (400) en cas d\'hérésie mathématique sur le budget', async () => {
+    global.__mockUser = { uid: 'bird_1', capabilities: [] };
+
+    const req = new NextRequest('http://localhost/api/kontakt/quests', {
+      method: 'POST',
+      body: JSON.stringify({ 
+        projectUid: 'proj_xyz',
+        title: 'Nouvelle Quête Corrompue', 
+        description: 'Cette quête a un budget illogique',
+        minBudgetCents: 80000,
+        maxBudgetCents: 50000 // Min > Max !
+      })
+    });
+
+    const res = await POST(req, { params: Promise.resolve({}) });
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.details.fieldErrors.minBudgetCents[0]).toContain('Hérésie mathématique');
+  });
+
+  it('🟢 doit publier une nouvelle quête enrichie avec succès (201) et invalider le cache', async () => {
     global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
     const mockCreatedQuest = {
@@ -99,7 +124,19 @@ describe('API Kontakt Job Quests - Gestion des quêtes de recrutement', () => {
 
     const req = new NextRequest('http://localhost/api/kontakt/quests', {
       method: 'POST',
-      body: JSON.stringify({ title: 'Développeur Matrix', description: 'Cherche mage Neo4j' })
+      body: JSON.stringify({ 
+        projectUid: 'proj_xyz',
+        title: 'Développeur Matrix', 
+        description: 'Cherche mage Neo4j avec une grande expérience des graphes.',
+        company: {
+          name: 'Nabuchodonosor Crew',
+          description: 'Nous libérons les esprits.'
+        },
+        workArrangement: 'FULL_REMOTE',
+        minBudgetCents: 45000,
+        maxBudgetCents: 65000,
+        tags: ['neo4j', 'matrix', 'backend']
+      })
     });
 
     const res = await POST(req, { params: Promise.resolve({}) });

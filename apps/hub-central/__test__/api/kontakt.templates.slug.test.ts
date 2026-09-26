@@ -114,11 +114,11 @@ describe('API Kontakt Template Slug - Gestion d\'un template spécifique', () =>
     it('doit muter le template avec succès (200) et invalider le cache', async () => {
       global.__mockUser = { uid: 'bird_1', capabilities: [] };
       mockLean.mockResolvedValueOnce({ uid: 't_1', slug: 'cyberpunk', title: 'Cyberpunk' })
-              .mockResolvedValueOnce({ slug: 'cyberpunk', title: 'Muté' });
+              .mockResolvedValueOnce({ slug: 'cyberpunk', title: 'Muté', tags: ['neo4j', 'cyberpunk'] });
 
       const req = new NextRequest('http://localhost/api/kontakt/templates/cyberpunk', {
         method: 'PUT',
-        body: JSON.stringify({ title: 'Muté' })
+        body: JSON.stringify({ title: 'Muté', tags: ['neo4j', 'cyberpunk'] }) // 🏷️ Test avec les tags
       });
       const context = { params: Promise.resolve({ slug: 'cyberpunk' }) };
 

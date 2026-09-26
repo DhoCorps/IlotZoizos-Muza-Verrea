@@ -11,11 +11,59 @@ import { z } from 'zod';
 // 🛡️ Schéma Zod strict pour interdire l'assignation de masse sur les profils Kontakt
 const UpdateKontaktProfileSchema = z.object({
   professionalTitle: z.string().min(1, "Le titre professionnel est requis.").optional(),
-  bio: z.string().max(1000).optional(),
-  alignment: z.string().optional(),
+  seniorityYears: z.number().min(0).optional(),
   skills: z.array(z.string()).optional(),
-  status: z.string().optional(),
+  availabilityStatus: z.enum(['OPEN_TO_WORK', 'ON_A_QUEST', 'RECRUITED']).optional(),
   portfolioUrl: z.string().url().nullable().optional(),
+  
+  // 🎲 --- LE SUPERFLU NÉCESSAIRE (Le "Flavor" RPG) ---
+  archetypeClass: z.string().min(1).optional(),
+  alignment: z.enum([
+    'LOYAL_GOOD', 'NEUTRAL_GOOD', 'CHAOTIC_GOOD',
+    'LOYAL_NEUTRAL', 'TRUE_NEUTRAL', 'CHAOTIC_NEUTRAL',
+    'LOYAL_EVIL', 'NEUTRAL_EVIL', 'CHAOTIC_EVIL',
+    'ANGE_INS', 'DEMON_INS', 'REPLICANT_BR', 'HUMAIN_BR'
+  ]).optional(),
+  attributes: z.object({
+    force: z.number().min(1).max(20).optional(),
+    agilite: z.number().min(1).max(20).optional(),
+    intelligence: z.number().min(1).max(20).optional(),
+    charisme: z.number().min(1).max(20).optional(),
+    empathieVoightKampff: z.number().min(0).max(100).optional(),
+  }).optional(),
+  specialArtifacts: z.array(z.string()).optional(),
+  biographyLore: z.string().max(500).optional(),
+  
+  // 💼 --- PORTFOLIO & REVIEWS ---
+  portfolioItems: z.array(z.object({
+    type: z.enum(['IMAGE', 'GITHUB_REPO', 'AUDIO', '3D', 'WEB']),
+    url: z.string().url(),
+    title: z.string().min(1),
+    tags: z.array(z.string()).optional(),
+  })).optional(),
+  pricing: z.object({
+    hourlyRateCents: z.number().min(0).optional(),
+    missionRateCents: z.number().min(0).optional(),
+    currency: z.string().optional(),
+  }).optional(),
+  reviews: z.array(z.object({
+    authorUid: z.string(),
+    rating: z.number().min(1).max(5),
+    comment: z.string(),
+    isVerifiedHire: z.boolean().optional(),
+    createdAt: z.coerce.date().optional(),
+  })).optional(),
+
+  // 🚀 --- SQUELETTE MUTUALISÉ ---
+  tags: z.array(z.string()).optional(),
+  seo: z.object({
+    metaTitle: z.string().optional(),
+    metaDescription: z.string().optional()
+  }).optional(),
+  settings: z.object({
+    allowDirectContact: z.boolean().optional(),
+    showcaseBadge: z.boolean().optional(),
+  }).optional(),
 });
 
 type UpdateKontaktProfileInput = z.infer<typeof UpdateKontaktProfileSchema>;
@@ -25,10 +73,10 @@ interface KontaktProfileDocument {
   slug: string;
   userUid: string;
   professionalTitle?: string;
-  bio?: string;
+  biographyLore?: string;
   alignment?: string;
   skills?: string[];
-  status?: string;
+  availabilityStatus?: string;
   portfolioUrl?: string | null;
   [key: string]: unknown;
 }

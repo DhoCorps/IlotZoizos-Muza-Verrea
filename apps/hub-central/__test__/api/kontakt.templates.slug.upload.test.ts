@@ -28,6 +28,7 @@ vi.mock('@/lib/api-guards', () => ({
     if (!mockUser || !mockUser.uid) return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
     return await handler(req, context, mockUser);
   },
+  handleRouteError: vi.fn((err) => NextResponse.json({ error: "Erreur Interne" }, { status: 500 }))
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -71,7 +72,7 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as unknown as Awaited<ReturnType<typeof storageService.deleteFile>>);
   });
 
-  it('doit échouer (403) si le template n\'appartient pas à l\'Oiseau', async () => {
+  it('🔴 doit échouer (403) si le template n\'appartient pas à l\'Oiseau', async () => {
     global.__mockUser = { uid: 'u-intrus', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
@@ -92,7 +93,7 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
     expect(res.status).toBe(403);
   });
 
-  it('doit réussir (201) l\'upload d\'un template, forger le Sceau SHA-256 et retourner les métadonnées', async () => {
+  it('🟢 doit réussir (201) l\'upload d\'un template, forger le Sceau SHA-256 et retourner les métadonnées', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
@@ -127,7 +128,27 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
     expect(revalidateTag).toHaveBeenCalledWith('kontakt-template-mon-template');
   });
 
-  it('DELETE - doit échouer (403) en cas de tentative IDOR sur une URL étrangère normalisée', async () => {
+  it('🔴 DELETE - doit échouer (400) si l\'URL fournie n\'est pas valide (Zod)', async () => {
+    global.__mockUser = { uid: 'u-123', capabilities: [] };
+    
+    // 🛠️ CORRECTION : Il faut simuler l'existence du template, sinon la route sort en 404
+    // avant même d'arriver à la validation Zod de l'URL !
+    vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
+      uid: 'tmpl_123',
+      slug: 'mon-template',
+      authorUid: 'u-123',
+      previewUrl: 'https://cdn.ilot/doc.pdf'
+    });
+
+    const req = new NextRequest('http://localhost/api/kontakt/templates/mon-template/upload?url=not-a-valid-url', {
+      method: 'DELETE',
+    });
+
+    const res = await DELETE(req, { params: Promise.resolve({ slug: 'mon-template' }) });
+    expect(res.status).toBe(400); // Maintenat il ira bien jusqu'au 400 !
+  });
+
+  it('🔴 DELETE - doit échouer (403) en cas de tentative IDOR sur une URL étrangère normalisée', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
@@ -145,7 +166,7 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
     expect(storageService.deleteFile).not.toHaveBeenCalled();
   });
 
-  it('DELETE - doit réussir (200) la purge sécurisée', async () => {
+  it('🟢 DELETE - doit réussir (200) la purge sécurisée', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({

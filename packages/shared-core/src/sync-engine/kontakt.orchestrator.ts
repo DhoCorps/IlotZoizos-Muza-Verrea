@@ -1,4 +1,3 @@
-// Fichier : packages/backend/src/orchestrators/kontakt.orchestrator.ts
 import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
@@ -47,11 +46,25 @@ export interface MatchmakingPayload {
   profileRemotePreference?: 'FULL_REMOTE' | 'HYBRID' | 'ON_SITE' | 'FLEXIBLE';
   questContractType?: 'FREELANCE' | 'CDI' | 'CDD' | 'INTERNSHIP' | 'PARTNERSHIP' | 'BOUNTY' | 'OTHER';
   profileProfessionalStatus?: 'FREELANCE' | 'EMPLOYEE' | 'JOB_SEEKER' | 'STUDENT' | 'ENTREPRENEUR' | 'OTHER';
+  
+  // 🆕 Nouveaux champs d'harmonisation
+  questMinBudgetCents?: number | null;
+  questBudgetType?: 'DAILY_RATE' | 'FIXED_PRICE' | 'YEARLY_SALARY';
+  questEmploymentType?: 'FULL_TIME' | 'PART_TIME' | 'FREELANCE' | 'CONTRACT' | 'INTERNSHIP';
+  questExperienceLevel?: 'APPRENTICE' | 'JUNIOR' | 'MID' | 'CONFIRMED' | 'SENIOR' | 'LEAD' | 'MASTER' | 'GURU';
+  profileExperienceLevel?: 'APPRENTICE' | 'JUNIOR' | 'MID' | 'CONFIRMED' | 'SENIOR' | 'LEAD' | 'MASTER' | 'GURU';
+  questRequiredSkills?: string[];
+  profileSkills?: string[];
+
+  // 🏷️ Nouveaux champs pour le matching sémantique (SEO / Tags)
+  questTags?: string[];
+  profileTags?: string[];
 }
 
 export interface MatchmakingResult {
   isFavorable: boolean;
-  matchFlag: 'FAVORABLE_MATCH' | 'OUT_OF_BUDGET' | 'INCOMPATIBLE_WORK_ARRANGEMENT' | 'INCOMPATIBLE_CONTRACT_TYPE' | 'MISSING_DATA';
+  matchFlag: 'FAVORABLE_MATCH' | 'OUT_OF_BUDGET' | 'INCOMPATIBLE_WORK_ARRANGEMENT' | 'INCOMPATIBLE_CONTRACT_TYPE' | 'MISSING_DATA' | 'INSUFFICIENT_EXPERIENCE' | 'SKILLS_MISMATCH';
+  compatibilityScore?: number; // 🆕 Score de matching en %
 }
 
 export interface KontaktSyncResult {
@@ -363,8 +376,8 @@ export class KontaktOrchestrator {
   }
 
   /**
-   * ⚖️ MOTEUR DE MATCHMAKING (Quêtes & Profils CV)
-   * Logique enrichie qui croise le télétravail, le statut pro et le budget !
+   * ⚖️ MOTEUR DE MATCHMAKING ENRICHI (Quêtes & Profils CV)
+   * Logique enrichie croisant télétravail, statut pro, budget, EXPÉRIENCE, COMPÉTENCES et TAGS SEO !
    */
   async matchmakingEngine(payload: MatchmakingPayload): Promise<MatchmakingResult> {
     if (
@@ -373,29 +386,75 @@ export class KontaktOrchestrator {
       !payload.questWorkArrangement ||
       !payload.profileRemotePreference
     ) {
-      return { isFavorable: false, matchFlag: 'MISSING_DATA' };
+      return { isFavorable: false, matchFlag: 'MISSING_DATA', compatibilityScore: 0 };
     }
 
     // 1. 🌍 Compatibilité Géographique (Télétravail)
     if (payload.questWorkArrangement === 'ON_SITE' && payload.profileRemotePreference === 'FULL_REMOTE') {
-      return { isFavorable: false, matchFlag: 'INCOMPATIBLE_WORK_ARRANGEMENT' };
+      return { isFavorable: false, matchFlag: 'INCOMPATIBLE_WORK_ARRANGEMENT', compatibilityScore: 0 };
     }
     if (payload.questWorkArrangement === 'FULL_REMOTE' && payload.profileRemotePreference === 'ON_SITE') {
-      return { isFavorable: false, matchFlag: 'INCOMPATIBLE_WORK_ARRANGEMENT' };
+      return { isFavorable: false, matchFlag: 'INCOMPATIBLE_WORK_ARRANGEMENT', compatibilityScore: 0 };
     }
 
-    // 2. 📜 Compatibilité Contractuelle (Si la Quête est CDI/CDD, on exclut les purs FREELANCES fermés à l'emploi)
+    // 2. 📜 Compatibilité Contractuelle
     if (payload.questContractType && payload.profileProfessionalStatus) {
       if (['CDI', 'CDD'].includes(payload.questContractType) && payload.profileProfessionalStatus === 'FREELANCE') {
-        return { isFavorable: false, matchFlag: 'INCOMPATIBLE_CONTRACT_TYPE' };
+        return { isFavorable: false, matchFlag: 'INCOMPATIBLE_CONTRACT_TYPE', compatibilityScore: 0 };
       }
     }
 
     // 3. 💰 Compatibilité Budgétaire
     if (payload.profileHourlyRateCents > payload.questMaxBudgetCents) {
-      return { isFavorable: false, matchFlag: 'OUT_OF_BUDGET' };
+      return { isFavorable: false, matchFlag: 'OUT_OF_BUDGET', compatibilityScore: 0 };
     }
 
-    return { isFavorable: true, matchFlag: 'FAVORABLE_MATCH' };
+    // 4. 🛡️ Compatibilité d'Expérience (Échelle RPG)
+    if (payload.questExperienceLevel && payload.profileExperienceLevel) {
+      const expWeights: Record<string, number> = {
+        'APPRENTICE': 0, 'JUNIOR': 1, 'MID': 2, 'CONFIRMED': 3, 'SENIOR': 4, 'LEAD': 5, 'MASTER': 6, 'GURU': 7
+      };
+      const questWeight = expWeights[payload.questExperienceLevel] || 0;
+      const profileWeight = expWeights[payload.profileExperienceLevel] || 0;
+      
+      if (profileWeight < questWeight) {
+        return { isFavorable: false, matchFlag: 'INSUFFICIENT_EXPERIENCE', compatibilityScore: 30 };
+      }
+    }
+
+    let compatibilityScore = 100;
+
+    // 5. 🔮 Compatibilité des Compétences (Calcul de Résonance)
+    if (payload.questRequiredSkills && payload.questRequiredSkills.length > 0 && payload.profileSkills) {
+      const profileSkillsLower = payload.profileSkills.map(s => s.toLowerCase());
+      const missingSkills = payload.questRequiredSkills.filter(s => !profileSkillsLower.includes(s.toLowerCase()));
+      
+      const matchRatio = (payload.questRequiredSkills.length - missingSkills.length) / payload.questRequiredSkills.length;
+      
+      // Si moins de 50% de match sur les skills stricts requis, on rejette poliment
+      if (matchRatio < 0.5) {
+        return { 
+          isFavorable: false, 
+          matchFlag: 'SKILLS_MISMATCH', 
+          compatibilityScore: Math.round(matchRatio * 100) 
+        };
+      }
+      
+      compatibilityScore = Math.round(matchRatio * 100);
+    }
+
+    // 6. 🏷️ Compatibilité des Tags (Bonus SEO / Résonance thématique)
+    if (payload.questTags && payload.questTags.length > 0 && payload.profileTags) {
+      const profileTagsLower = payload.profileTags.map(t => t.toLowerCase());
+      const matchingTags = payload.questTags.filter(t => profileTagsLower.includes(t.toLowerCase()));
+      
+      // Bonus : +5 points par tag en commun, plafonné à +20%
+      if (matchingTags.length > 0) {
+         const tagBonus = Math.min(20, matchingTags.length * 5);
+         compatibilityScore = Math.min(100, compatibilityScore + tagBonus);
+      }
+    }
+
+    return { isFavorable: true, matchFlag: 'FAVORABLE_MATCH', compatibilityScore };
   }
 }

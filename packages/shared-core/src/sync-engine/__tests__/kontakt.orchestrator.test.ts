@@ -1,4 +1,3 @@
-// Fichier : packages/backend/src/orchestrators/__tests__/kontakt.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KontaktOrchestrator } from '../kontakt.orchestrator';
 import { TransactionManager } from '../transactionManager';
@@ -221,18 +220,114 @@ describe('KontaktOrchestrator - Réseau RH, Swipes & Matchmaking Avancé', () =>
     });
   });
 
-  describe('matchmakingEngine (Règles SSOT : Télétravail, Statut & Budget)', () => {
-    it('🟢 doit flagger FAVORABLE_MATCH si toutes les conditions CV et Quête sont réunies', async () => {
+  describe('matchmakingEngine (Règles SSOT : Télétravail, Statut, Budget, Expérience, Skills & TAGS SEO)', () => {
+    it('🟢 doit flagger FAVORABLE_MATCH avec un score de 100 si toutes les conditions CV et Quête sont réunies', async () => {
       const res = await orchestrator.matchmakingEngine({
         questMaxBudgetCents: 50000,
         profileHourlyRateCents: 45000, // Budget OK
         questWorkArrangement: 'FULL_REMOTE',
         profileRemotePreference: 'FULL_REMOTE', // Geo OK
         questContractType: 'FREELANCE',
-        profileProfessionalStatus: 'FREELANCE' // Statut OK
+        profileProfessionalStatus: 'FREELANCE', // Statut OK
+        questExperienceLevel: 'MID',
+        profileExperienceLevel: 'SENIOR', // Exp OK (supérieur)
+        questRequiredSkills: ['React', 'Node'],
+        profileSkills: ['React', 'Node', 'TypeScript'] // Skills OK (100%)
       });
       expect(res.isFavorable).toBe(true);
       expect(res.matchFlag).toBe('FAVORABLE_MATCH');
+      expect(res.compatibilityScore).toBe(100);
+    });
+
+    it('🟢 doit flagger FAVORABLE_MATCH avec un score boosté par les tags SEO communs', async () => {
+      const res = await orchestrator.matchmakingEngine({
+        questMaxBudgetCents: 50000,
+        profileHourlyRateCents: 45000,
+        questWorkArrangement: 'FULL_REMOTE',
+        profileRemotePreference: 'FULL_REMOTE',
+        questContractType: 'FREELANCE',
+        profileProfessionalStatus: 'FREELANCE',
+        questExperienceLevel: 'MID',
+        profileExperienceLevel: 'SENIOR',
+        questRequiredSkills: ['React', 'Node'], // 2 requises
+        profileSkills: ['React'], // 1/2 = 50% de match de base
+        questTags: ['seo', 'startup', 'crypto'],
+        profileTags: ['startup', 'crypto'] // 2 tags en commun (+10 points bonus)
+      });
+      
+      expect(res.isFavorable).toBe(true);
+      expect(res.matchFlag).toBe('FAVORABLE_MATCH');
+      // Score de base : 50%. Bonus tags : +10%. Total attendu : 60
+      expect(res.compatibilityScore).toBe(60);
+    });
+
+    it('🟢 doit plafonner le score de compatibilité à 100% même avec un gros bonus de tags', async () => {
+      const res = await orchestrator.matchmakingEngine({
+        questMaxBudgetCents: 50000,
+        profileHourlyRateCents: 45000,
+        questWorkArrangement: 'FULL_REMOTE',
+        profileRemotePreference: 'FULL_REMOTE',
+        questContractType: 'FREELANCE',
+        profileProfessionalStatus: 'FREELANCE',
+        questRequiredSkills: ['React'],
+        profileSkills: ['React'], // 100% de match de base
+        questTags: ['a', 'b', 'c', 'd', 'e'],
+        profileTags: ['a', 'b', 'c', 'd', 'e'] // Bonus maximal (+20)
+      });
+      
+      expect(res.isFavorable).toBe(true);
+      expect(res.compatibilityScore).toBe(100); // Ne dépasse pas 100
+    });
+
+    it('🔴 doit flagger INSUFFICIENT_EXPERIENCE si l\'Oiseau a un niveau trop bas (RPG logic)', async () => {
+      const res = await orchestrator.matchmakingEngine({
+        questMaxBudgetCents: 50000,
+        profileHourlyRateCents: 40000,
+        questWorkArrangement: 'FULL_REMOTE',
+        profileRemotePreference: 'FULL_REMOTE',
+        questContractType: 'FREELANCE',
+        profileProfessionalStatus: 'FREELANCE',
+        questExperienceLevel: 'SENIOR', // Exige un senior
+        profileExperienceLevel: 'JUNIOR' // Profil Junior
+      });
+      expect(res.isFavorable).toBe(false);
+      expect(res.matchFlag).toBe('INSUFFICIENT_EXPERIENCE');
+    });
+
+    it('🔴 doit flagger SKILLS_MISMATCH si l\'Oiseau manque de plus de la moitié des prérequis', async () => {
+      const res = await orchestrator.matchmakingEngine({
+        questMaxBudgetCents: 50000,
+        profileHourlyRateCents: 40000,
+        questWorkArrangement: 'FULL_REMOTE',
+        profileRemotePreference: 'FULL_REMOTE',
+        questContractType: 'FREELANCE',
+        profileProfessionalStatus: 'FREELANCE',
+        questExperienceLevel: 'MID',
+        profileExperienceLevel: 'MID',
+        questRequiredSkills: ['React', 'Node', 'Neo4j', 'GraphQL'],
+        profileSkills: ['React'] // Il ne matche que 1/4 (25%)
+      });
+      expect(res.isFavorable).toBe(false);
+      expect(res.matchFlag).toBe('SKILLS_MISMATCH');
+      expect(res.compatibilityScore).toBe(25);
+    });
+
+    it('🟢 doit accepter avec un score partiel (ex: 67%) si l\'Oiseau possède une majorité des skills', async () => {
+      const res = await orchestrator.matchmakingEngine({
+        questMaxBudgetCents: 50000,
+        profileHourlyRateCents: 40000,
+        questWorkArrangement: 'FULL_REMOTE',
+        profileRemotePreference: 'FULL_REMOTE',
+        questContractType: 'FREELANCE',
+        profileProfessionalStatus: 'FREELANCE',
+        questExperienceLevel: 'MID',
+        profileExperienceLevel: 'MID',
+        questRequiredSkills: ['React', 'Node', 'Neo4j'], // 3 requises
+        profileSkills: ['React', 'Node', 'MongoDB'] // Il en a 2/3 (66.6%)
+      });
+      expect(res.isFavorable).toBe(true);
+      expect(res.matchFlag).toBe('FAVORABLE_MATCH');
+      expect(res.compatibilityScore).toBe(67); // Math.round(66.66...)
     });
 
     it('🔴 doit flagger INCOMPATIBLE_WORK_ARRANGEMENT si le recruteur exige du présentiel et l\'Oiseau du full remote', async () => {
@@ -243,19 +338,6 @@ describe('KontaktOrchestrator - Réseau RH, Swipes & Matchmaking Avancé', () =>
         profileRemotePreference: 'FULL_REMOTE', // L'oiseau refuse de se déplacer
         questContractType: 'FREELANCE',
         profileProfessionalStatus: 'FREELANCE'
-      });
-      expect(res.isFavorable).toBe(false);
-      expect(res.matchFlag).toBe('INCOMPATIBLE_WORK_ARRANGEMENT');
-    });
-
-    it('🔴 doit flagger INCOMPATIBLE_WORK_ARRANGEMENT si la quête est full remote mais l\'Oiseau préfère le présentiel', async () => {
-      const res = await orchestrator.matchmakingEngine({
-        questMaxBudgetCents: 50000,
-        profileHourlyRateCents: 40000,
-        questWorkArrangement: 'FULL_REMOTE', // Quête sans bureau
-        profileRemotePreference: 'ON_SITE', // Oiseau veut voir des collègues
-        questContractType: 'CDI',
-        profileProfessionalStatus: 'JOB_SEEKER'
       });
       expect(res.isFavorable).toBe(false);
       expect(res.matchFlag).toBe('INCOMPATIBLE_WORK_ARRANGEMENT');

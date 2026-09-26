@@ -6,6 +6,7 @@ export const ContractTypeSchema = z.enum(['FREELANCE', 'CDI', 'CDD', 'INTERNSHIP
 export const ExperienceLevelSchema = z.enum(['APPRENTICE', 'JUNIOR', 'CONFIRMED', 'SENIOR', 'MASTER', 'GURU']);
 export const QuestDifficultySchema = z.enum(['PEACEFUL', 'NORMAL', 'HARD', 'NIGHTMARE', 'LUNATIC']);
 export const QuestStatusSchema = z.enum(['DRAFT', 'ACTIVE', 'PAUSED', 'FILLED', 'ARCHIVED']);
+export const BudgetTypeSchema = z.enum(['DAILY_RATE', 'FIXED_PRICE', 'YEARLY_SALARY']); // 🆕 Type de rémunération
 
 export const JobQuestSchema = z.object({
   uid: z.string(),
@@ -20,15 +21,19 @@ export const JobQuestSchema = z.object({
   experienceLevel: ExperienceLevelSchema.default('CONFIRMED'),
   
   // ⚖️ --- SUTURE MATCHMAKING (L'Économie de l'Îlot) ---
-  maxBudgetCents: z.number().min(0, "Le budget ne peut être négatif").optional().nullable(),
+  minBudgetCents: z.number().min(0, "Le budget minimum ne peut être négatif").optional().nullable(), // 🆕 Fourchette basse
+  maxBudgetCents: z.number().min(0, "Le budget maximum ne peut être négatif").optional().nullable(),
+  budgetType: BudgetTypeSchema.default('DAILY_RATE'), // 🆕 TJM par défaut
   currency: z.string().default('EUR'),
 
   // ⏳ --- TEMPORALITÉ ---
   startDate: z.coerce.date().optional(),
   estimatedDuration: z.string().optional(), // ex: "6 mois", "Quête infinie"
+  applicationDeadline: z.coerce.date().optional(), // 🆕 Date limite pour postuler
 
   // 🎯 --- COMPÉTENCES & RÉCOMPENSES ---
   requiredSkills: z.array(z.string()).default([]),
+  bonusSkills: z.array(z.string()).default([]), // 🆕 Les "nice to have" pour affiner le matchmaking
   rewardLore: z.string().optional(), // Ce qu'on gagne spirituellement (ex: "Une place au panthéon des développeurs")
   
   // 🎲 --- LE SUPERFLU NÉCESSAIRE (Le "Flavor" RPG) ---
@@ -38,6 +43,19 @@ export const JobQuestSchema = z.object({
 
   status: QuestStatusSchema.default('ACTIVE'),
   createdAt: z.coerce.date().default(() => new Date()),
-});
+  updatedAt: z.coerce.date().default(() => new Date()), // 🆕 Trace de la dernière mise à jour
+}).refine(
+  (data) => {
+    // 🛡️ Validation croisée : Le Min ne doit pas dépasser le Max s'ils sont tous les deux renseignés
+    if (data.minBudgetCents != null && data.maxBudgetCents != null) {
+      return data.minBudgetCents <= data.maxBudgetCents;
+    }
+    return true;
+  },
+  {
+    message: "Hérésie mathématique : Le budget minimum ne peut pas être supérieur au budget maximum.",
+    path: ["minBudgetCents"], // L'erreur ciblera ce champ spécifique dans les formulaires
+  }
+);
 
 export type JobQuest = z.infer<typeof JobQuestSchema>;

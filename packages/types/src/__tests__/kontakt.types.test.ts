@@ -1,4 +1,3 @@
-// Fichier : packages/types/src/__tests__/kontakt.types.test.ts
 import { describe, it, expect } from 'vitest';
 import { KontaktProfileSchema, JobQuestSchema } from '../core/kontakt.types';
 
@@ -77,12 +76,23 @@ describe('KontaktProfile - Validation Zod des Profils Hybrides & Squelette Mutua
     expect(parsed.seo).toBeDefined();
   });
 
-  it('🟢 doit valider une JobQuest avec ses contraintes budgétaires et son squelette mutualisé', () => {
+  it('🟢 doit valider une JobQuest riche avec informations entreprise, prérequis et avantages', () => {
     const validQuest = {
       uid: 'quest-01',
       title: 'Quête de la Canopée',
       slug: 'quete-de-la-canopee',
       description: 'Refondre le routeur Neo4j',
+      company: {
+        name: 'Guilde des Zoizos',
+        description: 'Une guilde experte en technologies web MERN et bases de données graphes.',
+        websiteUrl: 'https://ilotzoizos.com'
+      },
+      requirements: ['TypeScript', 'Cypher', 'Magie de l\'esprit'],
+      responsibilities: ['Synchroniser MongoDB et Neo4j', 'Traquer les bugs temporels'],
+      employmentType: 'FREELANCE',
+      experienceLevel: 'SENIOR',
+      location: 'Hybride - Forêt / Remote',
+      perks: ['Potion de caféine infinie', 'Abonnement transport'],
       budgetConstraint: {
         minBudgetCents: 10000,
         maxBudgetCents: 50000
@@ -92,12 +102,35 @@ describe('KontaktProfile - Validation Zod des Profils Hybrides & Squelette Mutua
         metaTitle: 'Quête Canopée | Kontakt'
       }
     };
+    
     const result = JobQuestSchema.safeParse(validQuest);
     expect(result.success).toBe(true);
     if (result.success) {
+      expect(result.data.company?.name).toBe('Guilde des Zoizos');
+      expect(result.data.requirements.length).toBe(3);
+      expect(result.data.employmentType).toBe('FREELANCE');
+      expect(result.data.experienceLevel).toBe('SENIOR');
       expect(result.data.budgetConstraint?.maxBudgetCents).toBe(50000);
       expect(result.data.tags).toContain('neo4j');
       expect(result.data.settings.allowApplications).toBe(true);
     }
+  });
+
+  it('🐣 doit accepter une JobQuest minimale et appliquer les valeurs par défaut de recrutement', () => {
+    const minimalQuest = {
+      uid: 'quest-02',
+      title: 'Petite réparation',
+      slug: 'petite-reparation',
+      description: 'Fix rapide sur le front-end.'
+    };
+    
+    const result = JobQuestSchema.parse(minimalQuest);
+    expect(result.employmentType).toBe('FULL_TIME'); // valeur par défaut
+    expect(result.experienceLevel).toBe('MID'); // valeur par défaut
+    expect(result.location).toBe('Remote'); // valeur par défaut
+    expect(result.requirements).toEqual([]);
+    expect(result.responsibilities).toEqual([]);
+    expect(result.perks).toEqual([]);
+    expect(result.status).toBe('ACTIVE');
   });
 });

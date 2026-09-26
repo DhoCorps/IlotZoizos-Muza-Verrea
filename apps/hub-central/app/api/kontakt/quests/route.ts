@@ -10,14 +10,71 @@ import { getCachedActiveQuests } from '@/lib/cache/kontakt.cache';
 import { handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
-// 🛡️ Schéma Zod strict pour la création d'une quête de recrutement
+// 🛡️ Schéma Zod strict pour la création d'une quête de recrutement (Harmonisé avec @ilot/types)
 const CreateJobQuestSchema = z.object({
-  title: z.string().min(1, "Le titre de la quête est requis."),
-  description: z.string().min(1, "La description est requise."),
-  requirements: z.array(z.string()).optional(),
-  reward: z.string().optional(),
-  category: z.string().optional(),
-});
+  projectUid: z.string().min(1, "L'identifiant du projet est requis."),
+  title: z.string().min(3, "Le titre de la quête est requis."),
+  description: z.string().min(10, "La description est requise et doit faire au moins 10 caractères."),
+  
+  // 🏢 INFORMATIONS ENTREPRISE / GUILDE
+  company: z.object({
+    name: z.string().min(2, "Le nom de l'entreprise est requis"),
+    description: z.string().min(10).default(''),
+    websiteUrl: z.string().url().optional(),
+    logoUrl: z.string().url().optional(),
+  }).optional(),
+
+  // 💼 LOGISTIQUE & CONDITIONS MATÉRIELLES
+  workArrangement: z.enum(['FULL_REMOTE', 'HYBRID', 'ON_SITE']).default('FULL_REMOTE'),
+  contractType: z.enum(['FREELANCE', 'CDI', 'CDD', 'INTERNSHIP', 'PARTNERSHIP', 'BOUNTY', 'OTHER']).default('FREELANCE'),
+  employmentType: z.enum(['FULL_TIME', 'PART_TIME', 'FREELANCE', 'CONTRACT', 'INTERNSHIP']).default('FULL_TIME'),
+  experienceLevel: z.enum(['APPRENTICE', 'JUNIOR', 'MID', 'CONFIRMED', 'SENIOR', 'LEAD', 'MASTER', 'GURU']).default('CONFIRMED'),
+  location: z.string().default('Remote'),
+
+  // ⚖️ SUTURE MATCHMAKING
+  minBudgetCents: z.number().min(0, "Le budget minimum ne peut être négatif").optional().nullable(),
+  maxBudgetCents: z.number().min(0, "Le budget maximum ne peut être négatif").optional().nullable(),
+  budgetType: z.enum(['DAILY_RATE', 'FIXED_PRICE', 'YEARLY_SALARY']).default('DAILY_RATE'),
+  currency: z.string().default('EUR'),
+
+  // ⏳ TEMPORALITÉ
+  startDate: z.coerce.date().optional(),
+  estimatedDuration: z.string().optional(),
+  applicationDeadline: z.coerce.date().optional(),
+
+  // 🎯 COMPÉTENCES & RÉCOMPENSES
+  requiredSkills: z.array(z.string()).default([]),
+  bonusSkills: z.array(z.string()).default([]),
+  requirements: z.array(z.string()).default([]),
+  responsibilities: z.array(z.string()).default([]),
+  rewardLore: z.string().optional(),
+
+  // 🎲 LE SUPERFLU NÉCESSAIRE (Flavor RPG)
+  questDifficulty: z.enum(['PEACEFUL', 'NORMAL', 'HARD', 'NIGHTMARE', 'LUNATIC']).default('NORMAL'),
+  dangerLevel: z.number().min(0).max(100).default(10),
+  perks: z.array(z.string()).default([]),
+
+  // 🚀 SQUELETTE MUTUALISÉ & TAGS
+ tags: z.array(z.string()).default([]),
+  seo: z.object({
+    metaTitle: z.string().optional(),
+    metaDescription: z.string().optional()
+  }).default({}),
+  settings: z.object({
+    allowApplications: z.boolean().default(true),
+  }).default({ allowApplications: true }), // 🛠️ Le fix est ici !
+}).refine(
+  (data) => {
+    if (data.minBudgetCents != null && data.maxBudgetCents != null) {
+      return data.minBudgetCents <= data.maxBudgetCents;
+    }
+    return true;
+  },
+  {
+    message: "Hérésie mathématique : Le budget minimum ne peut pas être supérieur au budget maximum.",
+    path: ["minBudgetCents"],
+  }
+);
 
 type CreateJobQuestInput = z.infer<typeof CreateJobQuestSchema>;
 

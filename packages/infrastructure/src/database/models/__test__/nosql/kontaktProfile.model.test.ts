@@ -1,4 +1,3 @@
-// Fichier : packages/infrastructure/src/__tests__/kontaktProfile.model.test.ts
 import { describe, it, expect } from 'vitest';
 import { KontaktProfileModel } from '../../nosql/kontaktProfile.model';
 
@@ -73,5 +72,19 @@ describe('KontaktProfile Model (Hybrid, TTRPG & Skeleton Edition)', () => {
 
         const error = new KontaktProfileModel(invalidData).validateSync();
         expect(error?.errors?.availabilityStatus).toBeDefined();
+    });
+
+    it('🔴 doit rejeter un profil avec un alignement RPG inconnu', () => {
+        const invalidData = {
+            uid: 'kontakt_align',
+            userUid: 'bird_align',
+            professionalTitle: 'Mage Noir',
+            slug: 'mage-noir',
+            archetypeClass: 'Sorcier',
+            alignment: 'CHAOTIC_FUNNY' // Invalide
+        };
+
+        const error = new KontaktProfileModel(invalidData).validateSync();
+        expect(error?.errors?.alignment).toBeDefined();
     });
 });

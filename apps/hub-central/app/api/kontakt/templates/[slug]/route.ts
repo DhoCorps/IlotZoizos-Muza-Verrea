@@ -19,6 +19,7 @@ const UpdateCVTemplateSchema = z.object({
   letrinFontFamily: z.string().optional(),
   blocks: z.array(z.unknown()).optional(),
   previewUrl: z.string().url().nullable().optional(),
+  tags: z.array(z.string()).optional(), // 🏷️ Intégration des tags pour le référencement cosmétique
 });
 
 type UpdateCVTemplateInput = z.infer<typeof UpdateCVTemplateSchema>;
@@ -27,6 +28,7 @@ interface CVTemplateDocument {
   uid: string;
   slug?: string;
   title?: string;
+  tags?: string[];
   [key: string]: unknown;
 }
 
