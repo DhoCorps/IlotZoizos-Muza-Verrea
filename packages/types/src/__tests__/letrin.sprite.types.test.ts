@@ -1,13 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { LetrinFontSpriteSchema } from '@ilot/types';
+import { LetrinFontSpriteSchema, TypographicCategoryEnum } from '@ilot/types';
 
-describe('Letr\'In Sprite - Validation des Schémas Zod', () => {
+describe('Letr\'In Sprite - Validation des Schémas Zod et de la Gamification', () => {
   const validSpriteFont = {
     uid: 'font-sprite-001',
     name: 'Pixel Abyss Font',
-    slug: 'pixel-abyss-font', // 🪡
+    slug: 'pixel-abyss-font',
     authorUid: 'bird-alpha',
     gridSize: { width: 16, height: 16 },
+    category: TypographicCategoryEnum.FANTAISIE,
+    tags: ['pixel-art', 'cyberpunk'],
+    frequencyHz: 528,
+    isFrequencyMuted: false,
     glyphs: [
       {
         character: '<(:<',
@@ -20,34 +24,52 @@ describe('Letr\'In Sprite - Validation des Schémas Zod', () => {
             pixels: ['#000000', '#E5484D']
           }
         ],
-        advanceWidth: 16
+        advanceWidth: 16,
+        barter: {
+          isBarterable: true,
+          barterValueKarma: 15
+        }
       }
     ],
+    gamification: {
+      palette: ['#E5484D', '#10B981', '#3B82F6', '#000000'],
+      alchemicalXp: 120,
+      glitchCorruptionLevel: 2,
+      unlockedFontSlots: 3,
+      unlockedSpriteSlots: 3
+    },
     status: 'DRAFT'
   };
 
-  it('🟢 doit valider un ensemble de police de sprites complet', () => {
+  it('🟢 doit valider un ensemble de police de sprites complet avec classification et gamification', () => {
     const result = LetrinFontSpriteSchema.safeParse(validSpriteFont);
     expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.category).toBe(TypographicCategoryEnum.FANTAISIE);
+      expect(result.data.frequencyHz).toBe(528);
+      expect(result.data.gamification?.palette.length).toBe(4);
+    }
   });
 
   it('🔴 doit rejeter une structure de police sans nom', () => {
     const invalid = { ...validSpriteFont, name: '' };
     const result = LetrinFontSpriteSchema.safeParse(invalid);
-    // Maintenant que l'on a z.string().min(1), ça retournera bien false !
-    expect(result.success).toBe(false); 
+    expect(result.success).toBe(false);
   });
 
-  it('🐣 doit appliquer les valeurs par défaut (status DRAFT)', () => {
+  it('🐣 doit appliquer les valeurs par défaut (catégorie LINEALE, 432Hz, status DRAFT)', () => {
     const minimal = {
       uid: 'font-sprite-002',
       name: 'Minimal Font',
-      slug: 'minimal-font', // 🪡
+      slug: 'minimal-font',
       authorUid: 'bird-beta',
       gridSize: { width: 8, height: 8 },
       glyphs: []
     };
     const parsed = LetrinFontSpriteSchema.parse(minimal);
     expect(parsed.status).toBe('DRAFT');
+    expect(parsed.category).toBe(TypographicCategoryEnum.LINEALE);
+    expect(parsed.frequencyHz).toBe(432);
+    expect(parsed.isFrequencyMuted).toBe(false);
   });
 });

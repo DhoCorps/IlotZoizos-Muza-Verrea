@@ -15,7 +15,7 @@ export const RegistreDesEchos: React.FC<RegistreDesEchosProps> = ({
   onToggleOccult,
   onDisintegrate,
 }) => {
-  if (comments.length === 0) {
+  if (!comments || comments.length === 0) {
     return (
       <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-2xl space-y-3">
         <BookOpen className="mx-auto text-slate-600" size={32} />
@@ -61,7 +61,7 @@ export const RegistreDesEchos: React.FC<RegistreDesEchosProps> = ({
             </div>
 
             <p className={`text-sm leading-relaxed ${comment.isHidden ? 'text-slate-500 italic' : 'text-slate-200'}`}>
-              {comment.isHidden ? 'Cet écho est actuellement occulte.' : comment.content}
+              {comment.isHidden ? "Cet écho est actuellement occulte." : comment.content}
             </p>
 
             {/* Boutons d'action souveraine */}
@@ -99,3 +99,6 @@ export const RegistreDesEchos: React.FC<RegistreDesEchosProps> = ({
     </section>
   );
 };
+
+// 🪡 DOUBLE EXPORT : Satisfait à la fois `import EchosRemarquables` et `import { RegistreDesEchos }`
+export default RegistreDesEchos;

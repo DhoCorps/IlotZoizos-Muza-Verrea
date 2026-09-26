@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { LetterSpriteModel } from '@ilot/infrastructure';
+import { LetrinFontSpriteModel } from '@ilot/infrastructure';
 import { LetrinSpriteOrchestrator } from '@ilot/shared-core';
 import { v4 as uuidv4 } from 'uuid';
 import { slugify } from '@/lib/slugify';
@@ -12,12 +12,28 @@ import { generateFileHash } from '@/lib/cryptoHelper';
 import { handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
-// 🛡️ Schéma Zod strict pour la création d'une police de sprites
+// 🛡️ Schéma Zod strict pour la création (exige catégorie, tags, fréquence, SEO)
+const CATEGORY_ENUM = ['HUMANE', 'GARALDE', 'DIDINE', 'MECANE', 'LINEALE', 'SCRIPTURE', 'GOTHIQUE', 'FANTAISIE'] as const;
+
 const CreateLetterSpriteSchema = z.object({
-  name: z.string().min(1, "Le nom de la police est requis.").optional(),
+  name: z.string().min(1, "Le nom de la police est requis."),
   gridSize: z.object({
     width: z.number().int().positive(),
     height: z.number().int().positive()
+  }).optional(),
+  category: z.enum(CATEGORY_ENUM).default('LINEALE'),
+  tags: z.array(z.string()).default([]),
+  frequencyHz: z.number().default(432),
+  isFrequencyMuted: z.boolean().default(false),
+  seo: z.object({
+    metaTitle: z.string().optional(),
+    metaDescription: z.string().optional(),
+    ogImageUrl: z.string().optional(),
+  }).optional(),
+  copyrightMetadata: z.object({
+    role: z.string().optional(),
+    isExclusiveIlot: z.boolean().optional(),
+    license: z.string().optional(),
   }).optional(),
   glyphs: z.array(z.unknown()).optional(),
   status: z.string().optional(),
@@ -25,11 +41,15 @@ const CreateLetterSpriteSchema = z.object({
 
 type CreateLetterSpriteInput = z.infer<typeof CreateLetterSpriteSchema>;
 
-interface LetterSpriteDocument {
+interface LetrinFontSpriteDocument {
   uid: string;
   name: string;
   slug: string;
   authorUid: string;
+  category: string;
+  tags: string[];
+  frequencyHz: number;
+  isFrequencyMuted: boolean;
   gridSize: { width: number; height: number };
   glyphs: unknown[];
   status: string;
@@ -39,11 +59,27 @@ interface LetterSpriteDocument {
   [key: string]: unknown;
 }
 
-export const GET = withSilice(async (_req: NextRequest, _context: ApiContext) => {
+export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => {
   try {
     const fonts = await getCachedFonts();
-    // Sérialisation propre pour éviter les erreurs de type non sérialisable
-    const safeFonts = JSON.parse(JSON.stringify(fonts || []));
+    let safeFonts: LetrinFontSpriteDocument[] = JSON.parse(JSON.stringify(fonts || []));
+
+    // 🔍 Filtrage dynamique via l'URL
+    const { searchParams } = req.nextUrl;
+    const category = searchParams.get('category');
+    const tag = searchParams.get('tag');
+    const frequencyHz = searchParams.get('frequencyHz');
+
+    if (category) {
+      safeFonts = safeFonts.filter(font => font.category === category);
+    }
+    if (tag) {
+      safeFonts = safeFonts.filter(font => font.tags && font.tags.includes(tag));
+    }
+    if (frequencyHz) {
+      safeFonts = safeFonts.filter(font => font.frequencyHz === Number(frequencyHz));
+    }
+
     return NextResponse.json(safeFonts, { status: 200 });
   } catch (error: unknown) {
     return handleRouteError(error, 'LETRIN SPRITES GET ERROR');
@@ -59,7 +95,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
-    // 🛡️ Validation et assainissement via Zod
+    // 🛡️ Validation Zod Stricte
     const validation = CreateLetterSpriteSchema.safeParse(body);
     if (!validation.success) {
       return NextResponse.json({ error: "Données de police de sprites invalides.", details: validation.error.flatten() }, { status: 400 });
@@ -67,32 +103,34 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     const sanitizedData: CreateLetterSpriteInput = validation.data;
     const rawBody = (body || {}) as Record<string, unknown>;
 
-    const fontName = sanitizedData.name || 'Police Anonyme';
+    const fontName = sanitizedData.name;
     const baseSlug = slugify(fontName);
     let finalSlug = baseSlug;
 
     try {
-      let slugExists = await LetterSpriteModel.findOne({ slug: finalSlug }).lean();
+      let slugExists = await LetrinFontSpriteModel.findOne({ slug: finalSlug }).lean();
       let counter = 1;
       let safetyCounter = 0;
       while (slugExists && safetyCounter < 50) {
         finalSlug = `${baseSlug}-${counter}`;
-        slugExists = await LetterSpriteModel.findOne({ slug: finalSlug }).lean();
+        slugExists = await LetrinFontSpriteModel.findOne({ slug: finalSlug }).lean();
         counter++;
         safetyCounter++;
       }
     } catch (slugErr) {
-      console.error("  [SLUG VALIDATION ERROR]", slugErr);
       return NextResponse.json({ error: "Erreur de validation de l'empreinte URL." }, { status: 500 });
     }
 
-    const gridSize = sanitizedData.gridSize || (rawBody.gridSize as { width: number; height: number }) || { width: 16, height: 16 };
-    const glyphs = sanitizedData.glyphs || (rawBody.glyphs as unknown[]) || [];
+    const gridSize = sanitizedData.gridSize || { width: 16, height: 16 };
+    const glyphs = sanitizedData.glyphs || [];
     const authorUid = currentUser.uid || 'unknown';
 
-    // 🪡 Génération du Sceau Cryptographique (SHA-256) d'Antériorité
+    // 🪡 Sceau Cryptographique (SHA-256)
     const canonicalContent = JSON.stringify({
       name: fontName,
+      category: sanitizedData.category,
+      tags: sanitizedData.tags,
+      frequencyHz: sanitizedData.frequencyHz,
       gridSize,
       glyphs,
       authorUid
@@ -112,17 +150,16 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       authorUid,
       gridSize,
       glyphs,
-      status: sanitizedData.status || (rawBody.status as string) || 'DRAFT',
+      status: sanitizedData.status || 'DRAFT',
       digitalSignature,
       timestampedAt,
       copyrightClaimed: true
     };
 
-    let newFont: LetterSpriteDocument;
+    let newFont: LetrinFontSpriteDocument;
     try {
-      newFont = (await LetterSpriteModel.create(fontData)) as unknown as LetterSpriteDocument;
+      newFont = (await LetrinFontSpriteModel.create(fontData)) as unknown as LetrinFontSpriteDocument;
     } catch (createErr) {
-      console.error("  [SPRITE CREATE ERROR]", createErr);
       return NextResponse.json({ error: "Échec de sédimentation." }, { status: 500 });
     }
 
@@ -133,9 +170,10 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
         capabilities: currentUser.capabilities || []
       });
     } catch (neoError) {
-      console.error("  Erreur Neo4j au tissage de Letr'In :", neoError);
+      console.error("Erreur Neo4j au tissage de Letr'In :", neoError);
     }
 
+    // 💥 Invalidation du cache
     revalidateTag('fonts');
     revalidateTag('letrin');
 

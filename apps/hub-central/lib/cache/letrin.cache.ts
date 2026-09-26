@@ -1,13 +1,13 @@
-// Fichier : lib/cache/letrin.cache.ts
 import { unstable_cache } from 'next/cache';
-import { LetterSpriteModel, FontProject } from '@ilot/infrastructure';
+import { LetrinFontSpriteModel } from '@ilot/infrastructure';
 
 // -------------------------------------------------------------------------
 // CACHE : Recensement des polices/sprites
 // -------------------------------------------------------------------------
 export async function getCachedFonts() {
   const fetcher = async () => {
-    return await LetterSpriteModel.find({}).sort({ createdAt: -1 }).lean();
+    // 🔍 Utilisation du modèle maître unifié
+    return await LetrinFontSpriteModel.find({}).sort({ createdAt: -1 }).lean();
   };
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
@@ -15,7 +15,7 @@ export async function getCachedFonts() {
   return await unstable_cache(
     fetcher,
     ['letrin-fonts-list'],
-    { revalidate: 60, tags: ['fonts', 'letrin'] }
+    { revalidate: 60, tags: ['fonts', 'letrin', 'font-projects'] }
   )();
 }
 
@@ -24,7 +24,8 @@ export async function getCachedFonts() {
 // -------------------------------------------------------------------------
 export async function getCachedFontDetail(slug: string) {
   const fetcher = async () => {
-    return await LetterSpriteModel.findOne({ slug }).lean();
+    // 🔍 Utilisation du modèle maître unifié
+    return await LetrinFontSpriteModel.findOne({ slug }).lean();
   };
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
@@ -32,7 +33,7 @@ export async function getCachedFontDetail(slug: string) {
   return await unstable_cache(
     fetcher,
     [`letrin-font-${slug}`],
-    { revalidate: 60, tags: ['fonts', 'letrin', `font-${slug}`] }
+    { revalidate: 60, tags: ['fonts', 'letrin', 'font-projects', `font-${slug}`] }
   )();
 }
 
@@ -41,7 +42,8 @@ export async function getCachedFontDetail(slug: string) {
 // -------------------------------------------------------------------------
 export async function getCachedFontProjects() {
   const fetcher = async () => {
-    return await FontProject.find({}).sort({ updatedAt: -1 }).lean();
+    // 🔍 Utilisation du modèle maître unifié
+    return await LetrinFontSpriteModel.find({}).sort({ updatedAt: -1 }).lean();
   };
   if (process.env.NODE_ENV === 'test') {
     return await fetcher();
@@ -49,6 +51,6 @@ export async function getCachedFontProjects() {
   return await unstable_cache(
     fetcher,
     ['letrin-font-projects-list'],
-    { revalidate: 60, tags: ['fonts', 'font-projects'] }
+    { revalidate: 60, tags: ['fonts', 'font-projects', 'letrin'] }
   )();
 }

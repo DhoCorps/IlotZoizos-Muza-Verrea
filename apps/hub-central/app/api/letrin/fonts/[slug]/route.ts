@@ -1,24 +1,44 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
-import { FontProject, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { LetrinFontSpriteModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
-import { IlotError } from '@ilot/shared-core';
 import { handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
+const CATEGORY_ENUM = ['HUMANE', 'GARALDE', 'DIDINE', 'MECANE', 'LINEALE', 'SCRIPTURE', 'GOTHIQUE', 'FANTAISIE'] as const;
+
 // 🛡️ Schéma Zod strict pour interdire l'assignation de masse sur les projets de polices
-const UpdateFontProjectSchema = z.object({
+const UpdateLetrinFontSchema = z.object({
   name: z.string().min(1, "Le nom du projet de police est requis.").optional(),
-  payload: z.unknown().optional(),
+  gridSize: z.object({
+    width: z.number().int().positive(),
+    height: z.number().int().positive()
+  }).optional(),
+  category: z.enum(CATEGORY_ENUM).optional(),
+  tags: z.array(z.string()).optional(),
+  frequencyHz: z.number().optional(),
+  isFrequencyMuted: z.boolean().optional(),
+  seo: z.object({
+    metaTitle: z.string().optional(),
+    metaDescription: z.string().optional(),
+    ogImageUrl: z.string().optional(),
+  }).optional(),
+  copyrightMetadata: z.object({
+    role: z.string().optional(),
+    isExclusiveIlot: z.boolean().optional(),
+    license: z.string().optional(),
+  }).optional(),
+  gamification: z.any().optional(),
+  glyphs: z.array(z.unknown()).optional(),
   status: z.string().optional(),
 });
 
-type UpdateFontProjectInput = z.infer<typeof UpdateFontProjectSchema>;
+type UpdateLetrinFontInput = z.infer<typeof UpdateLetrinFontSchema>;
 
-interface FontProjectDocument {
+interface LetrinFontDocument {
   uid: string;
   slug?: string;
   authorUid: string;
@@ -48,14 +68,14 @@ export const PUT = withAura(async (request: NextRequest, context: ApiContext, cu
     }
 
     // 🛡️ Validation et assainissement stricts via Zod (Bloque le Mass Assignment)
-    const validation = UpdateFontProjectSchema.safeParse(body);
+    const validation = UpdateLetrinFontSchema.safeParse(body);
     if (!validation.success) {
       return NextResponse.json({ error: "Données de mutation de projet invalides.", details: validation.error.flatten() }, { status: 400 });
     }
-    const sanitizedData: UpdateFontProjectInput = validation.data;
+    const sanitizedData: UpdateLetrinFontInput = validation.data;
 
-    // 🔍 Recherche unifiée par slug ou UID
-    const targetProject = (await findEntityBySlugOrUid(FontProject, identifier, { lean: false })) as FontProjectDocument | null;
+    // 🔍 Recherche unifiée par slug ou UID sur le Modèle Maître
+    const targetProject = (await findEntityBySlugOrUid(LetrinFontSpriteModel, identifier, { lean: false })) as LetrinFontDocument | null;
     if (!targetProject) {
       return NextResponse.json({ error: "Projet introuvable." }, { status: 404 });
     }
@@ -67,9 +87,13 @@ export const PUT = withAura(async (request: NextRequest, context: ApiContext, cu
       return NextResponse.json({ error: "Souveraineté violée : tu ne peux altérer cette typographie." }, { status: 403 });
     }
 
-    let updated: FontProjectDocument | null;
+    let updated: LetrinFontDocument | null;
     try {
-      updated = (await FontProject.findOneAndUpdate({ uid: targetProject.uid }, { $set: sanitizedData }, { new: true }).lean()) as FontProjectDocument | null;
+      updated = (await LetrinFontSpriteModel.findOneAndUpdate(
+        { uid: targetProject.uid }, 
+        { $set: sanitizedData }, 
+        { new: true }
+      ).lean()) as LetrinFontDocument | null;
     } catch (updateErr) {
       console.error("🔥 [FONTS PUT UPDATE ERROR]", updateErr);
       return NextResponse.json({ error: "Échec de la mutation du projet." }, { status: 500 });
@@ -81,6 +105,7 @@ export const PUT = withAura(async (request: NextRequest, context: ApiContext, cu
 
     // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
     revalidateTag('fonts');
+    revalidateTag('letrin');
     revalidateTag('font-projects');
     revalidateTag(`font-${identifier}`);
     if (updated.slug) {
@@ -116,8 +141,8 @@ export const DELETE = withAura(async (_request: NextRequest, context: ApiContext
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 🔍 Recherche unifiée par slug ou UID pour cibler la suppression
-    const targetProject = (await findEntityBySlugOrUid(FontProject, identifier)) as FontProjectDocument | null;
+    // 🔍 Recherche unifiée par slug ou UID sur le Modèle Maître
+    const targetProject = (await findEntityBySlugOrUid(LetrinFontSpriteModel, identifier)) as LetrinFontDocument | null;
     if (!targetProject) {
       return NextResponse.json({ error: "Projet introuvable pour dissolution." }, { status: 404 });
     }
@@ -129,9 +154,9 @@ export const DELETE = withAura(async (_request: NextRequest, context: ApiContext
       return NextResponse.json({ error: "Souveraineté violée : dissolution interdite." }, { status: 403 });
     }
 
-    let deleted: FontProjectDocument | null;
+    let deleted: LetrinFontDocument | null;
     try {
-      deleted = (await FontProject.findOneAndDelete({ uid: targetProject.uid })) as FontProjectDocument | null;
+      deleted = (await LetrinFontSpriteModel.findOneAndDelete({ uid: targetProject.uid })) as LetrinFontDocument | null;
     } catch (delErr) {
       console.error("🔥 [FONTS DELETE ERROR]", delErr);
       return NextResponse.json({ error: "Échec de la dissolution du projet." }, { status: 500 });
@@ -143,6 +168,7 @@ export const DELETE = withAura(async (_request: NextRequest, context: ApiContext
 
     // 💥 BOOM ! Invalidation chirurgicale du cache en cascade
     revalidateTag('fonts');
+    revalidateTag('letrin');
     revalidateTag('font-projects');
     revalidateTag(`font-${identifier}`);
     revalidateTag(`font-${targetProject.uid}`);

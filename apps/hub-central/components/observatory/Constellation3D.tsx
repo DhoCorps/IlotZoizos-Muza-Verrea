@@ -5,7 +5,7 @@ import React, { useEffect, useRef, useState } from 'react';
 export interface ConstellationNode {
   id: string;
   name: string;
-  type: 'USER' | 'BLOG' | 'PROJECT' | 'GAME' | 'TAG';
+  type: 'USER' | 'BLOG' | 'PROJECT' | 'GAME' | 'TAG' | 'FONT';
   x?: number;
   y?: number;
   vx?: number;
@@ -38,13 +38,13 @@ export function Constellation3D({ nodes, links, onNodeClick }: Constellation3DPr
     let width = (canvas.width = canvas.parentElement?.clientWidth || 600);
     let height = (canvas.height = canvas.parentElement?.clientHeight || 400);
 
-    // Initialisation des positions aléatoires en galaxie
+    // Initialisation des positions en gérant proprement le cas où x ou y vaut 0
     const simulationNodes = nodes.map((node, index) => ({
       ...node,
-      x: node.x || width / 2 + (Math.cos(index) * 150),
-      y: node.y || height / 2 + (Math.sin(index) * 150),
-      vx: (Math.random() - 0.5) * 0.6,
-      vy: (Math.random() - 0.5) * 0.6,
+      x: node.x !== undefined ? node.x : width / 2 + (Math.cos(index) * 150),
+      y: node.y !== undefined ? node.y : height / 2 + (Math.sin(index) * 150),
+      vx: node.vx !== undefined ? node.vx : (Math.random() - 0.5) * 0.6,
+      vy: node.vy !== undefined ? node.vy : (Math.random() - 0.5) * 0.6,
     }));
 
     const handleResize = () => {
@@ -59,14 +59,14 @@ export function Constellation3D({ nodes, links, onNodeClick }: Constellation3DPr
     const render = () => {
       ctx.clearRect(0, 0, width, height);
 
-      // 1. Rendu des liens (Fils de résonance / Canopée)
+      // 1. Rendu des liens (Correction du point-virgule parasite dans rgba)
       ctx.lineWidth = 1;
       links.forEach((link) => {
         const sourceNode = simulationNodes.find((n) => n.id === link.source);
         const targetNode = simulationNodes.find((n) => n.id === link.target);
 
-        if (sourceNode && targetNode && sourceNode.x && sourceNode.y && targetNode.x && targetNode.y) {
-          ctx.strokeStyle = 'rgba(100, 116, 139, 0.25);'; // Gris bleuté subtil
+        if (sourceNode && targetNode && sourceNode.x !== undefined && sourceNode.y !== undefined && targetNode.x !== undefined && targetNode.y !== undefined) {
+          ctx.strokeStyle = 'rgba(100, 116, 139, 0.25)'; // Gris bleuté subtil (sans point-virgule interne)
           ctx.beginPath();
           ctx.moveTo(sourceNode.x, sourceNode.y);
           ctx.lineTo(targetNode.x, targetNode.y);
@@ -76,7 +76,7 @@ export function Constellation3D({ nodes, links, onNodeClick }: Constellation3DPr
 
       // 2. Mise à jour physique et rendu des nœuds (Étoiles de la Constellation)
       simulationNodes.forEach((node) => {
-        if (!node.x || !node.y || !node.vx || !node.vy) return;
+        if (node.x === undefined || node.y === undefined || node.vx === undefined || node.vy === undefined) return;
 
         // Légère dérive organique
         node.x += node.vx;
@@ -90,6 +90,7 @@ export function Constellation3D({ nodes, links, onNodeClick }: Constellation3DPr
         let glowColor = '#38bdf8'; // Cyan par défaut
         if (node.type === 'USER') glowColor = '#ef4444'; // Rouge pour les oiseaux
         if (node.type === 'PROJECT') glowColor = '#10b981'; // Émeraude
+        if (node.type === 'FONT') glowColor = '#E5484D'; // Rouge Letr'In
 
         // Halo lumineux
         ctx.shadowBlur = 12;
@@ -158,7 +159,6 @@ export function Constellation3D({ nodes, links, onNodeClick }: Constellation3DPr
         <div className="absolute bottom-4 right-4 bg-slate-900/90 border border-slate-700 px-4 py-2 rounded-xl text-xs text-slate-200 backdrop-blur-md shadow-lg flex items-center gap-1.5">
           <span className="font-semibold text-rose-400">{selectedNode.type}</span>
           <span>:</span>
-          {/* 🌿 On isole le nom dans un span pour le rendre ciblable facilement par les tests */}
           <span data-testid="selected-node-name" className="font-medium text-slate-100">
             {selectedNode.name}
           </span>
@@ -167,3 +167,6 @@ export function Constellation3D({ nodes, links, onNodeClick }: Constellation3DPr
     </div>
   );
 }
+
+// 🪡 DOUBLE EXPORT : Permet de satisfaire à la fois `import { Constellation3D }` et `import Constellation3D`
+export default Constellation3D;

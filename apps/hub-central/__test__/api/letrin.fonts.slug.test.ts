@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PUT, DELETE } from '@/app/api/letrin/fonts/[slug]/route';
-import { FontProject, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { LetrinFontSpriteModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
 
@@ -15,6 +15,7 @@ vi.mock('@/lib/api-guards', () => ({
     }
     return await handler(req, context, mockUser);
   },
+  handleRouteError: vi.fn((err) => new Response(JSON.stringify({ error: err.message }), { status: 500 }))
 }));
 
 vi.mock('@/lib/slugify', () => ({
@@ -31,7 +32,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   return {
     ...actual,
     connectToDatabase: vi.fn().mockResolvedValue(true),
-    FontProject: {
+    LetrinFontSpriteModel: {
       findOneAndUpdate: vi.fn(() => ({ lean: mockLean })),
       findOneAndDelete: vi.fn(),
     },
@@ -79,7 +80,7 @@ describe('API Letr\'In Font Project Slug - Gestion d\'un projet spécifique', ()
       expect(res.status).toBe(403);
     });
 
-    it('🟢 doit muter le projet avec succès (200) si l\'oiseau est l\'auteur et invalider le cache', async () => {
+    it('🟢 doit muter le projet (y compris taxonomie et fréquence) avec succès (200) et invalider le cache', async () => {
       global.__mockUser = { uid: 'bird_1', capabilities: [] };
       
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ 
@@ -87,12 +88,12 @@ describe('API Letr\'In Font Project Slug - Gestion d\'un projet spécifique', ()
       });
       
       mockLean.mockResolvedValueOnce({ 
-        uid: 'f_1', slug: 'matrix-font', name: 'Matrix Font V2', authorUid: 'bird_1' 
+        uid: 'f_1', slug: 'matrix-font', name: 'Matrix Font V2', category: 'FANTAISIE', frequencyHz: 528, authorUid: 'bird_1' 
       });
 
       const req = new NextRequest('http://localhost/api/letrin/fonts/matrix-font', {
         method: 'PUT',
-        body: JSON.stringify({ name: 'Matrix Font V2' })
+        body: JSON.stringify({ name: 'Matrix Font V2', category: 'FANTAISIE', frequencyHz: 528 })
       });
       const context = { params: Promise.resolve({ slug: 'matrix-font' }) };
 
@@ -101,7 +102,9 @@ describe('API Letr\'In Font Project Slug - Gestion d\'un projet spécifique', ()
 
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);
+      expect(json.data.category).toBe('FANTAISIE');
       expect(revalidateTag).toHaveBeenCalledWith('fonts');
+      expect(revalidateTag).toHaveBeenCalledWith('letrin');
       expect(revalidateTag).toHaveBeenCalledWith('font-projects');
       expect(revalidateTag).toHaveBeenCalledWith('font-matrix-font');
     });
@@ -161,9 +164,9 @@ describe('API Letr\'In Font Project Slug - Gestion d\'un projet spécifique', ()
         uid: 'f_1', slug: 'matrix-font', authorUid: 'bird_1' 
       });
       
-      vi.mocked(FontProject.findOneAndDelete).mockResolvedValueOnce({ 
+      vi.mocked(LetrinFontSpriteModel.findOneAndDelete).mockResolvedValueOnce({ 
         uid: 'f_1', slug: 'matrix-font', authorUid: 'bird_1' 
-      } as unknown as Awaited<ReturnType<typeof FontProject.findOneAndDelete>>);
+      } as unknown as Awaited<ReturnType<typeof LetrinFontSpriteModel.findOneAndDelete>>);
 
       const req = new NextRequest('http://localhost/api/letrin/fonts/matrix-font', {
         method: 'DELETE',
@@ -176,6 +179,7 @@ describe('API Letr\'In Font Project Slug - Gestion d\'un projet spécifique', ()
       expect(res.status).toBe(200);
       expect(json.success).toBe(true);
       expect(revalidateTag).toHaveBeenCalledWith('fonts');
+      expect(revalidateTag).toHaveBeenCalledWith('letrin');
       expect(revalidateTag).toHaveBeenCalledWith('font-projects');
       expect(revalidateTag).toHaveBeenCalledWith('font-matrix-font');
     });

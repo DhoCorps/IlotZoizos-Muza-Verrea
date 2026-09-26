@@ -1,12 +1,17 @@
-// // apps/hub-central/components/letrin/LetrinEditor.tsx
+// apps/hub-central/components/letrin/LetrinEditor.tsx
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Pencil, Square, Eraser, Download, Save, RefreshCw, Upload, Image as ImageIcon, Type as TypeIcon, Clapperboard, Play, Pause, Plus, Copy, Trash2, PaintBucket, Undo2, Redo2, FlipHorizontal, FlipVertical, Trash, Minus, Circle, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Pipette } from 'lucide-react';
+import { 
+  Pencil, Square, Eraser, Download, Save, Upload, Type as TypeIcon, Clapperboard, 
+  Play, Pause, Plus, Copy, Trash2, PaintBucket, Undo2, Redo2, FlipHorizontal, 
+  FlipVertical, Trash, Minus, Circle, ChevronUp, ChevronDown, ChevronLeft, 
+  ChevronRight, Pipette, Zap, Music, VolumeX, Tag, Library, Shield
+} from 'lucide-react';
 import * as opentype from 'opentype.js';
 import { toast } from 'sonner';
 
-// --- STRUCTURES DE DONNÉES AVANCÉES (EXPORTÉES) ---
+// --- STRUCTURES DE DONNÉES AVANCÉES ---
 export type ShapeType = 'full' | 'half-t' | 'half-b' | 'half-l' | 'half-r' | 'q-t' | 'q-b' | 'q-l' | 'q-r' | 'tl' | 'tr' | 'bl' | 'br' | 'tri-tl' | 'tri-tr' | 'tri-bl' | 'tri-br' | 'tri-t' | 'tri-b' | 'tri-l' | 'tri-r';
 
 export type CreationVisibility = 'PUBLIC' | 'EXCHANGEABLE' | 'VISIBLE' | 'PRIVATE';
@@ -20,12 +25,35 @@ export interface PixelData {
   bw: number;
 }
 
+// 🔠 Énumération et Descriptions pour la Taxonomie Typographique
+const CATEGORY_OPTIONS = [
+  { value: 'HUMANE', label: 'Humane', desc: "Écriture humaniste, axes inclinés, empattements doux." },
+  { value: 'GARALDE', label: 'Garalde', desc: "Style transitionnel, élégance classique et géométrie." },
+  { value: 'DIDINE', label: 'Didine', desc: "Fort contraste pleins/déliés, empattements filiformes." },
+  { value: 'MECANE', label: 'Mécane', desc: "Égyptiennes : empattements carrés massifs et uniformes." },
+  { value: 'LINEALE', label: 'Linéale', desc: "Sans empattements (Sans-Serif), épurées et modernes." },
+  { value: 'SCRIPTURE', label: 'Scripture', desc: "Imitation fluide de l'écriture manuscrite et cursive." },
+  { value: 'GOTHIQUE', label: 'Gothique', desc: "Caractères brisés médiévaux, tracés anguleux." },
+  { value: 'FANTAISIE', label: 'Fantaisie', desc: "Expérimentales, décoratives ou pixel-art pures." }
+];
+
+export interface LetrinSavePayload {
+  matrices: Record<string, (PixelData | null)[][]>;
+  visibility: CreationVisibility;
+  category: string;
+  tags: string[];
+  frequencyHz: number;
+  isFrequencyMuted: boolean;
+  seo: { metaTitle: string; metaDescription: string; ogImageUrl?: string };
+  copyrightMetadata: { role: string; isExclusiveIlot: boolean; license: string };
+}
+
 interface LetrinEditorProps {
   fontTitle?: string;
   initialGridSize?: number;
   initialGlyphs?: Record<string, any[][]>; 
   initialVisibility?: CreationVisibility;
-  onSave: (matrices: Record<string, (PixelData | null)[][]>, visibility: CreationVisibility) => void;
+  onSave: (payload: LetrinSavePayload) => void;
 }
 
 export function LetrinEditor({ 
@@ -36,40 +64,22 @@ export function LetrinEditor({
   onSave 
 }: LetrinEditorProps) {
   
+  // --- ÉTATS GLOBAUX & MÉTADONNÉES ---
   const [visibility, setVisibility] = useState<CreationVisibility>(initialVisibility);
-
-  const parseLegacyMatrix = (grid: any[][]): (PixelData | null)[][] => {
-    return grid.map(row => row.map(cell => {
-      if (!cell) return null;
-      if (typeof cell === 'number') {
-        if (cell === 1) return { c: '#708090', s: 'full', r: 0, bt: false, bb: false, bl: false, br: false, bc: 'transparent', bw: 1 };
-        if (cell === 2) return { c: 'transparent', s: 'full', r: 0, bt: true, bb: true, bl: true, br: true, bc: '#E5484D', bw: 1 };
-        return null;
-      }
-      return {
-        ...cell,
-        bw: cell.bw !== undefined ? cell.bw : 1
-      } as PixelData;
-    }));
-  };
-
-  const initialDefaultMatrices = () => {
-    if (Object.keys(initialGlyphs).length > 0) {
-      const parsed: Record<string, (PixelData | null)[][]> = {};
-      Object.keys(initialGlyphs).forEach(k => parsed[k] = parseLegacyMatrix(initialGlyphs[k]));
-      return parsed;
-    }
-    const defaults: Record<string, (PixelData | null)[][]> = {};
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ".split('');
-    chars.forEach(char => defaults[char] = Array.from({ length: initialGridSize }, () => Array(initialGridSize).fill(null)));
-    defaults['frame_0'] = Array.from({ length: initialGridSize }, () => Array(initialGridSize).fill(null));
-    return defaults;
-  };
-
-  const [editorMode, setEditorMode] = useState<'font' | 'sprite'>('font');
   const [localTitle, setLocalTitle] = useState(fontTitle);
+  const [editorMode, setEditorMode] = useState<'font' | 'sprite'>('font');
   const [resolution, setResolution] = useState(initialGridSize);
-  
+
+  // 🏷️ Nouveaux États : Taxonomie & Tags
+  const [category, setCategory] = useState<string>('LINEALE');
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+
+  // 🔮 Nouveaux États : Alchimie & Fréquence
+  const [frequencyHz, setFrequencyHz] = useState<number>(432);
+  const [isFrequencyMuted, setIsFrequencyMuted] = useState<boolean>(false);
+
+  // --- ÉTATS OUTILS & GRILLE ---
   const [palette, setPalette] = useState<string[]>(['#E5484D', '#708090', '#F3F4F6', '#111827', '#10B981', '#3B82F6', 'transparent']);
   const [brushColor, setBrushColor] = useState<string>('#E5484D');
   const [brushShape, setBrushShape] = useState<ShapeType>('full');
@@ -85,6 +95,31 @@ export function LetrinEditor({
   const [isDrawing, setIsDrawing] = useState(false);
   const [shapeStart, setShapeStart] = useState<{ x: number, y: number } | null>(null);
   const [hoverPoint, setHoverPoint] = useState<{ x: number, y: number } | null>(null);
+
+  const parseLegacyMatrix = (grid: any[][]): (PixelData | null)[][] => {
+    return grid.map(row => row.map(cell => {
+      if (!cell) return null;
+      if (typeof cell === 'number') {
+        if (cell === 1) return { c: '#708090', s: 'full', r: 0, bt: false, bb: false, bl: false, br: false, bc: 'transparent', bw: 1 };
+        if (cell === 2) return { c: 'transparent', s: 'full', r: 0, bt: true, bb: true, bl: true, br: true, bc: '#E5484D', bw: 1 };
+        return null;
+      }
+      return { ...cell, bw: cell.bw !== undefined ? cell.bw : 1 } as PixelData;
+    }));
+  };
+
+  const initialDefaultMatrices = () => {
+    if (Object.keys(initialGlyphs).length > 0) {
+      const parsed: Record<string, (PixelData | null)[][]> = {};
+      Object.keys(initialGlyphs).forEach(k => parsed[k] = parseLegacyMatrix(initialGlyphs[k]));
+      return parsed;
+    }
+    const defaults: Record<string, (PixelData | null)[][]> = {};
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ".split('');
+    chars.forEach(char => defaults[char] = Array.from({ length: initialGridSize }, () => Array(initialGridSize).fill(null)));
+    defaults['frame_0'] = Array.from({ length: initialGridSize }, () => Array(initialGridSize).fill(null));
+    return defaults;
+  };
 
   const [matrices, setMatrices] = useState<Record<string, (PixelData | null)[][]>>(initialDefaultMatrices());
   const [history, setHistory] = useState<Record<string, (PixelData | null)[][]>[]>([initialDefaultMatrices()]);
@@ -106,7 +141,7 @@ export function LetrinEditor({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       const key = e.key.toLowerCase();
       if ((e.ctrlKey || e.metaKey) && key === 'z') { e.preventDefault(); undo(); }
       else if ((e.ctrlKey || e.metaKey) && key === 'y') { e.preventDefault(); redo(); }
@@ -135,12 +170,7 @@ export function LetrinEditor({
   const activeKey = editorMode === 'font' ? selectedChar : selectedFrame;
   const currentMatrix = matrices[activeKey] || Array.from({ length: resolution }, () => Array(resolution).fill(null));
 
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isPlaying && editorMode === 'sprite') interval = setInterval(() => setPlayIndex((prev) => (prev + 1) % frames.length), 1000 / fps);
-    return () => clearInterval(interval);
-  }, [isPlaying, frames, fps, editorMode]);
-
+  // --- FONCTIONS DE DESSIN ---
   const changeResolution = (newRes: number) => {
     if (newRes < 1) newRes = 1;
     setResolution(newRes);
@@ -169,6 +199,36 @@ export function LetrinEditor({
     const newMatrices = { ...matrices, [activeKey]: newMatrix };
     setMatrices(newMatrices);
     saveHistory(newMatrices);
+  };
+
+  // ⚡ Outil "Glitch Abyssal" Procédural
+  const applyGlitch = () => {
+    const newMatrix = currentMatrix.map(row => [...row]);
+    for(let y=0; y<resolution; y++) {
+      // Shift Scanline
+      if (Math.random() < 0.1) {
+          const shift = Math.random() > 0.5 ? 1 : -1;
+          const shiftedRow = Array(resolution).fill(null);
+          for(let x=0; x<resolution; x++) {
+             if(x+shift >= 0 && x+shift < resolution) shiftedRow[x+shift] = newMatrix[y][x];
+          }
+          newMatrix[y] = shiftedRow;
+      }
+      // Corruption de pixels
+      for(let x=0; x<resolution; x++) {
+        if (Math.random() < 0.05) {
+           if (newMatrix[y][x]) {
+              newMatrix[y][x] = null; // efface
+           } else {
+              newMatrix[y][x] = { c: brushColor, s: brushShape, r: brushRadius, bt: false, bb: false, bl: false, br: false, bc: 'transparent', bw: 1 }; // ajoute
+           }
+        }
+      }
+    }
+    const newMatrices = { ...matrices, [activeKey]: newMatrix };
+    setMatrices(newMatrices);
+    saveHistory(newMatrices);
+    toast.success("💥 Glitch Abyssal appliqué !");
   };
 
   const getPointsWithSymmetry = (pts: {x: number, y: number}[]) => {
@@ -299,6 +359,7 @@ export function LetrinEditor({
     setMatrices(newMatrices); saveHistory(newMatrices);
   };
 
+  // --- GESTION DES FRAMES SPRITE ---
   const addFrame = () => {
     const newId = `frame_${Date.now()}`;
     setFrames([...frames, newId]);
@@ -318,6 +379,7 @@ export function LetrinEditor({
     if (selectedFrame === id) setSelectedFrame(newFrames[newFrames.length - 1]);
   };
 
+  // --- RENDU GRAPHIQUE ---
   const getRenderCoordinates = (cell: PixelData, bx: number, by: number, scale: number) => {
     let cx = bx, cy = by, cw = scale, ch = scale;
     if (cell.s === 'half-t') { ch = scale/2; }
@@ -471,7 +533,7 @@ export function LetrinEditor({
     font.download(`${localTitle.replace(/\s+/g, '_')}.ttf`);
   };
 
-  const exportToJson = () => triggerDownload("data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ font: localTitle, resolution, visibility, glyphs: matrices }, null, 2)), `${localTitle.replace(/\s+/g, '_')}_projet.json`);
+  const exportToJson = () => triggerDownload("data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ font: localTitle, resolution, visibility, category, tags, frequencyHz, isFrequencyMuted, glyphs: matrices }, null, 2)), `${localTitle.replace(/\s+/g, '_')}_projet.json`);
   const triggerDownload = (dataStr: string, filename: string) => { const a = document.createElement('a'); a.href = dataStr; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); };
 
   const handleJsonUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -484,6 +546,11 @@ export function LetrinEditor({
         if (parsedData.glyphs && typeof parsedData.resolution === 'number') {
           if (parsedData.font) setLocalTitle(parsedData.font);
           if (parsedData.visibility) setVisibility(parsedData.visibility);
+          if (parsedData.category) setCategory(parsedData.category);
+          if (parsedData.tags) setTags(parsedData.tags);
+          if (parsedData.frequencyHz) setFrequencyHz(parsedData.frequencyHz);
+          if (parsedData.isFrequencyMuted !== undefined) setIsFrequencyMuted(parsedData.isFrequencyMuted);
+
           setResolution(parsedData.resolution);
           const safeMatrices: Record<string, (PixelData | null)[][]> = {};
           Object.keys(parsedData.glyphs).forEach(k => safeMatrices[k] = parseLegacyMatrix(parsedData.glyphs[k]));
@@ -497,6 +564,19 @@ export function LetrinEditor({
     };
     reader.readAsText(file);
     if (jsonInputRef.current) jsonInputRef.current.value = '';
+  };
+
+  const handleSaveClick = () => {
+    onSave({
+      matrices,
+      visibility,
+      category,
+      tags,
+      frequencyHz,
+      isFrequencyMuted,
+      seo: { metaTitle: localTitle, metaDescription: `Police typographique ${localTitle} - ${category}` },
+      copyrightMetadata: { role: 'CREATOR', isExclusiveIlot: true, license: 'MIT / Libre Canopée' }
+    });
   };
 
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".split('');
@@ -518,8 +598,8 @@ export function LetrinEditor({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 p-6 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl text-white">
       
-      {/* 🔠 COLONNE GAUCHE (Sélecteur & Exports) */}
-      <div className="lg:col-span-4 space-y-6 flex flex-col justify-between">
+      {/* 🔠 COLONNE GAUCHE (Paramètres, Taxonomie, Alchimie) */}
+      <div className="lg:col-span-4 space-y-6 flex flex-col justify-between max-h-[90vh] overflow-y-auto custom-scrollbar pr-2">
         <div className="flex bg-black/50 p-1 rounded-2xl border border-white/10">
           <button onClick={() => { setEditorMode('font'); setIsPlaying(false); }} className={`flex-1 py-2 rounded-xl text-xs font-bold font-mono transition-all flex items-center justify-center gap-2 ${editorMode === 'font' ? 'bg-[#E5484D] text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><TypeIcon size={14} /> Police</button>
           <button onClick={() => setEditorMode('sprite')} className={`flex-1 py-2 rounded-xl text-xs font-bold font-mono transition-all flex items-center justify-center gap-2 ${editorMode === 'sprite' ? 'bg-emerald-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}><Clapperboard size={14} /> Sprite</button>
@@ -527,21 +607,82 @@ export function LetrinEditor({
 
         <input type="text" value={localTitle} onChange={(e) => setLocalTitle(e.target.value)} className="w-full bg-transparent border-b border-white/20 text-sm font-black uppercase tracking-widest text-slate-300 pb-2 focus:outline-none focus:border-[#E5484D] transition-colors" placeholder="Nom du projet" />
 
-        {/* 🌍 Sélecteur de Visibilité (Souveraineté) */}
-        <div className="space-y-2">
-          <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
-            Visibilité & Souveraineté
-          </label>
+        {/* 📚 NOUVEAU : Taxonomie Typographique */}
+        <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-4">
+          <div className="flex items-center gap-2 text-slate-300">
+            <Library size={14} className="text-[#E5484D]" />
+            <h3 className="text-xs font-bold uppercase tracking-widest">Taxonomie</h3>
+          </div>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full bg-black/60 border border-white/10 rounded-xl p-2.5 text-xs text-white outline-none focus:border-[#E5484D]">
+            {CATEGORY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+          </select>
+          <p className="text-[10px] text-slate-400 font-mono italic">
+            {CATEGORY_OPTIONS.find(c => c.value === category)?.desc}
+          </p>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-xs text-slate-400 font-mono">
+              <Tag size={12} /> Tags (Entrée)
+            </div>
+            <input 
+              type="text" value={tagInput} onChange={e => setTagInput(e.target.value)}
+              onKeyDown={e => {
+                if(e.key === 'Enter' && tagInput.trim()) {
+                  if(!tags.includes(tagInput.trim())) setTags([...tags, tagInput.trim().toLowerCase()]);
+                  setTagInput('');
+                }
+              }}
+              className="w-full bg-black/40 border border-white/10 rounded-xl p-2 text-xs text-white outline-none focus:border-[#E5484D]" placeholder="Ajouter un tag..."
+            />
+            <div className="flex flex-wrap gap-1">
+              {tags.map(t => (
+                <span key={t} className="px-2 py-1 bg-white/10 text-[10px] font-mono rounded-md flex items-center gap-1">
+                  #{t} <button onClick={() => setTags(tags.filter(tag => tag !== t))} className="text-red-400 hover:text-red-300">×</button>
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* 🔮 NOUVEAU : Alchimie & Fréquence */}
+        <div className="p-4 bg-purple-900/10 rounded-2xl border border-purple-500/20 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-purple-300">
+              <Music size={14} />
+              <h3 className="text-xs font-bold uppercase tracking-widest">Fréquence Alchimique</h3>
+            </div>
+            <button onClick={() => setIsFrequencyMuted(!isFrequencyMuted)} className={`p-1.5 rounded-lg ${isFrequencyMuted ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+              {isFrequencyMuted ? <VolumeX size={12} /> : <Music size={12} />}
+            </button>
+          </div>
+          <input 
+            type="range" min="174" max="963" step="9" 
+            value={frequencyHz} onChange={(e) => setFrequencyHz(Number(e.target.value))} 
+            disabled={isFrequencyMuted}
+            className="w-full accent-purple-500" 
+          />
+          <div className="text-right text-[10px] font-mono text-purple-300">{isFrequencyMuted ? 'Muet' : `${frequencyHz} Hz`}</div>
+        </div>
+
+        {/* 🌍 Sélecteur de Visibilité & Copyright */}
+        <div className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-4">
+           <div className="flex items-center gap-2 text-slate-300 mb-2">
+            <Shield size={14} className="text-blue-400" />
+            <h3 className="text-xs font-bold uppercase tracking-widest">Souveraineté</h3>
+          </div>
           <select
             value={visibility}
             onChange={(e) => setVisibility(e.target.value as CreationVisibility)}
-            className="w-full bg-black/60 border border-white/10 rounded-xl p-3 text-xs text-slate-200 outline-none focus:border-[#E5484D]"
+            className="w-full bg-black/60 border border-white/10 rounded-xl p-3 text-xs text-slate-200 outline-none focus:border-blue-400"
           >
             <option value="PUBLIC">🌍 Public (Visible par tous)</option>
-            <option value="EXCHANGEABLE">🔄 Échangeable (Disponible sur le Marketplace)</option>
+            <option value="EXCHANGEABLE">🔄 Échangeable (Marketplace)</option>
             <option value="VISIBLE">👁️ Visible (Hors marché)</option>
             <option value="PRIVATE">🔒 Privé (Strictement personnel)</option>
           </select>
+          <div className="text-[9px] text-slate-500 font-mono text-center">
+            Sceau cryptographique SHA-256 généré à la sauvegarde. <br/> Licence : MIT / Libre Canopée.
+          </div>
         </div>
 
         {editorMode === 'font' && (
@@ -569,26 +710,9 @@ export function LetrinEditor({
           </div>
         )}
 
-        <div className="p-4 bg-black/50 border border-white/10 rounded-2xl flex flex-col items-center space-y-3 relative">
-          <div className="flex items-center justify-between w-full">
-            <span className="text-[10px] font-mono uppercase text-slate-400">Aperçu Live ({activeKey})</span>
-            <span className="text-[10px] font-mono text-slate-500">{activePixelCount} px</span>
-          </div>
-          <div className="w-24 h-24 bg-white/5 rounded-xl border border-white/5 p-2 overflow-hidden flex items-center justify-center">
-            <div dangerouslySetInnerHTML={{ __html: renderPreviewSvg(editorMode === 'sprite' && isPlaying ? matrices[frames[playIndex]] : currentMatrix) }} />
-          </div>
-          {editorMode === 'sprite' && (
-            <div className="flex items-center gap-4 w-full px-2">
-              <button onClick={() => setIsPlaying(!isPlaying)} className="p-2 rounded-full bg-emerald-500 hover:bg-emerald-400 text-black">{isPlaying ? <Pause size={14} /> : <Play size={14} />}</button>
-              <input type="range" min="1" max="24" value={fps} onChange={(e) => setFps(Number(e.target.value))} className="flex-1 accent-emerald-500" />
-              <span className="text-[10px] font-mono">{fps}fps</span>
-            </div>
-          )}
-        </div>
-
         <div className="space-y-3">
           {editorMode === 'font' ? (
-            <button onClick={exportToTTF} className="w-full py-3 bg-[#E5484D] hover:bg-[#c43d41] font-black uppercase text-xs rounded-2xl shadow-[0_0_15px_rgba(229,72,77,0.3)] transition-all flex items-center justify-center gap-2"><TypeIcon size={16} /> Générer Police (.TTF)</button>
+            <button onClick={exportToTTF} className="w-full py-3 bg-[#E5484D] hover:bg-[#c43d41] font-black uppercase text-xs rounded-2xl shadow-[0_0_15px_rgba(229,72,77,0.3)] transition-all flex items-center justify-center gap-2"><TypeIcon size={16} /> Générer (.TTF)</button>
           ) : (
             <div className="grid grid-cols-3 gap-2">
               <button onClick={() => exportImage('png')} className="py-2 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 font-bold uppercase text-[10px] rounded-xl transition-all">PNG</button>
@@ -597,7 +721,7 @@ export function LetrinEditor({
             </div>
           )}
           <div className="h-px w-full bg-white/10 my-2" />
-          <button onClick={() => onSave(matrices, visibility)} className="w-full py-2 bg-slate-600 hover:bg-slate-500 font-bold uppercase text-[10px] rounded-xl transition-all flex items-center justify-center gap-2"><Save size={14} /> Sauvegarder Projet</button>
+          <button onClick={handleSaveClick} className="w-full py-2 bg-slate-600 hover:bg-slate-500 font-bold uppercase text-[10px] rounded-xl transition-all flex items-center justify-center gap-2"><Save size={14} /> Sauvegarder Projet</button>
           <div className="grid grid-cols-2 gap-2">
             <button onClick={exportToJson} className="py-2 bg-black/40 border border-white/10 hover:bg-white/10 font-bold uppercase text-[10px] rounded-xl transition-all flex items-center justify-center gap-1"><Download size={12} /> Exporter JSON</button>
             <button onClick={() => jsonInputRef.current?.click()} className="py-2 bg-black/40 border border-white/10 hover:bg-white/10 font-bold uppercase text-[10px] rounded-xl transition-all flex items-center justify-center gap-1"><Upload size={12} /> Importer JSON</button>
@@ -650,6 +774,9 @@ export function LetrinEditor({
               <button onClick={() => setTool('eraser')} className={`p-2 rounded-lg transition-all ${tool === 'eraser' ? 'bg-white text-black' : 'bg-white/5 text-slate-400 hover:text-white'}`} title="Gomme (E)"><Eraser size={14} /></button>
               <div className="w-px h-4 bg-white/10 mx-1"></div>
               <button onClick={() => setTool('pipette')} className={`p-2 rounded-lg ${tool === 'pipette' ? 'bg-emerald-500 text-black' : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'}`} title="Pipette (P)"><Pipette size={14} /></button>
+              <div className="w-px h-4 bg-white/10 mx-1"></div>
+              {/* ⚡ BOUTON GLITCH */}
+              <button onClick={applyGlitch} className="p-2 rounded-lg bg-pink-500/20 text-pink-400 border border-pink-500/30 hover:bg-pink-500/40 transition-all shadow-[0_0_10px_rgba(236,72,153,0.2)]" title="Glitch Abyssal"><Zap size={14} /></button>
             </div>
 
             <div className="flex items-center gap-2">

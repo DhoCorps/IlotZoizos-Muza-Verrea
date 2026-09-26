@@ -1,14 +1,20 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { compileAndInjectFont } from '../../../hub-central/utils/letrin-compiler'; // Ajuste ton chemin d'import
+import { compileAndInjectFont } from '../../../hub-central/utils/letrin-compiler'; 
 
-interface FontItem {
+// 🛡️ Interface unifiée avec notre nouveau modèle LetrinFontSpriteDocument
+export interface FontItem {
   _id: string;
   title: string;
   resolution: number;
   license: string;
   matrices: Record<string, any[][]>;
+  // 🔮 Nouveaux attributs Alchimiques et Taxonomiques
+  category: string;
+  tags: string[];
+  frequencyHz: number;
+  isFrequencyMuted: boolean;
 }
 
 interface LetrinContextType {

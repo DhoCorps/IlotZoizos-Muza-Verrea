@@ -1,4 +1,3 @@
-// Fichier : packages/types/src/__tests__/copyright.types.test.ts
 import { describe, it, expect } from 'vitest';
 import { CopyrightRoleSchema, CopyrightMetadataSchema } from '../core/copyright.types';
 
@@ -13,18 +12,20 @@ describe('Schéma Zod : Copyright & Pacte de Filiation', () => {
   });
 
   describe('Validation du Copyright avec Filiation (Pacte)', () => {
-    it('valide un métadonnée basique de créateur', () => {
+    it('valide un métadonnée basique de créateur avec sa licence par défaut', () => {
       const result = CopyrightMetadataSchema.safeParse({});
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.role).toBe('CREATOR');
         expect(result.data.isExclusiveIlot).toBe(false);
+        expect(result.data.license).toBe('MIT / Libre Canopée');
       }
     });
 
     it('valide une œuvre dérivée avec une source de Filiation externe', () => {
       const payload = {
         role: 'SUBLIMATOR',
+        isExclusiveIlot: true,
         filiation: {
           isExternalSource: true,
           sourceAuthorName: 'Mozart',
@@ -39,15 +40,17 @@ describe('Schéma Zod : Copyright & Pacte de Filiation', () => {
       if (result.success) {
         expect(result.data.filiation?.sourceAuthorName).toBe('Mozart');
         expect(result.data.filiation?.escrowBalance).toBe(1500);
+        expect(result.data.license).toBe('MIT / Libre Canopée');
       }
     });
 
     it('rejette une Filiation incomplète (nom auteur source manquant)', () => {
       const invalidPayload = {
+        role: 'SUBLIMATOR',
+        isExclusiveIlot: true,
         filiation: {
           isExternalSource: true,
           sourceWorkTitle: 'Requiem'
-          // Il manque sourceAuthorName
         }
       };
       const result = CopyrightMetadataSchema.safeParse(invalidPayload);

@@ -90,7 +90,10 @@ export class SujetOrchestrator {
         content: data.content || "",
         lyrics: data.lyrics || undefined,
         copyright: data.copyright || undefined,
-        copyrightMetadata: cpMeta, 
+        copyrightMetadata: {
+          ...cpMeta,
+          license: cpMeta.license || 'MIT / Libre Canopée'
+        }, 
         authorUid: signature.actorUid,
         category: data.category || 'MONOLOGUE',
         status: data.status || 'DRAFT',

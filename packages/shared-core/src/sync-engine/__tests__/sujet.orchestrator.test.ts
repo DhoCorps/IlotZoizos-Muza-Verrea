@@ -163,7 +163,7 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)',
         content: 'Texte court',
         authorUid: 'bird_author',
         status: 'PUBLISHED',
-        copyrightMetadata: { role: 'SUBLIMATOR', isExclusiveIlot: true }
+        copyrightMetadata: { role: 'SUBLIMATOR', isExclusiveIlot: true, license: 'MIT / Libre Canopée' }
       }, userSignature as any);
 
       expect((res.mongo as any).copyrightMetadata.role).toBe('SUBLIMATOR');
@@ -189,7 +189,7 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)',
         title: 'Pensée Relayée',
         content: 'Texte',
         authorUid: 'bird_author',
-        copyrightMetadata: { role: 'CURATOR', isExclusiveIlot: true }
+        copyrightMetadata: { role: 'CURATOR', isExclusiveIlot: true, license: 'MIT / Libre Canopée' }
       }, userSignature as any);
     });
   });

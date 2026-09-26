@@ -1,21 +1,31 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { compileAndInjectFont } from '../../../hub-central/utils/letrin-compiler';
-import { useLetrinFont } from './LetrinFontContext'; // Optionnel : utilise le Context s'il est présent
-import { Type, Upload } from 'lucide-react';
+import { compileAndInjectFont } from '../../utils/letrin-compiler';
+import { useLetrinFont } from './LetrinFontContext';
+import { Type, Upload, Filter } from 'lucide-react';
 
-interface FontItem {
+// 🛡️ Interface synchronisée avec le Modèle LetrinFontSpriteDocument
+export interface FontItem {
   _id: string;
   title: string;
   resolution: number;
   license: string;
   matrices: Record<string, any[][]>;
+  category: string;
+  tags: string[];
+  frequencyHz: number;
+  isFrequencyMuted: boolean;
 }
 
 interface LetrinFontSelectorProps {
   onFontSelect?: (fontName: string) => void;
 }
+
+// 📚 Liste des catégories pour le filtre
+const CATEGORIES = [
+  'ALL', 'HUMANE', 'GARALDE', 'DIDINE', 'MECANE', 'LINEALE', 'SCRIPTURE', 'GOTHIQUE', 'FANTAISIE', 'EXTERNAL'
+];
 
 export function LetrinFontSelector({ onFontSelect }: LetrinFontSelectorProps) {
   // Tentative d'utilisation du Context global (permet de propager la police partout)
@@ -28,10 +38,14 @@ export function LetrinFontSelector({ onFontSelect }: LetrinFontSelectorProps) {
 
   const [localFonts, setLocalFonts] = useState<FontItem[]>([]);
   const [localSelectedFont, setLocalSelectedFont] = useState<string>('');
+  
+  // 🏷️ Nouvel état pour le filtre taxonomique
+  const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Utilisation des sources globales ou locales selon le contexte
-  const fonts = globalContext ? globalContext.fonts : localFonts;
+  const fonts = globalContext ? (globalContext.fonts as FontItem[]) : localFonts;
   const selectedFont = globalContext ? globalContext.activeFont : localSelectedFont;
 
   useEffect(() => {
@@ -65,7 +79,7 @@ export function LetrinFontSelector({ onFontSelect }: LetrinFontSelectorProps) {
     }
   };
 
-  // --- NOUVEAU : Gestion de l'importation de polices tierces ---
+  // --- Gestion de l'importation de polices tierces ---
   const handleExternalFontImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -97,18 +111,20 @@ export function LetrinFontSelector({ onFontSelect }: LetrinFontSelectorProps) {
         }
       `;
 
-      // Création d'un objet "fictif" pour l'ajouter instantanément à la liste déroulante
+      // Création d'un objet "fictif" pour l'ajouter instantanément à la liste
       const externalFontItem: FontItem = {
         _id: `ext-${Date.now()}`,
         title: fontName,
         resolution: 16,
         license: 'external',
-        matrices: {}
+        matrices: {},
+        category: 'EXTERNAL',
+        tags: ['importé'],
+        frequencyHz: 432,
+        isFrequencyMuted: true // On mute par défaut les polices externes
       };
 
       if (globalContext) {
-        // Si tu souhaites enrichir le context global, tu peux adapter selon ton architecture, 
-        // ou simplement injecter localement dans la liste affichée :
         setLocalFonts(prev => [...prev, externalFontItem]);
       } else {
         setLocalFonts(prev => [...prev, externalFontItem]);
@@ -127,32 +143,58 @@ export function LetrinFontSelector({ onFontSelect }: LetrinFontSelectorProps) {
     };
 
     reader.readAsArrayBuffer(file);
-    // Reset de l'input file pour permettre de réimporter le même fichier si besoin
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // 🔍 Filtrage dynamique des polices
+  const filteredFonts = fonts.filter(f => selectedCategory === 'ALL' || f.category === selectedCategory);
+
   return (
-    <div className="flex items-center gap-2 bg-black/40 border border-white/10 px-3 py-1.5 rounded-2xl backdrop-blur-md">
+    <div className="flex flex-wrap items-center gap-2 bg-black/40 border border-white/10 px-3 py-1.5 rounded-2xl backdrop-blur-md">
+      
+      {/* 📚 NOUVEAU : Filtre Taxonomique */}
+      <div className="flex items-center gap-1 border-r border-white/10 pr-2">
+        <Filter size={14} className="text-slate-400" />
+        <select
+          value={selectedCategory}
+          onChange={(e) => setSelectedCategory(e.target.value)}
+          className="bg-transparent text-[10px] text-slate-300 font-mono uppercase tracking-wider outline-none cursor-pointer"
+          title="Filtrer par catégorie"
+        >
+          {CATEGORIES.map(cat => (
+            <option key={cat} value={cat} className="bg-black text-white">
+              {cat === 'ALL' ? 'Toutes' : cat}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* 🔠 Sélecteur de Police Principal */}
       <Type size={14} className="text-[#E5484D]" />
       <select 
         value={selectedFont} 
         onChange={handleChange}
-        className="bg-transparent text-xs text-white font-mono uppercase tracking-wider outline-none cursor-pointer"
+        className="bg-transparent text-xs text-white font-mono uppercase tracking-wider outline-none cursor-pointer max-w-xs truncate"
         style={{ fontFamily: selectedFont ? `'${selectedFont}', sans-serif` : 'inherit' }}
       >
         <option value="" className="bg-black text-slate-400">-- Police Standard --</option>
-        {fonts.map(font => (
-          <option key={font._id} value={font.title} className="bg-black text-white" style={{ fontFamily: `'${font.title}', sans-serif` }}>
-            {font.title} [{font.license.toUpperCase()}]
+        {filteredFonts.map(font => (
+          <option 
+            key={font._id} 
+            value={font.title} 
+            className="bg-black text-white" 
+            style={{ fontFamily: `'${font.title}', sans-serif` }}
+          >
+            {font.title} {!font.isFrequencyMuted && font.frequencyHz ? ` 🎵 ${font.frequencyHz}Hz` : ' 🔇'}
           </option>
         ))}
       </select>
 
-      {/* Bouton d'importation de police tierce */}
+      {/* 📥 Bouton d'importation de police tierce */}
       <button 
         type="button"
         onClick={() => fileInputRef.current?.click()}
-        className="p-1 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors"
+        className="p-1 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors ml-auto"
         title="Importer une police tierce (.ttf, .otf, .woff)"
       >
         <Upload size={14} />
@@ -164,6 +206,7 @@ export function LetrinFontSelector({ onFontSelect }: LetrinFontSelectorProps) {
         ref={fileInputRef} 
         onChange={handleExternalFontImport} 
         className="hidden" 
+        data-testid="external-font-upload"
       />
     </div>
   );

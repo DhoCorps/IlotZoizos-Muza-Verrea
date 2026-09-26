@@ -47,7 +47,7 @@ describe('Composant : Constellation3D', () => {
     expect(handleNodeClick).toHaveBeenCalledTimes(1);
     expect(handleNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'user-1', name: 'Oiseau Alpha' }));
     
-    // 🌿 Sélection directe et robuste via le test-id
+    // Sélection directe et robuste via le test-id
     const nodeNameElement = screen.getByTestId('selected-node-name');
     expect(nodeNameElement.textContent).toBe('Oiseau Alpha');
   });

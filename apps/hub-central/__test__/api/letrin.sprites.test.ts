@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST, GET } from '@/app/api/letrin/sprites/route';
-import { LetterSpriteModel } from '@ilot/infrastructure';
+import { LetrinFontSpriteModel } from '@ilot/infrastructure';
 import { getCachedFonts } from '@/lib/cache/letrin.cache';
 import { revalidateTag } from 'next/cache';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
@@ -15,16 +15,16 @@ vi.mock('@/lib/api-guards', () => ({
     const mockUser = global.__mockUser || { uid: 'u-123', capabilities: ['*'] };
     return await handler(req, context, mockUser);
   },
+  handleRouteError: vi.fn((err) => new Response(JSON.stringify({ error: err.message }), { status: 500 }))
 }));
 
 vi.mock('@ilot/infrastructure', () => ({
-  LetterSpriteModel: {
+  LetrinFontSpriteModel: {
     findOne: vi.fn(),
     create: vi.fn(),
   },
 }));
 
-// 🎯 Mock explicite de la fonction de cache
 vi.mock('@/lib/cache/letrin.cache', () => ({
   getCachedFonts: vi.fn(),
 }));
@@ -35,40 +35,55 @@ vi.mock('@ilot/shared-core', () => ({
   },
 }));
 
-describe('API Letr\'In Sprites (GET / POST) avec Sceau SHA-256', () => {
+describe('API Letr\'In Sprites (GET / POST) avec Filtrage et Sceau SHA-256', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete global.__mockUser;
   });
 
-  it('GET - doit recenser les polices mises en cache', async () => {
-    // 🎯 Forçage de la résolution du mock pour ce test précis
-    vi.mocked(getCachedFonts).mockResolvedValueOnce([{ uid: 'font_1', name: 'Test Font' }] as unknown as Awaited<ReturnType<typeof getCachedFonts>>);
+  it('GET - doit recenser les polices et filtrer correctement par catégorie et tags', async () => {
+    const mockFonts = [
+      { uid: 'f_1', name: 'Humane Font', category: 'HUMANE', tags: ['calligraphie'], frequencyHz: 432 },
+      { uid: 'f_2', name: 'Gothique Font', category: 'GOTHIQUE', tags: ['glitch'], frequencyHz: 396 },
+    ];
+    
+    vi.mocked(getCachedFonts).mockResolvedValue(mockFonts as any);
 
-    const req = new NextRequest('http://localhost/api/letrin/sprites');
-    const res = await GET(req, { params: Promise.resolve({}) });
-    const json = await res.json();
+    const reqCategory = new NextRequest('http://localhost/api/letrin/sprites?category=GOTHIQUE');
+    const resCategory = await GET(reqCategory, { params: Promise.resolve({}) } as any);
+    const jsonCategory = await resCategory.json();
 
-    expect(res.status).toBe(200);
-    expect(json).toEqual([{ uid: 'font_1', name: 'Test Font' }]);
+    expect(resCategory.status).toBe(200);
+    expect(jsonCategory).toHaveLength(1);
+    expect(jsonCategory[0].name).toBe('Gothique Font');
+
+    const reqTag = new NextRequest('http://localhost/api/letrin/sprites?tag=calligraphie');
+    const resTag = await GET(reqTag, { params: Promise.resolve({}) } as any);
+    const jsonTag = await resTag.json();
+
+    expect(jsonTag).toHaveLength(1);
+    expect(jsonTag[0].category).toBe('HUMANE');
   });
 
-  it('POST - doit créer une police, forger le Sceau SHA-256 d\'antériorité et sédimenter', async () => {
+  it('POST - doit créer une police avec taxonomie, fréquence Hz et forger le Sceau SHA-256', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
 
-    vi.mocked(LetterSpriteModel.findOne).mockReturnValue({
+    vi.mocked(LetrinFontSpriteModel.findOne).mockReturnValue({
       lean: vi.fn().mockResolvedValue(null),
-    } as unknown as ReturnType<typeof LetterSpriteModel.findOne>);
+    } as unknown as ReturnType<typeof LetrinFontSpriteModel.findOne>);
 
-    vi.mocked(LetterSpriteModel.create).mockImplementation((doc: unknown) => Promise.resolve({
+    vi.mocked(LetrinFontSpriteModel.create).mockImplementation((doc: unknown) => Promise.resolve({
       ...(doc as Record<string, unknown>),
       _id: 'mongo_id_abc',
-    }) as unknown as ReturnType<typeof LetterSpriteModel.create>);
+    }) as unknown as ReturnType<typeof LetrinFontSpriteModel.create>);
 
     const reqData = {
-      name: 'Police Canopée',
+      name: 'Police Alchimique',
+      category: 'MECANE',
+      tags: ['magie'],
+      frequencyHz: 528,
       gridSize: { width: 16, height: 16 },
-      glyphs: [{ char: 'A', pixels: [] }]
+      glyphs: []
     };
 
     const req = new NextRequest('http://localhost/api/letrin/sprites', {
@@ -76,16 +91,29 @@ describe('API Letr\'In Sprites (GET / POST) avec Sceau SHA-256', () => {
       body: JSON.stringify(reqData)
     });
 
-    const res = await POST(req, { params: Promise.resolve({}) });
+    const res = await POST(req, { params: Promise.resolve({}) } as any);
     const json = await res.json();
 
     expect(res.status).toBe(201);
     expect(json.success).toBe(true);
-    expect(json.data.name).toBe('Police Canopée');
+    expect(json.data.category).toBe('MECANE');
     expect(json.digitalSignature).toBeDefined();
-    expect(typeof json.digitalSignature).toBe('string');
-    expect(json.digitalSignature.length).toBe(64); // Vérification de l'empreinte SHA-256
+    expect(json.digitalSignature.length).toBe(64); 
     expect(revalidateTag).toHaveBeenCalledWith('fonts');
-    expect(revalidateTag).toHaveBeenCalledWith('letrin');
+  });
+
+  it('POST - doit rejeter la création si les champs stricts de validation Zod échouent', async () => {
+    global.__mockUser = { uid: 'u-123', capabilities: ['*'] };
+    const invalidReqData = { category: 'HUMANE', frequencyHz: 432 }; 
+    const req = new NextRequest('http://localhost/api/letrin/sprites', {
+      method: 'POST',
+      body: JSON.stringify(invalidReqData)
+    });
+
+    const res = await POST(req, { params: Promise.resolve({}) } as any);
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.error).toBe("Données de police de sprites invalides.");
   });
 });

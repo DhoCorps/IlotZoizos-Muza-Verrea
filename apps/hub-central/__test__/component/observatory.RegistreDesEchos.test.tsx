@@ -1,7 +1,8 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import { RegistreDesEchos } from '../../components/observatory/RegistreDesEchos';
+import { RegistreDesEchos } from '@/components/observatory/RegistreDesEchos';
+import '@testing-library/jest-dom';
 
 describe('UI : RegistreDesEchos (Tableau de bord de l\'Oiseau)', () => {
   const mockComments: any[] = [
@@ -27,16 +28,16 @@ describe('UI : RegistreDesEchos (Tableau de bord de l\'Oiseau)', () => {
 
   it('🟢 doit afficher l\'état vide si aucun commentaire n\'est fourni', () => {
     render(<RegistreDesEchos comments={[]} />);
-    expect(screen.getByText(/Votre registre est vierge/i)).toBeDefined();
+    expect(screen.getByText(/Votre registre est vierge/i)).toBeInTheDocument();
   });
 
   it('🟢 doit afficher la liste des échos avec leurs métadonnées et badges', () => {
     render(<RegistreDesEchos comments={mockComments} />);
 
-    expect(screen.getByText('Une réflexion passionnante sur la canopée.')).toBeDefined();
-    expect(screen.getByText('Sceau de l\'Érudit')).toBeDefined();
-    expect(screen.getByText('BLOG')).toBeDefined();
-    expect(screen.getByText('PROJECT')).toBeDefined();
+    expect(screen.getByText('Une réflexion passionnante sur la canopée.')).toBeInTheDocument();
+    expect(screen.getByText("Sceau de l'Érudit")).toBeInTheDocument();
+    expect(screen.getByText('BLOG')).toBeInTheDocument();
+    expect(screen.getByText('PROJECT')).toBeInTheDocument();
   });
 
   it('🟢 doit déclencher le callback de navigation lors du clic sur "Aller à l\'œuvre"', () => {

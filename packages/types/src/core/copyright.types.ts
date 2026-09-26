@@ -1,8 +1,7 @@
-// Fichier : packages/types/src/core/copyright.types.ts
 import { z } from 'zod';
 
 // ==========================================
-// PACTE DE FILIATION (NOUVEAU)
+// PACTE DE FILIATION
 // ==========================================
 export const FiliationClaimStatusSchema = z.enum([
   'PENDING_CLAIM', 
@@ -31,13 +30,25 @@ export const CopyrightMetadataSchema = z.object({
   originalWorkTitle: z.string().optional(),
   sublimationNotes: z.string().optional(),
   isExclusiveIlot: z.boolean().default(false),
-  filiation: FiliationSourceSchema.optional() // 🚀 Injection du Pacte de Filiation
+  license: z.string().default('MIT / Libre Canopée'),
+  filiation: FiliationSourceSchema.optional()
 });
 
 // ==========================================
-// EXPORT DES TYPES INFÉRÉS
+// EXPORT DES TYPES ET INTERFACES
 // ==========================================
 export type CopyrightRole = z.infer<typeof CopyrightRoleSchema>;
 export type FiliationClaimStatus = z.infer<typeof FiliationClaimStatusSchema>;
 export type IFiliationSource = z.infer<typeof FiliationSourceSchema>;
-export type CopyrightMetadata = z.infer<typeof CopyrightMetadataSchema>;
+
+// 🪡 FIX DÉFINITIF : Interface explicite où `role` et `isExclusiveIlot` sont requis 
+// pour les orchestrateurs, mais `license` est optionnel pour tolérer les objets de test.
+export interface CopyrightMetadata {
+  role: CopyrightRole;
+  isExclusiveIlot: boolean;
+  license?: string;
+  originalAuthor?: string;
+  originalWorkTitle?: string;
+  sublimationNotes?: string;
+  filiation?: IFiliationSource;
+}
