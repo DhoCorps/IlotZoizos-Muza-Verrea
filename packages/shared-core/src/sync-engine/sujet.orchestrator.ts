@@ -1,4 +1,5 @@
-import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+// Fichier : packages/backend/src/orchestrators/sujet.orchestrator.ts
+import { SujetModel, UniversalAnnotationModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { ISujet, CopyrightMetadata } from '@ilot/types';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
@@ -6,7 +7,7 @@ import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
 import { ensureUniqueSlug } from '../utils/orchestrator.engine'; 
 import { NotificationOrchestrator } from './notification.orchestrator';
-import { sanitizeCopyright, getCopyrightCypherRelation } from '../utils/copyright.engine'; // 🚀 Import du Helper DRY
+import { sanitizeCopyright, getCopyrightCypherRelation } from '../utils/copyright.engine';
 
 interface IStorageManager {
   deleteFile(key: string): Promise<unknown>;
@@ -20,7 +21,6 @@ export interface SujetSyncResult {
   neo4j: import('neo4j-driver').QueryResult | null;
 }
 
-// Typage utilitaire pour autoriser des sous-objets partiels en entrée
 type DeepPartialConnections = Partial<ISujet['connections']>;
 type DeepPartialSettings = Partial<ISujet['settings']>;
 type DeepPartialKosmic = Partial<ISujet['kosmicBoon']>;
@@ -32,7 +32,7 @@ export type FosterSujetPayload = Omit<Partial<ISujet>, 'resonance' | 'propagatio
   connections?: DeepPartialConnections;
   settings?: DeepPartialSettings;
   kosmicBoon?: DeepPartialKosmic;
-  copyrightMetadata?: CopyrightMetadata; // 🚀
+  copyrightMetadata?: CopyrightMetadata;
 };
 
 export type UpdateSujetPayload = Partial<Omit<ISujet, 'uid' | 'authorUid' | 'resonance' | 'connections' | 'propagation'>>;
@@ -75,12 +75,10 @@ export class SujetOrchestrator {
       const baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
       const finalSlug = await ensureUniqueSlug(SujetModel, baseSlug, mongoSession);
 
-      // ✨ OPTIMISATION UX/SEO : Génération automatique d'un extrait si absent
       const autoExcerpt = data.excerpt || (data.content && data.content.length > 150 
           ? `${data.content.substring(0, 147)}...` 
           : data.content);
 
-      // 🛡️ Logique métier du Copyright et des Rôles centralisée
       const cpMeta = sanitizeCopyright(data.copyrightMetadata);
 
       const newSujetData: Partial<ISujet> = {
@@ -88,11 +86,11 @@ export class SujetOrchestrator {
         uid: sujetUid,
         title: title,
         slug: finalSlug,
-        excerpt: autoExcerpt, // Injection de l'extrait intelligent
+        excerpt: autoExcerpt,
         content: data.content || "",
         lyrics: data.lyrics || undefined,
         copyright: data.copyright || undefined,
-        copyrightMetadata: cpMeta, // 🚀 Injecté propre et nettoyé
+        copyrightMetadata: cpMeta, 
         authorUid: signature.actorUid,
         category: data.category || 'MONOLOGUE',
         status: data.status || 'DRAFT',
@@ -126,7 +124,6 @@ export class SujetOrchestrator {
         lastCommentedAt: data.lastCommentedAt || undefined
       };
 
-      // 1. SILICE (MongoDB)
       let newSujet: ISujet;
       try {
         const created = await SujetModel.create([newSujetData], { session: mongoSession });
@@ -139,8 +136,6 @@ export class SujetOrchestrator {
         throw err;
       }
 
-      // 2. GRAPHE (Neo4j) - Le Tissu Universel
-      // 🌐 Génération dynamique du lien Cypher via le helper
       const relationType = getCopyrightCypherRelation(cpMeta.role);
 
       const cypher = `
@@ -196,7 +191,6 @@ export class SujetOrchestrator {
       return { success: true, status: 'success', mongo: newSujet, neo4j: neoResult };
     });
 
-    // 🌿 3. LA CANOPÉE TAMPON
     if (txResult.success && txResult.neo4j && txResult.mongo?.status === 'PUBLISHED') {
       const records = txResult.neo4j.records;
       if (records.length > 0) {
@@ -256,6 +250,15 @@ export class SujetOrchestrator {
         { $set: finalUpdates },
         { new: true, session: mongoSession }
       ).lean() as unknown as ISujet;
+
+      // 🌟 Intégration de l'Annotation Universelle : Cascade Update du Titre
+      if (updates.title) {
+        await UniversalAnnotationModel.updateMany(
+          { targetUid: existing.uid },
+          { $set: { targetTitle: updates.title } },
+          { session: mongoSession }
+        );
+      }
 
       let neoResult = null;
       const cypher = `
@@ -343,6 +346,9 @@ export class SujetOrchestrator {
     const result = await TransactionManager.execute("Désintégration de Sujet", async (mongoSession, neo4jTx) => {
       await neo4jTx.run(`MATCH (s:Sujet { uid: $sujetUid }) DETACH DELETE s`, { sujetUid: existing.uid });
       await SujetModel.deleteOne({ uid: existing.uid }, { session: mongoSession });
+
+      // 🌟 Intégration de l'Annotation Universelle : Cascade Delete
+      await UniversalAnnotationModel.deleteMany({ targetUid: existing.uid }, { session: mongoSession });
 
       return { success: true, purgedCount: 1 };
     });

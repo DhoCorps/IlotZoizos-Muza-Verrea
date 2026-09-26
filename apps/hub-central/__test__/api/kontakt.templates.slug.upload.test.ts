@@ -131,8 +131,8 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
   it('🔴 DELETE - doit échouer (400) si l\'URL fournie n\'est pas valide (Zod)', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: [] };
     
-    // 🛠️ CORRECTION : Il faut simuler l'existence du template, sinon la route sort en 404
-    // avant même d'arriver à la validation Zod de l'URL !
+    // 🛠️ CORRECTION : Simuler l'existence du template pour que la route passe la vérification 404
+    // et arrive bien jusqu'à la validation Zod de l'URL
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 'tmpl_123',
       slug: 'mon-template',
@@ -145,7 +145,7 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
     });
 
     const res = await DELETE(req, { params: Promise.resolve({ slug: 'mon-template' }) });
-    expect(res.status).toBe(400); // Maintenat il ira bien jusqu'au 400 !
+    expect(res.status).toBe(400);
   });
 
   it('🔴 DELETE - doit échouer (403) en cas de tentative IDOR sur une URL étrangère normalisée', async () => {

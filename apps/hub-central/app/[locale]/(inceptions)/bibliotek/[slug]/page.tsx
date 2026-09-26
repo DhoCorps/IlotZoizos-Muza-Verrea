@@ -73,8 +73,8 @@ export default async function BookDetailsPage({ params }: PageProps) {
       {/* Liseuse immersive "Papier Ancre" enrichie (Audio, Vibrations, Suivi & Troc) */}
       <PapierAncreReader book={serializedBook} />
 
-      {/* Section dorée des Notes d'Érudits (Fulgurances validées par l'auteur) */}
-      <ScholarlyNotesSection bookSlug={serializedBook.slug || serializedBook.uid} />
+      {/* Section dorée des Notes d'Érudits (Fulgurances validées par l'auteur) - Corrigé avec bookUid */}
+      <ScholarlyNotesSection bookUid={serializedBook.uid || serializedBook.slug} />
 
     </main>
   );

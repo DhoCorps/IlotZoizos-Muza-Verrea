@@ -12,7 +12,13 @@ export function CVMarketplaceGallery({ onSelectTemplate }: { onSelectTemplate: (
     fetch('/api/kontakt/templates')
       .then(res => res.json())
       .then(data => {
-        if (data.success) setTemplates(data.data);
+        // 🛡️ Harmonisation robuste pour accepter data.data, data ou un tableau direct issu de la Silice
+        const rawList = Array.isArray(data) ? data : (data.data || data.templates || []);
+        if (Array.isArray(rawList)) {
+          setTemplates(rawList);
+        } else {
+          setTemplates([]);
+        }
       })
       .catch(err => console.error("Erreur chargement templates :", err))
       .finally(() => setLoading(false));
@@ -30,7 +36,7 @@ export function CVMarketplaceGallery({ onSelectTemplate }: { onSelectTemplate: (
             {/* Aperçu visuel R2 si disponible */}
             {tmpl.previewUrl && (
               <div className="w-full h-32 rounded-2xl overflow-hidden bg-white/5 border border-white/10 relative">
-                <img src={tmpl.previewUrl} alt={tmpl.title} className="w-full h-full object-cover" />
+                <img src={tmpl.previewUrl} alt={tmpl.title || 'Parchemin'} className="w-full h-full object-cover" />
               </div>
             )}
 
@@ -42,8 +48,8 @@ export function CVMarketplaceGallery({ onSelectTemplate }: { onSelectTemplate: (
                 <Coins size={12} /> {tmpl.priceShards === 0 ? 'Gratuit / Troc' : `${tmpl.priceShards} Éclats`}
               </span>
             </div>
-            <h3 className="text-lg font-black uppercase text-white">{tmpl.title}</h3>
-            <p className="text-xs font-sans text-slate-400 leading-relaxed">{tmpl.description}</p>
+            <h3 className="text-lg font-black uppercase text-white">{tmpl.title || 'Parchemin Sans Nom'}</h3>
+            <p className="text-xs font-sans text-slate-400 leading-relaxed">{tmpl.description || 'Modèle forgé dans la matrice.'}</p>
             <p className="text-[10px] font-mono text-slate-500">Forgé par : <span className="text-white">{tmpl.authorName || 'Inconnu'}</span></p>
           </div>
 

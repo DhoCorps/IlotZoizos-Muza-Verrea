@@ -4,26 +4,9 @@ import { BibliotekOrchestrator } from '../bibliotek.orchestrator';
 import { LibraryBookModel } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
-import { findEntityBySlugOrUid } from '@ilot/infrastructure';
 import type { ActionSignature } from '@ilot/types';
 
-// 🚀 1. Utilisation de vi.hoisted pour survivre au hissage de Vitest
-const { mockFosterNotification, mockNeo4jRun, mockSanitizeCopyright } = vi.hoisted(() => {
-  return {
-    mockFosterNotification: vi.fn().mockResolvedValue({ success: true }),
-    mockNeo4jRun: vi.fn().mockResolvedValue({ 
-      records: [{ get: (key: string) => key === 'followerUids' ? ['bird_follower_1'] : 'mock_node' }] 
-    }),
-    mockSanitizeCopyright: vi.fn((meta) => {
-      // Garantit que le Pacte de Filiation traverse le mock intact
-      if (meta && meta.filiation) return { ...meta, filiation: meta.filiation };
-      if (!meta) return { role: 'CREATOR', isExclusiveIlot: false };
-      if (meta.role === 'CURATOR') return { ...meta, isExclusiveIlot: false };
-      return meta;
-    })
-  };
-});
-
+// 1. Mock de l'infrastructure
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@ilot/infrastructure')>();
   return {
@@ -38,26 +21,21 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-vi.mock('../notification.orchestrator', () => ({
-  NotificationOrchestrator: vi.fn().mockImplementation(() => ({
-    fosterNotification: mockFosterNotification
-  }))
-}));
-
-// 🚀 2. Injection du TransactionManager avec "as any" pour bypasser l'erreur TS ClientSession
+// 2. Mock du Transaction Manager
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (_name, callback) => {
-      const mockMongoSession = {} as any; // 👈 Calm down TypeScript
-      const mockNeo4jTx = { run: mockNeo4jRun }; 
-      return await callback(mockMongoSession, mockNeo4jTx as any);
-    }),
+    execute: vi.fn(),
   },
 }));
 
-// 🚀 3. Mock robuste du Copyright Engine (CORRECTION DU CHEMIN : ../../utils au lieu de ../utils)
+// 3. Mock robuste du Copyright Engine
 vi.mock('../../utils/copyright.engine', () => ({
-  sanitizeCopyright: mockSanitizeCopyright,
+  sanitizeCopyright: vi.fn((meta) => {
+    if (meta && meta.filiation) return { ...meta, filiation: meta.filiation };
+    if (!meta) return { role: 'CREATOR', isExclusiveIlot: false };
+    if (meta.role === 'CURATOR') return { ...meta, isExclusiveIlot: false };
+    return meta;
+  }),
   getCopyrightCypherRelation: vi.fn((role) => {
     if (role === 'SUBLIMATOR') return 'SUBLIMATES';
     if (role === 'CURATOR') return 'CURATES';
@@ -66,8 +44,11 @@ vi.mock('../../utils/copyright.engine', () => ({
   generateFileHash: vi.fn(() => 'mock_sha256_hash')
 }));
 
-describe('BibliotekOrchestrator - Scriptorium, Émotions, Économie, Filiation & Copyright DRY', () => {
+describe('BibliotekOrchestrator - Scriptorium, Économie, Filiation & Copyright DRY', () => {
   let orchestrator: BibliotekOrchestrator;
+  let mockFosterNotification: any;
+  let mockNeo4jRun: any;
+
   const userSignature: ActionSignature = { actorUid: 'oiseau-writer', capabilities: [] };
   const strangerSignature: ActionSignature = { actorUid: 'oiseau-intruder', capabilities: [] };
 
@@ -78,14 +59,20 @@ describe('BibliotekOrchestrator - Scriptorium, Émotions, Économie, Filiation &
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFosterNotification.mockClear();
-    mockNeo4jRun.mockClear();
-
-    // Reset du comportement par défaut de Neo4j
-    mockNeo4jRun.mockResolvedValue({ 
+    
+    // 🛡️ Création des mocks localement, totalement protégés des bugs de hissage
+    mockFosterNotification = vi.fn().mockResolvedValue({ success: true });
+    mockNeo4jRun = vi.fn().mockResolvedValue({ 
       records: [{ get: (key: string) => key === 'followerUids' ? ['bird_follower_1'] : 'mock_node' }] 
     });
 
+    vi.mocked(TransactionManager.execute).mockImplementation(async (_name, callback) => {
+      const mockMongoSession = {} as any;
+      const mockNeo4jTx = { run: mockNeo4jRun }; 
+      return await callback(mockMongoSession, mockNeo4jTx as any);
+    });
+
+    // 💉 Injection de dépendance pure
     const injectedNotificationOrchestrator = {
       fosterNotification: mockFosterNotification
     } as any; 
@@ -111,7 +98,6 @@ describe('BibliotekOrchestrator - Scriptorium, Émotions, Économie, Filiation &
         session: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue(null) })
       } as any);
 
-      // 🚀 Renvoyer l'objet généré dynamiquement pour ne pas perdre les variables
       vi.mocked(LibraryBookModel.create).mockImplementation(async (docs: any) => {
         return [{ ...docs[0], toObject: () => docs[0] }] as any;
       });
@@ -120,7 +106,7 @@ describe('BibliotekOrchestrator - Scriptorium, Émotions, Économie, Filiation &
 
       expect(result.success).toBe(true);
       expect(result.mongo.status).toBe('DRAFT');
-      expect(result.mongo.digitalSignature).toBe('mock_sha256_hash'); // Le mock agit enfin !
+      expect(result.mongo.digitalSignature).toBe('mock_sha256_hash');
       expect(mockFosterNotification).toHaveBeenCalledTimes(0);
     });
 
@@ -190,8 +176,6 @@ describe('BibliotekOrchestrator - Scriptorium, Émotions, Économie, Filiation &
       const result = await orchestrator.fosterBook(data, userSignature);
 
       expect(result.success).toBe(true);
-      
-      // 🚀 Vérification que la Filiation a bien été passée au Graphe Neo4j
       expect(mockNeo4jRun).toHaveBeenCalledWith(
         expect.stringContaining('filiationClaimStatus: $filiationClaimStatus'),
         expect.objectContaining({
@@ -207,7 +191,7 @@ describe('BibliotekOrchestrator - Scriptorium, Émotions, Économie, Filiation &
         title: 'Livre Relayé', 
         authorUid: 'oiseau-writer', 
         fileUrl: 'https://cdn.ilot/books/livre.epub',
-        copyrightMetadata: { role: 'CURATOR' as const, isExclusiveIlot: true } // Abusif
+        copyrightMetadata: { role: 'CURATOR' as const, isExclusiveIlot: true } 
       };
 
       vi.mocked(LibraryBookModel.findOne).mockReturnValue({
@@ -215,40 +199,11 @@ describe('BibliotekOrchestrator - Scriptorium, Émotions, Économie, Filiation &
       } as any);
 
       vi.mocked(LibraryBookModel.create).mockImplementation(async (docs: any) => {
-        expect(docs[0].copyrightMetadata.isExclusiveIlot).toBe(false); // La sécurité DRY agit !
+        expect(docs[0].copyrightMetadata.isExclusiveIlot).toBe(false);
         return [{ ...docs[0], toObject: () => docs[0] }] as any;
       });
 
       await orchestrator.fosterBook(data, userSignature);
-    });
-  });
-
-  describe('toggleScholarSeal (Notes d\'Érudits & Reconnaissance)', () => {
-    it('🟢 devrait permettre à l\'auteur d\'apposer le Sceau et envoyer une notification au lecteur', async () => {
-      vi.mocked(findEntityBySlugOrUid).mockResolvedValue({ uid: 'book-999', authorUid: 'oiseau-writer', slug: 'my-book' } as any);
-      
-      const mockUpdatedBook = {
-        uid: 'book-999',
-        slug: 'my-book',
-        emotionalHighlights: [{ uid: 'emo-uid', readerUid: 'bird_reader_1', isScholarSealed: true }]
-      };
-      
-      vi.mocked(LibraryBookModel.findOneAndUpdate).mockReturnValue({ 
-        lean: vi.fn().mockResolvedValue(mockUpdatedBook) 
-      } as any);
-
-      const result = await orchestrator.toggleScholarSeal('book-999', 'emo-uid', true, userSignature);
-
-      expect(result.success).toBe(true);
-      expect(result.isScholarSealed).toBe(true);
-      
-      expect(mockFosterNotification).toHaveBeenCalledWith(
-        expect.objectContaining({
-          recipientUid: 'bird_reader_1',
-          type: 'SCHOLAR_SEAL_AWARDED'
-        }),
-        expect.anything()
-      );
     });
   });
 });

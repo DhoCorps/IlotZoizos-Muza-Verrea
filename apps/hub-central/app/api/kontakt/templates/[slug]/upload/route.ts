@@ -200,7 +200,7 @@ export const DELETE = withAura(async (req: NextRequest | Request, context: ApiCo
     }
 
     if (!expectedKey || !providedKey || expectedKey !== providedKey) {
-      return NextResponse.json({ error: "Souveraineté brisée : cet artefact n'appartient pas à ce template." }, { status: 403 });
+      return NextResponse.json({ error: "Souverainetés brisées : cet artefact n'appartient pas à ce template." }, { status: 403 });
     }
 
     await storageService.deleteFile(expectedKey);

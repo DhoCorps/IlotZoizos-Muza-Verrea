@@ -1,10 +1,11 @@
+// apps/hub-central/app/[locale]/(inceptions)/abyss-blog/[slug]/AbyssBlogClientView.tsx
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Loader2, ArrowLeft, Play, Pause, Music, 
-  MessageCircle, Send, Calendar, User, Sparkles, Share2, MessageSquarePlus, Hash
+  MessageCircle, Send, Calendar, User, Sparkles, Share2, MessageSquarePlus, Hash 
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -12,7 +13,9 @@ import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
 import { OmniActionWidget } from '../../../../../components/widget/OmniActionWidget';
 import { IUniversalMediaItem } from '@ilot/types';
 import { useCommentDrawer } from '@/components/global/UniversalCommentDrawer';
-import { CopyrightBanner } from '@/components/global/CopyrightBanner'; // 🚀 Import du composant DRY de Copyright
+import { CopyrightBanner } from '@/components/global/CopyrightBanner';
+import { TextSelectionWrapper } from '@/components/resonance/annotations/TextSelectionWrapper'; // 🌟 Import du wrapper universel
+import { EchosRemarquables } from '@/components/abyss-blog/EchosRemarquables'; // 🌟 Import de la section des notes d'érudits
 
 interface AbyssBlogClientViewProps {
   sujet: any;
@@ -23,11 +26,9 @@ export default function AbyssBlogClientView({ sujet, initialComments }: AbyssBlo
   const router = useRouter();
   const queryClient = useQueryClient();
   const { openDrawer } = useCommentDrawer();
-
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [isWidgetOpen, setWidgetOpen] = useState(false);
-  
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   usePageChapeauContext({
@@ -36,16 +37,25 @@ export default function AbyssBlogClientView({ sujet, initialComments }: AbyssBlo
     targetTitle: sujet?.title || 'Monologue AbyssBlog',
   });
 
-  const { data: echoes = initialComments } = useQuery({
+  const { data: rawEchoes } = useQuery({
     queryKey: ['echoes', sujet?.uid],
     queryFn: async () => {
       const res = await fetch(`/api/resonance/echoes?targetUid=${sujet.uid}`);
       if (!res.ok) throw new Error("Échec du chargement des échos");
       return res.json();
     },
-    initialData: initialComments,
     enabled: !!sujet?.uid
   });
+
+  // 🛡️ Blindage sécurisé : Garantit que echoes est toujours un tableau exploitable par .map()
+  const echoes = useMemo(() => {
+    const source = rawEchoes ?? initialComments;
+    if (Array.isArray(source)) return source;
+    if (source && typeof source === 'object') {
+      return (source as any).data || (source as any).echoes || [];
+    }
+    return [];
+  }, [rawEchoes, initialComments]);
 
   const echoMutation = useMutation({
     mutationFn: async (payload: any) => {
@@ -73,11 +83,10 @@ export default function AbyssBlogClientView({ sujet, initialComments }: AbyssBlo
       if (audioRef.current) {
         audioRef.current.onended = () => setIsPlayingAudio(false);
       }
-      
       return () => {
         if (audioRef.current) {
           audioRef.current.pause();
-          audioRef.current.src = ""; 
+          audioRef.current.src = "";
           audioRef.current = null;
         }
       };
@@ -86,12 +95,12 @@ export default function AbyssBlogClientView({ sujet, initialComments }: AbyssBlo
 
   const toggleAudio = () => {
     if (!audioRef.current) return;
-    if (isPlayingAudio) { 
-      audioRef.current.pause(); 
-      setIsPlayingAudio(false); 
-    } else { 
-      audioRef.current.play(); 
-      setIsPlayingAudio(true); 
+    if (isPlayingAudio) {
+      audioRef.current.pause();
+      setIsPlayingAudio(false);
+    } else {
+      audioRef.current.play();
+      setIsPlayingAudio(true);
     }
   };
 
@@ -118,7 +127,6 @@ export default function AbyssBlogClientView({ sujet, initialComments }: AbyssBlo
         <button onClick={() => router.push('/abyss-blog')} className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-xs font-mono text-slate-400 hover:text-white transition-all flex items-center gap-2">
           <ArrowLeft size={14} /> Revenir au Flux
         </button>
-
         <div className="flex items-center gap-2">
           <button 
             data-testid="open-resonance-drawer-btn"
@@ -127,7 +135,6 @@ export default function AbyssBlogClientView({ sujet, initialComments }: AbyssBlo
           >
             <MessageSquarePlus size={14} /> Ouvrir les Résonances
           </button>
-
           <button 
             onClick={() => setWidgetOpen(true)} 
             className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl text-xs font-bold text-slate-200 transition-all flex items-center gap-2 shadow-lg"
@@ -144,7 +151,7 @@ export default function AbyssBlogClientView({ sujet, initialComments }: AbyssBlo
               <span className="text-[10px] font-black px-3 py-1 rounded-full bg-[#E5484D]/10 text-[#E5484D] border border-[#E5484D]/20 uppercase tracking-widest">{sujet.category}</span>
               <span className="text-xs font-mono text-slate-500 flex items-center gap-1.5"><Calendar size={12} /> {new Date(sujet.createdAt).toLocaleDateString()}</span>
             </div>
-            
+
             {sujet.tags && sujet.tags.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {sujet.tags.map((tag: string, idx: number) => (
@@ -155,18 +162,15 @@ export default function AbyssBlogClientView({ sujet, initialComments }: AbyssBlo
               </div>
             )}
           </div>
-
           <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 px-3 py-1.5 rounded-2xl backdrop-blur-md">
             <span className="text-[10px] font-mono text-slate-500 uppercase mr-1 flex items-center gap-1"><Sparkles size={10} className="text-[#E5484D]" /> Vibre :</span>
-            {['<(:<', '🔥', '❤️', '🧠', '✨', '☕'].map((emoji) => (
+            {['<(:<', '🔥', '💡', '✨', '🌊', '🔮'].map((emoji) => (
               <button key={emoji} onClick={() => echoMutation.mutate({ targetUid: sujet.uid, targetLabel: 'Sujet', echoType: 'EMOJI', content: emoji })} className="px-2 py-1 hover:bg-[#E5484D]/20 rounded-xl text-xs transition-all hover:scale-110">{emoji}</button>
             ))}
           </div>
         </div>
-
         <h1 className="text-4xl md:text-5xl font-black uppercase tracking-tight text-slate-100">{sujet.title}</h1>
-
-        {/* 🚀 Intégration de la Bannière de Copyright en mode display si des métadonnées existent */}
+        
         {sujet.copyrightMetadata && (
           <CopyrightBanner mode="display" metadata={sujet.copyrightMetadata} />
         )}
@@ -187,16 +191,21 @@ export default function AbyssBlogClientView({ sujet, initialComments }: AbyssBlo
         )}
       </article>
 
-      <div className="prose prose-invert max-w-none">
-        <div className="text-slate-300 bg-black/30 border border-white/5 p-8 md:p-12 rounded-3xl whitespace-pre-wrap">{sujet.content}</div>
-      </div>
+      {/* 🌟 Intégration du TextSelectionWrapper pour permettre l'annotation/surlignage du blog */}
+      <TextSelectionWrapper targetUid={sujet.uid} targetType="ARTICLE" targetTitle={sujet.title}>
+        <div className="prose prose-invert max-w-none">
+          <div className="text-slate-300 bg-black/30 border border-white/5 p-8 md:p-12 rounded-3xl whitespace-pre-wrap">{sujet.content}</div>
+        </div>
+      </TextSelectionWrapper>
+
+      {/* 🌟 Affichage de la section des notes d'érudits / échos remarquables validés */}
+      <EchosRemarquables comments={echoes} />
 
       <section className="space-y-8 pt-10 border-t border-white/5">
         <div className="flex items-center gap-3">
           <MessageCircle className="text-[#E5484D]" size={20} />
           <h3 className="text-xl font-black uppercase text-slate-100">Échos ({echoes.length})</h3>
         </div>
-
         <form onSubmit={(e) => { e.preventDefault(); echoMutation.mutate({ targetUid: sujet.uid, targetLabel: 'Sujet', echoType: 'TEXT', content: newComment }); }} className="p-6 bg-black/40 border border-white/10 rounded-2xl space-y-4">
           <textarea value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Ajouter un écho..." className="w-full bg-black/60 border border-white/10 p-4 rounded-xl text-sm text-slate-200 outline-none focus:border-[#E5484D] min-h-[100px]" required />
           <div className="flex justify-end">
@@ -205,7 +214,6 @@ export default function AbyssBlogClientView({ sujet, initialComments }: AbyssBlo
             </button>
           </div>
         </form>
-
         <div className="space-y-4">
           {echoes.map((echo: any) => (
             <div key={echo.uid || echo._id} className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl">

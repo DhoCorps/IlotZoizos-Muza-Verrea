@@ -1,7 +1,9 @@
+// apps/hub-central/components/abyss-blog/BlogRegistry.tsx
 'use client';
 
 import React from 'react';
 import { BlockRegistry } from '@ilot/shared-core';
+import { TextSelectionWrapper } from '@/components/resonance/annotations/TextSelectionWrapper'; // 🌟 Import du wrapper universel
 
 export const blogRegistry: BlockRegistry = {
   'blog-header': {
@@ -11,7 +13,7 @@ export const blogRegistry: BlockRegistry = {
       title: 'Chronique des Profondeurs',
       subtitle: 'Réflexions sur les flux asynchrones et l’architecture des graphes.',
       author: 'Oiseau des Abysses',
-      category: 'TUTORIAL' // 🟢 CORRECTION : Remplacé "Architecture" par un Enum valide Zod
+      category: 'TUTORIAL' // 🟢 CORRECTION : Remplacé "Architecture" par un Enum valide Zod[cite: 9]
     },
     renderView: ({ data }) => (
       <div className="space-y-2">
@@ -65,10 +67,17 @@ export const blogRegistry: BlockRegistry = {
       content: 'Rédigez votre prose ici. Le noyau s’occupe de structurer le flux textuel...'
     },
     renderView: ({ data }) => (
-      <div className="space-y-1">
-        <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500">Paragraphe</span>
-        <p className="text-xs text-slate-300 font-sans leading-relaxed whitespace-pre-wrap">{data.content}</p>
-      </div>
+      /* 🌟 Enveloppement avec TextSelectionWrapper pour activer l'annotation sur les articles */
+      <TextSelectionWrapper 
+        targetUid={data.uid || data.id || 'blog-markdown-block'} 
+        targetType="ARTICLE" 
+        targetTitle={data.title || 'Chronique des Profondeurs'}
+      >
+        <div className="space-y-1">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500">Paragraphe</span>
+          <p className="text-xs text-slate-300 font-sans leading-relaxed whitespace-pre-wrap">{data.content}</p>
+        </div>
+      </TextSelectionWrapper>
     ),
     renderEditForm: ({ data, onChange }) => (
       <div>

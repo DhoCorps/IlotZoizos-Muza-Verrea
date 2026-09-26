@@ -8,7 +8,7 @@ import { generateSlug } from '../utils/string.engine';
 import { findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { ensureUniqueSlug } from '../utils/orchestrator.engine'; 
 import { NotificationOrchestrator } from './notification.orchestrator';
-import { sanitizeCopyright, getCopyrightCypherRelation, generateFileHash } from '../utils/copyright.engine'; // 🚀 Import du Helper DRY
+import { sanitizeCopyright, getCopyrightCypherRelation, generateFileHash } from '../utils/copyright.engine';
 
 interface IStorageManager {
   deleteFile(key: string): Promise<unknown>;
@@ -40,7 +40,7 @@ export interface FosterBookPayload {
   fileUrl: string;
   coverUrl?: string | null;
   format?: string;
-  tags?: string[]; // 🚀 Ajout du squelette des tags
+  tags?: string[];
   economy?: Partial<LibraryBookEconomyMetadata>;
   copyrightMetadata?: CopyrightMetadata;
   settings?: {
@@ -49,30 +49,10 @@ export interface FosterBookPayload {
   };
 }
 
-export interface EmotionalHighlightPayload {
-  selectedText: string;
-  emotion: string; // Ex: '<(:<'
-  comment?: string;
-}
-
-export interface EmotionalHighlightResult {
-  success: boolean;
-  highlight: {
-    uid: string;
-    readerUid: string;
-    selectedText: string;
-    emotion: string;
-    comment?: string;
-    isScholarSealed: boolean;
-    createdAt: Date;
-  };
-  book: ILibraryBook;
-}
-
 /**
  * BIBLIOTEK ORCHESTRATOR
  * Gère la sédimentation des ouvrages, le Sceau SHA-256 d'antériorité, 
- * le cycle de vie, les Surlignages Émotionnels, et les filiations artistiques (Copyright).
+ * le cycle de vie, et les filiations artistiques (Copyright).
  */
 export class BibliotekOrchestrator {
   private storageService: IStorageManager;
@@ -117,10 +97,8 @@ export class BibliotekOrchestrator {
       const digitalSignature = generateFileHash(canonicalContent);
       const now = new Date();
 
-      // 🛡️ Logique métier du Copyright centralisée (Pacte de Filiation inclus)
       const cpMeta = sanitizeCopyright(data.copyrightMetadata);
 
-      // ✨ OPTIMISATION SEO : Auto-génération de balises pour les moteurs de recherche
       const autoSeo = {
         metaTitle: `${title} | Bibliotek`,
         metaDescription: `Découvrez cet ouvrage de type ${data.writingType || 'roman'} (${data.style || 'philosophie'}) par ${data.authorSlug || signature.actorUid}.`,
@@ -161,7 +139,7 @@ export class BibliotekOrchestrator {
         copyrightMetadata: cpMeta, 
         economy: defaultEconomy,
         seo: autoSeo,
-        emotionalHighlights: [],
+        emotionalHighlights: [], // Conservé dans Mongo par commodité de schéma, mais géré par AnnotationOrchestrator
         settings: {
           allowReadExchange: data.settings?.allowReadExchange ?? true,
           consentForShowcase: data.settings?.consentForShowcase ?? true,
@@ -170,10 +148,8 @@ export class BibliotekOrchestrator {
 
       const [newBook] = await LibraryBookModel.create([newBookData], { session: mongoSession });
 
-      // 🌐 Génération dynamique du lien Graphe selon le rôle de l'artiste
       const relationType = getCopyrightCypherRelation(cpMeta.role);
 
-      // 🚀 Injection des métadonnées de Filiation dans le Graphe Neo4j
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (b:LibraryBook {
@@ -213,8 +189,8 @@ export class BibliotekOrchestrator {
         barterAllowed: defaultEconomy.barterAllowed,
         gachaTier: defaultEconomy.gachaTier,
         isExclusiveIlot: cpMeta.isExclusiveIlot,
-        hasFiliation: !!cpMeta.filiation, // 🪡 Trace dans le Graphe si c'est une œuvre dérivée
-        filiationClaimStatus: cpMeta.filiation?.claimStatus || 'NONE', // 🪡 État du Pacte
+        hasFiliation: !!cpMeta.filiation,
+        filiationClaimStatus: cpMeta.filiation?.claimStatus || 'NONE',
         sublimationNotes: cpMeta.sublimationNotes || '',
         now: now.toISOString()
       });
@@ -352,105 +328,6 @@ export class BibliotekOrchestrator {
     }
 
     return txResult;
-  }
-
-  /**
-   * ✨ SURLIGNAGE ÉMOTIONNEL : Ajouter une fulgurance ciblée
-   */
-  async addEmotionalHighlight(bookIdentifier: string, payload: EmotionalHighlightPayload, signature: ActionSignature): Promise<EmotionalHighlightResult> {
-    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as unknown as ILibraryBook | null;
-    if (!existing) {
-      throw new IlotError("Ouvrage introuvable dans la Silice.", "NOT_FOUND", 404);
-    }
-
-    const highlightUid = `emo_${randomUUID()}`;
-    const newHighlight = {
-      uid: highlightUid,
-      readerUid: signature.actorUid,
-      selectedText: payload.selectedText,
-      emotion: payload.emotion,
-      comment: payload.comment,
-      isScholarSealed: false,
-      createdAt: new Date()
-    };
-
-    const updatedBook = await LibraryBookModel.findOneAndUpdate(
-      { uid: existing.uid },
-      { $push: { emotionalHighlights: newHighlight } },
-      { new: true }
-    ).lean() as unknown as ILibraryBook;
-
-    if (existing.authorUid !== signature.actorUid) {
-      try {
-        await this.notificationOrchestrator.fosterNotification({
-          recipientUid: existing.authorUid,
-          senderUid: signature.actorUid,
-          category: 'RESONANCE',
-          type: 'EMOTIONAL_HIGHLIGHT',
-          payload: {
-            title: "Vibration Littéraire",
-            message: `Un Oiseau a vibré sur ce passage : "${payload.selectedText.substring(0, 30)}..."`,
-            targetUrl: `/bibliotek/${existing.slug}/studio`,
-            targetUid: existing.uid,
-            targetType: 'HIGHLIGHT'
-          }
-        }, { actorUid: 'system', capabilities: [] });
-      } catch (e) {
-        console.error("[Canopée Bibliotek] Erreur notification highlight:", e);
-      }
-    }
-
-    return { success: true, highlight: newHighlight, book: updatedBook };
-  }
-
-  /**
-   * 📜 SCEAU DE L'ÉRUDIT : Promouvoir/Rétrograder une note d'un lecteur
-   */
-  async toggleScholarSeal(bookIdentifier: string, highlightUid: string, isSealed: boolean, signature: ActionSignature) {
-    const existing = await findEntityBySlugOrUid(LibraryBookModel, bookIdentifier) as unknown as ILibraryBook | null;
-    if (!existing) {
-      throw new IlotError("Ouvrage introuvable.", "NOT_FOUND", 404);
-    }
-
-    if (existing.authorUid !== signature.actorUid && !signature.capabilities.includes('*')) {
-      throw new IlotError("Seul l'auteur de l'ouvrage peut décerner le Sceau de l'Érudit.", "FORBIDDEN", 403);
-    }
-
-    const updatedBook = await LibraryBookModel.findOneAndUpdate(
-      { uid: existing.uid, "emotionalHighlights.uid": highlightUid },
-      { $set: { "emotionalHighlights.$.isScholarSealed": isSealed } },
-      { new: true }
-    ).lean() as unknown as ILibraryBook;
-
-    if (!updatedBook) {
-      throw new IlotError("Fulgurance introuvable dans cet ouvrage.", "NOT_FOUND", 404);
-    }
-
-    // ✨ NOUVEAU: Notification gratifiante au lecteur ! Utilisation d'un bloc try/catch robuste
-    if (isSealed) {
-      const highlight = updatedBook.emotionalHighlights.find((h: any) => h.uid === highlightUid);
-      if (highlight && highlight.readerUid !== existing.authorUid) {
-        try {
-          await this.notificationOrchestrator.fosterNotification({
-            recipientUid: highlight.readerUid,
-            senderUid: signature.actorUid,
-            category: 'RESONANCE',
-            type: 'SCHOLAR_SEAL_AWARDED',
-            payload: {
-              title: "Sceau de l'Érudit Obtenu !",
-              message: `L'auteur a érigé votre fulgurance au rang de Note d'Érudit.`,
-              targetUrl: `/bibliotek/${existing.slug}`,
-              targetUid: existing.uid,
-              targetType: 'HIGHLIGHT'
-            }
-          }, { actorUid: 'system', capabilities: [] });
-        } catch (e) {
-          console.error("[Canopée Bibliotek] Échec de l'envoi de la notification Érudit:", e);
-        }
-      }
-    }
-
-    return { success: true, isScholarSealed: isSealed };
   }
 
   /**

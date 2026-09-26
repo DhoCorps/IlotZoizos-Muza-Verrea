@@ -2,19 +2,18 @@
 'use client';
 
 import { useState } from 'react';
-import { Sparkles, Compass, Flame, Shield, Briefcase, Plus, User, Terminal, Loader2 } from 'lucide-react';
+import { Sparkles, Compass, Flame, Shield, Briefcase, Plus, User, Terminal, Loader2, AlertCircle } from 'lucide-react';
 import { useKontakt } from './useKontakt';
 import KontaktSwipeDeck from '@/components/kontakt/KontaktSwipeDeck';
 
-// 🕸️ Le Tisseur est importé et sera passé aux cartes enfants (ex: KontaktSwipeDeck) 
-// ou utilisé directement quand on affichera le profil d'un autre oiseau.
+// 🕸️ Le Tisseur de liens
 import ResonanceButton from '@/components/resonance/ResonanceButton'; 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 export default function KontaktDashboard() {
   const queryClient = useQueryClient();
-  const { quests, activeTab, setActiveTab, refreshKontakt } = useKontakt();
+  const { quests, loading, error, activeTab, setActiveTab, refreshKontakt } = useKontakt();
   const [isQuestModalOpen, setIsQuestModalOpen] = useState(false);
   const [newQuestTitle, setNewQuestTitle] = useState('');
   const [newQuestDesc, setNewQuestDesc] = useState('');
@@ -86,12 +85,6 @@ export default function KontaktDashboard() {
           >
             <Plus size={16} /> Poster une Quête
           </button>
-
-          {/* 🕸️ Intégration temporaire de test (Masqué en prod pour ne pas s'abonner à soi-même) */}
-          <div className="hidden">
-             <ResonanceButton targetSlug="system_demo_target" type="FOLLOWS_GLOBAL" />
-          </div>
-
         </div>
       </div>
 
@@ -125,15 +118,33 @@ export default function KontaktDashboard() {
         </button>
       </div>
 
+      {/* 🔄 GESTION DES ÉTATS DE CHARGEMENT ET D'ERREUR GLOBAUX */}
+      {loading && (
+        <div className="p-16 text-center space-y-4 bg-black/20 border border-white/5 rounded-3xl backdrop-blur-xl">
+          <Loader2 className="w-10 h-10 mx-auto text-[#E5484D] animate-spin" />
+          <p className="text-xs font-mono uppercase tracking-widest text-slate-400">Recensement des flux synaptiques en cours...</p>
+        </div>
+      )}
+
+      {error && !loading && (
+        <div className="p-6 bg-red-500/10 border border-red-500/30 rounded-3xl text-center space-y-3">
+          <AlertCircle className="w-8 h-8 mx-auto text-red-400" />
+          <p className="text-xs font-mono text-red-400">Impossible de synchroniser les données de la Silice : {error}</p>
+          <button onClick={() => refreshKontakt()} className="px-4 py-2 bg-white/5 text-xs text-white rounded-xl hover:bg-white/10 transition-all font-mono">
+            Réessayer la Connexion
+          </button>
+        </div>
+      )}
+
       {/* 🃏 CONTENU DE L'ONGLET : SWIPE DECK */}
-      {activeTab === 'swipe' && (
+      {!loading && !error && activeTab === 'swipe' && (
         <div className="animate-in fade-in duration-300">
           <KontaktSwipeDeck />
         </div>
       )}
 
       {/* 📜 CONTENU DE L'ONGLET : TABLEAU DES QUÊTES */}
-      {activeTab === 'quests' && (
+      {!loading && !error && activeTab === 'quests' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in duration-300">
           {quests?.map((quest: any) => (
             <div key={quest.uid} className="p-6 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl flex flex-col justify-between space-y-4 hover:border-white/20 transition-all">
@@ -175,7 +186,7 @@ export default function KontaktDashboard() {
       )}
 
       {/* 🛡️ CONTENU DE L'ONGLET : FICHE DE PERSONNAGE */}
-      {activeTab === 'my-profile' && (
+      {!loading && !error && activeTab === 'my-profile' && (
         <div className="p-8 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl space-y-6 animate-in fade-in duration-300 relative">
           
           <div className="flex items-start justify-between border-b border-white/5 pb-6">

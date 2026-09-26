@@ -17,7 +17,7 @@ describe('UI Bibliotek - Studio de l\'Auteur & Notes d\'Érudits', () => {
   describe('AuthorStudioView (Le Tableau de Bord de l\'Auteur)', () => {
     const mockBooks = [
       { uid: 'b1', title: 'Brouillon Secret', status: 'DRAFT', writingType: 'essai', economy: { priceCents: 0 } },
-      { uid: 'b2', title: 'Œuvre Maîtresse', status: 'PUBLISHED', writingType: 'roman', emotionalHighlights: [{}, {}], economy: { priceCents: 1500, barterAllowed: true } }
+      { uid: 'b2', title: 'Œuvre Maîtresse', status: 'PUBLISHED', writingType: 'roman', economy: { priceCents: 1500, barterAllowed: true } }
     ];
 
     it('🟢 doit afficher les livres de l\'auteur et gérer le filtrage', async () => {
@@ -69,8 +69,8 @@ describe('UI Bibliotek - Studio de l\'Auteur & Notes d\'Érudits', () => {
 
   describe('ScholarlyNotesSection (La Section Dorée)', () => {
     const mockHighlights = [
-      { uid: 'emo_1', selectedText: 'Le ciel est bleu.', emotion: '🔥', isScholarSealed: true, readerUid: 'userA' },
-      { uid: 'emo_2', selectedText: 'La terre est ronde.', emotion: '<(:<', isScholarSealed: false, readerUid: 'userB' }
+      { uid: 'emo_1', selectedText: 'Le ciel est bleu.', emotion: '🔥', isScholarSealed: true, authorUid: 'userA' },
+      { uid: 'emo_2', selectedText: 'La terre est ronde.', emotion: '<(:<', isScholarSealed: false, authorUid: 'userB' }
     ];
 
     it('🟢 doit afficher uniquement les notes scellées par l\'Érudit', async () => {
@@ -80,7 +80,8 @@ describe('UI Bibliotek - Studio de l\'Auteur & Notes d\'Érudits', () => {
 
       render(
         <QueryClientProvider client={mockQueryClient}>
-          <ScholarlyNotesSection bookSlug="mon-livre" />
+          {/* 🌟 Correction : bookSlug remplacé par bookUid */}
+          <ScholarlyNotesSection bookUid="book_123" />
         </QueryClientProvider>
       );
 
@@ -88,7 +89,6 @@ describe('UI Bibliotek - Studio de l\'Auteur & Notes d\'Érudits', () => {
         expect(screen.getByText(/Notes d'Érudits/i)).toBeDefined();
         // La note scellée est visible
         expect(screen.getByText(/Le ciel est bleu/i)).toBeDefined();
-        expect(screen.getByText(/🔥 Vibration/i)).toBeDefined();
         // La note non scellée est ignorée
         expect(screen.queryByText(/La terre est ronde/i)).toBeNull();
       });
@@ -101,7 +101,8 @@ describe('UI Bibliotek - Studio de l\'Auteur & Notes d\'Érudits', () => {
 
       const { container } = render(
         <QueryClientProvider client={mockQueryClient}>
-          <ScholarlyNotesSection bookSlug="livre-sans-prestige" />
+          {/* 🌟 Correction : bookSlug remplacé par bookUid */}
+          <ScholarlyNotesSection bookUid="book_456" />
         </QueryClientProvider>
       );
 

@@ -2,13 +2,13 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useBlockEngine, UniversalGridCanvas, } from '@ilot/shared-core';
-import { cvRegistry } from '@/components/kontakt/cv-editor/cvRegistry';
-import { CVSidebarPanel } from '@/components/kontakt/cv-editor/CVSideBarPanel';
+import { useBlockEngine, UniversalGridCanvas } from '@ilot/shared-core';
+import { cvRegistry } from '@/components/kontakt/cv-editor/CvRegistry';
+import { CVSidebarPanel } from '@/components/kontakt/cv-editor/CvSideBarPanel';
 import { Sparkles, Save, ArrowLeft, Plus, Loader2, Share2, Type } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 
 const INITIAL_CV_BLOCKS = [
   {
@@ -63,7 +63,7 @@ export default function KontaktCVEditorPage() {
   const [templateTitle, setTemplateTitle] = useState('');
   const [templateDesc, setTemplateDesc] = useState('');
 
-  // 🌀 SUTURE : Mutation pour la sauvegarde
+  // 🌀 SUTURE : Mutation pour la sauvegarde vers l'API de profils Kontakt
   const saveMutation = useMutation({
     mutationFn: async (payload: any) => {
       const res = await fetch('/api/kontakt/profiles', {
@@ -72,13 +72,13 @@ export default function KontaktCVEditorPage() {
         body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error("Échec de la sédimentation");
-      return res;
+      return res.json();
     },
     onSuccess: () => toast.success("✨ Parchemin de CV sédimenté avec succès !"),
     onError: (err) => toast.error(`🔥 Erreur : ${err.message}`)
   });
 
-  // 🌀 SUTURE : Mutation pour la publication
+  // 🌀 SUTURE : Mutation pour la publication vers l'API de templates
   const publishMutation = useMutation({
     mutationFn: async (payload: any) => {
       const res = await fetch('/api/kontakt/templates', {
@@ -87,7 +87,7 @@ export default function KontaktCVEditorPage() {
         body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error("Échec de la publication");
-      return res;
+      return res.json();
     },
     onSuccess: () => {
       toast.success("✨ Modèle publié comme artefact souverain !");
@@ -106,7 +106,7 @@ export default function KontaktCVEditorPage() {
     saveMutation.mutate({
       professionalTitle: headerBlock?.data.title || 'Développeur Fullstack',
       alignment: headerBlock?.data.alignment || 'CHAOTIC_GOOD',
-      bio: summaryBlock?.data.lore || '',
+      biographyLore: summaryBlock?.data.lore || '',
       skills: skillsBlock?.data.skillsList || [],
       rawLayoutBlocks: blocks,
       letrinFontFamily: selectedFont
@@ -140,7 +140,8 @@ export default function KontaktCVEditorPage() {
       
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 p-8 bg-black/40 border border-white/5 rounded-3xl backdrop-blur-xl shadow-2xl">
         <div className="space-y-2">
-          <Link href="/[locale]/kontakt" className="text-xs font-mono text-slate-400 hover:text-white flex items-center gap-1.5 transition-colors mb-2">
+          {/* 🛠️ Correction du lien dynamique pour éviter l'erreur Next.js App Router */}
+          <Link href="/kontakt" className="text-xs font-mono text-slate-400 hover:text-white flex items-center gap-1.5 transition-colors mb-2">
             <ArrowLeft size={14} /> Retour à Kontakt-RH
           </Link>
           <div className="flex items-center gap-2">

@@ -1,6 +1,7 @@
+// Fichier : packages/shared-core/src/sync-engine/__tests__/sujet.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SujetOrchestrator } from '../sujet.orchestrator';
-import { SujetModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { SujetModel, UniversalAnnotationModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
 
@@ -17,35 +18,24 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
       findOneAndUpdate: vi.fn(),
       deleteOne: vi.fn(),
     },
+    UniversalAnnotationModel: {
+      updateMany: vi.fn(),
+      deleteMany: vi.fn(),
+    },
     findEntityBySlugOrUid: vi.fn(),
   };
 });
 
-// 🌿 On mock le chef d'orchestre des notifications
-const mockFosterNotification = vi.fn().mockResolvedValue({ success: true });
-vi.mock('../notification.orchestrator', () => ({
-  NotificationOrchestrator: vi.fn().mockImplementation(() => ({
-    fosterNotification: mockFosterNotification
-  }))
-}));
-
 // On simule la transaction qui renvoie notre Noeud et la liste des abonnés (followerUids)
 vi.mock('../transactionManager', () => ({
   TransactionManager: {
-    execute: vi.fn(async (_name, cb) => cb('mock-mongo-session', { 
-      run: vi.fn().mockResolvedValue({ 
-        records: [{ 
-          get: (key: string) => key === 'followerUids' ? ['bird_follower_1'] : 'node_mock' 
-        }] 
-      }) 
-    })),
+    execute: vi.fn(), // Géré dans le beforeEach
   },
 }));
 
 // MOCK du Copyright Engine pour isoler les tests
 vi.mock('../utils/copyright.engine', () => ({
   sanitizeCopyright: vi.fn((meta) => {
-    // Reproduction simplifiée du comportement métier pour les tests d'intégration
     if (!meta) return { role: 'CREATOR', isExclusiveIlot: false };
     if (meta.role === 'CURATOR') return { ...meta, isExclusiveIlot: false };
     return meta;
@@ -62,6 +52,9 @@ vi.mock('../utils/copyright.engine', () => ({
 // ==========================================
 describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)', () => {
   let orchestrator: SujetOrchestrator;
+  let mockFosterNotification: any;
+  let mockNeo4jRun: any;
+
   const adminSignature = { actorUid: 'admin_1', capabilities: ['*'] };
   const userSignature = { actorUid: 'bird_author', capabilities: [] };
 
@@ -72,8 +65,23 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)',
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFosterNotification.mockClear();
+    
+    // 🛡️ Création des mocks localement pour éradiquer le bug de hissage de Vitest
+    mockFosterNotification = vi.fn().mockResolvedValue({ success: true });
+    
+    mockNeo4jRun = vi.fn().mockResolvedValue({ 
+      records: [{ 
+        get: (key: string) => key === 'followerUids' ? ['bird_follower_1'] : 'node_mock' 
+      }] 
+    });
 
+    vi.mocked(TransactionManager.execute).mockImplementation(async (_name, cb) => {
+      const mockMongoSession = {} as any;
+      const mockNeo4jTx = { run: mockNeo4jRun };
+      return await cb(mockMongoSession, mockNeo4jTx as any);
+    });
+
+    // 💉 Injection de dépendance pure
     const injectedNotificationOrchestrator = {
       fosterNotification: mockFosterNotification
     } as any; 
@@ -159,7 +167,6 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)',
       }, userSignature as any);
 
       expect((res.mongo as any).copyrightMetadata.role).toBe('SUBLIMATOR');
-      // On vérifie que la notification porte bien la mention "Exclusivité"
       expect(mockFosterNotification).toHaveBeenCalledWith(
         expect.objectContaining({
           payload: expect.objectContaining({ title: expect.stringContaining('Exclusivité') })
@@ -173,7 +180,6 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)',
         session: vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValueOnce(null) })
       } as any);
 
-      // Mock de la capture du paramètre modifié.
       vi.mocked(SujetModel.create).mockImplementation(async (docs: any) => {
         expect(docs[0].copyrightMetadata.isExclusiveIlot).toBe(false); // La sécurité a agi !
         return [{ toObject: () => docs[0] }] as any; 
@@ -183,7 +189,7 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)',
         title: 'Pensée Relayée',
         content: 'Texte',
         authorUid: 'bird_author',
-        copyrightMetadata: { role: 'CURATOR', isExclusiveIlot: true } // Demande abusive
+        copyrightMetadata: { role: 'CURATOR', isExclusiveIlot: true }
       }, userSignature as any);
     });
   });
@@ -196,17 +202,25 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)',
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit mettre à jour un sujet avec succès', async () => {
+    it('🟢 doit mettre à jour un sujet et actualiser en cascade le titre dans les annotations', async () => {
       const mockSujet = { uid: 'sujet_1', slug: 'mon-sujet', authorUid: 'bird_author' };
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockSujet as any);
             
       vi.mocked(SujetModel.findOneAndUpdate).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce({ ...mockSujet, title: 'Updated' })
+        lean: vi.fn().mockResolvedValueOnce({ ...mockSujet, title: 'Updated Title' })
       } as any);
 
-      const res = await orchestrator.updateSujet('mon-sujet', { title: 'Updated' }, userSignature as any);
+      const res = await orchestrator.updateSujet('mon-sujet', { title: 'Updated Title' }, userSignature as any);
       
-      expect((res.mongo as { title: string }).title).toBe('Updated');
+      expect((res.mongo as { title: string }).title).toBe('Updated Title');
+      
+      // 🌟 Vérification de l'intégration des annotations en cascade
+      expect(UniversalAnnotationModel.updateMany).toHaveBeenCalledTimes(1);
+      expect(UniversalAnnotationModel.updateMany).toHaveBeenCalledWith(
+        { targetUid: 'sujet_1' },
+        { $set: { targetTitle: 'Updated Title' } },
+        expect.anything()
+      );
     });
   });
 
@@ -220,7 +234,7 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)',
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit désintégrer le sujet avec succès et nettoyer les médias S3 si la DB a réussi', async () => {
+    it('🟢 doit désintégrer le sujet, nettoyer les médias S3 et purger les annotations en cascade', async () => {
       const mockSujet = { uid: 'sujet_1', slug: 'mon-sujet', authorUid: 'bird_author', media: { coverImageUrl: 'http://s3/img.jpg' } };
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockSujet as any);
       vi.mocked(SujetModel.deleteOne).mockResolvedValueOnce({ deletedCount: 1 } as any);
@@ -229,6 +243,13 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)',
       
       expect(res.success).toBe(true);
       expect(mockStorageManager.deleteFile).toHaveBeenCalledWith('key_http://s3/img.jpg');
+      
+      // 🌟 Vérification de l'intégration des annotations (purge en cascade)
+      expect(UniversalAnnotationModel.deleteMany).toHaveBeenCalledTimes(1);
+      expect(UniversalAnnotationModel.deleteMany).toHaveBeenCalledWith(
+        { targetUid: 'sujet_1' },
+        expect.anything()
+      );
     });
   });
 });

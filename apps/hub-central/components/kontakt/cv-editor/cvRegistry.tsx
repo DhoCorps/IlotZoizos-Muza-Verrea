@@ -2,7 +2,7 @@
 'use client';
 
 import React from 'react';
-import { BlockRegistry } from '@ilot/shared-core'; // Ou ton chemin relatif vers le noyau
+import { BlockRegistry } from '@ilot/shared-core';
 import { Shield, Sparkles, Briefcase, Cpu, Award } from 'lucide-react';
 
 export const cvRegistry: BlockRegistry = {

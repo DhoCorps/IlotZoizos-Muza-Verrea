@@ -1,3 +1,4 @@
+// apps/hub-central/__test__/components/abyss-blog/EchosRemarquables.test.tsx
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';

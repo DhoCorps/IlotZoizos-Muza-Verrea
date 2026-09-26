@@ -1,3 +1,4 @@
+// apps/hub-central/components/abyss-blog/EchosRemarquables.tsx
 import React from 'react';
 import { UniversalComment } from '@ilot/types';
 import { Scroll, Sparkles } from 'lucide-react';
@@ -7,7 +8,7 @@ export interface EchosRemarquablesProps {
 }
 
 export const EchosRemarquables: React.FC<EchosRemarquablesProps> = ({ comments = [] }) => {
-  // Filtrer uniquement les échos porteurs du Sceau de l'Érudit et non occultés
+  // Filtrer uniquement les échos porteurs du Sceau de l'Érudit et non occultés[cite: 9]
   const sealedComments = comments.filter((comment) => comment.isScholarSealed && !comment.isHidden);
 
   if (sealedComments.length === 0) {

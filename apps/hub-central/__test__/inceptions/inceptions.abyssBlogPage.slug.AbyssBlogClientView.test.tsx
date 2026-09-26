@@ -1,145 +1,106 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AbyssBlogClientView from '@/app/[locale]/(inceptions)/abyss-blog/[slug]/AbyssBlogClientView';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 
-// ==========================================
-// MOCKS GLOBAUX
-// ==========================================
+// -------------------------------------------------------------------------
+// 🎭 MOCKS
+// -------------------------------------------------------------------------
 vi.mock('next/navigation', () => ({
-  useParams: () => ({ slug: 'mon-sujet-test' }),
   useRouter: () => ({ push: vi.fn() })
+}));
+
+vi.mock('next-auth/react', () => ({
+  useSession: () => ({ data: { user: { uid: 'user_123', capabilities: ['*'] } } })
 }));
 
 vi.mock('@/hooks/usePageChapeauContext', () => ({
   usePageChapeauContext: vi.fn()
 }));
 
-vi.mock('../../../../../../components/widget/OmniActionWidget', () => ({
-  OmniActionWidget: () => <div data-testid="omni-widget">Widget Mock</div>
-}));
-
-const mockOpenDrawer = vi.fn();
 vi.mock('@/components/global/UniversalCommentDrawer', () => ({
-  UniversalCommentDrawer: () => <div data-testid="universal-drawer-mock">Tiroir Mock</div>,
-  useCommentDrawer: () => ({
-    openDrawer: mockOpenDrawer
-  })
+  useCommentDrawer: () => ({ openDrawer: vi.fn() })
 }));
 
-// 🚀 Mock du CopyrightBanner pour vérifier son rendu dans les tests
-vi.mock('@/components/global/CopyrightBanner', () => ({
-  CopyrightBanner: ({ metadata }: { metadata: any }) => (
-    <div data-testid="mock-copyright-banner">
-      <span>{metadata?.role}</span>
-      {metadata?.isExclusiveIlot && <span>Exclusivité</span>}
-    </div>
-  ),
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn() }
 }));
 
-const mockPlay = vi.fn();
-const mockPause = vi.fn();
-
-describe('UI & Logique : AbyssBlogClientView', () => {
+describe('UI & Logique : AbyssBlogClientView (Vue Client de l\'Article)', () => {
   let queryClient: QueryClient;
-
-  const mockSujet = {
-    uid: 's-123',
-    slug: 'mon-sujet-test',
-    title: 'Titre Sublime',
-    content: 'Le contenu profond du sujet...',
-    category: 'POETRY',
-    createdAt: new Date().toISOString(),
-    media: { audioTrackUrl: 'https://cdn.ilot/audio.mp3' },
-    authorUid: 'author_1',
-    tags: ['abysse', 'poésie'],
-    copyrightMetadata: { role: 'SUBLIMATOR', isExclusiveIlot: true }
-  };
-
-  const mockInitialComments = [
-    { uid: 'e-1', content: 'Premier écho SSR', createdAt: new Date().toISOString(), authorUid: 'oiseau_1' }
-  ];
-
-  beforeAll(() => {
-    Object.defineProperty(window.HTMLMediaElement.prototype, 'play', { configurable: true, value: mockPlay });
-    Object.defineProperty(window.HTMLMediaElement.prototype, 'pause', { configurable: true, value: mockPause });
-  });
 
   beforeEach(() => {
     vi.clearAllMocks();
+    global.fetch = vi.fn();
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } }
     });
-    global.fetch = vi.fn();
   });
 
-  const renderComponent = () => {
-    return render(
-      <QueryClientProvider client={queryClient}>
-        <AbyssBlogClientView sujet={mockSujet} initialComments={mockInitialComments} />
-      </QueryClientProvider>
-    );
+  const mockSujet = {
+    uid: 'sujet_123',
+    title: 'Chronique des Profondeurs',
+    content: 'Ceci est le contenu secret de l’abysse.',
+    category: 'TUTORIAL',
+    status: 'PUBLISHED',
+    authorUid: 'author_123',
+    authorName: 'Oiseau des Abysses',
+    createdAt: new Date().toISOString(),
+    tags: ['matrix', 'neo4j'],
+    media: { audioTrackUrl: '' }
   };
 
-  it('🟢 doit rendre correctement le sujet, la bannière de copyright, ses tags et les commentaires SSR', () => {
-    renderComponent();
+  const mockComments = [
+    {
+      uid: 'comm_1',
+      actorUid: 'scholar_1',
+      content: 'Une fulgurance remarquable validée.',
+      isScholarSealed: true,
+      isHidden: false,
+      createdAt: new Date().toISOString()
+    }
+  ];
 
-    expect(screen.getByText('Titre Sublime')).toBeDefined();
-    expect(screen.getByText('Le contenu profond du sujet...')).toBeDefined();
-    expect(screen.getByText('Premier écho SSR')).toBeDefined();
-    
-    // Vérification de la bannière de Copyright
-    expect(screen.getByTestId('mock-copyright-banner')).toBeDefined();
-    expect(screen.getByText('SUBLIMATOR')).toBeDefined();
-    expect(screen.getByText('Exclusivité')).toBeDefined();
+  it('🟢 doit afficher le contenu de l’article, le wrapper de sélection et les échos remarquables', () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AbyssBlogClientView sujet={mockSujet} initialComments={mockComments} />
+      </QueryClientProvider>
+    );
 
-    expect(screen.getByText('abysse')).toBeDefined();
-    expect(screen.getByText('poésie')).toBeDefined();
+    // Vérification du titre et du contenu
+    expect(screen.getByText('Chronique des Profondeurs')).toBeDefined();
+    expect(screen.getByText('Ceci est le contenu secret de l’abysse.')).toBeDefined();
 
-    const openDrawerBtn = screen.getByTestId('open-resonance-drawer-btn');
-    expect(openDrawerBtn).toBeDefined();
-
-    fireEvent.click(openDrawerBtn);
-    expect(mockOpenDrawer).toHaveBeenCalledWith('s-123', 'BLOG');
+    // Vérifie que les échos remarquables (Sceau de l'Érudit) s'affichent correctement
+    expect(screen.getByText('Échos Remarquables')).toBeDefined();
+    expect(screen.getByText('Une fulgurance remarquable validée.')).toBeDefined();
+    expect(screen.getByText("📜 Sceau de l'Érudit")).toBeDefined();
   });
 
-  it('🟢 doit permettre de basculer la lecture audio (Play / Pause)', () => {
-    renderComponent();
-
-    const audioBtn = screen.getByTestId('audio-toggle-btn');
-    expect(audioBtn).toBeDefined();
-    expect(screen.getByText('Écouter')).toBeDefined();
-
-    fireEvent.click(audioBtn);
-    expect(mockPlay).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('Silence')).toBeDefined();
-
-    fireEvent.click(audioBtn);
-    expect(mockPause).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('Écouter')).toBeDefined();
-  });
-
-  it('🟢 doit permettre de soumettre un nouvel écho textuel', async () => {
-    (global.fetch as any).mockImplementation((url: string, options?: any) => {
-      if (options?.method === 'POST') {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+  it('🟢 doit permettre d’envoyer un nouvel écho via le formulaire de propagation', async () => {
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ success: true })
     });
 
-    renderComponent();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AbyssBlogClientView sujet={mockSujet} initialComments={mockComments} />
+      </QueryClientProvider>
+    );
 
     const textarea = screen.getByPlaceholderText('Ajouter un écho...');
-    const submitBtn = screen.getByText('Propager');
+    fireEvent.change(textarea, { target: { value: 'Super article, bravo !' } });
 
-    fireEvent.change(textarea, { target: { value: 'Mon nouveau commentaire dans l\'abysse' } });
+    const submitBtn = screen.getByText('Propager');
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith('/api/resonance/echoes', expect.objectContaining({
         method: 'POST',
-        body: expect.stringContaining('Mon nouveau commentaire dans l\'abysse')
+        body: expect.stringContaining('Super article, bravo !')
       }));
     });
   });

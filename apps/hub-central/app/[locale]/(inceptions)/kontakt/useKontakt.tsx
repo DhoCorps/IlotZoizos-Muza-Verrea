@@ -9,7 +9,11 @@ export function useKontakt() {
   const [activeTab, setActiveTab] = useState<'swipe' | 'quests' | 'my-profile'>('swipe');
 
   // 🌀 SUTURE REACT QUERY : Récupération des profils Kontakt
-  const { data: profiles = [], isLoading: profilesLoading } = useQuery({
+  const { 
+    data: profiles = [], 
+    isLoading: profilesLoading, 
+    error: profilesError 
+  } = useQuery({
     queryKey: ['kontakt-profiles'],
     queryFn: async () => {
       const res = await fetch('/api/kontakt/profiles');
@@ -20,7 +24,11 @@ export function useKontakt() {
   });
 
   // 🌀 SUTURE REACT QUERY : Récupération des quêtes
-  const { data: quests = [], isLoading: questsLoading } = useQuery({
+  const { 
+    data: quests = [], 
+    isLoading: questsLoading, 
+    error: questsError 
+  } = useQuery({
     queryKey: ['kontakt-quests'],
     queryFn: async () => {
       const res = await fetch('/api/kontakt/quests');
@@ -31,6 +39,7 @@ export function useKontakt() {
   });
 
   const loading = profilesLoading || questsLoading;
+  const error = (profilesError as Error)?.message || (questsError as Error)?.message || null;
 
   const refreshKontakt = () => {
     queryClient.invalidateQueries({ queryKey: ['kontakt-profiles'] });
@@ -41,6 +50,7 @@ export function useKontakt() {
     profiles,
     quests,
     loading,
+    error, // 👈 Exposition de l'erreur pour la page parente
     activeTab,
     setActiveTab,
     refreshKontakt

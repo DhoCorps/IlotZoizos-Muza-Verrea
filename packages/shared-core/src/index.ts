@@ -64,6 +64,7 @@ export * from './sync-engine/univershallPantheon.orchestrator';
 export * from './sync-engine/universalMedia.orchestrator';
 export * from './sync-engine/notification.orchestrator';
 export * from './sync-engine/universalComment.orchestrator';
+export * from './sync-engine/annotation.orchestrator';
 
 // --- 6. JEUX (LOGIQUE & TYPES) ---
 

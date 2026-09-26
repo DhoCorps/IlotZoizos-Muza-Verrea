@@ -85,7 +85,7 @@ export * from './database/models/nosql/praise.model';
 export * from './database/models/nosql/report.model';
 
 export * from './database/models/nosql/libraryBook.model';
-export * from './database/models/nosql/annotation.model';
+export * from './database/models/nosql/universalAnnotation.model';
 
 export * from './database/models/nosql/lexiconEntry.model';
 export * from './database/models/nosql/univershallBeacon.model';

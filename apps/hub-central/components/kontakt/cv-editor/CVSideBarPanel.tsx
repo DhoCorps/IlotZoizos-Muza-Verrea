@@ -33,9 +33,17 @@ export function CVSidebarPanel({
   }
 
   const registered = registry[selectedBlock.type];
-  if (!registered) return null;
+  if (!registered) {
+    return (
+      <div className="p-6 bg-black/60 border border-red-500/30 rounded-3xl backdrop-blur-2xl space-y-4 text-center">
+        <p className="text-xs font-mono text-red-400">Bloc de type [{selectedBlock.type}] inconnu dans la matrice.</p>
+        <button onClick={onClose} className="px-4 py-2 bg-white/5 text-xs text-white rounded-xl">Fermer</button>
+      </div>
+    );
+  }
 
-  const EditFormComponent = registered.renderEditForm;
+  // 🛡️ Assignation en majuscule pour un rendu JSX sécurisé et conforme
+  const EditForm = registered.renderEditForm;
 
   return (
     <div className="p-6 bg-black/60 border border-white/10 rounded-3xl backdrop-blur-2xl space-y-6 shadow-2xl relative animate-in slide-in-from-right duration-300">
@@ -54,9 +62,9 @@ export function CVSidebarPanel({
         </button>
       </div>
 
-      {/* Formulaire spécifique injecté par le registre */}
+      {/* Formulaire spécifique injecté par le registre en JSX */}
       <div className="space-y-4">
-        <EditFormComponent 
+        <EditForm 
           data={selectedBlock.data} 
           onChange={(newData) => onUpdateData(selectedBlock.id, newData)} 
         />
