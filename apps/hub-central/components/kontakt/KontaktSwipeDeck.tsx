@@ -6,7 +6,7 @@ import {
   Heart, X, Sparkles, Shield, Zap, Skull, Award, Compass, 
   Cpu, Flame, Feather, Terminal, Star, ArrowRight, Briefcase 
 } from 'lucide-react';
-import ResonanceButton from '../resonance/ResonanceButton'; // 🕸️ NOUVEAU : Le tisseur de liens
+import ResonanceButton from '../resonance/ResonanceButton'; // 🕸️ Le tisseur de liens
 
 interface Profile {
   uid: string;
@@ -34,6 +34,15 @@ interface Profile {
   rewardLore?: string;
   requiredSkills?: string[];
   status?: string;
+  // ⚖️ Champs pour le matchmaking préventif
+  maxBudgetCents?: number;
+  pricing?: { hourlyRateCents?: number };
+  workArrangement?: 'FULL_REMOTE' | 'HYBRID' | 'ON_SITE';
+  remotePreference?: 'FULL_REMOTE' | 'HYBRID' | 'ON_SITE' | 'FLEXIBLE';
+  contractType?: 'FREELANCE' | 'CDI' | 'CDD' | 'INTERNSHIP' | 'PARTNERSHIP' | 'BOUNTY' | 'OTHER';
+  professionalStatus?: 'FREELANCE' | 'EMPLOYEE' | 'JOB_SEEKER' | 'STUDENT' | 'ENTREPRENEUR' | 'OTHER';
+  experienceLevel?: 'APPRENTICE' | 'JUNIOR' | 'MID' | 'CONFIRMED' | 'SENIOR' | 'LEAD' | 'MASTER' | 'GURU';
+  tags?: string[];
 }
 
 const MOCK_PROFILES: Profile[] = [
@@ -88,12 +97,14 @@ export default function KontaktSwipeDeck() {
   const [loading, setLoading] = useState(false);
   const [animationDirection, setAnimationDirection] = useState<'left' | 'right' | null>(null);
   const [matchModal, setMatchModal] = useState<Profile | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Chargement dynamique depuis l'API selon le mode actif
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       setCurrentIndex(0);
+      setErrorMessage(null);
       try {
         const endpoint = mode === 'recruiter' ? '/api/kontakt/profiles' : '/api/kontakt/quests';
         const res = await fetch(endpoint);
@@ -103,7 +114,6 @@ export default function KontaktSwipeDeck() {
         if (rawList.length > 0) {
           setItems(rawList);
         } else {
-          // Repli sur les mocks si l'API est vide pour garder une démo vivante
           setItems(MOCK_PROFILES);
         }
       } catch (err) {
@@ -123,20 +133,48 @@ export default function KontaktSwipeDeck() {
     if (!currentItem) return;
 
     setAnimationDirection(action === 'LIKE' ? 'right' : 'left');
+    setErrorMessage(null);
 
     try {
       const targetUid = mode === 'recruiter' ? currentItem.uid : (currentItem.uid || 'quest-default');
       const endpoint = mode === 'recruiter' ? '/api/kontakt/swipes' : '/api/kontakt/quests/apply';
 
+      // ⚖️ Construction du payload enrichi avec matchmakingData pour les likes de type recruteur/candidat
+      let bodyPayload: Record<string, unknown> = { targetUid, action };
+
+      if (action === 'LIKE') {
+        bodyPayload.matchmakingData = {
+          questMaxBudgetCents: currentItem.maxBudgetCents || 50000,
+          profileHourlyRateCents: currentItem.pricing?.hourlyRateCents || 40000,
+          questWorkArrangement: currentItem.workArrangement || 'FULL_REMOTE',
+          profileRemotePreference: currentItem.remotePreference || 'FULL_REMOTE',
+          questContractType: currentItem.contractType || 'FREELANCE',
+          profileProfessionalStatus: currentItem.professionalStatus || 'FREELANCE',
+          questRequiredSkills: currentItem.requiredSkills || [],
+          profileSkills: currentItem.skills || [],
+          questTags: currentItem.tags || [],
+          profileTags: currentItem.tags || []
+        };
+      }
+
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetUid, action })
+        body: JSON.stringify(bodyPayload)
       });
 
       const result = await res.json();
-      if (action === 'LIKE' && (result?.data?.match || result?.match || Math.random() > 0.3)) {
-        setMatchModal(currentItem);
+
+      if (!res.ok) {
+        // Gestion du rejet par le moteur de matchmaking (ex: affinités trop faibles - 403)
+        if (res.status === 403) {
+          setErrorMessage(result.error || "L'Îlot juge cette affinité trop faible pour justifier une mise en relation.");
+        }
+        console.warn("Swipe rejeté ou bloqué :", result);
+      } else {
+        if (action === 'LIKE' && (result?.data?.match || result?.match || Math.random() > 0.3)) {
+          setMatchModal(currentItem);
+        }
       }
     } catch (err) {
       console.error("Erreur lors du swipe :", err);
@@ -169,7 +207,6 @@ export default function KontaktSwipeDeck() {
   if (currentIndex >= items.length) {
     return (
       <div className="max-w-md mx-auto space-y-6">
-        {/* Sélecteur de mode même en fin de deck */}
         <div className="flex bg-black/50 p-1 rounded-2xl border border-white/10 max-w-sm mx-auto">
           <button 
             onClick={() => setMode('recruiter')} 
@@ -223,28 +260,32 @@ export default function KontaktSwipeDeck() {
         </button>
       </div>
 
+      {/* Message d'alerte si le matchmaking bloque l'action */}
+      {errorMessage && (
+        <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-2xl text-xs font-mono text-red-400 text-center animate-in shake">
+          {errorMessage}
+        </div>
+      )}
+
       {/* 🃏 LA CARTE RPG / TINDER PRO */}
       <div className={`bg-black/60 border border-white/10 rounded-3xl backdrop-blur-2xl p-6 shadow-2xl space-y-6 transition-all duration-300 relative overflow-hidden ${
         animationDirection === 'left' ? '-translate-x-full -rotate-12 opacity-0' :
         animationDirection === 'right' ? 'translate-x-full rotate-12 opacity-0' : 'translate-x-0 opacity-100'
       }`}>
         
-        {/* Effet de lueur d'ambiance */}
         <div className="absolute -top-24 -right-24 w-48 h-48 bg-[#E5484D]/10 rounded-full blur-3xl pointer-events-none" />
 
-        {/* 🕸️ NOUVEAU : Bouton de Résonance (en absolute top-right) */}
         {mode === 'recruiter' && (
           <div className="absolute top-4 right-4 z-20">
             <ResonanceButton 
-              targetSlug={currentItem.uid} // On utilise l'UID de l'Oiseau comme slug de contact
+              targetSlug={currentItem.uid}
               type="FOLLOWS_GLOBAL"
               variant="icon"
-              initialIsFollowing={false} // Idéalement, récupéré depuis API: currentItem.isFollowedByMe
+              initialIsFollowing={false}
             />
           </div>
         )}
 
-        {/* MODE RECRUTEUR : Affichage du Profil Talent */}
         {mode === 'recruiter' && (
           <>
             <div className="flex items-start justify-between gap-4 border-b border-white/5 pb-4">
@@ -315,7 +356,6 @@ export default function KontaktSwipeDeck() {
           </>
         )}
 
-        {/* MODE CHERCHEUR : Affichage de la Quête / Projet */}
         {mode === 'candidate' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between border-b border-white/5 pb-4">
