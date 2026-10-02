@@ -48,7 +48,7 @@ vi.mock('../utils/copyright.engine', () => ({
   })
 }));
 
-describe('EcommerceOrchestrator - Boutique, SEO & Copyright DRY', () => {
+describe('EcommerceOrchestrator - Boutique, SEO & Sceau Cryptographique (cryptoSeal)', () => {
   let orchestrator: EcommerceOrchestrator;
   const adminSignature = { actorUid: 'bird_admin', capabilities: ['*'] };
 
@@ -81,7 +81,7 @@ describe('EcommerceOrchestrator - Boutique, SEO & Copyright DRY', () => {
       expect((mongoCallArg as any)[0].seoMetadata.description).toBe('Un magnifique artefact pour vos oreilles');
     });
 
-    it('🟢 doit injecter la bonne relation Neo4j, préserver l\'exclusivité et propager la Filiation pour un SUBLIMATOR', async () => {
+    it('🟢 doit injecter la bonne relation Neo4j, préserver l\'exclusivité et propager la Filiation via le cryptoSeal pour un SUBLIMATOR', async () => {
       
       vi.mocked(ProductModel.create).mockResolvedValueOnce([{ toObject: () => ({}) }] as any);
 
@@ -107,10 +107,11 @@ describe('EcommerceOrchestrator - Boutique, SEO & Copyright DRY', () => {
       
       expect(result.success).toBe(true);
 
+      // Vérification des données structurées dans le cryptoSeal Mongoose
       const mongoCallArg = vi.mocked(ProductModel.create).mock.calls[0][0];
-      expect((mongoCallArg as any)[0].copyrightMetadata.role).toBe('SUBLIMATOR');
-      expect((mongoCallArg as any)[0].copyrightMetadata.isExclusiveIlot).toBe(true);
-      expect((mongoCallArg as any)[0].copyrightMetadata.filiation.sourceWorkTitle).toBe('Monolithe Originel');
+      expect((mongoCallArg as any)[0].cryptoSeal.copyrightMetadata.role).toBe('SUBLIMATOR');
+      expect((mongoCallArg as any)[0].cryptoSeal.copyrightMetadata.isExclusiveIlot).toBe(true);
+      expect((mongoCallArg as any)[0].cryptoSeal.copyrightMetadata.filiation.sourceWorkTitle).toBe('Monolithe Originel');
     });
 
     it('🟢 doit briser l\'exclusivité Îlot si le rôle est CURATOR (Sécurité DRY)', async () => {
@@ -129,9 +130,10 @@ describe('EcommerceOrchestrator - Boutique, SEO & Copyright DRY', () => {
       
       expect(result.success).toBe(true);
 
+      // Vérification que le cryptoSeal a neutralisé l'exclusivité pour un CURATOR
       const mongoCallArg = vi.mocked(ProductModel.create).mock.calls[0][0];
-      expect((mongoCallArg as any)[0].copyrightMetadata.role).toBe('CURATOR');
-      expect((mongoCallArg as any)[0].copyrightMetadata.isExclusiveIlot).toBe(false); // La sécurité a agi !
+      expect((mongoCallArg as any)[0].cryptoSeal.copyrightMetadata.role).toBe('CURATOR');
+      expect((mongoCallArg as any)[0].cryptoSeal.copyrightMetadata.isExclusiveIlot).toBe(false); // La sécurité a agi !
     });
   });
 });

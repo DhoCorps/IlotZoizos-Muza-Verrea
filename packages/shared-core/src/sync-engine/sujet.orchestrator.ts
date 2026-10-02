@@ -33,6 +33,7 @@ export type FosterSujetPayload = Omit<Partial<ISujet>, 'resonance' | 'propagatio
   settings?: DeepPartialSettings;
   kosmicBoon?: DeepPartialKosmic;
   copyrightMetadata?: CopyrightMetadata;
+  cryptoSeal?: any;
 };
 
 export type UpdateSujetPayload = Partial<Omit<ISujet, 'uid' | 'authorUid' | 'resonance' | 'connections' | 'propagation'>>;
@@ -79,7 +80,18 @@ export class SujetOrchestrator {
           ? `${data.content.substring(0, 147)}...` 
           : data.content);
 
-      const cpMeta = sanitizeCopyright(data.copyrightMetadata);
+      const cpMeta = sanitizeCopyright(data.copyrightMetadata || data.cryptoSeal?.copyrightMetadata);
+
+      // 🚀 Construction du Sceau Cryptographique Unifié
+      const cryptoSeal = data.cryptoSeal || (data.copyrightMetadata ? {
+        digitalSignature: randomUUID(), // Sceau par défaut si non fourni
+        timestampedAt: now,
+        sealedByUid: signature.actorUid,
+        copyrightMetadata: {
+          ...cpMeta,
+          license: cpMeta.license || 'MIT / Libre Canopée'
+        }
+      } : undefined);
 
       const newSujetData: Partial<ISujet> = {
         ...data,
@@ -89,11 +101,7 @@ export class SujetOrchestrator {
         excerpt: autoExcerpt,
         content: data.content || "",
         lyrics: data.lyrics || undefined,
-        copyright: data.copyright || undefined,
-        copyrightMetadata: {
-          ...cpMeta,
-          license: cpMeta.license || 'MIT / Libre Canopée'
-        }, 
+        cryptoSeal: cryptoSeal, 
         authorUid: signature.actorUid,
         category: data.category || 'MONOLOGUE',
         status: data.status || 'DRAFT',
@@ -200,7 +208,7 @@ export class SujetOrchestrator {
         const followerUids = records[0].get('followerUids') || [];
         
         if (followerUids.length > 0) {
-          const exclusiveBadge = txResult.mongo?.copyrightMetadata?.isExclusiveIlot ? ' ✨ [Exclusivité]' : '';
+          const exclusiveBadge = (txResult.mongo as any)?.cryptoSeal?.copyrightMetadata?.isExclusiveIlot ? ' ✨ [Exclusivité]' : '';
 
           Promise.allSettled(followerUids.map((uid: string) => 
             this.notificationOrchestrator.fosterNotification({
@@ -243,10 +251,16 @@ export class SujetOrchestrator {
     const txResult = await TransactionManager.execute("Mutation de Sujet", async (mongoSession, neo4jTx) => {
       const now = new Date();
 
-      const finalUpdates = {
+      const finalUpdates: Record<string, unknown> = {
         ...updates,
         'dates.updatedAt': now
       };
+
+      // Redirection intelligente si copyrightMetadata est passé dans les updates
+      if ('copyrightMetadata' in finalUpdates) {
+        finalUpdates['cryptoSeal.copyrightMetadata'] = finalUpdates.copyrightMetadata;
+        delete finalUpdates.copyrightMetadata;
+      }
 
       const updatedSujet = await SujetModel.findOneAndUpdate(
         { uid: existing.uid },
@@ -288,8 +302,8 @@ export class SujetOrchestrator {
         RETURN s, collect(DISTINCT follower.uid) AS followerUids
       `;
 
-      const isExclusiveUpdate = updates.copyrightMetadata 
-          ? (updates.copyrightMetadata as any).isExclusiveIlot 
+      const isExclusiveUpdate = (updates as any).copyrightMetadata 
+          ? (updates as any).copyrightMetadata.isExclusiveIlot 
           : null;
 
       neoResult = await neo4jTx.run(cypher, { 
@@ -298,7 +312,7 @@ export class SujetOrchestrator {
         title: updates.title || null,
         status: updates.status || null, 
         category: updates.category || null,
-        productId: updates.merchLink?.productId || null,
+        productId: (updates as any).merchLink?.productId || null,
         isExclusiveIlot: isExclusiveUpdate,
         now: now.toISOString()
       });

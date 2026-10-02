@@ -12,6 +12,19 @@ describe('Letr\'In Sprite - Validation des Schémas Zod et de la Gamification', 
     tags: ['pixel-art', 'cyberpunk'],
     frequencyHz: 528,
     isFrequencyMuted: false,
+    
+    // 🚀 Intégration du sceau cryptographique unifié
+    cryptoSeal: {
+      digitalSignature: '9b71d224bd62f3785d96d46ad3ea3d73319bfbc2890caadae2dff72519673ca7',
+      timestampedAt: new Date(),
+      sealedByUid: 'bird-alpha',
+      copyrightMetadata: {
+        role: 'CREATOR',
+        isExclusiveIlot: true,
+        license: 'MIT / Libre Canopée', // Satisfaction de Zod
+      }
+    },
+
     glyphs: [
       {
         character: '<(:<',
@@ -41,13 +54,16 @@ describe('Letr\'In Sprite - Validation des Schémas Zod et de la Gamification', 
     status: 'DRAFT'
   };
 
-  it('🟢 doit valider un ensemble de police de sprites complet avec classification et gamification', () => {
+  it('🟢 doit valider un ensemble de police de sprites complet avec classification, gamification et sceau cryptographique', () => {
     const result = LetrinFontSpriteSchema.safeParse(validSpriteFont);
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.category).toBe(TypographicCategoryEnum.FANTAISIE);
       expect(result.data.frequencyHz).toBe(528);
       expect(result.data.gamification?.palette.length).toBe(4);
+      // 🚀 Validation du Sceau
+      expect(result.data.cryptoSeal?.digitalSignature).toBeDefined();
+      expect(result.data.cryptoSeal?.copyrightMetadata?.role).toBe('CREATOR');
     }
   });
 
@@ -71,5 +87,6 @@ describe('Letr\'In Sprite - Validation des Schémas Zod et de la Gamification', 
     expect(parsed.category).toBe(TypographicCategoryEnum.LINEALE);
     expect(parsed.frequencyHz).toBe(432);
     expect(parsed.isFrequencyMuted).toBe(false);
+    expect(parsed.cryptoSeal).toBeUndefined(); // Optionnel par défaut
   });
 });

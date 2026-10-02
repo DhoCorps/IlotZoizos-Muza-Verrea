@@ -50,7 +50,7 @@ vi.mock('../utils/copyright.engine', () => ({
 // ==========================================
 // TESTS : SUJET ORCHESTRATOR
 // ==========================================
-describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)', () => {
+describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Sceau Cryptographique)', () => {
   let orchestrator: SujetOrchestrator;
   let mockFosterNotification: any;
   let mockNeo4jRun: any;
@@ -153,7 +153,9 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)',
           toObject: () => ({
             uid: 'sujet_sub', 
             status: 'PUBLISHED',
-            copyrightMetadata: { role: 'SUBLIMATOR', isExclusiveIlot: true }
+            cryptoSeal: {
+              copyrightMetadata: { role: 'SUBLIMATOR', isExclusiveIlot: true }
+            }
           })
         }
       ] as any);
@@ -166,7 +168,8 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)',
         copyrightMetadata: { role: 'SUBLIMATOR', isExclusiveIlot: true, license: 'MIT / Libre Canopée' }
       }, userSignature as any);
 
-      expect((res.mongo as any).copyrightMetadata.role).toBe('SUBLIMATOR');
+      // 🚀 Vérification dans le nouveau cryptoSeal avec chaînage optionnel
+      expect((res.mongo as any).cryptoSeal?.copyrightMetadata?.role).toBe('SUBLIMATOR');
       expect(mockFosterNotification).toHaveBeenCalledWith(
         expect.objectContaining({
           payload: expect.objectContaining({ title: expect.stringContaining('Exclusivité') })
@@ -181,7 +184,8 @@ describe('SujetOrchestrator - Atelier de Pensée (Monologues, SEO & Copyright)',
       } as any);
 
       vi.mocked(SujetModel.create).mockImplementation(async (docs: any) => {
-        expect(docs[0].copyrightMetadata.isExclusiveIlot).toBe(false); // La sécurité a agi !
+        // 🚀 Vérification de la sécurité sur le cryptoSeal
+        expect(docs[0].cryptoSeal.copyrightMetadata?.isExclusiveIlot).toBe(false); 
         return [{ toObject: () => docs[0] }] as any; 
       });
 

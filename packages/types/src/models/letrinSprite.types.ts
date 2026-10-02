@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { CopyrightMetadataSchema } from '../core/copyright.types';
+// 🚀 Import du Sceau Cryptographique Unifié (qui contient déjà le Copyright)
+import { CryptographicSealSchema } from '../core/cryptoSeal.types'; 
 
 // 🔠 Énumération des catégories typographiques historiques et descriptions explicatives
 export enum TypographicCategoryEnum {
@@ -23,8 +24,6 @@ export const TYPOGRAPHIC_CATEGORY_DESCRIPTIONS: Record<TypographicCategoryEnum, 
   [TypographicCategoryEnum.GOTHIQUE]: "Caractères brisés d'inspiration médiévale aux tracés anguleux et serrés.",
   [TypographicCategoryEnum.FANTAISIE]: "Polices expérimentales, décoratives ou pixel-art pures.",
 };
-
-// 🏛️ Remarque : CopyrightMetadataSchema est importé directement depuis core/copyright.types pour éviter toute redondance.
 
 export const SeoMetadataSchema = z.object({
   metaTitle: z.string().optional(),
@@ -79,7 +78,10 @@ export const LetrinFontSpriteSchema = z.object({
   categoryDescription: z.string().optional(),
   tags: z.array(z.string()).default([]),
   seo: SeoMetadataSchema.optional(),
-  copyrightMetadata: CopyrightMetadataSchema.optional(),
+  
+  // 🚀 Remplacement de copyrightMetadata par le Sceau unifié
+  cryptoSeal: CryptographicSealSchema.optional(),
+  
   frequencyHz: z.number().default(432),          // Fréquence harmonique alchimique de la police
   isFrequencyMuted: z.boolean().default(false),  // Option de mutation sonore de la police
   glyphs: z.array(GlyphSpriteMappingSchema),
@@ -91,7 +93,6 @@ export const LetrinFontSpriteSchema = z.object({
 export type LetrinFontSprite = z.infer<typeof LetrinFontSpriteSchema>;
 export type GlyphSpriteMapping = z.infer<typeof GlyphSpriteMappingSchema>;
 export type SpriteFrame = z.infer<typeof SpriteFrameSchema>;
-// Note : CopyrightMetadata est déjà exporté par core/copyright.types pour éviter le conflit d'index.
 export type SeoMetadata = z.infer<typeof SeoMetadataSchema>;
 export type GlyphBarter = z.infer<typeof GlyphBarterSchema>;
 export type LetrinGamification = z.infer<typeof LetrinGamificationSchema>;

@@ -1,6 +1,6 @@
 // Fichier : packages/types/src/core/ecommerce.types.ts
 import { z } from 'zod';
-import { CopyrightMetadataSchema } from '../core/copyright.types'; // 🚀 Import local depuis notre nouveau fichier DRY (Pacte de Filiation inclus)
+import { CryptographicSealSchema } from './cryptoSeal.types'; // 🚀 Intégration du Sceau Cryptographique Unifié
 
 export const CreationVisibilitySchema = z.enum(['PUBLIC', 'EXCHANGEABLE', 'VISIBLE', 'PRIVATE']);
 export type CreationVisibility = z.infer<typeof CreationVisibilitySchema>;
@@ -67,8 +67,8 @@ export const ProductSchema = z.object({
     description: z.string().optional(),
   }).optional(),
 
-  // 📜 COPYRIGHT ET EXCLUSIVITÉ ÎLOT (DRY + Pacte de Filiation)
-  copyrightMetadata: CopyrightMetadataSchema.optional(),
+  // 📜 SCELLAGE ET EXCLUSIVITÉ ÎLOT (Remplacé par le cryptoSeal unifié)
+  cryptoSeal: CryptographicSealSchema.optional(),
 
   // 🎡 OPTIONS DE LA ROULETTE KARMIQUE
   isRouletteActive: z.boolean().default(false),

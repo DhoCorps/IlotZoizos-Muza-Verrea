@@ -2,8 +2,8 @@
 import { describe, it, expect } from 'vitest';
 import { ProductModel } from '../../nosql/product.model';
 
-describe('Product Model - Mongoose, Kompta & Copyright Integration', () => {
-    it('🟢 doit valider un produit conforme avec toutes ses valeurs requises, sa TVA, son coût de revient, ses tags indexés et son copyright enrichi (avec Pacte de Filiation)', () => {
+describe('Product Model - Mongoose, Kompta & Sceau Cryptographique (cryptoSeal)', () => {
+    it('🟢 doit valider un produit conforme avec toutes ses valeurs requises, sa TVA, son coût de revient, ses tags indexés et son cryptoSeal enrichi (avec Pacte de Filiation)', () => {
         const validData = {
             uid: 'prod_123',
             storeUid: 'store_canopee_1',
@@ -22,17 +22,23 @@ describe('Product Model - Mongoose, Kompta & Copyright Integration', () => {
                 title: 'Plume Sélénite',
                 description: 'Achetez la plume exclusive.'
             },
-            copyrightMetadata: {
-                role: 'SUBLIMATOR',
-                originalAuthor: 'Artisan Sélénite',
-                sublimationNotes: 'Polissage personnalisé',
-                isExclusiveIlot: true,
-                filiation: {
-                    isExternalSource: true,
-                    sourceAuthorName: 'Ancien Maître',
-                    sourceWorkTitle: 'Première Plume',
-                    claimStatus: 'SHARED',
-                    escrowBalance: 250
+            // 🚀 Intégration du cryptoSeal complet avec filiation
+            cryptoSeal: {
+                digitalSignature: 'mock-product-hash-123',
+                timestampedAt: new Date(),
+                copyrightMetadata: {
+                    role: 'SUBLIMATOR',
+                    originalAuthor: 'Artisan Sélénite',
+                    sublimationNotes: 'Polissage personnalisé',
+                    isExclusiveIlot: true,
+                    license: 'MIT / Libre Canopée',
+                    filiation: {
+                        isExternalSource: true,
+                        sourceAuthorName: 'Ancien Maître',
+                        sourceWorkTitle: 'Première Plume',
+                        claimStatus: 'SHARED',
+                        escrowBalance: 250
+                    }
                 }
             },
             isRouletteActive: true,
@@ -53,10 +59,12 @@ describe('Product Model - Mongoose, Kompta & Copyright Integration', () => {
         expect(product.wagerAmount).toBe(10);
         expect(product.currency).toBe('EUR');
         expect(product.stock).toBe(1);
-        expect(product.copyrightMetadata?.role).toBe('SUBLIMATOR');
-        expect(product.copyrightMetadata?.isExclusiveIlot).toBe(true);
-        expect(product.copyrightMetadata?.filiation?.claimStatus).toBe('SHARED');
-        expect(product.copyrightMetadata?.filiation?.escrowBalance).toBe(250);
+        
+        // 🚀 Vérifications sécurisées via le cryptoSeal
+        expect(product.cryptoSeal?.copyrightMetadata?.role).toBe('SUBLIMATOR');
+        expect(product.cryptoSeal?.copyrightMetadata?.isExclusiveIlot).toBe(true);
+        expect(product.cryptoSeal?.copyrightMetadata?.filiation?.claimStatus).toBe('SHARED');
+        expect(product.cryptoSeal?.copyrightMetadata?.filiation?.escrowBalance).toBe(250);
     });
 
     it('🔴 doit rejeter un produit si les champs obligatoires stricts (storeUid, title, slug, description, priceCents, category) manquent', () => {

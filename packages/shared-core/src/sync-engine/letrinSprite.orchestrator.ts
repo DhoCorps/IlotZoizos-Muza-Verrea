@@ -1,3 +1,4 @@
+// Fichier : packages/backend/src/orchestrators/letrinSprite.orchestrator.ts
 import { OiseauModel, LetrinFontSpriteModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature, TypographicCategoryEnum } from '@ilot/types';
@@ -41,7 +42,12 @@ export interface FontSpriteResult {
   uid: string;
   name: string;
   slug: string;
-  digitalSignature: string;
+  cryptoSeal: {
+    digitalSignature: string;
+    timestampedAt: Date;
+    sealedByUid: string;
+    copyrightMetadata?: any;
+  };
   glyphsCount: number;
   mongoDocument: unknown;
 }
@@ -71,9 +77,17 @@ export class LetrinSpriteOrchestrator {
       glyphs: fontData.glyphs,
     });
     const digitalSignature = crypto.createHash('sha256').update(canonicalContent).digest('hex');
+    const now = new Date();
+
+    // Construction du sceau cryptographique unifié
+    const cryptoSeal = {
+      digitalSignature,
+      timestampedAt: now,
+      sealedByUid: signature.actorUid,
+      copyrightMetadata: fontData.copyrightMetadata
+    };
 
     return await TransactionManager.execute("Sédimentation Letr'In", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
-      const now = new Date();
       
       // 1. Persistance massive dans la Silice (MongoDB)
       const savedFontInMongo = await LetrinFontSpriteModel.findOneAndUpdate(
@@ -87,19 +101,17 @@ export class LetrinSpriteOrchestrator {
             category: fontData.category || 'LINEALE',
             tags: fontData.tags || [],
             seo: fontData.seo,
-            copyrightMetadata: fontData.copyrightMetadata,
             frequencyHz: fontData.frequencyHz ?? 432,
             isFrequencyMuted: fontData.isFrequencyMuted ?? false,
             glyphs: fontData.glyphs,
             gamification: fontData.gamification,
             status: fontStatus,
-            digitalSignature,
-            timestampedAt: now,
+            // 🚀 Injection du Sceau Cryptographique Unifié
+            cryptoSeal: cryptoSeal,
             'dates.updatedAt': now
           },
           $setOnInsert: {
-            'dates.createdAt': now,
-            copyrightClaimed: true
+            'dates.createdAt': now
           }
         },
         { upsert: true, new: true, session: mongoSession }
@@ -114,6 +126,7 @@ export class LetrinSpriteOrchestrator {
             f.slug = $slug, 
             f.status = $status, 
             f.category = $category,
+            f.digitalSignature = $digitalSignature,
             f.updatedAt = datetime($now)
         MERGE (u)-[:CREATED_FONT]->(f)
         RETURN f.uid AS uid
@@ -126,6 +139,7 @@ export class LetrinSpriteOrchestrator {
         slug: fontData.slug,
         status: fontStatus,
         category: fontData.category || 'LINEALE',
+        digitalSignature: digitalSignature, // Toujours à plat pour Neo4j
         now: now.toISOString()
       })) as QueryResult;
 
@@ -138,7 +152,7 @@ export class LetrinSpriteOrchestrator {
         uid: fontData.uid, 
         name: fontData.name, 
         slug: fontData.slug,
-        digitalSignature,
+        cryptoSeal: cryptoSeal, // 🚀 Retourne le sceau structuré
         glyphsCount: fontData.glyphs.length,
         mongoDocument: savedFontInMongo
       };

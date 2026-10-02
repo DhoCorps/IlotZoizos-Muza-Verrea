@@ -105,8 +105,9 @@ describe('BibliotekOrchestrator - Scriptorium, Économie, Filiation & Copyright 
       const result = await orchestrator.fosterBook(data, userSignature);
 
       expect(result.success).toBe(true);
-      expect(result.mongo.status).toBe('DRAFT');
-      expect(result.mongo.digitalSignature).toBe('mock_sha256_hash');
+      expect(result.mongo?.status).toBe('DRAFT');
+      // 🚀 Vérification dans le nouveau bloc cryptoSeal
+      expect(result.mongo?.cryptoSeal?.digitalSignature).toBe('mock_sha256_hash');
       expect(mockFosterNotification).toHaveBeenCalledTimes(0);
     });
 
@@ -199,7 +200,8 @@ describe('BibliotekOrchestrator - Scriptorium, Économie, Filiation & Copyright 
       } as any);
 
       vi.mocked(LibraryBookModel.create).mockImplementation(async (docs: any) => {
-        expect(docs[0].copyrightMetadata.isExclusiveIlot).toBe(false);
+        // 🚀 On vérifie à l'intérieur du cryptoSeal
+        expect(docs[0].cryptoSeal.copyrightMetadata.isExclusiveIlot).toBe(false);
         return [{ ...docs[0], toObject: () => docs[0] }] as any;
       });
 

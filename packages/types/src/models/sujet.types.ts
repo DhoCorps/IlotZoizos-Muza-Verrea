@@ -1,7 +1,7 @@
 // Fichier : packages/types/src/models/sujet.types.ts
 import { z } from 'zod';
 import { SeoMetadataSchema, CrossLinkSchema, SharedMediaSchema } from '../core/seo.types';
-import { CopyrightMetadataSchema } from '../core/copyright.types'; // 🚀 Import propre
+import { CryptographicSealSchema } from '../core/cryptoSeal.types'; // 🚀 Import du Sceau Unifié
 
 // ==========================================
 // 1. ÉNUMÉRATIONS & TYPES DE CONNEXIONS
@@ -52,8 +52,8 @@ export const SujetSchema = z.object({
   
   // --- CHAMPS LITTÉRAIRES & JURIDIQUES ---
   lyrics: z.string().optional(),
-  copyright: z.string().optional(),
-  copyrightMetadata: CopyrightMetadataSchema.default({}), // 🚀 Intégration modulaire
+  // 🚀 Remplacement de copyrightMetadata par le Sceau unifié
+  cryptoSeal: CryptographicSealSchema.optional(), 
   
   authorUid: z.string(),
 

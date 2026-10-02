@@ -23,7 +23,7 @@ const CreateBookSchema = z.object({
   format: z.string().optional(),
   status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(),
   tags: z.array(z.string()).optional(),
-  copyrightClaimed: z.boolean().optional(),
+  // 🚀 SUPPRESSION de copyrightClaimed (remplacé par le sceau unifié via l'Orchestrateur)
   copyrightMetadata: z.object({
     role: z.enum(['CREATOR', 'SUBLIMATOR', 'CURATOR']),
     originalAuthor: z.string().optional(),
@@ -57,7 +57,7 @@ const CreateBookSchema = z.object({
     allowReadExchange: z.boolean().optional().default(true),
     consentForShowcase: z.boolean().optional()
   }).optional()
-}); // 🚀 FIX : La parenthèse fermante est bien là !
+});
 
 // ==========================================
 // GET : Le Sanctuaire des Écrits Libres (Public / Optionnel Aura avec Pagination & Cache)
@@ -192,12 +192,13 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     revalidateTag(`bibliotek-user-${currentUser.uid}`);
     revalidateTag('bibliotek-public');
 
+    // 🚀 FIX TYPE: On extrait les métadonnées depuis le nouveau sous-objet `cryptoSeal`
     return NextResponse.json({
       success: true,
       message: "Ouvrage sédimenté et scellé par SHA-256 dans le Sanctuaire.",
       data: result.mongo,
-      digitalSignature: result.mongo.digitalSignature,
-      timestampedAt: result.mongo.timestampedAt
+      digitalSignature: result.mongo.cryptoSeal?.digitalSignature,
+      timestampedAt: result.mongo.cryptoSeal?.timestampedAt
     }, { status: 201 });
 
   } catch (error: unknown) {

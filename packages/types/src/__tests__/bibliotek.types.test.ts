@@ -28,14 +28,17 @@ describe('Types partagés : Bibliotek Media, Gacha, Barter, Émotions & Copyrigh
       status: 'PUBLISHED',
       fileUrl: 'https://cdn.ilot/books/traite.txt',
       coverUrl: null,
-      digitalSignature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-      timestampedAt: new Date(),
-      economy: mockEconomy,
-      copyrightMetadata: {
-        role: 'SUBLIMATOR',
-        originalAuthor: 'Maître Ancien',
-        isExclusiveIlot: true,
+      cryptoSeal: {
+        digitalSignature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        timestampedAt: new Date(),
+        copyrightMetadata: {
+          role: 'SUBLIMATOR',
+          originalAuthor: 'Maître Ancien',
+          isExclusiveIlot: true,
+          license: 'MIT / Libre Canopée', // 🚀 AJOUT ICI : Satisfaction du type de sortie Zod
+        }
       },
+      economy: mockEconomy,
       createdAt: new Date(),
     };
 
@@ -45,8 +48,8 @@ describe('Types partagés : Bibliotek Media, Gacha, Barter, Émotions & Copyrigh
     expect(mockBook.economy.barterAllowed).toBe(true);
     expect(mockBook.economy.gachaTier).toBe('rare');
     expect(mockBook.economy.rights.allowBarter).toBe(true);
-    expect(mockBook.copyrightMetadata?.role).toBe('SUBLIMATOR');
-    expect(mockBook.copyrightMetadata?.isExclusiveIlot).toBe(true);
+    expect(mockBook.cryptoSeal.copyrightMetadata?.role).toBe('SUBLIMATOR');
+    expect(mockBook.cryptoSeal.copyrightMetadata?.isExclusiveIlot).toBe(true);
   });
 
   it('🟢 doit accepter des types et styles libres (extensibles)', () => {
@@ -71,8 +74,10 @@ describe('Types partagés : Bibliotek Media, Gacha, Barter, Émotions & Copyrigh
       style: customStyle,
       status: 'DRAFT',
       fileUrl: 'https://cdn.ilot/file.txt',
-      digitalSignature: 'abc123hash',
-      timestampedAt: new Date(),
+      cryptoSeal: {
+        digitalSignature: 'abc123hash',
+        timestampedAt: new Date(),
+      },
       economy: mockEconomy,
       createdAt: new Date(),
     };
@@ -80,6 +85,7 @@ describe('Types partagés : Bibliotek Media, Gacha, Barter, Émotions & Copyrigh
     expect(mockBook.writingType).toBe('chronique-sauvage');
     expect(mockBook.style).toBe('cyber-alchimie');
     expect(mockBook.status).toBe('DRAFT');
+    expect(mockBook.cryptoSeal.digitalSignature).toBe('abc123hash');
   });
 
   it('🟢 doit valider un Surlignage Émotionnel ciblé contenant la signature de l\'Oiseau', () => {

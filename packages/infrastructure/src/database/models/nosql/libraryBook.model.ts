@@ -69,17 +69,19 @@ export interface ILibraryBook extends Document {
   coverUrl?: string;
   format: 'epub' | 'pdf' | 'txt' | 'scriptorium';
   
-  // 🛡️ Sceau Cryptographique d'Antériorité & Copyright DRY (Pacte de Filiation inclus)
-  digitalSignature: string;
-  timestampedAt: Date;
-  copyrightClaimed: boolean;
-  copyrightMetadata?: {
-    role: 'CREATOR' | 'SUBLIMATOR' | 'CURATOR';
-    originalAuthor?: string;
-    originalWorkTitle?: string;
-    sublimationNotes?: string;
-    isExclusiveIlot: boolean;
-    filiation?: ILibraryBookFiliationSource; // 🚀 Suture du Pacte de Filiation
+  // 🛡️ Sceau Cryptographique Unifié (Remplace digitalSignature, timestampedAt et copyrightClaimed)
+  cryptoSeal: {
+    digitalSignature: string;
+    timestampedAt: Date;
+    sealedByUid?: string;
+    copyrightMetadata?: {
+      role: 'CREATOR' | 'SUBLIMATOR' | 'CURATOR';
+      originalAuthor?: string;
+      originalWorkTitle?: string;
+      sublimationNotes?: string;
+      isExclusiveIlot: boolean;
+      filiation?: ILibraryBookFiliationSource;
+    };
   };
 
   settings: {
@@ -141,6 +143,24 @@ const FiliationSourceSchema = new Schema<ILibraryBookFiliationSource>({
   derivativeType: { type: String, trim: true }
 }, { _id: false });
 
+// 🚀 Sous-schéma Mongoose pour Copyright 
+const CopyrightMetadataSchema = new Schema({
+  role: { type: String, enum: ['CREATOR', 'SUBLIMATOR', 'CURATOR'], default: 'CREATOR' },
+  originalAuthor: { type: String, trim: true },
+  originalWorkTitle: { type: String, trim: true },
+  sublimationNotes: { type: String, trim: true },
+  isExclusiveIlot: { type: Boolean, default: false },
+  filiation: { type: FiliationSourceSchema }
+}, { _id: false });
+
+// 🚀 Sous-schéma Mongoose du Sceau Cryptographique
+const CryptographicSealSchema = new Schema({
+  digitalSignature: { type: String, required: true, index: true },
+  timestampedAt: { type: Date, required: true, default: Date.now },
+  sealedByUid: { type: String },
+  copyrightMetadata: { type: CopyrightMetadataSchema }
+}, { _id: false });
+
 const LibraryBookSchema = new Schema<ILibraryBook>({
   uid: { type: String, required: true, unique: true, index: true },
   title: { type: String, required: true, trim: true },
@@ -156,17 +176,8 @@ const LibraryBookSchema = new Schema<ILibraryBook>({
   coverUrl: { type: String },
   format: { type: String, enum: ['epub', 'pdf', 'txt', 'scriptorium'], default: 'scriptorium' },
 
-  digitalSignature: { type: String, required: true, index: true },
-  timestampedAt: { type: Date, required: true, default: Date.now },
-  copyrightClaimed: { type: Boolean, default: true },
-  copyrightMetadata: {
-    role: { type: String, enum: ['CREATOR', 'SUBLIMATOR', 'CURATOR'], default: 'CREATOR' },
-    originalAuthor: { type: String, trim: true },
-    originalWorkTitle: { type: String, trim: true },
-    sublimationNotes: { type: String, trim: true },
-    isExclusiveIlot: { type: Boolean, default: false },
-    filiation: { type: FiliationSourceSchema } // 🚀 Intégration Mongoose du Pacte de Filiation
-  },
+  // 🚀 Le sceau cryptographique remplace les anciens champs isolés
+  cryptoSeal: { type: CryptographicSealSchema, required: true },
 
   settings: {
     allowReadExchange: { type: Boolean, default: true },

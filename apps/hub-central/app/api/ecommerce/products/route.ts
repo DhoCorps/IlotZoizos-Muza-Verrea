@@ -26,10 +26,8 @@ export const GET = withSilice(async (req: NextRequest, _context: ApiContext) => 
 
     const storeUid = url.searchParams.get('storeUid');
     const category = url.searchParams.get('category');
-    // Extraction des tags pour filtrer le catalogue marchand[cite: 16]
     const tags = url.searchParams.getAll('tag');
     
-    // Transmission des tags au cache[cite: 16]
     const products = await getCachedProducts(storeUid, category);
     
     return NextResponse.json(products, { status: 200 });
@@ -45,7 +43,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
   try {
     const userUid = currentUser.uid;
     
-    // 🛡️ DOUANE VIBRATOIRE : Vérification du Tribunal de la Canopée[cite: 16]
+    // 🛡️ DOUANE VIBRATOIRE : Vérification du Tribunal de la Canopée
     const oiseauProfile = await OiseauModel.findOne({ uid: userUid }).lean() as IOiseau | null;
     if (oiseauProfile && (oiseauProfile.isBanned || oiseauProfile.profileStatus === 'INDESIRABLE')) {
       return NextResponse.json({ 
@@ -61,7 +59,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       return NextResponse.json({ success: false, error: "Corps de requête illisible." }, { status: 400 });
     }
 
-    // 🛡️ BLINDAGE MASS ASSIGNMENT : Validation stricte via ProductSchema[cite: 16]
+    // 🛡️ BLINDAGE MASS ASSIGNMENT : Validation stricte via ProductSchema
     const validation = ProductSchema.safeParse(rawBody);
     if (!validation.success) {
       return NextResponse.json({ 
@@ -74,7 +72,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     const validatedData = validation.data;
     const productUid = `prod_${uuidv4()}`;
     
-    // 1. Génération sécurisée et unique du Slug avec garde-fou anti-boucle[cite: 16]
+    // 1. Génération sécurisée et unique du Slug
     const baseSlug = slugify(validatedData.title || 'artefact');
     let finalSlug = baseSlug;
          
@@ -88,7 +86,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       safetyCounter++;
     }
     
-    // 2. Préparation de la signature souveraine pour l'Orchestrateur[cite: 16]
+    // 2. Préparation de la signature souveraine pour l'Orchestrateur
     const signature: ActionSignature = {
       actorUid: userUid,
       capabilities: currentUser.capabilities || []
@@ -97,10 +95,10 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     const orchestrator = new EcommerceOrchestrator();
     let createdProductUid: string | undefined;
 
-    // 3. Délégation Atomique (Mongoose + Neo4j) à l'Orchestrateur[cite: 16]
+    // 3. Délégation Atomique (Mongoose + Neo4j) à l'Orchestrateur
     try {
       const result = await orchestrator.createProduct({
-        ...validatedData, // Contient les tags, roulette, wagerAmount, et copyrightMetadata/filiation
+        ...validatedData,
         uid: productUid,
         slug: finalSlug,
         ownerUid: (validatedData as any).ownerUid || userUid,
@@ -111,7 +109,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       throw orchError;
     }
     
-    // 💥 Invalidation chirurgicale du cache en cascade[cite: 16]
+    // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('products');
     if ((validatedData as any).storeUid) {
       revalidateTag(`store-products-${(validatedData as any).storeUid}`);

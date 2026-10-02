@@ -4,7 +4,7 @@ import type { Document, Model, Types } from 'mongoose';
 const { Schema, model, models } = mongoose;
 
 import { v4 as uuidv4 } from 'uuid';
-import { IFiliationSource, ISujet, SujetCategorySchema, SujetStatusSchema } from '@ilot/types'; 
+import { ISujet, SujetCategorySchema, SujetStatusSchema } from '@ilot/types'; 
 
 export interface ISujetFiliationSource {
   isExternalSource: boolean;
@@ -35,6 +35,25 @@ const FiliationSourceSchema = new Schema<ISujetFiliationSource>({
   derivativeType: { type: String, trim: true }
 }, { _id: false });
 
+// 🚀 Sous-schéma Mongoose pour Copyright 
+const CopyrightMetadataSchema = new Schema({
+  role: { type: String, enum: ['CREATOR', 'SUBLIMATOR', 'CURATOR'], default: 'CREATOR' },
+  originalAuthor: { type: String, trim: true },
+  originalWorkTitle: { type: String, trim: true },
+  sublimationNotes: { type: String, trim: true },
+  isExclusiveIlot: { type: Boolean, default: false },
+  license: { type: String, default: 'MIT / Libre Canopée' },
+  filiation: { type: FiliationSourceSchema } 
+}, { _id: false });
+
+// 🚀 Sous-schéma Mongoose du Sceau Cryptographique Unifié
+const CryptographicSealSchema = new Schema({
+  digitalSignature: { type: String, required: true, index: true },
+  timestampedAt: { type: Date, required: true, default: Date.now },
+  sealedByUid: { type: String },
+  copyrightMetadata: { type: CopyrightMetadataSchema }
+}, { _id: false });
+
 const SujetSchema = new Schema<ISujetDocument>(
   {
     uid: {
@@ -52,16 +71,11 @@ const SujetSchema = new Schema<ISujetDocument>(
     excerpt: { type: String, trim: true, maxlength: 300 },
     content: { type: String, required: true },
     
-    // --- CHAMPS LITTÉRAIRES & COPYRIGHT (DRY + Filiation) ---
+    // --- CHAMPS LITTÉRAIRES & SCEAU CRYPTOGRAPHIQUE ---
     lyrics: { type: String },
-    copyright: { type: String },
-    copyrightMetadata: {
-      role: { type: String, enum: ['CREATOR', 'SUBLIMATOR', 'CURATOR'], default: 'CREATOR' },
-      originalAuthor: { type: String, trim: true },
-      originalWorkTitle: { type: String, trim: true },
-      sublimationNotes: { type: String, trim: true },
-      isExclusiveIlot: { type: Boolean, default: false },
-      filiation: { type: FiliationSourceSchema } // 🚀 Intégration du Pacte de Filiation
+    cryptoSeal: {
+      type: CryptographicSealSchema,
+      default: undefined // 🚀 Rend le sceau optionnel en base pour la cohérence
     },
 
     authorUid: { type: String, required: true, index: true },
@@ -168,4 +182,4 @@ const SujetSchema = new Schema<ISujetDocument>(
 SujetSchema.index({ title: 'text', content: 'text', lyrics: 'text', tags: 'text' });
 
 export const SujetModel = (mongoose.models.Sujet as Model<ISujetDocument>) || 
-                        mongoose.model<ISujetDocument>('Sujet', SujetSchema);
+                          mongoose.model<ISujetDocument>('Sujet', SujetSchema);

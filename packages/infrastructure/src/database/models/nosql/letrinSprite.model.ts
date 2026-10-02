@@ -1,3 +1,4 @@
+// Fichier : packages/infrastructure/src/nosql/letrinSprite.model.ts
 import mongoose, { Document, Schema } from 'mongoose';
 
 // 🔠 Énumération locale (alignée sur @ilot/types) pour la validation Mongoose
@@ -7,6 +8,16 @@ const STATUS_ENUM = ['DRAFT', 'RELEASED', 'ARCHIVED'];
 // ==========================================
 // INTERFACES TYPESCRIPT POUR MONGOOSE
 // ==========================================
+export interface ILetrinFontFiliationSource {
+  isExternalSource: boolean;
+  sourceAuthorName: string;
+  sourceWorkTitle: string;
+  sourceReferenceUrl?: string;
+  claimStatus: 'PENDING_CLAIM' | 'SHARED' | 'REVOKED';
+  escrowBalance: number;
+  derivativeType?: string;
+}
+
 export interface ILetrinFontSpriteDocument extends Document {
   uid: string;
   name: string;
@@ -26,12 +37,23 @@ export interface ILetrinFontSpriteDocument extends Document {
     ogImageUrl?: string;
   };
   
-  // Souveraineté & Fréquence Alchimique
-  copyrightMetadata?: {
-    role: string;
-    isExclusiveIlot: boolean;
-    license: string;
+  // 🚀 Sceau Cryptographique Unifié (Remplace copyrightMetadata, digitalSignature, timestampedAt et copyrightClaimed)
+  cryptoSeal?: {
+    digitalSignature: string;
+    timestampedAt: Date;
+    sealedByUid?: string;
+    copyrightMetadata?: {
+      role: string;
+      isExclusiveIlot: boolean;
+      license: string;
+      originalAuthor?: string;
+      originalWorkTitle?: string;
+      sublimationNotes?: string;
+      filiation?: ILetrinFontFiliationSource;
+    };
   };
+
+  // Fréquence Alchimique
   frequencyHz: number;
   isFrequencyMuted: boolean;
 
@@ -62,17 +84,44 @@ export interface ILetrinFontSpriteDocument extends Document {
     unlockedSpriteSlots: number;
   };
 
-  // Traçabilité & Sceau
+  // Traçabilité
   status: 'DRAFT' | 'RELEASED' | 'ARCHIVED';
-  digitalSignature?: string;
-  timestampedAt?: Date;
-  copyrightClaimed?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
 
 // ==========================================
-// SCHÉMA MONGOOSE
+// SCHÉMAS MONGOOSE (Sous-documents)
+// ==========================================
+const FiliationSourceSchema = new Schema<ILetrinFontFiliationSource>({
+  isExternalSource: { type: Boolean, default: false },
+  sourceAuthorName: { type: String, trim: true },
+  sourceWorkTitle: { type: String, trim: true },
+  sourceReferenceUrl: { type: String, trim: true },
+  claimStatus: { type: String, enum: ['PENDING_CLAIM', 'SHARED', 'REVOKED'], default: 'PENDING_CLAIM' },
+  escrowBalance: { type: Number, default: 0, min: 0 },
+  derivativeType: { type: String, trim: true }
+}, { _id: false });
+
+const CopyrightMetadataSchema = new Schema({
+  role: { type: String, enum: ['CREATOR', 'SUBLIMATOR', 'CURATOR'], default: 'CREATOR' },
+  originalAuthor: { type: String, trim: true },
+  originalWorkTitle: { type: String, trim: true },
+  sublimationNotes: { type: String, trim: true },
+  isExclusiveIlot: { type: Boolean, default: false },
+  license: { type: String, default: 'MIT / Libre Canopée' },
+  filiation: { type: FiliationSourceSchema }
+}, { _id: false });
+
+const CryptographicSealSchema = new Schema({
+  digitalSignature: { type: String, required: true, index: true },
+  timestampedAt: { type: Date, required: true, default: Date.now },
+  sealedByUid: { type: String },
+  copyrightMetadata: { type: CopyrightMetadataSchema }
+}, { _id: false });
+
+// ==========================================
+// SCHÉMA MONGOOSE PRINCIPAL
 // ==========================================
 const LetrinFontSpriteSchema = new Schema<ILetrinFontSpriteDocument>({
   uid: { type: String, required: true, unique: true, index: true },
@@ -95,10 +144,10 @@ const LetrinFontSpriteSchema = new Schema<ILetrinFontSpriteDocument>({
     ogImageUrl: { type: String },
   },
 
-  copyrightMetadata: {
-    role: { type: String, default: 'CREATOR' },
-    isExclusiveIlot: { type: Boolean, default: true },
-    license: { type: String, default: 'MIT / Libre Canopée' },
+  // 🚀 Intégration du Sceau (Optionnel comme défini par le schéma Zod)
+  cryptoSeal: {
+    type: CryptographicSealSchema,
+    default: undefined
   },
 
   frequencyHz: { type: Number, default: 432 }, // La fréquence de guérison par défaut
@@ -129,10 +178,7 @@ const LetrinFontSpriteSchema = new Schema<ILetrinFontSpriteDocument>({
     unlockedSpriteSlots: { type: Number, default: 3 } // 3 sprites offerts au départ
   },
 
-  status: { type: String, enum: STATUS_ENUM, default: 'DRAFT' },
-  digitalSignature: { type: String },
-  timestampedAt: { type: Date },
-  copyrightClaimed: { type: Boolean, default: true }
+  status: { type: String, enum: STATUS_ENUM, default: 'DRAFT' }
 }, { timestamps: true });
 
 // Évite la recompilation du modèle en mode "watch" (Next.js / Vitest)

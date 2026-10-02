@@ -1,6 +1,6 @@
 // Fichier : packages/types/src/core/bibliotek.types.ts
 import { ISeoMetadata } from './seo.types';
-import { CopyrightMetadata } from './copyright.types'; // 🚀 Import DRY pour le copyright unifié et le Pacte de Filiation
+import { ICryptographicSeal } from './cryptoSeal.types'; // 🚀 Import du Sceau unifié
 
 // ==========================================
 // 📚 TYPES & SCHÉMAS : BIBLIOTEK, GACHA & BARTER
@@ -95,10 +95,8 @@ export interface ILibraryBookMediaEntity {
   status: PublicationStatusCode; // Cycle de vie
   fileUrl: string;
   coverUrl?: string | null;
-  digitalSignature: string;      // Sceau SHA-256 d'antériorité
-  timestampedAt: string | Date;
+  cryptoSeal: ICryptographicSeal; // 🚀 Sceau unifié (remplace digitalSignature, timestampedAt et copyrightMetadata)
   economy: LibraryBookEconomyMetadata;
-  copyrightMetadata?: CopyrightMetadata; // 🚀 Intégration DRY + Filiation
   createdAt: string | Date;
   seo?: ISeoMetadata;            // Métadonnées d'indexation irréprochable
 }

@@ -26,19 +26,21 @@ describe('Modèle Mongoose : LibraryBook (Bibliotek, Gacha, Émotions, SEO, Copy
       status: 'PUBLISHED',
       fileUrl: 'https://cdn.ilot/books/chroniques.epub',
       format: 'epub',
-      digitalSignature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-      timestampedAt: new Date(),
-      copyrightClaimed: true,
-      copyrightMetadata: {
-        role: 'SUBLIMATOR',
-        originalAuthor: 'Penseur Ancien',
-        isExclusiveIlot: true,
-        filiation: {
-          isExternalSource: true,
-          sourceAuthorName: 'Penseur Ancien',
-          sourceWorkTitle: 'Le Codex Oublié',
-          claimStatus: 'PENDING_CLAIM',
-          escrowBalance: 0
+      // 🚀 Intégration du sceau cryptographique
+      cryptoSeal: {
+        digitalSignature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        timestampedAt: new Date(),
+        copyrightMetadata: {
+          role: 'SUBLIMATOR',
+          originalAuthor: 'Penseur Ancien',
+          isExclusiveIlot: true,
+          filiation: {
+            isExternalSource: true,
+            sourceAuthorName: 'Penseur Ancien',
+            sourceWorkTitle: 'Le Codex Oublié',
+            claimStatus: 'PENDING_CLAIM',
+            escrowBalance: 0
+          }
         }
       },
       settings: {
@@ -70,10 +72,11 @@ describe('Modèle Mongoose : LibraryBook (Bibliotek, Gacha, Émotions, SEO, Copy
     expect(createdBook.title).toBe('Chroniques de la Canopée');
     expect(createdBook.status).toBe('PUBLISHED');
     expect(createdBook.economy.gachaTier).toBe('epic');
-    expect(createdBook.digitalSignature).toHaveLength(64);
-    expect(createdBook.copyrightMetadata.role).toBe('SUBLIMATOR');
-    expect(createdBook.copyrightMetadata.isExclusiveIlot).toBe(true);
-    expect(createdBook.copyrightMetadata.filiation.claimStatus).toBe('PENDING_CLAIM');
+    // 🚀 Les vérifications ciblent maintenant la propriété cryptoSeal
+    expect(createdBook.cryptoSeal.digitalSignature).toHaveLength(64);
+    expect(createdBook.cryptoSeal.copyrightMetadata.role).toBe('SUBLIMATOR');
+    expect(createdBook.cryptoSeal.copyrightMetadata.isExclusiveIlot).toBe(true);
+    expect(createdBook.cryptoSeal.copyrightMetadata.filiation.claimStatus).toBe('PENDING_CLAIM');
   });
 
   it('❌ doit échouer si le Sceau d’antériorité (digitalSignature) est absent', async () => {
@@ -82,9 +85,13 @@ describe('Modèle Mongoose : LibraryBook (Bibliotek, Gacha, Émotions, SEO, Copy
       title: 'Livre sans sceau',
       slug: 'livre-sans-sceau',
       authorUid: 'bird_1',
+      // Sceau malformé manquant la signature numérique
+      cryptoSeal: {
+        timestampedAt: new Date()
+      }
     };
 
-    vi.mocked(LibraryBookModel.create).mockRejectedValueOnce(new Error('Validation failed: digitalSignature is required'));
+    vi.mocked(LibraryBookModel.create).mockRejectedValueOnce(new Error('Validation failed: cryptoSeal.digitalSignature is required'));
 
     await expect(LibraryBookModel.create(invalidBook as any)).rejects.toThrow();
   });

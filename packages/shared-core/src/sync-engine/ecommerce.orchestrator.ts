@@ -38,6 +38,7 @@ export interface CreateProductPayload {
   isRouletteActive?: boolean;
   wagerAmountCents?: number; // 🚀 En centimes stricts
   copyrightMetadata?: CopyrightMetadata; // 🚀 Injection DRY & Filiation
+  cryptoSeal?: any;
   [key: string]: unknown;
 }
 
@@ -102,7 +103,7 @@ export class EcommerceOrchestrator {
     return await TransactionManager.execute("Création Produit", async (mongoSession, neo4jTx) => {
       
       // 🛡️ Logique métier du Copyright centralisée (Pacte de Filiation inclus)
-      const cpMeta = sanitizeCopyright(data.copyrightMetadata);
+      const cpMeta = sanitizeCopyright(data.copyrightMetadata || data.cryptoSeal?.copyrightMetadata);
       
       // ✨ OPTIMISATION SEO / UX : Génération auto d'une meta-description e-commerce propre
       let autoSeoDesc = '';
@@ -112,7 +113,10 @@ export class EcommerceOrchestrator {
         autoSeoDesc = data.description || `Découvrez ${data.title} dans la boutique.`;
       }
 
-      // 1. Sauvegarde dans MongoDB (Silice) avec préservation explicite de la filiation
+      const now = new Date();
+      const digitalSignature = crypto.createHash('sha256').update(JSON.stringify({ title: data.title, storeUid: data.storeUid, priceCents: data.priceCents })).digest('hex');
+
+      // 1. Sauvegarde dans MongoDB (Silice) avec le cryptoSeal unifié
       const newProductData = {
         ...data,
         ownerUid: signature.actorUid,
@@ -121,19 +125,25 @@ export class EcommerceOrchestrator {
           title: `${data.title} | Artefact`,
           description: autoSeoDesc
         },
-        copyrightMetadata: {
-          ...cpMeta,
-          filiation: data.copyrightMetadata?.filiation ? {
-            isExternalSource: data.copyrightMetadata.filiation.isExternalSource ?? false,
-            sourceAuthorName: data.copyrightMetadata.filiation.sourceAuthorName,
-            sourceWorkTitle: data.copyrightMetadata.filiation.sourceWorkTitle,
-            sourceReferenceUrl: data.copyrightMetadata.filiation.sourceReferenceUrl,
-            claimStatus: data.copyrightMetadata.filiation.claimStatus ?? 'PENDING_CLAIM',
-            escrowBalance: data.copyrightMetadata.filiation.escrowBalance ?? 0,
-            derivativeType: data.copyrightMetadata.filiation.derivativeType
-          } : undefined
+        cryptoSeal: {
+          digitalSignature,
+          timestampedAt: now,
+          sealedByUid: signature.actorUid,
+          copyrightMetadata: {
+            ...cpMeta,
+            filiation: data.copyrightMetadata?.filiation ? {
+              isExternalSource: data.copyrightMetadata.filiation.isExternalSource ?? false,
+              sourceAuthorName: data.copyrightMetadata.filiation.sourceAuthorName,
+              sourceWorkTitle: data.copyrightMetadata.filiation.sourceWorkTitle,
+              sourceReferenceUrl: data.copyrightMetadata.filiation.sourceReferenceUrl,
+              claimStatus: data.copyrightMetadata.filiation.claimStatus ?? 'PENDING_CLAIM',
+              escrowBalance: data.copyrightMetadata.filiation.escrowBalance ?? 0,
+              derivativeType: data.copyrightMetadata.filiation.derivativeType
+            } : undefined
+          }
         }
       };
+      delete newProductData.copyrightMetadata; // Nettoyage de l'ancienne propriété à plat
       
       await ProductModel.create([newProductData], { session: mongoSession });
 
@@ -170,8 +180,8 @@ export class EcommerceOrchestrator {
         isRouletteActive: data.isRouletteActive || false,
         wagerAmountCents: data.wagerAmountCents || 0,
         isExclusiveIlot: cpMeta.isExclusiveIlot,
-        hasFiliation: !!data.copyrightMetadata?.filiation,
-        filiationClaimStatus: data.copyrightMetadata?.filiation?.claimStatus || 'NONE',
+        hasFiliation: !!(data.copyrightMetadata?.filiation || data.cryptoSeal?.copyrightMetadata?.filiation),
+        filiationClaimStatus: data.copyrightMetadata?.filiation?.claimStatus || data.cryptoSeal?.copyrightMetadata?.filiation?.claimStatus || 'NONE',
         sublimationNotes: cpMeta.sublimationNotes || ''
       });
 

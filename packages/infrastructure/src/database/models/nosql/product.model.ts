@@ -37,6 +37,25 @@ const FiliationSourceSchema = new Schema({
   derivativeType: { type: String, trim: true }
 }, { _id: false });
 
+// 🚀 Sous-schéma Mongoose pour Copyright 
+const CopyrightMetadataSchema = new Schema({
+  role: { type: String, enum: ['CREATOR', 'SUBLIMATOR', 'CURATOR'], default: 'CREATOR' },
+  originalAuthor: { type: String, trim: true },
+  originalWorkTitle: { type: String, trim: true },
+  sublimationNotes: { type: String, trim: true },
+  isExclusiveIlot: { type: Boolean, default: false },
+  license: { type: String, default: 'MIT / Libre Canopée' },
+  filiation: { type: FiliationSourceSchema }
+}, { _id: false });
+
+// 🚀 Sous-schéma Mongoose du Sceau Cryptographique Unifié
+const CryptographicSealSchema = new Schema({
+  digitalSignature: { type: String, required: true, index: true },
+  timestampedAt: { type: Date, required: true, default: Date.now },
+  sealedByUid: { type: String },
+  copyrightMetadata: { type: CopyrightMetadataSchema }
+}, { _id: false });
+
 const ProductSchema = new Schema<IProductDocument>(
   {
     // --- 🌉 LE PONT NEO4J ---
@@ -85,14 +104,10 @@ const ProductSchema = new Schema<IProductDocument>(
       description: { type: String, trim: true }
     },
 
-    // --- 📜 COPYRIGHT ET EXCLUSIVITÉ ÎLOT (DRY + Pacte de Filiation) ---
-    copyrightMetadata: {
-      role: { type: String, enum: ['CREATOR', 'SUBLIMATOR', 'CURATOR'], default: 'CREATOR' },
-      originalAuthor: { type: String, trim: true },
-      originalWorkTitle: { type: String, trim: true },
-      sublimationNotes: { type: String, trim: true },
-      isExclusiveIlot: { type: Boolean, default: false },
-      filiation: { type: FiliationSourceSchema } // 🚀 Intégration du Pacte de Filiation
+    // --- 📜 SCELLAGE ET EXCLUSIVITÉ ÎLOT (cryptoSeal unifié) ---
+    cryptoSeal: {
+      type: CryptographicSealSchema,
+      default: undefined
     },
 
     // --- 🎡 OPTIONS DE LA ROULETTE KARMIQUE ---

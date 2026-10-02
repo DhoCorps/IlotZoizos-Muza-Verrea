@@ -19,10 +19,14 @@ export interface BibliotekSyncResult {
   success: boolean;
   status: string;
   mongo: ILibraryBook & {
-    digitalSignature?: string;
-    timestampedAt?: Date;
+    // 🚀 L'interface mongo doit s'adapter à la nouvelle structure
+    cryptoSeal?: {
+      digitalSignature: string;
+      timestampedAt: Date;
+      sealedByUid?: string;
+      copyrightMetadata?: CopyrightMetadata;
+    };
     economy?: LibraryBookEconomyMetadata;
-    copyrightMetadata?: CopyrightMetadata;
     status?: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
   };
   neo4j: any;
@@ -133,10 +137,13 @@ export class BibliotekOrchestrator {
         coverUrl: data.coverUrl || null,
         format: data.format || 'epub',
         tags: data.tags || [],
-        digitalSignature,
-        timestampedAt: now,
-        copyrightClaimed: true,
-        copyrightMetadata: cpMeta, 
+        // 🚀 Intégration du sceau cryptographique centralisé
+        cryptoSeal: {
+          digitalSignature,
+          timestampedAt: now,
+          sealedByUid: signature.actorUid,
+          copyrightMetadata: cpMeta,
+        },
         economy: defaultEconomy,
         seo: autoSeo,
         emotionalHighlights: [], // Conservé dans Mongo par commodité de schéma, mais géré par AnnotationOrchestrator
@@ -184,7 +191,8 @@ export class BibliotekOrchestrator {
         style: newBook.style,
         status: newBook.status,
         format: newBook.format,
-        digitalSignature: newBook.digitalSignature,
+        // 🚀 On extrait le hash depuis le nouveau sceau pour Neo4j (On le garde plat pour Neo4j)
+        digitalSignature: newBook.cryptoSeal.digitalSignature,
         priceCents: defaultEconomy.priceCents,
         barterAllowed: defaultEconomy.barterAllowed,
         gachaTier: defaultEconomy.gachaTier,
@@ -257,9 +265,16 @@ export class BibliotekOrchestrator {
     const txResult = await TransactionManager.execute("Mutation d'Ouvrage Bibliotek", async (mongoSession, neo4jTx) => {
       const now = new Date();
       
+      // 🚀 Re-routage intelligent : Si une update touche aux droits, on cible le sous-document `cryptoSeal`
+      const mongoUpdates: Record<string, unknown> = { ...updates, "updatedAt": now };
+      if ('copyrightMetadata' in mongoUpdates) {
+        mongoUpdates['cryptoSeal.copyrightMetadata'] = mongoUpdates.copyrightMetadata;
+        delete mongoUpdates.copyrightMetadata;
+      }
+
       const updatedBook = await LibraryBookModel.findOneAndUpdate(
         { uid: existing.uid },
-        { $set: { ...updates, "updatedAt": now } },
+        { $set: mongoUpdates },
         { new: true, session: mongoSession }
       ).lean() as unknown as ILibraryBook;
 

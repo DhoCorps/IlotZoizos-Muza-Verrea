@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { SujetModel } from '../../nosql/sujet.model';
 
-describe('Sujet Model (Ultimate Edition - SEO, Cross-Links, Propagation & Copyright avec Filiation)', () => {
+describe('Sujet Model (Ultimate Edition - SEO, Cross-Links, Propagation & Sceau Cryptographique)', () => {
     
     it('🟢 doit valider un sujet conforme avec toutes ses valeurs requises, par défaut et auto-générées', () => {
         const validData = {
@@ -26,8 +26,9 @@ describe('Sujet Model (Ultimate Edition - SEO, Cross-Links, Propagation & Copyri
         expect(sujet.connections.crossLinks).toEqual([]);
         expect(sujet.propagation.shareCount).toBe(0);
         expect(sujet.kosmicBoon.nextKosmicBoon).toBe(42);
-        expect(sujet.copyrightMetadata?.role).toBe('CREATOR');
-        expect(sujet.copyrightMetadata?.isExclusiveIlot).toBe(false);
+        
+        // Vérifie que le sceau n'est pas auto-généré par défaut
+        expect(sujet.cryptoSeal).toBeUndefined(); 
     });
 
     it('🔴 doit rejeter un sujet si les champs obligatoires (title, slug, content, authorUid) manquent', () => {
@@ -57,7 +58,7 @@ describe('Sujet Model (Ultimate Edition - SEO, Cross-Links, Propagation & Copyri
         expect(error?.errors?.category).toBeDefined();
     });
 
-    it('🟢 doit valider un sujet riche intégrant le SEO, les cross-links, la propagation, les attributs média et le copyright sublimé avec Pacte de Filiation', () => {
+    it('🟢 doit valider un sujet riche intégrant le SEO, les cross-links, la propagation, les attributs média et le cryptoSeal sublimé avec Pacte de Filiation', () => {
         const richData = {
             title: 'Chronique des Profondeurs',
             slug: 'chronique-des-profondeurs',
@@ -67,18 +68,24 @@ describe('Sujet Model (Ultimate Edition - SEO, Cross-Links, Propagation & Copyri
             authorUid: 'bird_1',
             readingTimeMinutes: 4,
             publishedAt: new Date('2026-06-06T12:00:00.000Z'), 
-            copyrightMetadata: {
-                role: 'SUBLIMATOR',
-                originalAuthor: 'Georges Brassens',
-                originalWorkTitle: 'Les Copains d abord',
-                sublimationNotes: 'Arrangement acoustique',
-                isExclusiveIlot: true,
-                filiation: {
-                    isExternalSource: true,
-                    sourceAuthorName: 'Georges Brassens',
-                    sourceWorkTitle: 'Les Copains d abord',
-                    claimStatus: 'SHARED',
-                    escrowBalance: 100
+            // 🚀 Intégration du cryptoSeal complet
+            cryptoSeal: {
+                digitalSignature: 'mock-sha256-hash',
+                timestampedAt: new Date(),
+                copyrightMetadata: {
+                    role: 'SUBLIMATOR',
+                    originalAuthor: 'Georges Brassens',
+                    originalWorkTitle: 'Les Copains d abord',
+                    sublimationNotes: 'Arrangement acoustique',
+                    isExclusiveIlot: true,
+                    license: 'MIT / Libre Canopée',
+                    filiation: {
+                        isExternalSource: true,
+                        sourceAuthorName: 'Georges Brassens',
+                        sourceWorkTitle: 'Les Copains d abord',
+                        claimStatus: 'SHARED',
+                        escrowBalance: 100
+                    }
                 }
             },
             seo: {
@@ -117,9 +124,12 @@ describe('Sujet Model (Ultimate Edition - SEO, Cross-Links, Propagation & Copyri
         expect(error).toBeUndefined();
         expect(sujet.readingTimeMinutes).toBe(4);
         expect(sujet.publishedAt).toBeInstanceOf(Date);
-        expect(sujet.copyrightMetadata.role).toBe('SUBLIMATOR');
-        expect(sujet.copyrightMetadata.isExclusiveIlot).toBe(true);
-        expect(sujet.copyrightMetadata.filiation!.claimStatus).toBe('SHARED');
+        
+        // 🚀 Vérification via le cryptoSeal avec chaînage optionnel
+        expect(sujet.cryptoSeal?.copyrightMetadata?.role).toBe('SUBLIMATOR');
+        expect(sujet.cryptoSeal?.copyrightMetadata?.isExclusiveIlot).toBe(true);
+        expect(sujet.cryptoSeal?.copyrightMetadata?.filiation?.claimStatus).toBe('SHARED');
+        
         expect(sujet.seo.metaTitle).toBe('Chronique des Profondeurs | Îlot');
         expect(sujet.connections.crossLinks).toHaveLength(1);
         expect(sujet.connections?.crossLinks?.[0]?.entityType).toBe('LYRIKA');

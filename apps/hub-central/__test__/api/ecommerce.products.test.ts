@@ -112,7 +112,7 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue & Filiati
         expect(json.error).toContain('Contrat souverain invalide');
     });
 
-    it('🟢 doit autoriser l\'ajout et transmettre tags, roulette, copyright et filiation à l\'Orchestrateur', async () => {
+    it('🟢 doit autoriser l\'ajout et transmettre tags, roulette, et cryptoSeal (avec copyright et filiation) à l\'Orchestrateur', async () => {
         vi.mocked(OiseauModel.findOne).mockReturnValue({
             lean: vi.fn().mockResolvedValueOnce({
                 uid: 'bird_clean_1',
@@ -140,13 +140,19 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue & Filiati
                 tags: ['magie', 'rare'],
                 isRouletteActive: true,
                 wagerAmount: 5,
-                copyrightMetadata: {
-                    role: 'SUBLIMATOR',
-                    isExclusiveIlot: true,
-                    filiation: {
-                        isExternalSource: true,
-                        sourceAuthorName: 'Auteur Original',
-                        sourceWorkTitle: 'Monolithe Source'
+                // 🚀 Adaptation vers le format validé par ProductSchema (cryptoSeal)
+                cryptoSeal: {
+                    digitalSignature: 'mock-test-hash',
+                    timestampedAt: new Date(),
+                    copyrightMetadata: {
+                        role: 'SUBLIMATOR',
+                        isExclusiveIlot: true,
+                        license: 'MIT / Libre Canopée',
+                        filiation: {
+                            isExternalSource: true,
+                            sourceAuthorName: 'Auteur Original',
+                            sourceWorkTitle: 'Monolithe Source'
+                        }
                     }
                 }
             }),
@@ -159,7 +165,7 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue & Filiati
         expect(json.success).toBe(true);
         expect(json.data).toHaveProperty('uid');
         
-        // Vérification de la transmission des champs vers l'orchestrateur espionné (y compris le copyright & filiation)
+        // 🚀 Vérification de la transmission du cryptoSeal vers l'orchestrateur espionné
         expect(EcommerceOrchestrator.prototype.createProduct).toHaveBeenCalledTimes(1);
         expect(EcommerceOrchestrator.prototype.createProduct).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -167,11 +173,13 @@ describe('POST /api/ecommerce/products (Douane Vibratoire du Catalogue & Filiati
                 tags: ['magie', 'rare'],
                 isRouletteActive: true,
                 wagerAmount: 5,
-                copyrightMetadata: expect.objectContaining({
-                    role: 'SUBLIMATOR',
-                    isExclusiveIlot: true,
-                    filiation: expect.objectContaining({
-                        sourceWorkTitle: 'Monolithe Source'
+                cryptoSeal: expect.objectContaining({
+                    copyrightMetadata: expect.objectContaining({
+                        role: 'SUBLIMATOR',
+                        isExclusiveIlot: true,
+                        filiation: expect.objectContaining({
+                            sourceWorkTitle: 'Monolithe Source'
+                        })
                     })
                 })
             }),

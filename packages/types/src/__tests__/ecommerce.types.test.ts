@@ -21,7 +21,7 @@ describe('Ecommerce Types - Validation Zod Avancée (Coût, Marge Kompta, Roulet
     expect(StoreSchema.safeParse(store).success).toBe(true);
   });
 
-  it('🟢 doit valider un produit avec coût de revient, calcul de marge pour Kompta ET Pacte de Filiation', () => {
+  it('🟢 doit valider un produit avec coût de revient, calcul de marge pour Kompta ET cryptoSeal (Pacte de Filiation)', () => {
     const product = { 
       uid: 'prod-1', 
       storeUid: 'store-1', 
@@ -47,17 +47,22 @@ describe('Ecommerce Types - Validation Zod Avancée (Coût, Marge Kompta, Roulet
       variants: [
         { uid: 'var-1', name: 'Standard', priceOffsetCents: 0, costPriceCents: 300, stock: 50 }
       ],
-      // 🚀 Intégration du Copyright et Pacte de Filiation testée ici
-      copyrightMetadata: {
-        role: 'SUBLIMATOR',
-        originalAuthor: 'Graphiste Anonyme',
-        isExclusiveIlot: true,
-        filiation: {
-          isExternalSource: true,
-          sourceAuthorName: 'Graphiste Anonyme',
-          sourceWorkTitle: 'Cyber Font v1',
-          claimStatus: 'PENDING_CLAIM',
-          escrowBalance: 0
+      // 🚀 Intégration du cryptoSeal complet avec Filiation
+      cryptoSeal: {
+        digitalSignature: 'mock-ecommerce-hash',
+        timestampedAt: new Date(),
+        copyrightMetadata: {
+          role: 'SUBLIMATOR',
+          originalAuthor: 'Graphiste Anonyme',
+          isExclusiveIlot: true,
+          license: 'MIT / Libre Canopée',
+          filiation: {
+            isExternalSource: true,
+            sourceAuthorName: 'Graphiste Anonyme',
+            sourceWorkTitle: 'Cyber Font v1',
+            claimStatus: 'PENDING_CLAIM',
+            escrowBalance: 0
+          }
         }
       }
     };
@@ -65,9 +70,9 @@ describe('Ecommerce Types - Validation Zod Avancée (Coût, Marge Kompta, Roulet
     const result = ProductSchema.safeParse(product);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.copyrightMetadata?.role).toBe('SUBLIMATOR');
-      expect(result.data.copyrightMetadata?.filiation?.sourceWorkTitle).toBe('Cyber Font v1');
-      expect(result.data.copyrightMetadata?.filiation?.claimStatus).toBe('PENDING_CLAIM');
+      expect(result.data.cryptoSeal?.copyrightMetadata?.role).toBe('SUBLIMATOR');
+      expect(result.data.cryptoSeal?.copyrightMetadata?.filiation?.sourceWorkTitle).toBe('Cyber Font v1');
+      expect(result.data.cryptoSeal?.copyrightMetadata?.filiation?.claimStatus).toBe('PENDING_CLAIM');
     }
   });
 

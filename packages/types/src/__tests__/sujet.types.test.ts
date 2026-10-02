@@ -21,27 +21,30 @@ describe('Schéma Zod : SujetSchema (DRY Edition)', () => {
       authorUid: 'oiseau-uid-789'
     };
 
-    it('valide un sujet avec les métadonnées de copyright injectées par défaut', () => {
+    it('valide un sujet valide', () => {
       const result = SujetSchema.safeParse(validBaseSujet);
       expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.copyrightMetadata.role).toBe('CREATOR');
-        expect(result.data.copyrightMetadata.isExclusiveIlot).toBe(false);
-      }
     });
 
     it('valide un sujet avec un rôle de Sublimateur et un Pacte de Filiation initié', () => {
       const sublimatedSujet = {
         ...validBaseSujet,
-        copyrightMetadata: {
-          role: 'SUBLIMATOR',
-          originalAuthor: 'Georges Brassens',
-          filiation: {
-            isExternalSource: true,
-            sourceAuthorName: 'Georges Brassens',
-            sourceWorkTitle: 'Les Copains d abord',
-            claimStatus: 'PENDING_CLAIM',
-            escrowBalance: 0
+        // 🚀 Intégration du sceau cryptographique unifié
+        cryptoSeal: {
+          digitalSignature: 'mock-sha256-hash',
+          timestampedAt: new Date(),
+          sealedByUid: 'oiseau-uid-789',
+          copyrightMetadata: {
+            role: 'SUBLIMATOR',
+            originalAuthor: 'Georges Brassens',
+            license: 'MIT / Libre Canopée', // 🚀 Satisfaction de Zod
+            filiation: {
+              isExternalSource: true,
+              sourceAuthorName: 'Georges Brassens',
+              sourceWorkTitle: 'Les Copains d abord',
+              claimStatus: 'PENDING_CLAIM',
+              escrowBalance: 0
+            }
           }
         }
       };
@@ -49,8 +52,8 @@ describe('Schéma Zod : SujetSchema (DRY Edition)', () => {
       const result = SujetSchema.safeParse(sublimatedSujet);
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.copyrightMetadata.filiation?.sourceAuthorName).toBe('Georges Brassens');
-        expect(result.data.copyrightMetadata.filiation?.claimStatus).toBe('PENDING_CLAIM');
+        expect(result.data.cryptoSeal?.copyrightMetadata?.filiation?.sourceAuthorName).toBe('Georges Brassens');
+        expect(result.data.cryptoSeal?.copyrightMetadata?.filiation?.claimStatus).toBe('PENDING_CLAIM');
       }
     });
   });

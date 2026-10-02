@@ -1,8 +1,9 @@
+// Fichier : packages/infrastructure/src/__tests__/letrinSprite.model.test.ts
 import { describe, it, expect } from 'vitest';
 import { LetrinFontSpriteModel } from '../../nosql/letrinSprite.model'; 
 
 describe('Silice : LetrinFontSprite Model (Forge Alchimique)', () => {
-    it('🟢 doit valider une police/sprite de lettre avec ses valeurs requises, taxonomie et gamification', () => {
+    it('🟢 doit valider une police/sprite de lettre avec ses valeurs requises, taxonomie, gamification et sceau cryptographique', () => {
         const validData = {
             uid: 'font_sprite_123',
             name: 'Gothique Corrompue',
@@ -11,6 +12,18 @@ describe('Silice : LetrinFontSprite Model (Forge Alchimique)', () => {
             category: 'GOTHIQUE',
             tags: ['sombre', 'cyberpunk', 'glitch'],
             frequencyHz: 396, // Fréquence de libération de la peur
+            
+            // 🚀 Ajout du sceau cryptographique (remplace les champs explosés)
+            cryptoSeal: {
+                digitalSignature: '9b71d224bd62f3785d96d46ad3ea3d73319bfbc2890caadae2dff72519673ca7',
+                timestampedAt: new Date(),
+                copyrightMetadata: {
+                    role: 'CREATOR',
+                    isExclusiveIlot: true,
+                    license: 'MIT / Libre Canopée'
+                }
+            },
+
             gamification: {
                 palette: ['#000000', '#E5484D', '#111827'], // 3 couleurs débloquées
                 alchemicalXp: 450,
@@ -55,6 +68,10 @@ describe('Silice : LetrinFontSprite Model (Forge Alchimique)', () => {
         // Vérification Barter/Troc
         expect(fontSprite.glyphs[0].barter?.isBarterable).toBe(true);
         expect(fontSprite.glyphs[0].barter?.barterValueKarma).toBe(50);
+
+        // 🚀 Vérification du Sceau Cryptographique
+        expect(fontSprite.cryptoSeal?.digitalSignature).toHaveLength(64);
+        expect(fontSprite.cryptoSeal?.copyrightMetadata?.role).toBe('CREATOR');
     });
 
     it('🔴 doit rejeter une création si les piliers fondateurs (uid, name, slug, authorUid) manquent', () => {
@@ -96,6 +113,8 @@ describe('Silice : LetrinFontSprite Model (Forge Alchimique)', () => {
         expect(minimalFont.frequencyHz).toBe(432); // Fréquence de base
         expect(minimalFont.gamification.unlockedFontSlots).toBe(3);
         expect(minimalFont.gamification.unlockedSpriteSlots).toBe(3);
-        expect(minimalFont.copyrightClaimed).toBe(true);
+        
+        // 🚀 Le sceau cryptographique doit rester complètement "undefined" par défaut pour coller au typage Zod
+        expect(minimalFont.cryptoSeal).toBeUndefined();
     });
 });

@@ -1,3 +1,4 @@
+// Fichier : packages/shared-core/src/sync-engine/__tests__/letrinSprite.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LetrinSpriteOrchestrator } from '../letrinSprite.orchestrator';
 import { TransactionManager } from '../transactionManager';
@@ -73,7 +74,7 @@ describe('LetrinSpriteOrchestrator - Forge Alchimique Letr\'in', () => {
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit sédimenter la création, inclure la taxonomie et générer le Sceau Cryptographique (SHA-256)', async () => {
+    it('🟢 doit sédimenter la création, inclure la taxonomie et générer le Sceau Cryptographique (SHA-256) encapsulé', async () => {
       const mockFontData = {
         uid: 'font_alpha',
         name: 'Canopy Sans Font',
@@ -94,9 +95,12 @@ describe('LetrinSpriteOrchestrator - Forge Alchimique Letr\'in', () => {
       expect(res.success).toBe(true);
       expect(res.name).toBe('Canopy Sans Font');
       expect(res.glyphsCount).toBe(1);
-      // Le sceau doit être un hash hexadécimal généré par crypto
-      expect(res.digitalSignature).toBeDefined();
-      expect(typeof res.digitalSignature).toBe('string');
+      
+      // Le sceau cryptographique et la signature doivent être définis
+      expect(res.cryptoSeal).toBeDefined();
+      expect(res.cryptoSeal.digitalSignature).toBeDefined();
+      expect(typeof res.cryptoSeal.digitalSignature).toBe('string');
+      
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });

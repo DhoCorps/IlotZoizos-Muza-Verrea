@@ -74,9 +74,12 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
       mongo: {
         uid: 'book_new_123',
         title: 'Essai sur la Silice',
-        digitalSignature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-        timestampedAt: new Date(),
         status: 'PUBLISHED',
+        // 🚀 Adaptation du mock pour correspondre au nouveau format cryptoSeal
+        cryptoSeal: {
+          digitalSignature: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+          timestampedAt: new Date(),
+        },
         economy: { priceCents: 1500, gachaTier: 'rare', barterAllowed: true, rights: { allowBarter: true } }
       },
       neo4j: {}
@@ -115,7 +118,6 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
     const req = new NextRequest('http://localhost:3000/api/bibliotek?authorUid=bird_writer&status=DRAFT');
     await getHandler(req, {});
     
-    // L'Oiseau identifié peut voir ses propres brouillons via la requête directe (bypass du cache global)
     expect(LibraryBookModel.find).toHaveBeenCalledWith(expect.objectContaining({ status: 'DRAFT', authorUid: 'bird_writer' }));
   });
 
@@ -138,11 +140,11 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
         title: 'Essai sur la Silice', 
         fileUrl: 'https://cdn.ilot/books/essai.epub',
         status: 'PUBLISHED',
-        tags: ['silice', 'filiation'], // 🚀 Validation des tags
+        tags: ['silice', 'filiation'],
         copyrightMetadata: {
           role: 'SUBLIMATOR',
           isExclusiveIlot: true,
-          filiation: { // 🚀 Validation du transfert de la filiation
+          filiation: {
             isExternalSource: true,
             sourceAuthorName: 'Auteur Original',
             sourceWorkTitle: 'La Source'
@@ -159,7 +161,6 @@ describe('API Bibliotek - Collection (GET / POST)', () => {
     expect(json.success).toBe(true);
     expect(json.data.status).toBe('PUBLISHED');
     
-    // 🚀 S'assure que l'Orchestrateur reçoit bien les données de tags et filiation validées par Zod
     expect(BibliotekOrchestrator.prototype.fosterBook).toHaveBeenCalledWith(
       expect.objectContaining({
         tags: ['silice', 'filiation'],
