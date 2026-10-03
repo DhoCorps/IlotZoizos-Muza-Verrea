@@ -7,7 +7,7 @@ import { usePartitaStore } from '@/store/partitaStore';
 import { useAlphaTab } from '@/hooks/useAlphaTab';
 
 // -------------------------------------------------------------------------
-// 🎭 MOCKS EXACTS DES CHEMINS DU HOOK ET DU STORE
+// 🎭 MOCKS DES CHEMINS DU HOOK ET DU STORE
 // -------------------------------------------------------------------------
 vi.mock('@/hooks/useAlphaTab', () => ({
   useAlphaTab: vi.fn(),
@@ -41,6 +41,10 @@ describe('ScorePlayer Component', () => {
       isPlaying: false,
       playbackSpeed: 1.0,
       setPlaybackSpeed: mockSetPlaybackSpeed,
+      masterVolume: 1.0,
+      setMasterVolume: vi.fn(),
+      isLooping: false,
+      toggleLoop: vi.fn(),
     } as any);
   });
 
@@ -50,6 +54,7 @@ describe('ScorePlayer Component', () => {
       isPlaying: false,
       playbackSpeed: 1.0,
       setPlaybackSpeed: mockSetPlaybackSpeed,
+      masterVolume: 1.0,
     } as any);
 
     render(<ScorePlayer fileUrl="https://mock.com/file.gp" />);
@@ -68,6 +73,9 @@ describe('ScorePlayer Component', () => {
     expect(screen.queryByTestId('loading-overlay')).not.toBeInTheDocument();
     expect(screen.getByTestId('btn-play-pause')).not.toBeDisabled();
     expect(screen.getByTestId('speed-slider')).not.toBeDisabled();
+    
+    // 🚀 Correction ici : on cible le vrai data-testid rendu par TrainerControls
+    expect(screen.getByTestId('trainer-controls')).toBeInTheDocument();
   });
 
   it('🟢 doit déclencher playPause et stop via les boutons', () => {
@@ -101,6 +109,7 @@ describe('ScorePlayer Component', () => {
       isPlaying: false,
       playbackSpeed: 0.75, // 75%
       setPlaybackSpeed: mockSetPlaybackSpeed,
+      masterVolume: 1.0,
     } as any);
 
     render(<ScorePlayer fileUrl="https://mock.com/file.gp" />);

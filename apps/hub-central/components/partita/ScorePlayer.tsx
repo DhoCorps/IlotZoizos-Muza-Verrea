@@ -1,22 +1,23 @@
 // apps/hub-central/src/components/partita/ScorePlayer.tsx
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useAlphaTab } from '../../hooks/useAlphaTab';
 import { usePartitaStore } from '../../store/partitaStore';
 import { Play, Pause, Square, Loader2 } from 'lucide-react';
+import { TrainerControls } from './TrainerControls'; // 🚀 Import des contrôles d'entraînement
 
 interface ScorePlayerProps {
   fileUrl?: string;
-  rawContent?: string; // 🚀 Ajout de la tolérance pour le contenu brut (Sceau / Base64 / ABC)
+  rawContent?: string;
 }
 
 export const ScorePlayer: React.FC<ScorePlayerProps> = ({ fileUrl, rawContent }) => {
-  // 🚀 Initialisation du moteur avec l'objet de source attendu par useAlphaTab
   const { containerRef, playPause, stop, setSpeed } = useAlphaTab({ fileUrl, rawContent });
-  
-  // État du lecteur
   const { isLoaded, isPlaying, playbackSpeed, setPlaybackSpeed } = usePartitaStore();
+  
+  // État local pour l'activation du métronome
+  const [isMetronomeActive, setIsMetronomeActive] = useState(false);
 
   const handleSpeedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newSpeed = parseFloat(e.target.value);
@@ -28,14 +29,14 @@ export const ScorePlayer: React.FC<ScorePlayerProps> = ({ fileUrl, rawContent })
 
   return (
     <div 
-      className="w-full bg-slate-900 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col"
+      className="w-full bg-slate-900 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl flex flex-col p-4 space-y-4"
       role="region"
       aria-label="Lecteur de partition musicale"
       data-testid="score-player"
     >
       
-      {/* 1. BARRE DE CONTRÔLE (TrainerControls) */}
-      <div className="p-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-4">
+      {/* 1. BARRE DE CONTRÔLE PRINCIPALE (Play/Stop) */}
+      <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl flex items-center justify-between gap-4">
         
         <div className="flex items-center gap-2">
           <button 
@@ -61,7 +62,7 @@ export const ScorePlayer: React.FC<ScorePlayerProps> = ({ fileUrl, rawContent })
           </button>
         </div>
 
-        {/* Contrôle de la Vitesse */}
+        {/* Contrôle rapide de la Vitesse */}
         <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 rounded-xl border border-slate-800">
           <label htmlFor="speed-slider" className="text-[10px] font-mono text-slate-400 uppercase tracking-widest">
             Vitesse : <span data-testid="speed-display">{displaySpeed}</span>%
@@ -83,8 +84,14 @@ export const ScorePlayer: React.FC<ScorePlayerProps> = ({ fileUrl, rawContent })
 
       </div>
 
-      {/* 2. ZONE DE RENDU DE LA PARTITION (AlphaTab) */}
-      <div className="relative w-full h-[600px] overflow-auto bg-[#F8F9FA] p-8 custom-scrollbar">
+      {/* 2. 🎛️ BARRE DES CONTRÔLES D'ENTRAÎNEMENT (TrainerControls intégrés) */}
+      <TrainerControls 
+        isMetronomeActive={isMetronomeActive}
+        onToggleMetronome={() => setIsMetronomeActive(!isMetronomeActive)}
+      />
+
+      {/* 3. ZONE DE RENDU DE LA PARTITION (AlphaTab) */}
+      <div className="relative w-full h-[600px] overflow-auto bg-[#F8F9FA] p-8 rounded-2xl custom-scrollbar">
         {!isLoaded && (
           <div 
             className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/50 backdrop-blur-sm z-10"
