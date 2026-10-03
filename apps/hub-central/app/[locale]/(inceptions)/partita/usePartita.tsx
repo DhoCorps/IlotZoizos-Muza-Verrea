@@ -6,18 +6,31 @@ import { useSession } from 'next-auth/react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-export function usePartita() {
+interface UsePartitaFilters {
+  instrument?: string | null;
+  status?: string | null;
+}
+
+export function usePartita(filters?: UsePartitaFilters) {
   const { data: session } = useSession();
   const queryClient = useQueryClient();
   
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [selectedUid, setSelectedUid] = useState<string | null>(null);
 
-  // 🌀 SUTURE REACT QUERY : Route corrigée vers /api/partita
+  // 🌀 SUTURE REACT QUERY : Route avec prise en charge des filtres optionnels (Instrument / Statut)
+  const queryKey = ['partitions', filters?.instrument || 'all', filters?.status || 'all'];
+
   const { data: partitions = [], isLoading: loading } = useQuery({
-    queryKey: ['partitions'],
+    queryKey,
     queryFn: async () => {
-      const res = await fetch('/api/partita');
+      const params = new URLSearchParams();
+      if (filters?.instrument) params.append('instrument', filters.instrument);
+      if (filters?.status) params.append('status', filters.status);
+
+      const url = `/api/partita${params.toString() ? `?${params.toString()}` : ''}`;
+      const res = await fetch(url);
+      
       if (!res.ok) throw new Error("Échec de la récupération des partitions");
       const data = await res.json();
       return Array.isArray(data) ? data : [];

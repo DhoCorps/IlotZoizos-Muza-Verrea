@@ -1,3 +1,4 @@
+// Fichier : apps/hub-central/app/api/partita/__tests__/route.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/partita/route';
 import { PartitaOrchestrator } from '@ilot/shared-core';
@@ -13,6 +14,11 @@ vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
 }));
 
+// MOCK DU HACHAGE CRYPTOGRAPHIQUE
+vi.mock('@/lib/cryptoHelper', () => ({
+  generateFileHash: vi.fn().mockReturnValue('mock-sha256-hash-1234567890'),
+}));
+
 // MOCK DES GARDES D'AURA
 vi.mock('@/lib/api-guards', () => ({
   withOptionalAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
@@ -25,19 +31,14 @@ vi.mock('@/lib/api-guards', () => ({
     }
     return await handler(req, context, mockUser);
   },
+  handleRouteError: (error: unknown, defaultMessage: string) => {
+    return NextResponse.json({ error: defaultMessage }, { status: 500 });
+  }
 }));
 
 // 🎯 Mock explicite de getCachedPartitas
 vi.mock('@/lib/cache/partita.cache', () => ({
   getCachedPartitas: vi.fn(),
-}));
-
-// 🛡️ MOCK MONGOOSE
-vi.mock('@ilot/infrastructure', () => ({
-  connectToDatabase: vi.fn().mockResolvedValue(true),
-  PartitaModel: {
-    find: vi.fn(),
-  }
 }));
 
 // 🛡️ Déclaration globale unifiée pour éviter les conflits de types
@@ -49,7 +50,7 @@ declare global {
   } | undefined;
 }
 
-describe('API Partita - Collection (GET / POST) avec Sceau SHA-256', () => {
+describe('API Partita - Collection (GET / POST) avec SEO et Sceau SHA-256', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete global.__mockUser;
@@ -61,18 +62,22 @@ describe('API Partita - Collection (GET / POST) avec Sceau SHA-256', () => {
       mongo: {
         uid: 'part_new',
         title: 'Opus 1',
+        cryptoSeal: {
+          digitalSignature: 'mock-sha256-hash-1234567890',
+          timestampedAt: new Date()
+        }
       } as unknown as import('@ilot/types').IPartita,
       neo4j: {} as unknown as import('neo4j-driver').QueryResult
     });
   });
 
-  it('✅ GET : doit lister les partitions', async () => {
+  it('✅ GET : doit lister les partitions depuis le cache', async () => {
     delete global.__mockUser;
 
     vi.mocked(getCachedPartitas).mockResolvedValueOnce([{ uid: 'part_1', title: 'Sonate' }] as unknown as Awaited<ReturnType<typeof getCachedPartitas>>);
 
     const req = new NextRequest('http://localhost:3000/api/partita?instrument=piano');
-    const res = await GET(req, { params: Promise.resolve({}) });
+    const res = await GET(req, { params: Promise.resolve({}) } as any);
     const data = await res.json();
 
     expect(res.status).toBe(200);
@@ -83,33 +88,68 @@ describe('API Partita - Collection (GET / POST) avec Sceau SHA-256', () => {
   it('❌ POST : doit rejeter si l’oiseau n’est pas identifié (401)', async () => {
     delete global.__mockUser;
     const req = new NextRequest('http://localhost/api/partita', { method: 'POST' });
-    const res = await POST(req, { params: Promise.resolve({}) });
+    const res = await POST(req, { params: Promise.resolve({}) } as any);
     expect(res.status).toBe(401);
   });
 
   it('❌ POST : doit rejeter si titre ou contenu manquant (400)', async () => {
     global.__mockUser = { uid: 'bird_1', capabilities: [] };
     const req = new NextRequest('http://localhost/api/partita', {
-      method: 'POST', body: JSON.stringify({ title: 'Juste un titre' })
+      method: 'POST', body: JSON.stringify({ title: 'Juste un titre sans contenu' })
     });
-    const res = await POST(req, { params: Promise.resolve({}) });
+    const res = await POST(req, { params: Promise.resolve({}) } as any);
     expect(res.status).toBe(400);
   });
 
-  it('✅ POST : doit fonder la partition, forger le Sceau SHA-256 avec succès (201)', async () => {
+  it('✅ POST : doit valider le SEO, le Sceau, puis fonder la partition (201)', async () => {
     global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
     const req = new NextRequest('http://localhost/api/partita', {
-      method: 'POST', body: JSON.stringify({ title: 'Opus 1', content: 'C D E' })
+      method: 'POST', 
+      body: JSON.stringify({ 
+        title: 'Opus 1', 
+        content: 'C D E',
+        instrument: 'PIANO',
+        // 🚀 Intégration SEO
+        seo: {
+          metaTitle: 'Opus 1 - Piano'
+        },
+        // 🚀 Intégration CryptoSeal
+        cryptoSeal: {
+          copyrightMetadata: {
+            role: 'CREATOR',
+            isExclusiveIlot: true,
+            filiation: {
+              sourceAuthorName: 'Moi',
+              sourceWorkTitle: 'Mon Opus'
+            }
+          }
+        }
+      })
     });
-    const res = await POST(req, { params: Promise.resolve({}) });
+
+    const res = await POST(req, { params: Promise.resolve({}) } as any);
     const data = await res.json();
 
     expect(res.status).toBe(201);
     expect(data.uid).toBe('part_new');
-    expect(data.digitalSignature).toBeDefined();
-    expect(typeof data.digitalSignature).toBe('string');
-    expect(data.digitalSignature.length).toBe(64);
+    
+    // Vérifie que le hachage a été correctement généré par le Helper et renvoyé
+    expect(data.digitalSignature).toBe('mock-sha256-hash-1234567890');
+    
+    // Vérifie l'appel à l'orchestrateur avec le bon payload validé par Zod
+    expect(PartitaOrchestrator.prototype.fosterPartita).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Opus 1',
+        instrument: 'PIANO',
+        seo: expect.objectContaining({ metaTitle: 'Opus 1 - Piano' }),
+        cryptoSeal: expect.objectContaining({
+          copyrightMetadata: expect.objectContaining({ role: 'CREATOR' })
+        })
+      }),
+      expect.objectContaining({ actorUid: 'bird_1' })
+    );
+
     expect(revalidateTag).toHaveBeenCalledWith('partitas');
   });
 });

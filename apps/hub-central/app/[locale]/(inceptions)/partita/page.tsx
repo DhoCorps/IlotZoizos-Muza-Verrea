@@ -6,9 +6,9 @@ import { Music, Plus, Loader2, Sparkles, Compass } from 'lucide-react';
 import { PartitaCard } from '@/components/partita/PartitaCard';
 import { PartitaForm } from '@/components/partita/PartitaForm';
 import ResonanceButton from '@/components/resonance/ResonanceButton';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePageChapeauContext } from '@/hooks/usePageChapeauContext';
+import { usePartita } from './usePartita';
 
 export default function PartitaDashboard() {
   const queryClient = useQueryClient();
@@ -16,9 +16,6 @@ export default function PartitaDashboard() {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [instrumentFilter, setInstrumentFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
-  
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingPartition, setEditingPartition] = useState<any>(null);
 
   // 🦅 Synchronisation du contexte de la page avec le Chapeau Flottant
   usePageChapeauContext({
@@ -27,18 +24,21 @@ export default function PartitaDashboard() {
     targetTitle: 'Atelier Partita',
   });
 
-  // 🌀 SUTURE REACT QUERY : Récupération des partitions sur la bonne route API
-  const { data: partitions = [], isLoading: partitionsLoading } = useQuery({
-    queryKey: ['partitions'],
-    queryFn: async () => {
-      const res = await fetch('/api/partita');
-      if (!res.ok) throw new Error("Échec de la récupération des partitions");
-      const data = await res.json();
-      return Array.isArray(data) ? data : [];
-    }
+  // 🌀 Utilisation de notre hook personnalisé enrichi
+  const { 
+    partitions, 
+    loading: partitionsLoading, 
+    activeModal, 
+    setActiveModal, 
+    selectedUid, 
+    setSelectedUid, 
+    handleDelete 
+  } = usePartita({ 
+    instrument: instrumentFilter !== 'ALL' ? instrumentFilter : null, 
+    status: statusFilter !== 'ALL' ? statusFilter : null 
   });
 
-  // 🌀 SUTURE REACT QUERY : Récupération des projets liés
+  // 🌀 Récupération des projets liés pour le maillage
   const { data: projects = [], isLoading: projectsLoading } = useQuery({
     queryKey: ['projects'],
     queryFn: async () => {
@@ -51,50 +51,27 @@ export default function PartitaDashboard() {
 
   const loading = partitionsLoading || projectsLoading;
 
-  // 🌀 SUTURE REACT QUERY : Mutation pour la suppression d'une partition
-  const deleteMutation = useMutation({
-    mutationFn: async (slugOrUid: string) => {
-      const res = await fetch(`/api/partita/${slugOrUid}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error("Échec de la désintégration de la partition");
-      return slugOrUid;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['partitions'] });
-      toast.success("✨ Partition dissoute dans le néant.");
-    },
-    onError: (err: any) => {
-      console.error("🔥 Erreur lors de la désintégration :", err);
-      toast.error(`🔥 Échec de la suppression : ${err.message}`);
-    }
-  });
-
-  const handleDelete = (slugOrUid: string) => {
-    if (!confirm("Es-tu sûr de vouloir dissoudre cette partition dans le néant ?")) return;
-    deleteMutation.mutate(slugOrUid);
-  };
-
   const handleOpenCreate = () => {
-    setEditingPartition(null);
-    setIsModalOpen(true);
+    setSelectedUid(null);
+    setActiveModal('create-or-edit');
   };
 
   const handleOpenEdit = (partition: any) => {
-    setEditingPartition(partition);
-    setIsModalOpen(true);
+    setSelectedUid(partition);
+    setActiveModal('create-or-edit');
   };
 
   const handleFormSuccess = () => {
-    setIsModalOpen(false);
-    setEditingPartition(null);
+    setActiveModal(null);
+    setSelectedUid(null);
     queryClient.invalidateQueries({ queryKey: ['partitions'] });
   };
 
+  // Filtrage fin par recherche textuelle locale
   const filteredPartitions = partitions.filter((p: any) => {
-    const matchesStatus = statusFilter === 'ALL' || p.status === statusFilter;
-    const matchesInstrument = instrumentFilter === 'ALL' || p.instrument === instrumentFilter;
     const matchesSearch = p.title?.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           p.content?.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesStatus && matchesInstrument && matchesSearch;
+    return matchesSearch;
   });
 
   return (
@@ -121,6 +98,7 @@ export default function PartitaDashboard() {
         <div className="flex items-center gap-4 z-10">
           <button 
             onClick={handleOpenCreate}
+            data-testid="btn-new-partition"
             className="px-6 py-4 bg-[#E5484D] hover:bg-[#c43d41] text-white font-black uppercase text-xs rounded-2xl shadow-[0_0_20px_rgba(229,72,77,0.3)] hover:scale-[1.02] transition-all flex items-center gap-2"
           >
             <Plus size={16} /> Nouvelle Partition
@@ -221,16 +199,16 @@ export default function PartitaDashboard() {
       )}
 
       {/* 🪟 MODALE DE CRÉATION / MUTATION */}
-      {isModalOpen && (
+      {activeModal === 'create-or-edit' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl p-4 animate-in fade-in">
           <div className="w-full max-w-2xl bg-[#0A0D14] border border-white/10 rounded-3xl p-6 md:p-8 shadow-2xl relative space-y-6">
             <div className="flex items-center justify-between pb-4 border-b border-white/5">
               <h2 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
                 <Music size={16} className="text-[#E5484D]" /> 
-                {editingPartition ? "Ajuster la Partition" : "Inscrire une Partition"}
+                {selectedUid ? "Ajuster la Partition" : "Inscrire une Partition"}
               </h2>
               <button 
-                onClick={() => setIsModalOpen(false)}
+                onClick={() => setActiveModal(null)}
                 className="text-xs font-mono text-slate-500 hover:text-white uppercase transition-colors"
               >
                 [ Fermer ]
@@ -238,10 +216,10 @@ export default function PartitaDashboard() {
             </div>
 
             <PartitaForm 
-              initialData={editingPartition}
+              initialData={selectedUid}
               existingProjects={projects}
               onSuccess={handleFormSuccess}
-              onCancel={() => setIsModalOpen(false)}
+              onCancel={() => setActiveModal(null)}
             />
           </div>
         </div>

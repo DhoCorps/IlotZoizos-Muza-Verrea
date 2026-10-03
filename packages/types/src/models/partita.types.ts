@@ -1,5 +1,8 @@
+// Fichier : packages/types/src/models/partita.types.ts
 import { z } from 'zod';
 import { BaseNodeSchema, MerchLinkSchema } from './common.types';
+import { SeoMetadataSchema } from '../core/seo.types'; // 🚀 Ajout du module SEO
+import { CryptographicSealSchema } from '../core/cryptoSeal.types'; // 🚀 Ajout du Sceau Juridique Unifié
 
 export const InstrumentCategorySchema = z.enum([
   'BASS',    // Pour ta fretless !
@@ -25,7 +28,7 @@ export const PartitaSchema = BaseNodeSchema.extend({
   title: z.string().min(1, "Une partition ne peut naître sans nom"),
   slug: z.string().min(1, "Le slug est requis"), // 🪡 L'empreinte URL
   
-  // Le contenu (Code ABC, ChordPro ou notation Tab)
+  // Le contenu (Code ABC, ChordPro ou notation Tab - prêt à être haché pour le Sceau)
   content: z.string().min(1), 
   
   instrument: InstrumentCategorySchema.default('BASS'),
@@ -36,6 +39,12 @@ export const PartitaSchema = BaseNodeSchema.extend({
 
   status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED', 'BURNED']).default('DRAFT'),
   tags: z.array(z.string()).default([]),
+
+  // 🔍 OPTIMISATION SEO
+  seo: SeoMetadataSchema.default({}),
+
+  // 📜 SCEAU CRYPTOGRAPHIQUE UNIFIÉ (Propriété intellectuelle et Filiation)
+  cryptoSeal: CryptographicSealSchema.optional(),
 
   // Le tissu connecteur (tom§hat§toes)
   connections: z.object({
@@ -63,6 +72,9 @@ export const PartitaSchema = BaseNodeSchema.extend({
     views: z.number().default(0),
     readsCompleted: z.number().default(0),
   }).default({ views: 0, readsCompleted: 0 }),
+
+  // 🚀 SUTURE UNIVERSAL COMMENT : Marqueur temporel pour le tri et les remontées
+  lastCommentedAt: z.string().datetime().optional(),
 });
 
 export type IPartita = z.infer<typeof PartitaSchema>;

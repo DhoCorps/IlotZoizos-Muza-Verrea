@@ -15,22 +15,21 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-describe('Cache : Partita Cache Helpers', () => {
+describe('Cache : Partita Cache Helpers - Intégration Universal Comment', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
   });
 
   describe('getCachedPartitas', () => {
-    it('doit récupérer le catalogue des partitas avec filtres optionnels et userUid', async () => {
+    it('🟢 doit récupérer le catalogue des partitas trié par activité (lastCommentedAt) avec filtres optionnels', async () => {
       const mockPartitas = [{ uid: 'part_1', title: 'Partita No. 1', status: 'PUBLISHED' }];
-      vi.mocked(PartitaModel.find).mockReturnValue({
-        sort: vi.fn().mockReturnValue({
-          limit: vi.fn().mockReturnValue({
-            lean: vi.fn().mockResolvedValue(mockPartitas),
-          }),
-        }),
-      } as any);
+      
+      // 🚀 Mock complet de la chaîne Mongoose pour espionner le tri
+      const mockLimit = vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue(mockPartitas) });
+      const mockSort = vi.fn().mockReturnValue({ limit: mockLimit });
+      
+      vi.mocked(PartitaModel.find).mockReturnValue({ sort: mockSort } as any);
 
       const result = await getCachedPartitas('bird_1', 'piano', 'PUBLISHED');
 
@@ -43,17 +42,18 @@ describe('Cache : Partita Cache Helpers', () => {
         instrument: 'piano',
         status: 'PUBLISHED',
       });
+      
+      // 🚀 Vérification de l'harmonisation du tri avec Universal Comment
+      expect(mockSort).toHaveBeenCalledWith({ lastCommentedAt: -1, createdAt: -1 });
     });
 
-    it('doit récupérer les partitas publiques sans userUid ni filtres', async () => {
+    it('🟢 doit récupérer les partitas publiques sans userUid ni filtres', async () => {
       const mockPartitas = [{ uid: 'part_2', status: 'PUBLISHED' }];
-      vi.mocked(PartitaModel.find).mockReturnValue({
-        sort: vi.fn().mockReturnValue({
-          limit: vi.fn().mockReturnValue({
-            lean: vi.fn().mockResolvedValue(mockPartitas),
-          }),
-        }),
-      } as any);
+      
+      const mockLimit = vi.fn().mockReturnValue({ lean: vi.fn().mockResolvedValue(mockPartitas) });
+      const mockSort = vi.fn().mockReturnValue({ limit: mockLimit });
+
+      vi.mocked(PartitaModel.find).mockReturnValue({ sort: mockSort } as any);
 
       const result = await getCachedPartitas();
 
@@ -65,7 +65,7 @@ describe('Cache : Partita Cache Helpers', () => {
   });
 
   describe('getCachedPartitaDetails', () => {
-    it('doit récupérer les détails d\'une partita par son slug ou uid en mode test (bypass)', async () => {
+    it('🟢 doit récupérer les détails d\'une partita par son slug ou uid en mode test (bypass)', async () => {
       const mockPartita = { uid: 'part_1', slug: 'partita-bach' };
       vi.mocked(PartitaModel.findOne).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce(mockPartita),
@@ -79,7 +79,7 @@ describe('Cache : Partita Cache Helpers', () => {
       });
     });
 
-    it('doit utiliser unstable_cache en dehors du mode test', async () => {
+    it('🟢 doit utiliser unstable_cache en dehors du mode test', async () => {
       vi.stubEnv('NODE_ENV', 'production');
       const mockPartita = { uid: 'part_2', slug: 'partita-mozart' };
       vi.mocked(PartitaModel.findOne).mockReturnValue({

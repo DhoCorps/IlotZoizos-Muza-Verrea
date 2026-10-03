@@ -1,3 +1,4 @@
+// Fichier : apps/hub-central/app/api/partita/[slug]/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -31,6 +32,38 @@ const UpdatePartitaSchema = z.object({
   status: z.string().optional(),
   slug: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  
+  // 🚀 Intégration du SEO
+  seo: z.object({
+    metaTitle: z.string().optional(),
+    metaDescription: z.string().optional(),
+  }).optional(),
+  
+  // 🚀 Intégration du Sceau et de la Filiation
+  cryptoSeal: z.object({
+    digitalSignature: z.string().optional(),
+    timestampedAt: z.coerce.date().optional(),
+    copyrightMetadata: z.object({
+      role: z.enum(['CREATOR', 'SUBLIMATOR', 'CURATOR']).optional(),
+      originalAuthor: z.string().optional(),
+      originalWorkTitle: z.string().optional(),
+      sublimationNotes: z.string().optional(),
+      isExclusiveIlot: z.boolean().optional(),
+      license: z.string().optional(),
+      filiation: z.object({
+        isExternalSource: z.boolean().default(false),
+        sourceAuthorName: z.string(),
+        sourceWorkTitle: z.string(),
+        sourceReferenceUrl: z.string().optional(),
+        claimStatus: z.enum(['PENDING_CLAIM', 'SHARED', 'REVOKED']).default('PENDING_CLAIM'),
+        escrowBalance: z.number().min(0).default(0),
+        derivativeType: z.string().optional()
+      }).optional()
+    }).optional()
+  }).optional(),
+  
+  copyrightMetadata: z.any().optional(), // Tolérance pour les appels directs
+  
   connections: z.object({
     relatedProjects: z.array(z.string()).optional(),
     relatedTasks: z.array(z.string()).optional(),
@@ -65,12 +98,12 @@ export const GET = withOptionalAura(async (req: NextRequest, context: ApiContext
     }
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-    
+         
     if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 🔍 Tentative via le cache, puis repli sur le helper unifié (Slug ou UID)
+    // 🪡 Tentative via le cache, puis repli sur le helper unifié (Slug ou UID)
     let partition = (await getCachedPartitaDetails(identifier)) as PartitaDocument | null;
     if (!partition) {
       partition = (await findEntityBySlugOrUid(PartitaModel, identifier)) as PartitaDocument | null;
@@ -111,9 +144,10 @@ export const PUT = withAura(async (req: NextRequest, context: ApiContext, curren
     } catch {
       return NextResponse.json({ error: "Corps de requête ou paramètres illisibles." }, { status: 400 });
     }
+
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-    
+         
     if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
@@ -127,7 +161,7 @@ export const PUT = withAura(async (req: NextRequest, context: ApiContext, curren
 
     const validatedUpdates: UpdatePartitaInput = validationResult.data;
 
-    // 🔍 Résolution unifiée pour s'assurer de l'existence et obtenir l'UID canonique
+    // Résolution unifiée pour s'assurer de l'existence et obtenir l'UID canonique
     const targetPartition = (await findEntityBySlugOrUid(PartitaModel, identifier, { lean: false })) as PartitaDocument | null;
     if (!targetPartition) {
       return NextResponse.json({ error: "Partition introuvable pour mutation." }, { status: 404 });
@@ -144,15 +178,15 @@ export const PUT = withAura(async (req: NextRequest, context: ApiContext, curren
       updatedPartition = await partitaOrch.updatePartita(targetPartition.uid, validatedUpdates, signature);
     } catch (orchErr: unknown) {
       const err = orchErr as { statusCode?: number; status?: number; message?: string };
-      console.error("🔥 [PARTITA ORCHESTRATOR PUT ERROR]", err);
+      console.error("  [PARTITA ORCHESTRATOR PUT ERROR]", err);
       const status = err.statusCode || err.status || 500;
       return NextResponse.json({ error: err.message || "Échec de mutation." }, { status });
     }
-         
+              
     // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('partitas');
     revalidateTag(`partita-${identifier}`);
-    
+         
     // 🛡️ TYPAGE STRICT : On extrait le document métier proprement
     const updateResObj = (updatedPartition || {}) as Record<string, unknown>;
     const documentStructure = (('mongo' in updateResObj ? updateResObj.mongo : updateResObj) || {}) as Partial<IPartita>;
@@ -163,9 +197,8 @@ export const PUT = withAura(async (req: NextRequest, context: ApiContext, curren
     if (documentStructure?.slug) {
       revalidateTag(`partita-${documentStructure.slug}`);
     }
-    
+         
     return NextResponse.json(updatedPartition, { status: 200 });
-
   } catch (error: unknown) {
     return handleRouteError(error, 'PARTITA PUT ERROR');
   }
@@ -182,14 +215,15 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
     } catch {
       return NextResponse.json({ error: "Paramètres invalides." }, { status: 400 });
     }
+
     const rawSlug = resolvedParams?.slug;
     const identifier = slugify(typeof rawSlug === 'string' ? rawSlug : Array.isArray(rawSlug) ? rawSlug[0] : '');
-    
+         
     if (!identifier) {
       return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
     }
 
-    // 🔍 Résolution unifiée pour s'assurer de l'existence et obtenir l'UID canonique
+    // Résolution unifiée pour s'assurer de l'existence et obtenir l'UID canonique
     const targetPartition = (await findEntityBySlugOrUid(PartitaModel, identifier)) as PartitaDocument | null;
     if (!targetPartition) {
       return NextResponse.json({ error: "Partition introuvable pour dissolution." }, { status: 404 });
@@ -206,11 +240,11 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
       await partitaOrch.disintegratePartita(targetPartition.uid, signature);
     } catch (orchErr: unknown) {
       const err = orchErr as { statusCode?: number; status?: number; message?: string };
-      console.error("🔥 [PARTITA ORCHESTRATOR DELETE ERROR]", err);
+      console.error("  [PARTITA ORCHESTRATOR DELETE ERROR]", err);
       const status = err.statusCode || err.status || 500;
       return NextResponse.json({ error: err.message || "Échec de dissolution." }, { status });
     }
-         
+              
     // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('partitas');
     revalidateTag(`partita-${identifier}`);
@@ -220,7 +254,6 @@ export const DELETE = withAura(async (req: NextRequest, context: ApiContext, cur
     }
 
     return NextResponse.json({ message: "La partition a été réduite en cendres." }, { status: 200 });
-
   } catch (error: unknown) {
     return handleRouteError(error, 'PARTITA DELETE ERROR');
   }

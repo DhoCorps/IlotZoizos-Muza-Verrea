@@ -1,3 +1,4 @@
+// Fichier : apps/hub-central/app/api/partita/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -6,11 +7,10 @@ import { ActionSignature, IPartita } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
 import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedPartitas } from '@/lib/cache/partita.cache';
-import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
 import { z } from 'zod';
 
 // ==========================================
-// 🛡️ SCHÉMA DE VALIDATION ZOD (Anti Mass Assignment)
+// 🛡️️ SCHÉMA DE VALIDATION ZOD (Anti Mass Assignment)
 // ==========================================
 const CreatePartitaSchema = z.object({
   title: z.string().min(1, "Le titre est requis."),
@@ -21,6 +21,39 @@ const CreatePartitaSchema = z.object({
   status: z.string().optional(),
   slug: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  
+  // 🚀 Intégration du SEO
+  seo: z.object({
+    metaTitle: z.string().optional(),
+    metaDescription: z.string().optional(),
+  }).optional(),
+  
+  // 🚀 Intégration du Sceau et de la Filiation
+  cryptoSeal: z.object({
+    digitalSignature: z.string().optional(),
+    timestampedAt: z.coerce.date().optional(),
+    copyrightMetadata: z.object({
+      role: z.enum(['CREATOR', 'SUBLIMATOR', 'CURATOR']).default('CREATOR'),
+      originalAuthor: z.string().optional(),
+      originalWorkTitle: z.string().optional(),
+      sublimationNotes: z.string().optional(),
+      isExclusiveIlot: z.boolean().default(false),
+      license: z.string().optional(),
+      filiation: z.object({
+        isExternalSource: z.boolean().default(false),
+        sourceAuthorName: z.string(),
+        sourceWorkTitle: z.string(),
+        sourceReferenceUrl: z.string().optional(),
+        claimStatus: z.enum(['PENDING_CLAIM', 'SHARED', 'REVOKED']).default('PENDING_CLAIM'),
+        escrowBalance: z.number().min(0).default(0),
+        derivativeType: z.string().optional()
+      }).optional()
+    }).optional()
+  }).optional(),
+  
+  // Tolérance pour les appels directs (laissé pour rétro-compatibilité)
+  copyrightMetadata: z.any().optional(), 
+  
   connections: z.object({
     relatedProjects: z.array(z.string()).optional(),
     relatedTasks: z.array(z.string()).optional(),
@@ -85,18 +118,6 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
 
     const validatedData: CreatePartitaInput = validationResult.data;
 
-    // 🪡 Génération du Sceau Cryptographique (SHA-256) d'Antériorité de la composition musicale
-    const canonicalContent = JSON.stringify({
-      title: validatedData.title,
-      content: validatedData.content,
-      instrument: validatedData.instrument || 'general',
-      authorUid: currentUser.uid
-    });
-
-    const contentBuffer = Buffer.from(canonicalContent, 'utf-8');
-    const digitalSignature = generateFileHash(contentBuffer);
-    const timestampedAt = new Date();
-
     const signature: ActionSignature = {
       actorUid: currentUser.uid,
       capabilities: currentUser.capabilities || []
@@ -105,13 +126,13 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     let result: { success?: boolean; status?: string; mongo?: IPartita | Record<string, unknown> };
     try {
       const partitaOrch = new PartitaOrchestrator();
+      
+      // 🪡 L'Orchestrateur se charge désormais de générer le Hash et de le sceller.
       const dataToForge = { 
         ...validatedData, 
-        authorUid: currentUser.uid,
-        digitalSignature,
-        timestampedAt,
-        copyrightClaimed: true
+        authorUid: currentUser.uid
       };
+      
       result = await partitaOrch.fosterPartita(dataToForge, signature);
     } catch (orchErr: unknown) {
       const err = orchErr as { statusCode?: number; status?: number; message?: string };
@@ -125,6 +146,10 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     revalidateTag(`partitas-user-public`);
 
     const mongoDoc = (result?.mongo || {}) as Record<string, unknown>;
+    
+    // 🚀 Extraction des données du Sceau générées par l'Orchestrateur
+    const digitalSignature = (mongoDoc.cryptoSeal as any)?.digitalSignature;
+    const timestampedAt = (mongoDoc.cryptoSeal as any)?.timestampedAt;
 
     const finalResponse = {
       success: result?.success,

@@ -1,7 +1,8 @@
+// Fichier : apps/hub-central/src/components/partita/PartitaCard.tsx
 'use client';
 
 import { Link } from '../../navigation';
-import { Music, BookOpen, Edit3, Trash2, Layers, ShoppingBag, Radio } from 'lucide-react';
+import { Music, BookOpen, Edit3, Trash2, Layers, ShoppingBag, Radio, ShieldCheck } from 'lucide-react';
 
 interface PartitaCardProps {
   partition: any;
@@ -10,21 +11,40 @@ interface PartitaCardProps {
 }
 
 export function PartitaCard({ partition, onEdit, onDelete }: PartitaCardProps) {
+  // 🛡️ Extraction du rôle depuis le Sceau Cryptographique (ou l'ancienne version plate pour la rétrocompatibilité)
+  const role = partition.cryptoSeal?.copyrightMetadata?.role || partition.copyrightMetadata?.role || 'CREATOR';
+  const hasSeal = !!partition.cryptoSeal?.digitalSignature;
+
+  // Traduction visuelle du rôle
+  const roleLabel = role === 'SUBLIMATOR' ? 'Sublimateur' : role === 'CURATOR' ? 'Passeur' : 'Créateur';
+
   return (
     <div className="p-6 bg-black/30 border border-white/5 rounded-3xl backdrop-blur-md flex flex-col justify-between space-y-6 hover:border-white/20 transition-all group">
       
       <div className="space-y-4">
-        {/* Badges d'état & Instrument */}
-        <div className="flex items-center justify-between gap-2">
-          <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest ${
-            partition.status === 'PUBLISHED' 
-              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-              : partition.status === 'ARCHIVED'
-              ? 'bg-slate-500/10 text-slate-400 border border-slate-500/20'
-              : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-          }`}>
-            {partition.status}
-          </span>
+        {/* Badges d'état, Instrument & Sceau */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className={`text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest ${
+              partition.status === 'PUBLISHED' 
+                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                : partition.status === 'ARCHIVED'
+                ? 'bg-slate-500/10 text-slate-400 border border-slate-500/20'
+                : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+            }`}>
+              {partition.status}
+            </span>
+
+            {/* 🚀 Nouveau : Affichage du Sceau Cryptographique et du rôle */}
+            {hasSeal && (
+              <span 
+                className="flex items-center gap-1 text-[9px] font-black px-2 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 uppercase tracking-widest"
+                title="Sceau Cryptographique SHA-256 Actif"
+              >
+                <ShieldCheck size={10} /> {roleLabel}
+              </span>
+            )}
+          </div>
 
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-[#E5484D]/10 text-[#E5484D] border border-[#E5484D]/20 font-bold uppercase">

@@ -3,14 +3,14 @@
 
 import React from 'react';
 
-interface KeyPosition {
+export interface KeyPosition {
   note: string;   // Ex: 'C', 'C#', 'D'
   octave?: number; // Optionnel (si non fourni, illumine toutes les notes correspondantes)
   label?: string; // Ex: 'R', '3m'
   color?: string; // Couleur personnalisée
 }
 
-interface KeyboardVisualizerProps {
+export interface KeyboardVisualizerProps {
   startOctave?: number;
   octaves?: number;
   positions?: KeyPosition[];
@@ -46,18 +46,22 @@ export const KeyboardVisualizer: React.FC<KeyboardVisualizerProps> = ({
     octaveStructure.forEach(k => keys.push({ ...k, octave: oct }));
   }
 
-  // Filtrer les touches blanches pour créer le conteneur flex
+  // Filtrer les touches blanches pour créer le conteneur flex principal
   const whiteKeys = keys.filter(k => !k.isBlack);
 
   return (
-    <div className="w-full bg-slate-950 p-6 rounded-3xl border border-slate-800 shadow-xl overflow-x-auto custom-scrollbar">
+    <div 
+      className="w-full bg-slate-950 p-6 rounded-3xl border border-slate-800 shadow-xl overflow-x-auto custom-scrollbar"
+      role="figure"
+      aria-label={title ? `Clavier virtuel : ${title}` : "Visualiseur de clavier"}
+    >
       {title && (
         <h4 className="text-xs font-black uppercase tracking-widest text-[#E5484D] mb-6">
           {title}
         </h4>
       )}
 
-      <div className="relative inline-flex h-40 bg-black rounded-lg border-2 border-slate-700 p-1">
+      <div className="relative inline-flex h-40 bg-black rounded-lg border-2 border-slate-700 p-1" data-testid="keyboard-container">
         {whiteKeys.map((wk, i) => {
           // Chercher si cette touche blanche est active
           const activePos = positions.find(
@@ -80,6 +84,7 @@ export const KeyboardVisualizer: React.FC<KeyboardVisualizerProps> = ({
               
               {/* Touche Blanche */}
               <div 
+                data-testid={`white-key-${wk.note}${wk.octave}`}
                 className={`w-10 h-full border border-slate-300 rounded-b-md flex flex-col justify-end pb-2 items-center transition-all ${
                   activePos ? 'bg-amber-100 shadow-[inset_0_-10px_20px_rgba(245,158,11,0.3)]' : 'bg-white hover:bg-slate-100'
                 }`}
@@ -87,29 +92,36 @@ export const KeyboardVisualizer: React.FC<KeyboardVisualizerProps> = ({
                 {/* Marqueur de note jouée */}
                 {activePos && (
                   <div 
+                    data-testid={`active-marker-${wk.note}${wk.octave}`}
                     className="w-5 h-5 rounded-full flex items-center justify-center shadow-md mb-1 z-10"
                     style={{ backgroundColor: activePos.color || '#E5484D' }}
                   >
-                    <span className="text-[9px] font-bold text-white">{activePos.label || wk.note}</span>
+                    <span className="text-[9px] font-bold text-white drop-shadow-md">
+                      {activePos.label || wk.note}
+                    </span>
                   </div>
                 )}
-                {!activePos && <span className="text-[8px] font-mono text-slate-300">{wk.note}</span>}
+                {!activePos && <span className="text-[8px] font-mono text-slate-300 pointer-events-none">{wk.note}</span>}
               </div>
 
               {/* Touche Noire (Superposée entre deux touches blanches) */}
               {hasBlackKeyAfter && (
                 <div className="absolute top-0 right-[-14px] z-20">
                   <div 
+                    data-testid={`black-key-${nextKeyInFullList.note}${nextKeyInFullList.octave}`}
                     className={`w-7 h-24 rounded-b-sm border border-black flex flex-col justify-end pb-2 items-center transition-all shadow-md ${
                       activeBlackPos ? 'bg-amber-800' : 'bg-slate-900 hover:bg-slate-800'
                     }`}
                   >
                     {activeBlackPos && (
                       <div 
+                        data-testid={`active-marker-${nextKeyInFullList.note}${nextKeyInFullList.octave}`}
                         className="w-4 h-4 rounded-full flex items-center justify-center shadow-md z-10"
                         style={{ backgroundColor: activeBlackPos.color || '#E5484D' }}
                       >
-                        <span className="text-[8px] font-bold text-white">{activeBlackPos.label || nextKeyInFullList.note}</span>
+                        <span className="text-[8px] font-bold text-white drop-shadow-md">
+                          {activeBlackPos.label || nextKeyInFullList.note}
+                        </span>
                       </div>
                     )}
                   </div>

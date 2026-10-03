@@ -27,7 +27,8 @@ export const getCachedPartitas = (userUid?: string, filterInstrument?: string | 
       }
 
       return await PartitaModel.find(queryFilter)
-        .sort({ createdAt: -1 })
+        // 🚀 Harmonisation : Les partitions récemment commentées remontent en priorité (Universal Comment)
+        .sort({ lastCommentedAt: -1, createdAt: -1 })
         .limit(50)
         .lean();
     },

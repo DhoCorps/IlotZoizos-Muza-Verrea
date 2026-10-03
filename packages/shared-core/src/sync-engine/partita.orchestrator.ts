@@ -1,12 +1,15 @@
-import { PartitaModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
-import { IPartita } from '@ilot/types';
+// Fichier : packages/shared-core/src/sync-engine/partita.orchestrator.ts
+import { PartitaModel, UniversalCommentModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { IPartita, CopyrightMetadata } from '@ilot/types';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
+import crypto from 'crypto';
 import { MusicTheoryEngine, Note } from '../utils/musicTheory.engine';
 import { generateSlug } from '../utils/string.engine';
 import { ensureUniqueSlug } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
+import { sanitizeCopyright, getCopyrightCypherRelation } from '../utils/copyright.engine'; // 🚀 Import de la forge des droits
 
 export interface PartitaSyncResult {
   uid?: string;
@@ -36,6 +39,8 @@ export interface FosterPartitaPayload {
   } | null;
   media?: Record<string, unknown>;
   settings?: Record<string, unknown>;
+  copyrightMetadata?: CopyrightMetadata; // 🚀 Intégration du Sceau
+  cryptoSeal?: any;
   [key: string]: unknown;
 }
 
@@ -106,6 +111,29 @@ export class PartitaOrchestrator {
       const baseSlug = data.slug ? generateSlug(data.slug) : generateSlug(title);
       const finalSlug = await ensureUniqueSlug(PartitaModel, baseSlug, mongoSession);
 
+      // 🛡️ Logique métier du Copyright centralisée (Sceau & Pacte de Filiation)
+      const cpMeta = sanitizeCopyright(data.copyrightMetadata || data.cryptoSeal?.copyrightMetadata);
+      const digitalSignature = crypto.createHash('sha256').update(data.content || '').digest('hex');
+
+      const cryptoSeal = data.cryptoSeal || {
+        digitalSignature,
+        timestampedAt: now,
+        sealedByUid: signature.actorUid,
+        copyrightMetadata: {
+          ...cpMeta,
+          license: cpMeta.license || 'MIT / Libre Canopée',
+          filiation: data.copyrightMetadata?.filiation ? {
+            isExternalSource: data.copyrightMetadata.filiation.isExternalSource ?? false,
+            sourceAuthorName: data.copyrightMetadata.filiation.sourceAuthorName,
+            sourceWorkTitle: data.copyrightMetadata.filiation.sourceWorkTitle,
+            sourceReferenceUrl: data.copyrightMetadata.filiation.sourceReferenceUrl,
+            claimStatus: data.copyrightMetadata.filiation.claimStatus ?? 'PENDING_CLAIM',
+            escrowBalance: data.copyrightMetadata.filiation.escrowBalance ?? 0,
+            derivativeType: data.copyrightMetadata.filiation.derivativeType
+          } : undefined
+        }
+      };
+
       const newPartitaData = {
         uid: partitaUid,
         title: title,
@@ -117,6 +145,7 @@ export class PartitaOrchestrator {
         authorUid: signature.actorUid,
         status: data.status || 'DRAFT',
         tags: data.tags || [],
+        cryptoSeal: cryptoSeal, // 🚀 Intégration du sceau cryptographique
         connections: data.connections || {},
         merchLink: data.merchLink || null,
         media: data.media || {},
@@ -144,6 +173,8 @@ export class PartitaOrchestrator {
       const newPartita = (typeof newPartitaDoc.toObject === 'function' ? newPartitaDoc.toObject() : newPartitaDoc) as unknown as IPartita;
 
       // 2. Tissage dans le Graphe (Neo4j)
+      const relationType = getCopyrightCypherRelation(cpMeta.role);
+
       const cypher = `
         MATCH (u:User { uid: $actorUid })
         CREATE (p:Partita { 
@@ -152,10 +183,11 @@ export class PartitaOrchestrator {
            slug: $slug,
            instrument: $instrument,
            status: $status,
+           isExclusiveIlot: $isExclusiveIlot,
            createdAt: datetime($now),
            updatedAt: datetime($now)
         })
-        CREATE (u)-[:COMPOSED]->(p)
+        CREATE (u)-[:${relationType} { notes: $sublimationNotes }]->(p)
 
         WITH p
         UNWIND (CASE WHEN size($relatedProjects) = 0 THEN [null] ELSE $relatedProjects END) AS prUid
@@ -193,6 +225,8 @@ export class PartitaOrchestrator {
         slug: newPartita.slug,
         instrument: newPartita.instrument,
         status: newPartita.status,
+        isExclusiveIlot: cpMeta.isExclusiveIlot,
+        sublimationNotes: cpMeta.sublimationNotes || '',
         relatedProjects: newPartita.connections?.relatedProjects || [],
         productId: newPartita.merchLink?.productId || null,
         scaleRoot: bestScale?.root || null,
@@ -240,11 +274,17 @@ export class PartitaOrchestrator {
           theoryUpdate = { theory: bestScale ? { root: bestScale.root, scaleKey: bestScale.scaleKey, score: bestScale.score } : null };
       }
 
-      const finalUpdates = { 
+      const finalUpdates: Record<string, unknown> = { 
         ...updates, 
         ...theoryUpdate, 
         'dates.updatedAt': now 
       };
+
+      // 🚀 Redirection intelligente si copyrightMetadata est passé dans les updates
+      if ('copyrightMetadata' in finalUpdates) {
+        finalUpdates['cryptoSeal.copyrightMetadata'] = finalUpdates.copyrightMetadata;
+        delete finalUpdates.copyrightMetadata;
+      }
 
       const updatedPartita = await PartitaModel.findOneAndUpdate(
         { uid: existing.uid },
@@ -253,12 +293,18 @@ export class PartitaOrchestrator {
       ).lean() as unknown as IPartita;
 
       let neoResult = null;
-      if (updates.status || updates.instrument || updates.title || updates.merchLink || updates.content) {
+      if (updates.status || updates.instrument || updates.title || updates.merchLink || updates.content || 'copyrightMetadata' in updates) {
+        
+        const isExclusiveUpdate = (updates as any).copyrightMetadata 
+            ? (updates as any).copyrightMetadata.isExclusiveIlot 
+            : null;
+
         neoResult = await neo4jTx.run(`
           MATCH (p:Partita { uid: $partitaUid })
           SET p.title = coalesce($title, p.title),
               p.status = coalesce($status, p.status),
               p.instrument = coalesce($instrument, p.instrument),
+              p.isExclusiveIlot = coalesce($isExclusiveIlot, p.isExclusiveIlot),
               p.updatedAt = datetime($now)
           
           WITH p
@@ -295,6 +341,7 @@ export class PartitaOrchestrator {
           status: updates.status || null, 
           instrument: updates.instrument || null,
           productId: updates.merchLink?.productId || null,
+          isExclusiveIlot: isExclusiveUpdate,
           scaleRoot: bestScale?.root || null,
           scaleKey: bestScale?.scaleKey || null,
           scaleName: bestScale?.scaleName || null,
@@ -337,6 +384,9 @@ export class PartitaOrchestrator {
 
       await neo4jTx.run(`MATCH (p:Partita { uid: $partitaUid }) DETACH DELETE p`, { partitaUid: existing.uid });
       await PartitaModel.deleteOne({ uid: existing.uid }, { session: mongoSession });
+
+      // 🚀 Intégration de l'Annotation/Universal Comment : Purge en Cascade
+      await UniversalCommentModel.deleteMany({ targetUid: existing.uid }, { session: mongoSession });
 
       return { success: true, purgedCount: 1, filesToDelete };
     });
