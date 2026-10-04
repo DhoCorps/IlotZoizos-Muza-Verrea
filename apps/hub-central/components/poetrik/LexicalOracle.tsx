@@ -1,5 +1,4 @@
 // apps/hub-central/components/poetrik/LexicalOracle.tsx
-
 'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -48,7 +47,7 @@ export const LexicalOracle: React.FC<LexicalOracleProps> = ({
       setLoading(true);
       setError(null);
       try {
-        // 1. Interrogation de l'API Lexicale pour récupérer la chair sémantique
+        // 1. Interrogation de l'API Lexicale pour récupérer la fiche sémantique du mot
         const resLex = await fetch(`/api/poetrik/lexicon?search=${encodeURIComponent(selectedWord)}`);
         const jsonLex = await resLex.json();
 
@@ -56,12 +55,14 @@ export const LexicalOracle: React.FC<LexicalOracleProps> = ({
           const entry = jsonLex.data[0];
           setLexiconEntry(entry);
 
-          // 2. Interrogation de l'API des Rimes (Neo4j) via l'UID du mot
-          const resRhymes = await fetch(`/api/poetrik/rhymes?uid=${encodeURIComponent(entry.uid)}`);
+          // 2. Interrogation de l'API des Rimes (Neo4j) via l'UID du mot ou son libellé
+          const resRhymes = await fetch(`/api/poetrik/rhymes?uid=${encodeURIComponent(entry.uid)}&word=${encodeURIComponent(entry.word)}`);
           const jsonRhymes = await resRhymes.json();
 
           if (jsonRhymes.success) {
             setRhymes(jsonRhymes.data || []);
+          } else {
+            setRhymes([]);
           }
         } else {
           setLexiconEntry(null);
@@ -98,25 +99,25 @@ export const LexicalOracle: React.FC<LexicalOracleProps> = ({
           <span className="text-xl">👁️</span>
           <h3 className="font-semibold text-slate-200">Oracle Lexical</h3>
         </div>
-        <span className="text-xs px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800 font-mono">
+        <span className="text-xs px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800 font-mono" data-testid="selected-word-badge">
           {selectedWord}
         </span>
       </div>
 
       {loading && (
-        <div className="py-12 text-center text-sm text-slate-400 animate-pulse">
+        <div className="py-12 text-center text-sm text-slate-400 animate-pulse" data-testid="oracle-loading">
           L&apos;Oracle interroge les racines de la Silice...
         </div>
       )}
 
       {error && !loading && (
-        <div className="p-4 bg-amber-950/40 border border-amber-900/60 rounded-lg text-xs text-amber-300 text-center">
+        <div className="p-4 bg-amber-950/40 border border-amber-900/60 rounded-lg text-xs text-amber-300 text-center" data-testid="oracle-error">
           {error}
         </div>
       )}
 
       {lexiconEntry && !loading && (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4" data-testid="oracle-content">
           {/* Fiche d'identité phonétique */}
           <div className="p-3 bg-slate-950 border border-slate-800/80 rounded-lg flex flex-col gap-1.5">
             <div className="flex justify-between items-baseline">
@@ -158,6 +159,7 @@ export const LexicalOracle: React.FC<LexicalOracleProps> = ({
                     onClick={() => onSelectRhyme && onSelectRhyme(rhyme.word)}
                     className="text-xs px-2 py-1 bg-slate-800 hover:bg-emerald-950 hover:text-emerald-300 hover:border-emerald-800 border border-slate-700 rounded text-slate-200 transition-all flex items-center gap-1"
                     title={`Rime ${rhyme.rhymeType} (${rhyme.phoneticIpa})`}
+                    data-testid="rhyme-button"
                   >
                     <span>{rhyme.word}</span>
                     <span className="text-[10px] text-slate-500 font-mono">({rhyme.syllableCount}p)</span>

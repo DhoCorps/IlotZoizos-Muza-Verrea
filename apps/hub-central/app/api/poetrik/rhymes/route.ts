@@ -1,9 +1,10 @@
+// apps/hub-central/app/api/poetrik/rhymes/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { getNeo4jSession } from '@ilot/infrastructure';
 import { withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
-import type { ManagedTransaction, Result } from 'neo4j-driver';
+import type { ManagedTransaction } from 'neo4j-driver';
 
 // -------------------------------------------------------------------------
 // GET : Interroger le Graphe Neo4j pour trouver les rimes d'un mot
@@ -25,16 +26,16 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
       return NextResponse.json({ error: "La Matrice Neo4j est inaccessible." }, { status: 500 });
     }
 
-    // Construction de la requête Cypher dynamique selon les critères
+    // Cypher : si wordText est utilisé, on le passe en minuscules dans le paramètre plutôt que dans la requête (Perf Graphe)
     let cypher = `
       MATCH (w:Word)
-      WHERE (w.uid = $wordUid OR toLower(w.word) = toLower($wordText))
+      WHERE (w.uid = $wordUid OR toLower(w.word) = $wordText)
       MATCH (w)-[r:RHYMES_WITH]-(rhyme:Word)
     `;
 
     const params: Record<string, unknown> = {
       wordUid: wordUid || null,
-      wordText: wordText || null,
+      wordText: wordText ? wordText.toLowerCase() : null,
       rhymeType: rhymeType || null
     };
 
@@ -66,7 +67,13 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
       matchScore: record.get('matchScore')
     }));
 
-    return NextResponse.json({ success: true, data: rhymes }, { status: 200 });
+    // ⚡ Mise en cache de 24h : Une rime riche en français ne change pas du jour au lendemain !
+    return NextResponse.json({ success: true, data: rhymes }, { 
+      status: 200,
+      headers: {
+        'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=604800' 
+      }
+    });
 
   } catch (error: unknown) {
     return handleRouteError(error, 'POETRIK RHYMES GET ERROR');

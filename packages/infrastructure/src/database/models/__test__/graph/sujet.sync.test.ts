@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SujetRelationshipType, ISujetGraphNode, ISujetGraphContext } from '../graph/sujet.graph';
+import { SujetRelationshipType, ISujetGraphNode, ISujetGraphContext } from '../../graph/sujet.graph';
 
 describe('Sujet Graph Contracts & Enums', () => {
     it('🟢 doit valider la présence de toutes les relations fondamentales du graphe (tom§hat§toes)', () => {

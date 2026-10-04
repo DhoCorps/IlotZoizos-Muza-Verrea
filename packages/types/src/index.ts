@@ -23,7 +23,7 @@ export * from './core/payment.types';
 export * from './core/showcase.types';
 export * from './models/sample.types';
 export * from './validation/sampleSchema';
-export * from './core/lexiconEntry.types';
+export * from './core/poem.types'
 export * from './models/betting.types';
 export * from './core/cryptoSeal.types';
 export * from './core/bibliotek.types';

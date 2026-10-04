@@ -1,4 +1,4 @@
-// infrastructure/src/database/models/nosql/ledgerEntry.model.ts
+// packages/infrastructure/src/database/models/nosql/ledgerEntry.model.ts
 import mongoose from 'mongoose';
 import type { Document } from 'mongoose';
 
@@ -7,7 +7,7 @@ const { Schema } = mongoose;
 export interface ILedgerEntry extends Document {
   entryUid: string;
   ownerUid: string;          // L'oiseau concerné par cette écriture (acheteur ou vendeur)
-  counterpartyUid: string;   // L'autre partie (émetteur ou destinataire)
+  counterpartyUid: string;   // L'autre partie (émetteur, destinataire, ou SYSTEM)
   counterpartyPseudo?: string; // 🚀 NOUVEAU : Pseudo de la contrepartie (pour l'affichage ERP)
   amountCents: number;       // TTC ou Total
   amountHTCents?: number;    // 🚀 NOUVEAU : Ventilation HT
@@ -15,8 +15,9 @@ export interface ILedgerEntry extends Document {
   feeCents?: number;         // 🚀 NOUVEAU : Frais de plateforme / Stripe
   currency: string;
   type: 'CREDIT' | 'DEBIT';
-  category: 'TIP' | 'STORE_SALE' | 'STORE_PURCHASE' | 'BARTER' | 'SYSTEM_TRANSFER' | 'CANOPY_TAX_REVENUE' | 'BET_WIN' | 'BET_LOSS' | 'SUBSIDY' | 'EXTERNAL_DEPOSIT';
-  referenceUid: string;      // ID de la transaction d'origine
+  // 🪶 Ajout de 'REWARD' pour le système de récompenses de Poetrik et de la Canopée
+  category: 'TIP' | 'STORE_SALE' | 'STORE_PURCHASE' | 'BARTER' | 'SYSTEM_TRANSFER' | 'CANOPY_TAX_REVENUE' | 'BET_WIN' | 'BET_LOSS' | 'SUBSIDY' | 'EXTERNAL_DEPOSIT' | 'REWARD';
+  referenceUid: string;      // ID de la transaction d'origine (ex: UID du poème)
   orderUid?: string;         // 🚀 NOUVEAU : Lien direct avec la commande e-commerce
   invoiceUid?: string;       // 🚀 NOUVEAU : Lien direct avec la facture
   description: string;
@@ -34,11 +35,12 @@ const LedgerEntrySchema = new Schema<ILedgerEntry>({
   amountHTCents: { type: Number },
   taxCents: { type: Number },
   feeCents: { type: Number },
-  currency: { type: String, default: 'EUR' },
+  currency: { type: String, default: 'EUR' }, // Peut aussi être 'PARCHEMIN'
   type: { type: String, enum: ['CREDIT', 'DEBIT'], required: true },
   category: { 
     type: String, 
-    enum: ['TIP', 'STORE_SALE', 'STORE_PURCHASE', 'BARTER', 'SYSTEM_TRANSFER', 'CANOPY_TAX_REVENUE', 'BET_WIN', 'BET_LOSS', 'SUBSIDY', 'EXTERNAL_DEPOSIT'], 
+    // 🪶 REWARD ajouté ici
+    enum: ['TIP', 'STORE_SALE', 'STORE_PURCHASE', 'BARTER', 'SYSTEM_TRANSFER', 'CANOPY_TAX_REVENUE', 'BET_WIN', 'BET_LOSS', 'SUBSIDY', 'EXTERNAL_DEPOSIT', 'REWARD'], 
     required: true 
   },
   referenceUid: { type: String, required: true },

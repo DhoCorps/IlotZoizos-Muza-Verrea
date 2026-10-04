@@ -100,3 +100,8 @@ export * from './database/models/graph/subscription.graph';
 
 export * from './database/models/nosql/demopraxy.model';
 
+export * from './database/models/nosql/poem.model';
+export * from './database/models/nosql/lexiconEntry.model';
+export * from './database/models/graph/poetrik.graph';
+
+export * from './database/models/nosql/ledgerEntry.model';

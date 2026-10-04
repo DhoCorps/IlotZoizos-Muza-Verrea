@@ -1,37 +1,16 @@
+// apps/hub-central/app/api/poetrik/lexicon/route.ts
 export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { LexiconEntryModel } from '@ilot/infrastructure';
 import { PoetrikOrchestrator } from '@ilot/shared-core';
+import { LexiconEntrySchema } from '@ilot/types'; // 👈 On utilise NOTRE source de vérité
 import { ActionSignature } from '@ilot/types';
 import { revalidateTag } from 'next/cache';
 import { withAura, withOptionalAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
-import { z } from 'zod';
-
-// 🛡️ Schéma de validation Zod pour l'entrée lexicale Poetrik
-const LexiconEntrySchema = z.object({
-  uid: z.string().optional(),
-  languageCode: z.string().min(1, "Le code de langue est requis."),
-  word: z.string().min(1, "Le mot est requis."),
-  phoneticIpa: z.string().min(1, "La phonétique IPA est requise."),
-  syllableCount: z.number().int().positive().optional().default(1),
-  definitions: z.record(z.string(), z.string()).optional().default({}),
-  partOfSpeech: z.string().optional().default('noun'),
-  rhymesWith: z.array(z.object({
-    targetUid: z.string(),
-    type: z.string(),
-    match: z.string(),
-  })).optional(),
-  translations: z.array(z.object({
-    targetUid: z.string(),
-    lang: z.string(),
-  })).optional(),
-});
-
-type LexiconEntryInput = z.infer<typeof LexiconEntrySchema>;
 
 // -------------------------------------------------------------------------
-// GET : Recenser ou rechercher des mots dans l'Oracle Lexical
+// GET : Recenser ou rechercher des mots dans l'Oracle Lexical (AUTO-COMPLÉTION)
 // -------------------------------------------------------------------------
 export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContext, _currentUser?: OiseauUser) => {
   try {
@@ -44,13 +23,20 @@ export const GET = withOptionalAura(async (req: NextRequest, _context: ApiContex
       query.languageCode = languageCode;
     }
     if (search) {
-      query.word = { $regex: new RegExp(search, 'i') };
+      query.word = { $regex: new RegExp(`^${search}`, 'i') }; // 🚀 Optimisé pour "commence par" au lieu de "contient"
     }
 
-    const entries = await LexiconEntryModel.find(query).limit(50).lean();
+    // On limite à 20 résultats pour l'auto-complétion temps réel
+    const entries = await LexiconEntryModel.find(query).limit(20).lean();
     const safeEntries = JSON.parse(JSON.stringify(entries || []));
 
-    return NextResponse.json({ success: true, data: safeEntries }, { status: 200 });
+    // ⚡ Mise en cache d'une heure pour soulager la base lors de la frappe
+    return NextResponse.json({ success: true, data: safeEntries }, { 
+      status: 200,
+      headers: {
+        'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400'
+      }
+    });
   } catch (error: unknown) {
     return handleRouteError(error, 'POETRIK LEXICON GET ERROR');
   }
@@ -68,6 +54,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       return NextResponse.json({ error: "Corps de requête illisible." }, { status: 400 });
     }
 
+    // Validation stricte avec le schéma central
     const validationResult = LexiconEntrySchema.safeParse(body);
     if (!validationResult.success) {
       return NextResponse.json(
@@ -75,8 +62,6 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
         { status: 400 }
       );
     }
-
-    const validatedData: LexiconEntryInput = validationResult.data;
 
     const signature: ActionSignature = {
       actorUid: currentUser.uid,
@@ -86,16 +71,15 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     let result: { success?: boolean; mongo?: unknown };
     try {
       const orchestrator = new PoetrikOrchestrator();
-      result = await orchestrator.fosterLexiconEntry(validatedData, signature);
-    } catch (orchErr: unknown) {
-      const err = orchErr as { statusCode?: number; status?: number; message?: string };
-      console.error("  [POETRIK ORCHESTRATOR POST ERROR] :", err);
-      const status = err.statusCode || err.status || 500;
-      return NextResponse.json({ error: err.message || "L'Îlot repousse ce mot." }, { status });
+      result = await orchestrator.fosterLexiconEntry(validationResult.data, signature);
+    } catch (orchErr: any) {
+      console.error("  [POETRIK ORCHESTRATOR POST ERROR] :", orchErr);
+      const status = orchErr.statusCode || orchErr.status || 500;
+      return NextResponse.json({ error: orchErr.message || "L'Îlot repousse ce mot." }, { status });
     }
 
     revalidateTag('poetrik-lexicon');
-    revalidateTag(`lexicon-lang-${validatedData.languageCode}`);
+    revalidateTag(`lexicon-lang-${validationResult.data.languageCode}`);
 
     return NextResponse.json({
       success: true,

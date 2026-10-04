@@ -1,11 +1,9 @@
 // apps/hub-central/components/poetrik/RhymeGraphView.tsx
-
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 
-// Chargement dynamique de ForceGraph2D pour s'adapter au rendu client Next.js
 const ForceGraph2D = dynamic(
   () => import('react-force-graph-2d'),
   { ssr: false }
@@ -37,11 +35,24 @@ export const RhymeGraphView: React.FC<RhymeGraphViewProps> = ({
   onNodeClick,
 }) => {
   const fgRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 800, height: 500 });
   const [graphData, setGraphData] = useState<{ nodes: NodeData[]; links: LinkData[] }>({
     nodes: [],
     links: [],
   });
   const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Ajustement dynamique des dimensions du graphe selon le conteneur
+  useEffect(() => {
+    if (containerRef.current) {
+      setDimensions({
+        width: containerRef.current.clientWidth || 800,
+        height: containerRef.current.clientHeight || 500,
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (!centerWordUid) {
@@ -59,11 +70,13 @@ export const RhymeGraphView: React.FC<RhymeGraphViewProps> = ({
           { source: 'lex_fr_oiseau', target: 'lex_en_bird', type: 'TRANSLATES_TO', label: 'Traduction' },
         ],
       });
+      setError(null);
       return;
     }
 
     const fetchGraphNetwork = async () => {
       setLoading(true);
+      setError(null);
       try {
         const res = await fetch(`/api/poetrik/rhymes?uid=${encodeURIComponent(centerWordUid)}`);
         const json = await res.json();
@@ -102,9 +115,12 @@ export const RhymeGraphView: React.FC<RhymeGraphViewProps> = ({
             nodes: Array.from(nodesMap.values()),
             links,
           });
+        } else {
+          setError("Aucun écho synaptique trouvé pour ce mot.");
         }
       } catch (err) {
         console.error("Erreur lors du tissage de l'Observatoire Sémantique :", err);
+        setError("Interférence dans la Matrice Neo4j.");
       } finally {
         setLoading(false);
       }
@@ -114,7 +130,11 @@ export const RhymeGraphView: React.FC<RhymeGraphViewProps> = ({
   }, [centerWordUid]);
 
   return (
-    <div className="w-full h-[500px] bg-slate-950 border border-slate-800 rounded-xl overflow-hidden relative shadow-2xl flex flex-col">
+    <div 
+      ref={containerRef}
+      className="w-full h-[500px] bg-slate-950 border border-slate-800 rounded-xl overflow-hidden relative shadow-2xl flex flex-col"
+      data-testid="graph-container"
+    >
       {/* Barre d'en-tête de l'observatoire */}
       <div className="absolute top-3 left-3 z-10 flex items-center gap-2 px-3 py-1.5 bg-slate-900/80 backdrop-blur border border-slate-800 rounded-lg text-xs text-slate-300">
         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -122,8 +142,14 @@ export const RhymeGraphView: React.FC<RhymeGraphViewProps> = ({
       </div>
 
       {loading && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm text-xs text-slate-400">
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm text-xs text-slate-400" data-testid="graph-loading">
           Connexion aux échos de la Matrice...
+        </div>
+      )}
+
+      {error && !loading && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/90 text-xs text-amber-400 p-4 text-center">
+          {error}
         </div>
       )}
 
@@ -131,6 +157,8 @@ export const RhymeGraphView: React.FC<RhymeGraphViewProps> = ({
       <div className="flex-1 w-full h-full">
         <ForceGraph2D
           ref={fgRef}
+          width={dimensions.width}
+          height={dimensions.height}
           graphData={graphData}
           nodeLabel={(node: any) => `${node.name} (${node.ipa || 'IPA non défini'})`}
           nodeColor={(node: any) => node.color || '#3b82f6'}

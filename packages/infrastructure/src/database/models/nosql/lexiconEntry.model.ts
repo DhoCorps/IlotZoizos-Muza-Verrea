@@ -1,9 +1,8 @@
-// src/models/LexiconEntry.ts
-
+// packages/infrastructure/src/database/models/nosql/lexiconEntry.model.ts
 import mongoose, { Schema, Document, Model } from 'mongoose';
-import { ILexiconEntry } from '@ilot/types';
+import { ILexiconEntryDTO } from '@ilot/types';
 
-export interface ILexiconDocument extends ILexiconEntry, Document {}
+export interface ILexiconDocument extends Omit<ILexiconEntryDTO, 'createdAt' | 'updatedAt'>, Document {}
 
 const LexiconEntrySchema = new Schema<ILexiconDocument>(
   {
@@ -30,24 +29,37 @@ const LexiconEntrySchema = new Schema<ILexiconDocument>(
     syllableCount: { 
       type: Number, 
       required: true, 
-      min: 1 
+      min: 1,
+      default: 1
     },
     definitions: { 
-      type: Object, 
-      required: true 
+      type: Schema.Types.Mixed, // Permet de stocker le Record<string, string> de Zod
+      required: true,
+      default: {}
     },
     partOfSpeech: { 
       type: String, 
       required: true, 
-      index: true 
+      index: true,
+      default: 'noun'
     },
+    // 🔗 Réseaux phonétiques et sémantiques en miroir du Zod Schema
+    rhymesWith: [{
+      targetUid: { type: String, required: true },
+      type: { type: String, required: true },
+      match: { type: String, required: true }
+    }],
+    translations: [{
+      targetUid: { type: String, required: true },
+      lang: { type: String, required: true }
+    }]
   },
   { 
     timestamps: true 
   }
 );
 
-// Indexation textuelle et composée pour optimiser les recherches futures
+// Indexation textuelle et composée pour optimiser les requêtes de l'Oracle
 LexiconEntrySchema.index({ languageCode: 1, word: 1 });
 LexiconEntrySchema.index({ word: 'text', phoneticIpa: 'text' });
 

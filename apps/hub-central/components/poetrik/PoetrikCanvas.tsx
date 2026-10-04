@@ -3,12 +3,16 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import { SyllableEngine } from '@ilot/shared-core';
 
 interface PoetrikCanvasProps {
   initialContent?: string;
   onContentChange?: (content: string) => void;
   onWordSelect?: (word: string) => void;
 }
+
+// Motif de hauteurs pour l'onde visuelle (pseudo-aléatoire mais stable pour éviter les sauts au rendu)
+const WAVE_PATTERN = [40, 75, 45, 90, 35, 65, 80, 50, 95, 30, 85, 55];
 
 export const PoetrikCanvas: React.FC<PoetrikCanvasProps> = ({
   initialContent = '',
@@ -18,15 +22,7 @@ export const PoetrikCanvas: React.FC<PoetrikCanvasProps> = ({
   const [text, setText] = useState<string>(initialContent);
   const [selectedWord, setSelectedWord] = useState<string | null>(null);
 
-  // Découpage du texte en vers (lignes) pour l'analyse des syllabes
   const lines = useMemo(() => text.split('\n'), [text]);
-
-  // Estimation basique du nombre de syllabes par vers pour le retour visuel
-  // (Sera enrichi dynamiquement par l'Oracle Lexical et l'IPA)
-  const calculateLineSyllables = (line: string): number => {
-    const cleanWords = line.trim().split(/\s+/).filter(Boolean);
-    return cleanWords.length * 2; // Approximation visuelle en attendant l'IPA strict
-  };
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newText = e.target.value;
@@ -37,6 +33,7 @@ export const PoetrikCanvas: React.FC<PoetrikCanvasProps> = ({
   };
 
   const handleWordClick = (word: string) => {
+    // Nettoyage de la ponctuation pour l'Oracle
     const cleanWord = word.replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '');
     setSelectedWord(cleanWord);
     if (onWordSelect && cleanWord) {
@@ -50,7 +47,7 @@ export const PoetrikCanvas: React.FC<PoetrikCanvasProps> = ({
       <div className="flex-1 flex flex-col bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 bg-slate-950 border-b border-slate-800 text-slate-400 text-sm">
           <span className="flex items-center gap-2 font-medium text-slate-300">
-            🪶 Atelier Poetrik <span className="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">Actif</span>
+            🪶 Atelier Poetrik <span className="text-xs px-2 py-0.5 rounded bg-red-950 text-red-400 border border-red-800">Actif</span>
           </span>
           <span>{text.length} caractères</span>
         </div>
@@ -64,20 +61,22 @@ export const PoetrikCanvas: React.FC<PoetrikCanvasProps> = ({
 
         <div className="px-4 py-2 bg-slate-950/50 border-t border-slate-800/50 text-xs text-slate-500 flex justify-between">
           <span>Clique sur un mot pour invoquer l'Oracle Lexical</span>
-          <span>Standard IPA Universel</span>
+          <span>Moteur Syllabique Quantique</span>
         </div>
       </div>
 
       {/* Panneau de scansion et rétroaction visuelle en temps réel */}
       <div className="w-full lg:w-80 bg-slate-900/60 border border-slate-800/80 rounded-xl p-4 flex flex-col gap-4">
         <h3 className="text-sm font-semibold text-slate-300 border-b border-slate-800 pb-2">
-          📊 Scansion & Rythme des Vers
+          📊 Scansion & Écogramme Rythmique
         </h3>
 
         <div className="flex flex-col gap-3 overflow-y-auto max-h-96 pr-1">
           {lines.map((line, idx) => {
             if (!line.trim()) return null;
-            const syllableEst = calculateLineSyllables(line);
+            
+            // 🚀 Appel au vrai Moteur Quantique de Syllabes
+            const syllableEst = SyllableEngine.countPieds(line);
             const isAlexandrin = syllableEst === 12;
 
             return (
@@ -90,14 +89,34 @@ export const PoetrikCanvas: React.FC<PoetrikCanvasProps> = ({
                 </div>
                 
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-500">Pieds estimés :</span>
+                  <span className="text-slate-500">Pieds :</span>
                   <span className={`px-2 py-0.5 rounded font-mono font-bold ${
                     isAlexandrin 
-                      ? 'bg-amber-950 text-amber-400 border border-amber-800' 
+                      ? 'bg-red-950 text-red-400 border border-red-800' 
                       : 'bg-slate-800 text-slate-300'
                   }`}>
                     {syllableEst} {isAlexandrin && '✨'}
                   </span>
+                </div>
+
+                {/* L'Écogramme Rythmique (Onde Visuelle) */}
+                <div className="flex items-end gap-[2px] h-6 mt-1 border-b border-slate-800/50 pb-1" data-testid="ecogramme">
+                  {Array.from({ length: Math.min(syllableEst, 24) }).map((_, i) => {
+                    const height = WAVE_PATTERN[i % WAVE_PATTERN.length];
+                    return (
+                      <div
+                        key={i}
+                        className={`w-1.5 rounded-t-sm transition-all duration-300 ${
+                           isAlexandrin ? 'bg-red-500/80' : 'bg-slate-500/80'
+                        }`}
+                        style={{ 
+                          height: `${height}%`,
+                          animation: `pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite`,
+                          animationDelay: `${i * 100}ms`
+                        }}
+                      />
+                    );
+                  })}
                 </div>
 
                 {/* Mots cliquables pour l'Oracle */}
@@ -106,7 +125,7 @@ export const PoetrikCanvas: React.FC<PoetrikCanvasProps> = ({
                     <button
                       key={wIdx}
                       onClick={() => handleWordClick(w)}
-                      className="text-xs px-1.5 py-0.5 bg-slate-800/60 hover:bg-emerald-950 hover:text-emerald-300 rounded text-slate-300 transition-colors"
+                      className="text-xs px-1.5 py-0.5 bg-slate-800/60 hover:bg-red-950 hover:text-red-300 rounded text-slate-300 transition-colors"
                     >
                       {w}
                     </button>
@@ -118,7 +137,7 @@ export const PoetrikCanvas: React.FC<PoetrikCanvasProps> = ({
 
           {lines.every(l => !l.trim()) && (
             <div className="text-xs text-slate-600 text-center py-8 italic">
-              Le silence emplit la page. Commence à composer pour voir la scansion s'illuminer.
+              Le silence emplit la page. Commence à composer pour voir l'écogramme s'illuminer.
             </div>
           )}
         </div>

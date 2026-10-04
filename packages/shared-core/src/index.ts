@@ -17,6 +17,7 @@ export * from './utils/alchimy.engine';
 export * from './utils/string.engine';
 export * from './utils/orchestrator.engine';
 export * from './utils/copyright.engine';
+export * from './utils/syllable.engine';
 
 // --- 3. BLOC ENGINE & CANVAS ---
 export * from './bloc-engine/useBlockEngine';

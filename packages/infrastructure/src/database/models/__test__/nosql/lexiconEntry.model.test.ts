@@ -1,9 +1,9 @@
-// src/models/__tests__/LexiconEntry.test.ts
+// packages/infrastructure/src/database/models/__test__/nosql/lexiconEntry.model.test.ts
 import { describe, it, expect } from 'vitest';
 import { LexiconEntryModel } from '../../nosql/lexiconEntry.model';
 
 describe('LexiconEntry Model Validation', () => {
-  it('should successfully validate a correct lexicon entry', () => {
+  it('🟢 doit valider avec succès une entrée lexicale complète', () => {
     const validData = {
       uid: 'lex_fr_oiseau',
       languageCode: 'fr',
@@ -14,7 +14,11 @@ describe('LexiconEntry Model Validation', () => {
         fr: 'Animal vertébré à plumes.',
         en: 'A feathered vertebrate animal.'
       },
-      partOfSpeech: 'noun'
+      partOfSpeech: 'noun',
+      rhymesWith: [
+        { targetUid: 'lex_fr_roseau', type: 'rich', match: '95%' }
+      ],
+      translations: []
     };
 
     const entry = new LexiconEntryModel(validData);
@@ -23,10 +27,13 @@ describe('LexiconEntry Model Validation', () => {
     expect(validationError).toBeUndefined();
     expect(entry.uid).toBe('lex_fr_oiseau');
     expect(entry.syllableCount).toBe(2);
+    
+    // Le Record<string, string> de Zod passe parfaitement dans le Schema.Types.Mixed
     expect(entry.definitions['fr']).toBe('Animal vertébré à plumes.');
+    expect(entry.rhymesWith[0].targetUid).toBe('lex_fr_roseau');
   });
 
-  it('should fail if required fields are missing', () => {
+  it('🔴 doit échouer si des champs requis (uid, word, phoneticIpa) sont manquants', () => {
     const invalidData = {
       languageCode: 'fr',
       syllableCount: 1
@@ -38,5 +45,6 @@ describe('LexiconEntry Model Validation', () => {
     expect(validationError).toBeDefined();
     expect(validationError?.errors.uid).toBeDefined();
     expect(validationError?.errors.word).toBeDefined();
+    expect(validationError?.errors.phoneticIpa).toBeDefined();
   });
 });

@@ -1,5 +1,4 @@
 // packages/infrastructure/src/database/models/__test__/nosql/ledgerEntry.model.test.ts
-
 import mongoose from 'mongoose';
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { LedgerEntryModel } from '../../nosql/ledgerEntry.model';
@@ -18,7 +17,7 @@ describe('LedgerEntry Model Test - Extension ERP & Fiscalité', () => {
     await mongoose.connection.close();
   });
 
-  it('doit créer et persister une écriture comptable complète avec ventilation fiscale', async () => {
+  it('🟢 doit créer et persister une écriture comptable complète avec ventilation fiscale', async () => {
     const validEntry = new LedgerEntryModel({
       entryUid: 'ledger_001',
       ownerUid: 'marchand_1',
@@ -49,7 +48,29 @@ describe('LedgerEntry Model Test - Extension ERP & Fiscalité', () => {
     expect(savedEntry.createdAt).toBeDefined();
   });
 
-  it('doit échouer si un champ requis est manquant (ex: amountCents ou entryHash)', async () => {
+  it('🟢 doit valider une récompense en PARCHEMIN issue de l\'Atelier Poetrik', async () => {
+    const rewardEntry = new LedgerEntryModel({
+      entryUid: 'ledger_poetrik_001',
+      ownerUid: 'poet_1',
+      counterpartyUid: 'SYSTEM_POETRIK',
+      amountCents: 1500, // 15 parchemins * 100
+      currency: 'PARCHEMIN',
+      type: 'CREDIT',
+      category: 'REWARD', // 🪶 La nouvelle catégorie ajoutée
+      referenceUid: 'poem_123',
+      description: 'Publication poétique',
+      entryHash: 'hash_reward_123'
+    });
+
+    const savedEntry = await rewardEntry.save();
+    
+    expect(savedEntry._id).toBeDefined();
+    expect(savedEntry.category).toBe('REWARD');
+    expect(savedEntry.currency).toBe('PARCHEMIN');
+    expect(savedEntry.counterpartyUid).toBe('SYSTEM_POETRIK');
+  });
+
+  it('🔴 doit échouer si un champ requis est manquant (ex: amountCents ou entryHash)', async () => {
     const invalidEntry = new LedgerEntryModel({
       entryUid: 'ledger_002',
       ownerUid: 'marchand_1',
@@ -75,7 +96,7 @@ describe('LedgerEntry Model Test - Extension ERP & Fiscalité', () => {
     expect(error.errors.entryHash).toBeDefined();
   });
 
-  it('doit échouer si le type ou la catégorie fournit des valeurs hors de l\'énumération', async () => {
+  it('🔴 doit échouer si le type ou la catégorie fournit des valeurs hors de l\'énumération', async () => {
     const invalidCategoryEntry = new LedgerEntryModel({
       entryUid: 'ledger_003',
       ownerUid: 'marchand_1',
