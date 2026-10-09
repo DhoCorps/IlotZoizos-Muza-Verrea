@@ -5,7 +5,7 @@ import { SampleLibraryPanel } from '@/components/samplotek/SampleLibraryPanel';
 import { SequencerGrid } from '@/components/samplotek/SequencerGrid';
 import { SampleUploadModal } from '@/components/samplotek/SampleUploadModal';
 import { useStudioStore } from '@/store/studioStore';
-import { Disc, ArrowLeft, Upload, Save, Loader2 } from 'lucide-react';
+import { Disc, ArrowLeft, Upload, Save, Loader2, Radio } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 
@@ -15,9 +15,10 @@ export default function SamploTekPage() {
   const [selectedTrackForSample, setSelectedTrackForSample] = useState<number | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   
-  const { setTrackSample, tracks, bpm } = useStudioStore();
+  // 1. On récupère les actions du Store pour la grille et les effets globaux
+  const { setTrackSample, tracks, bpm, masterReverb, masterDelay, setMasterReverb, setMasterDelay } = useStudioStore() as any;
 
-  // 1. Charger la banque de sons depuis l'API de recherche (mise en cache)
+  // 2. Charger la banque de sons depuis l'API de recherche (mise en cache)
   const fetchSamples = async () => {
     try {
       const res = await fetch('/api/samplotek/search');
@@ -35,7 +36,7 @@ export default function SamploTekPage() {
     fetchSamples();
   }, []);
 
-  // 2. Assigner un sample du panneau latéral vers le Séquenceur
+  // 3. Assigner un sample du panneau latéral vers le Séquenceur
   const handleSelectSample = (sample: any) => {
     // On trouve la première piste non verrouillée qui n'a pas encore de sample assigné
     const targetTrackId = selectedTrackForSample || tracks.find((t: any) => !t.isLocked && !t.sampleUrl)?.id || 1;
@@ -46,14 +47,14 @@ export default function SamploTekPage() {
     setSelectedTrackForSample(null);
   };
 
-  // 3. Nettoyage instantané de l'état local suite à la dissolution d'un sample
+  // 4. Nettoyage instantané de l'état local suite à la dissolution d'un sample
   const handleSampleDeleted = (deletedIdentifier: string) => {
     setSamples((prevSamples) => 
       prevSamples.filter(s => s.uid !== deletedIdentifier && s.slug !== deletedIdentifier)
     );
   };
 
-  // 4. Exporter le projet via l'Orchestrateur (Sceau et Neo4j)
+  // 5. Exporter le projet via l'Orchestrateur (Sceau et Neo4j)
   const handleExportProject = async () => {
     const activeTracks = tracks.filter((t: any) => !t.isLocked && t.sampleUrl);
     
@@ -76,7 +77,8 @@ export default function SamploTekPage() {
           volume: t.volume,
           isMuted: t.isMuted,
           steps: t.steps // On exporte bien la grille rythmique !
-        }))
+        })),
+        fx: { reverb: masterReverb, delay: masterDelay } // Inclusion des paramètres FX globaux
       };
 
       const res = await fetch('/api/samplotek/export', {
@@ -147,7 +149,51 @@ export default function SamploTekPage() {
         </aside>
 
         {/* ZONE CENTRALE : SÉQUENCEUR ET MIXEUR */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex flex-col justify-center">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex flex-col justify-start gap-6">
+          
+          {/* ========================================================= */}
+          {/* 🎛️ ROADMAP : CONTRÔLES GLOBAUX FX (Master Reverb / Delay)  */}
+          {/* ========================================================= */}
+          <div className="w-full max-w-6xl mx-auto bg-slate-900/50 border border-slate-800 rounded-3xl p-6 shadow-inner flex flex-col md:flex-row items-center gap-8">
+            <div className="flex items-center gap-3 text-amber-500 shrink-0">
+              <Radio size={24} />
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-wider">Master FX</h3>
+                <p className="text-[10px] font-mono text-slate-400">Salle et Échos</p>
+              </div>
+            </div>
+
+            <div className="flex-1 w-full grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Slider Reverb */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs font-mono font-bold text-slate-300">
+                  <span>Reverb (Room Size)</span>
+                  <span className="text-red-400">{Math.round((masterReverb || 0) * 100)}%</span>
+                </div>
+                <input 
+                  type="range" min="0" max="1" step="0.01" 
+                  value={masterReverb || 0} 
+                  onChange={(e) => setMasterReverb && setMasterReverb(parseFloat(e.target.value))}
+                  className="w-full accent-amber-500 bg-slate-800 h-2 rounded-lg cursor-pointer"
+                />
+              </div>
+
+              {/* Slider Delay */}
+              <div className="space-y-2">
+                <div className="flex justify-between text-xs font-mono font-bold text-slate-300">
+                  <span>Feedback Delay</span>
+                  <span className="text-red-400">{Math.round((masterDelay || 0) * 100)}%</span>
+                </div>
+                <input 
+                  type="range" min="0" max="1" step="0.01" 
+                  value={masterDelay || 0} 
+                  onChange={(e) => setMasterDelay && setMasterDelay(parseFloat(e.target.value))}
+                  className="w-full accent-amber-500 bg-slate-800 h-2 rounded-lg cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+
           <SequencerGrid />
         </main>
       </div>

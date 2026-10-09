@@ -16,6 +16,10 @@ interface StudioState {
   unlockedTracksCount: number; // Commence à 4, évolue jusqu'à 8
   tracks: StudioTrack[];
   
+  // 🎛️ ROADMAP : Master FX
+  masterReverb: number; // 0 à 1
+  masterDelay: number;  // 0 à 1
+  
   setBpm: (bpm: number) => void;
   setIsPlaying: (isPlaying: boolean) => void;
   setTrackSample: (trackId: number, url: string, name: string) => void;
@@ -23,6 +27,10 @@ interface StudioState {
   toggleMute: (trackId: number) => void;
   unlockNextTrack: () => void;
   toggleStep: (trackId: number, stepIndex: number) => void; // 🎛️ Action pour le Step Sequencer
+  
+  // Actions Master FX
+  setMasterReverb: (level: number) => void;
+  setMasterDelay: (level: number) => void;
 }
 
 export const useStudioStore = create<StudioState>((set) => ({
@@ -30,6 +38,9 @@ export const useStudioStore = create<StudioState>((set) => ({
   isPlaying: false,
   unlockedTracksCount: 4, // 4 pistes par défaut au commencement
   
+  masterReverb: 0,
+  masterDelay: 0,
+
   tracks: Array.from({ length: 8 }, (_, i) => ({
     id: i + 1,
     name: `Piste 0${i + 1}`,
@@ -42,6 +53,9 @@ export const useStudioStore = create<StudioState>((set) => ({
 
   setBpm: (bpm) => set({ bpm }),
   setIsPlaying: (isPlaying) => set({ isPlaying }),
+
+  setMasterReverb: (level) => set({ masterReverb: level }),
+  setMasterDelay: (level) => set({ masterDelay: level }),
 
   setTrackSample: (trackId, url, name) => set((state) => ({
     tracks: state.tracks.map((t) => t.id === trackId ? { ...t, sampleUrl: url, name } : t)

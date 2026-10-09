@@ -21,21 +21,60 @@ const SampleSchema = new Schema<ISampleDocument>({
   tempoBpm: { type: Number, required: true, index: true },
   musicalKey: { type: String, required: true, index: true },
   style: { type: String, required: true, index: true },
-  creatorUid: { type: String, required: true, index: true },
-  creatorSlug: { type: String, required: true },
+  
+  // Alignement sur le standard de l'Îlot (remplace creatorUid/creatorSlug)
+  authorUid: { type: String, required: true, index: true },
+  authorPseudo: { type: String },
+
   permissions: {
     allowRadio: { type: Boolean, default: true },
     allowBlindTest: { type: Boolean, default: true },
     allowShowcase: { type: Boolean, default: true },
   },
+
+  // 🛡️ Module de Modération
+  moderation: {
+    reportsCount: { type: Number, default: 0 },
+    isQuarantined: { type: Boolean, default: false, index: true },
+  },
+
+  // 🚦 Statut de publication
+  status: {
+    type: String,
+    enum: ['DRAFT', 'PUBLISHED', 'ARCHIVED', 'BURNED', 'QUARANTINED'],
+    default: 'PUBLISHED',
+    index: true
+  },
+
+  // 🔍 Module SEO
+  seo: {
+    metaTitle: { type: String },
+    metaDescription: { type: String },
+    keywords: [{ type: String }],
+    ogImageUrl: { type: String }
+  },
   
-  // 🛡️ Champs d'intégrité et de souveraineté
-  digitalSignature: { type: String, required: true },
-  timestampedAt: { type: Date, default: Date.now },
-  copyrightClaimed: { type: Boolean, default: true },
+  // 📜 Sceau Cryptographique Unifié (Remplace digitalSignature et copyrightClaimed)
+  cryptoSeal: {
+    digitalSignature: { type: String },
+    timestampedAt: { type: Date },
+    uid: { type: String },
+    copyrightMetadata: {
+      role: { type: String, enum: ['CREATOR', 'SUBLIMATOR', 'CURATOR'] },
+      isExclusiveIlot: { type: Boolean, default: true },
+      license: { type: String },
+      originalAuthor: { type: String },
+      originalWorkTitle: { type: String },
+      sublimationNotes: { type: String },
+      filiation: { type: Schema.Types.Mixed }
+    }
+  },
 
   createdAt: { type: Date, default: Date.now }
 });
+
+// 🚀 Index composé pour les recherches rapides du séquenceur (exclut les quarantaines)
+SampleSchema.index({ status: 1, 'moderation.isQuarantined': 1, style: 1, tempoBpm: 1 });
 
 export const SampleModel: Model<ISampleDocument> =
   mongoose.models.Sample || mongoose.model<ISampleDocument>('Sample', SampleSchema);

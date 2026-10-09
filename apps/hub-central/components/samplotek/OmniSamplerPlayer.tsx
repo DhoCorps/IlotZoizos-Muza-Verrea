@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useStudioStore, StudioTrack } from '../../store/studioStore';
 import { useOmniSamplerEngine } from '../../hooks/useOmniSamplerEngine';
 import { Play, Pause, Volume2, VolumeX, Lock, Sparkles, Sliders } from 'lucide-react';
@@ -10,7 +10,7 @@ interface OmniSamplerPlayerProps {
   maxTracks?: number;
 }
 
-export const OmniSamplerPlayer: React.FC<OmniSamplerPlayerProps> = () => {
+export const OmniSamplerPlayer: React.FC<OmniSamplerPlayerProps> = ({ maxTracks = 8 }) => {
   // 1. On récupère tout l'état et les actions depuis le store global Zustand
   const { 
     tracks, 
@@ -23,8 +23,39 @@ export const OmniSamplerPlayer: React.FC<OmniSamplerPlayerProps> = () => {
     unlockNextTrack 
   } = useStudioStore();
 
-  // 2. On branche proprement le moteur audio Tone.js avec les paramètres du store
-  useOmniSamplerEngine(tracks, isPlaying, bpm);
+  // 2. Initialisation du moteur audio (On lui passe uniquement le nombre max de pistes)
+  const engine = useOmniSamplerEngine(maxTracks);
+
+  // 3. Pont de synchronisation : Store -> Moteur Audio (Pour les chargements de samples)
+  useEffect(() => {
+    tracks.forEach((track: StudioTrack) => {
+      const engineTrack = engine.tracks.find((t) => t.id === track.id);
+      if (engineTrack && engineTrack.url !== track.sampleUrl && track.sampleUrl) {
+        engine.setTrackSample(track.id, track.sampleUrl, track.name);
+      }
+    });
+  }, [tracks, engine]);
+
+  // 4. Gestionnaires d'événements combinés
+  const handlePlayPause = () => {
+    setIsPlaying(!isPlaying);
+    engine.toggleMasterPlay();
+  };
+
+  const handleBpmChange = (newBpm: number) => {
+    setBpm(newBpm);
+    engine.setBpm(newBpm);
+  };
+
+  const handleVolumeChange = (trackId: number, volume: number) => {
+    setTrackVolume(trackId, volume);
+    engine.setTrackVolume(trackId, volume);
+  };
+
+  const handleMuteToggle = (trackId: number) => {
+    toggleMute(trackId);
+    engine.toggleMute(trackId);
+  };
 
   const handleUnlockAttempt = async () => {
     try {
@@ -69,13 +100,13 @@ export const OmniSamplerPlayer: React.FC<OmniSamplerPlayerProps> = () => {
             <input 
               type="number" 
               value={bpm} 
-              onChange={(e) => setBpm(Number(e.target.value))}
+              onChange={(e) => handleBpmChange(Number(e.target.value))}
               className="w-12 bg-transparent text-center font-bold text-red-500 focus:outline-none"
             />
           </div>
 
           <button
-            onClick={() => setIsPlaying(!isPlaying)}
+            onClick={handlePlayPause}
             className={`px-6 py-3 rounded-2xl font-black uppercase text-xs tracking-widest flex items-center gap-2 shadow-lg transition-all ${
               isPlaying ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30' : 'bg-red-600 hover:bg-red-500 text-white shadow-red-600/30 hover:scale-105'
             }`}
@@ -86,7 +117,7 @@ export const OmniSamplerPlayer: React.FC<OmniSamplerPlayerProps> = () => {
         </div>
       </div>
 
-      {/* GRILLE DES PISTES (Typage explicite de track et index) */}
+      {/* GRILLE DES PISTES */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {tracks.map((track: StudioTrack) => (
           <div 
@@ -109,7 +140,7 @@ export const OmniSamplerPlayer: React.FC<OmniSamplerPlayerProps> = () => {
                 </button>
               ) : (
                 <button 
-                  onClick={() => toggleMute(track.id)}
+                  onClick={() => handleMuteToggle(track.id)}
                   className={`p-1.5 rounded-lg transition-colors ${track.isMuted ? 'bg-red-500/20 text-red-400' : 'bg-slate-800 text-slate-300 hover:text-white'}`}
                 >
                   {track.isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
@@ -134,7 +165,7 @@ export const OmniSamplerPlayer: React.FC<OmniSamplerPlayerProps> = () => {
                 step="0.01"
                 value={track.volume}
                 disabled={track.isLocked || track.isMuted}
-                onChange={(e) => setTrackVolume(track.id, parseFloat(e.target.value))}
+                onChange={(e) => handleVolumeChange(track.id, parseFloat(e.target.value))}
                 className="w-full accent-red-600 bg-slate-800 h-1 rounded-lg cursor-pointer"
               />
             </div>

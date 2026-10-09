@@ -1,8 +1,7 @@
-// components/samplotek/SampleUploadModal.tsx
 'use client';
 
 import React, { useState } from 'react';
-import { Upload, X, Disc, Loader2, Shield } from 'lucide-react';
+import { Upload, X, Disc, Loader2, Shield, ChevronDown, Tag, Copyright } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface SampleUploadModalProps {
@@ -13,13 +12,28 @@ interface SampleUploadModalProps {
 
 export const SampleUploadModal: React.FC<SampleUploadModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const [file, setFile] = useState<File | null>(null);
+  
+  // Champs de base
   const [title, setTitle] = useState('');
   const [tempoBpm, setTempoBpm] = useState('120');
   const [musicalKey, setMusicalKey] = useState('C minor');
   const [style, setStyle] = useState('Cyberpunk');
+  
+  // Permissions
   const [allowRadio, setAllowRadio] = useState(true);
   const [allowBlindTest, setAllowBlindTest] = useState(true);
   const [allowShowcase, setAllowShowcase] = useState(true);
+  
+  // 📈 ROADMAP : Nouveaux champs SEO
+  const [metaTitle, setMetaTitle] = useState('');
+  const [metaDescription, setMetaDescription] = useState('');
+  const [keywords, setKeywords] = useState('');
+
+  // © ROADMAP : Nouveaux champs Copyright
+  const [copyrightRole, setCopyrightRole] = useState('CREATOR');
+  const [isExclusiveIlot, setIsExclusiveIlot] = useState(true);
+  const [license, setLicense] = useState('STANDARD');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
@@ -41,6 +55,14 @@ export const SampleUploadModal: React.FC<SampleUploadModalProps> = ({ isOpen, on
     formData.append('allowRadio', String(allowRadio));
     formData.append('allowBlindTest', String(allowBlindTest));
     formData.append('allowShowcase', String(allowShowcase));
+
+    // Ajout des nouveaux champs SEO & Copyright au payload
+    formData.append('metaTitle', metaTitle);
+    formData.append('metaDescription', metaDescription);
+    formData.append('keywords', keywords);
+    formData.append('copyrightRole', copyrightRole);
+    formData.append('isExclusiveIlot', String(isExclusiveIlot));
+    formData.append('license', license);
 
     try {
       const res = await fetch('/api/samplotek/upload', {
@@ -78,15 +100,18 @@ export const SampleUploadModal: React.FC<SampleUploadModalProps> = ({ isOpen, on
         <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto max-h-[80vh] custom-scrollbar">
           
           <div className="space-y-2">
-            <label className="text-xs font-mono uppercase text-slate-400">Fichier Audio (MP3, WAV)</label>
+            {/* CORRECTION ACCESSIBILITÉ : Liaison htmlFor / id */}
+            <label htmlFor="audio-upload" className="text-xs font-mono uppercase text-slate-400">Fichier Audio (MP3, WAV)</label>
             <div className="border-2 border-dashed border-slate-700 hover:border-red-500/50 rounded-2xl p-6 text-center transition-colors cursor-pointer relative bg-slate-950/30">
               <input 
+                id="audio-upload"
+                data-testid="audio-upload-input"
                 type="file" 
                 accept="audio/mp3,audio/wav,audio/ogg"
                 onChange={(e) => setFile(e.target.files?.[0] || null)}
-                className="absolute inset-0 opacity-0 cursor-pointer"
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
               />
-              <div className="flex flex-col items-center space-y-2">
+              <div className="flex flex-col items-center space-y-2 pointer-events-none">
                 <Upload className="text-red-500" size={24} />
                 <p className="text-xs font-mono text-slate-300">
                   {file ? <span className="text-red-400 font-bold">{file.name}</span> : "Glisse ton sample ici ou clique pour explorer"}
@@ -134,6 +159,85 @@ export const SampleUploadModal: React.FC<SampleUploadModalProps> = ({ isOpen, on
               />
             </div>
           </div>
+
+          {/* ========================================================= */}
+          {/* 📈 ROADMAP : ACCORDÉON SEO */}
+          {/* ========================================================= */}
+          <details className="group bg-slate-950/40 border border-slate-800/80 rounded-2xl overflow-hidden">
+            <summary className="flex items-center justify-between p-4 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+              <div className="flex items-center gap-2">
+                <Tag size={16} className="text-amber-500" />
+                <span className="text-xs font-mono uppercase text-slate-300 font-bold tracking-wider">Référencement (SEO)</span>
+              </div>
+              <ChevronDown size={16} className="text-slate-500 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="p-4 pt-0 space-y-4 border-t border-slate-800/80 mt-1">
+              <div className="space-y-2">
+                <label className="text-[10px] font-mono text-slate-400">Balise Meta Title</label>
+                <input 
+                  type="text" value={metaTitle} onChange={(e) => setMetaTitle(e.target.value)} placeholder="Titre optimisé..."
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-mono text-slate-400">Meta Description</label>
+                <textarea 
+                  value={metaDescription} onChange={(e) => setMetaDescription(e.target.value)} placeholder="Description courte du sample..." rows={2}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:border-amber-500 focus:outline-none resize-none"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-mono text-slate-400">Mots-clés (séparés par des virgules)</label>
+                <input 
+                  type="text" value={keywords} onChange={(e) => setKeywords(e.target.value)} placeholder="kick, lofi, dark..."
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          </details>
+
+          {/* ========================================================= */}
+          {/* © ROADMAP : ACCORDÉON COPYRIGHT */}
+          {/* ========================================================= */}
+          <details className="group bg-slate-950/40 border border-slate-800/80 rounded-2xl overflow-hidden">
+            <summary className="flex items-center justify-between p-4 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+              <div className="flex items-center gap-2">
+                <Copyright size={16} className="text-red-500" />
+                <span className="text-xs font-mono uppercase text-slate-300 font-bold tracking-wider">Droits & Copyright</span>
+              </div>
+              <ChevronDown size={16} className="text-slate-500 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="p-4 pt-0 space-y-4 border-t border-slate-800/80 mt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-mono text-slate-400">Ton Rôle</label>
+                  <select 
+                    value={copyrightRole} onChange={(e) => setCopyrightRole(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:border-red-500 focus:outline-none"
+                  >
+                    <option value="CREATOR">Créateur Original</option>
+                    <option value="PRODUCER">Producteur</option>
+                    <option value="DISTRIBUTOR">Distributeur</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-mono text-slate-400">Licence</label>
+                  <select 
+                    value={license} onChange={(e) => setLicense(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:border-red-500 focus:outline-none"
+                  >
+                    <option value="STANDARD">Licence Standard Îlot</option>
+                    <option value="CC-BY">Creative Commons (BY)</option>
+                    <option value="ROYALTY_FREE">Libre de Droits (0 VNL)</option>
+                  </select>
+                </div>
+              </div>
+              <label className="flex items-center gap-3 cursor-pointer pt-2">
+                <input type="checkbox" checked={isExclusiveIlot} onChange={(e) => setIsExclusiveIlot(e.target.checked)} className="accent-red-600 w-4 h-4 rounded" />
+                <span className="text-xs font-mono text-slate-300">Distribution exclusive sur l'Îlot Zoizos</span>
+              </label>
+            </div>
+          </details>
 
           <div className="space-y-3 pt-2 border-t border-slate-800">
             <label className="text-xs font-mono uppercase text-slate-400 tracking-wider">Permissions de Diffusion</label>

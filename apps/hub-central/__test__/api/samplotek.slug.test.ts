@@ -5,17 +5,27 @@ import { storageService } from '@/modules/storage/storage.service';
 import { revalidateTag } from 'next/cache';
 import { NextRequest, NextResponse } from 'next/server';
 
+// -------------------------------------------------------------------------
+// 🎭 MOCKS DE L'ENVIRONNEMENT
+// -------------------------------------------------------------------------
 vi.mock('next/cache', () => ({
   revalidateTag: vi.fn(),
+  unstable_cache: vi.fn((cb) => cb), // 🛠️ L'ajout vital pour éviter le crash au chargement du cache
 }));
 
 vi.mock('@/lib/api-guards', () => ({
   withAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
-    const mockUser = global.__mockUser;
+    const mockUser = (global as any).__mockUser;
     if (!mockUser || !mockUser.uid) {
       return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
     }
     return await handler(req, context, mockUser);
+  },
+  // 🛠️ L'AJOUT POUR RÉPARER L'ERREUR : Mock de withOptionalAura
+  withOptionalAura: (handler: Function) => async (req: NextRequest, context: unknown) => {
+    const mockUser = (global as any).__mockUser;
+    // On passe le mockUser même s'il est undefined (comportement normal du OptionalAura)
+    return await handler(req, context, mockUser); 
   },
   handleRouteError: (error: unknown, context: string) => {
     const err = error as Error;
@@ -39,17 +49,17 @@ vi.mock('@/lib/slugify', () => ({
   slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
+// -------------------------------------------------------------------------
+// 🧪 SUITE DE TESTS
+// -------------------------------------------------------------------------
 describe('API SamploTek - Suppression d’un sample ([slug])', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    delete global.__mockUser;
-
+    delete (global as any).__mockUser;
     vi.spyOn(storageService, 'deleteFile').mockResolvedValue({ success: true } as unknown as Awaited<ReturnType<typeof storageService.deleteFile>>);
   });
 
   it('🔴 doit rejeter (401) si l’Oiseau n’est pas connecté', async () => {
-    delete global.__mockUser;
-
     const req = new NextRequest('http://localhost/api/samplotek/samp_123', { method: 'DELETE' });
     const res = await DELETE(req, { params: Promise.resolve({ slug: 'samp_123' }) });
 
@@ -57,7 +67,7 @@ describe('API SamploTek - Suppression d’un sample ([slug])', () => {
   });
 
   it('🔴 doit rejeter (403) si l’Oiseau tente de supprimer le sample d’un autre', async () => {
-    global.__mockUser = { uid: 'intrus_bird', capabilities: [] };
+    (global as any).__mockUser = { uid: 'intrus_bird', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 'samp_123',
@@ -73,8 +83,8 @@ describe('API SamploTek - Suppression d’un sample ([slug])', () => {
     expect(SampleModel.deleteOne).not.toHaveBeenCalled();
   });
 
-  it('🟢 doit dissoudre le sample avec succès (200), purger R2 et invalider le cache', async () => {
-    global.__mockUser = { uid: 'owner_bird', capabilities: [] };
+  it('🟢 doit dissoudre le sample avec succès (200), purger R2 et invalider le cache en cascade', async () => {
+    (global as any).__mockUser = { uid: 'owner_bird', capabilities: [] };
 
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 'samp_123',
@@ -91,8 +101,10 @@ describe('API SamploTek - Suppression d’un sample ([slug])', () => {
     expect(json.success).toBe(true);
     expect(storageService.deleteFile).toHaveBeenCalledWith('hub-central/sample.mp3');
     expect(SampleModel.deleteOne).toHaveBeenCalledWith({ uid: 'samp_123' });
+    
     expect(revalidateTag).toHaveBeenCalledWith('samples');
     expect(revalidateTag).toHaveBeenCalledWith('samples-user-owner_bird');
+    expect(revalidateTag).toHaveBeenCalledWith('sample-samp_123');
     expect(revalidateTag).toHaveBeenCalledWith('sample-kick-lourd');
   });
 });

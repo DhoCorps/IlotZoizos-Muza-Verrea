@@ -22,7 +22,7 @@ describe('Modèle NoSQL - SampleModel (SamploTek)', () => {
     await SampleModel.deleteMany({});
   });
 
-  it('🟢 doit sédimenter un sample complet avec sa signature cryptographique', async () => {
+  it('🟢 doit sédimenter un sample complet avec son Sceau Cryptographique unifié (cryptoSeal) et ses modules', async () => {
     const validSample = {
       uid: 'samp_999',
       title: 'Kick Lourd',
@@ -32,13 +32,21 @@ describe('Modèle NoSQL - SampleModel (SamploTek)', () => {
       tempoBpm: 120,
       musicalKey: 'C minor',
       style: 'Techno',
-      creatorUid: 'bird_dj',
-      creatorSlug: 'dj-bird',
-      digitalSignature: 'abc123hashcrypto',
+      authorUid: 'bird_dj',
+      authorPseudo: 'dj-bird',
       permissions: {
         allowRadio: true,
         allowBlindTest: true,
         allowShowcase: false
+      },
+      cryptoSeal: {
+        digitalSignature: 'abc123hashcrypto',
+        timestampedAt: new Date(),
+        copyrightMetadata: {
+          role: 'CREATOR',
+          isExclusiveIlot: true,
+          license: 'STANDARD'
+        }
       }
     };
 
@@ -46,24 +54,29 @@ describe('Modèle NoSQL - SampleModel (SamploTek)', () => {
 
     expect(createdSample._id).toBeDefined();
     expect(createdSample.uid).toBe('samp_999');
-    expect(createdSample.digitalSignature).toBe('abc123hashcrypto');
-    expect(createdSample.copyrightClaimed).toBe(true); // Valeur par défaut
-    expect(createdSample.permissions.allowShowcase).toBe(false);
+    
+    // Vérification du Sceau
+    expect(createdSample.cryptoSeal?.digitalSignature).toBe('abc123hashcrypto');
+    expect(createdSample.cryptoSeal?.copyrightMetadata?.role).toBe('CREATOR');
+    
+    // Vérification de la Modération et du Statut (Valeurs par défaut)
+    expect(createdSample.moderation?.isQuarantined).toBe(false);
+    expect(createdSample.status).toBe('PUBLISHED');
+    expect(createdSample.permissions?.allowShowcase).toBe(false);
   });
 
-  it('🔴 doit lever une erreur si la signature cryptographique (digitalSignature) manque', async () => {
+  it('🔴 doit lever une erreur si des champs obligatoires (ex: audioUrl) manquent', async () => {
     const invalidSample = {
       uid: 'samp_888',
       title: 'Snare',
       slug: 'snare',
-      audioUrl: 'https://cdn.ilot/snare.wav',
+      // audioUrl est manquant !
       storageKey: 'snare.wav',
       tempoBpm: 90,
       musicalKey: 'A minor',
       style: 'LoFi',
-      creatorUid: 'bird_dj',
-      creatorSlug: 'dj-bird',
-      // digitalSignature est manquant !
+      authorUid: 'bird_dj',
+      authorPseudo: 'dj-bird',
     };
 
     let error: any;
@@ -74,6 +87,6 @@ describe('Modèle NoSQL - SampleModel (SamploTek)', () => {
     }
 
     expect(error).toBeDefined();
-    expect(error.errors.digitalSignature).toBeDefined();
+    expect(error.errors.audioUrl).toBeDefined();
   });
 });

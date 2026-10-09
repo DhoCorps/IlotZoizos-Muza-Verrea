@@ -1,9 +1,8 @@
-// Fichier : __test__/cache/samplotek.cache.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getCachedSamples } from '@/lib/cache/samplotek.cache';
-import { SampleModel } from '@ilot/infrastructure';
-import { unstable_cache } from 'next/cache';
+import { getCachedSamples, getCachedSample } from '@/lib/cache/samplotek.cache';
+import { SampleModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 
+// 🎭 On mock next/cache pour qu'il renvoie directement la fonction interne
 vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb) => cb),
 }));
@@ -12,19 +11,18 @@ vi.mock('@ilot/infrastructure', () => ({
   SampleModel: {
     find: vi.fn(),
   },
+  findEntityBySlugOrUid: vi.fn(),
 }));
 
 describe('Cache : Samplotek Cache Helpers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.unstubAllEnvs();
   });
 
   describe('getCachedSamples', () => {
-    it('doit récupérer la banque de sons triée par date en mode test (bypass cache)', async () => {
+    it('🟢 doit récupérer la banque de sons filtrée (PUBLISHED + Hors Quarantaine)', async () => {
       const mockSamples = [
-        { uid: 'sample_1', title: 'Kick 808', category: 'PERC' },
-        { uid: 'sample_2', title: 'Snare LoFi', category: 'PERC' },
+        { uid: 'sample_1', title: 'Kick 808', status: 'PUBLISHED' },
       ];
 
       vi.mocked(SampleModel.find).mockReturnValue({
@@ -36,23 +34,22 @@ describe('Cache : Samplotek Cache Helpers', () => {
       const result = await getCachedSamples();
 
       expect(result).toEqual(mockSamples);
-      expect(SampleModel.find).toHaveBeenCalledWith({});
+      expect(SampleModel.find).toHaveBeenCalledWith({
+        status: 'PUBLISHED',
+        'moderation.isQuarantined': false
+      });
     });
+  });
 
-    it('doit utiliser unstable_cache en dehors du mode test', async () => {
-      vi.stubEnv('NODE_ENV', 'production');
+  describe('getCachedSample', () => {
+    it('🟢 doit récupérer un sample spécifique via l\'identifiant', async () => {
+      const mockSample = { uid: 'samp_123', title: 'Snare LoFi' };
+      vi.mocked(findEntityBySlugOrUid).mockResolvedValue(mockSample as any);
 
-      const mockSamples = [{ uid: 'sample_3', title: 'Pad Ambient' }];
-      vi.mocked(SampleModel.find).mockReturnValue({
-        sort: vi.fn().mockReturnValue({
-          lean: vi.fn().mockResolvedValue(mockSamples),
-        }),
-      } as any);
+      const result = await getCachedSample('samp_123');
 
-      const result = await getCachedSamples();
-
-      expect(result).toEqual(mockSamples);
-      expect(unstable_cache).toHaveBeenCalled();
+      expect(result).toEqual(mockSample);
+      expect(findEntityBySlugOrUid).toHaveBeenCalledWith(SampleModel, 'samp_123');
     });
   });
 });

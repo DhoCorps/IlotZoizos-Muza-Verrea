@@ -2,12 +2,15 @@
 
 import React from 'react';
 import { CopyrightMetadata, CopyrightRole } from '@ilot/types';
+import { Shield, Fingerprint } from 'lucide-react';
 
 interface CopyrightBannerProps {
-  mode: 'edit' | 'display';
+  mode?: 'edit' | 'display';
   metadata?: CopyrightMetadata;
   onChange?: (metadata: CopyrightMetadata) => void;
   className?: string;
+  digitalSignature?: string;
+  authorUid?: string;
 }
 
 const ROLE_DESCRIPTIONS = {
@@ -16,7 +19,14 @@ const ROLE_DESCRIPTIONS = {
   CURATOR: "Vous relayez ou archivez une œuvre (Exclusivité Îlot impossible)."
 };
 
-export function CopyrightBanner({ mode, metadata, onChange, className = '' }: CopyrightBannerProps) {
+export function CopyrightBanner({ 
+  mode = 'display', 
+  metadata, 
+  onChange, 
+  className = '', 
+  digitalSignature, 
+  authorUid 
+}: CopyrightBannerProps) {
   const currentMeta: CopyrightMetadata = metadata || { role: 'CREATOR', isExclusiveIlot: false };
 
   // 🛡️ Gestionnaire de changement pour le mode 'edit'
@@ -68,6 +78,24 @@ export function CopyrightBanner({ mode, metadata, onChange, className = '' }: Co
           <p className="text-xs italic text-slate-500 mt-2 border-l-2 border-slate-600 pl-2">
             Notes du sublimateur : {currentMeta.sublimationNotes}
           </p>
+        )}
+
+        {/* AFFICHAGE DE L'EMPREINTE ET DE L'AUTEUR */}
+        {(digitalSignature || authorUid) && (
+          <div className="mt-3 pt-3 border-t border-slate-700/50 flex flex-col gap-1 text-xs font-mono text-slate-500">
+            {authorUid && (
+              <div className="flex items-center gap-2">
+                <Fingerprint size={12} className="text-slate-400" />
+                <span>Créé par : <span className="text-slate-300">{authorUid}</span></span>
+              </div>
+            )}
+            {digitalSignature && (
+              <div className="flex items-center gap-2">
+                <Shield size={12} className="text-emerald-500 shrink-0" />
+                <span className="truncate" title={digitalSignature}>Sceau : {digitalSignature}</span>
+              </div>
+            )}
+          </div>
         )}
       </aside>
     );

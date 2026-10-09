@@ -1,17 +1,25 @@
-import { SampleModel, PartitaModel, UniversalMediaRegistry } from '@ilot/infrastructure';
+// packages/shared-core/src/sync-engine/samplotek.orchestrator.ts
+import { 
+  SampleModel, 
+  PartitaModel, 
+  UniversalMediaRegistry,
+  UniversHallBeaconModel,
+  LedgerEntryModel 
+} from '@ilot/infrastructure';
 import { ISample, IPartita } from '@ilot/types';
 import { TransactionManager } from './transactionManager';
 import { ActionSignature } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
 import { generateSlug } from '../utils/string.engine';
-import { ensureUniqueSlug } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
+import { ensureUniqueSlug } from '../utils/orchestrator.engine';
 
 export interface SamplotekSyncResult {
   success: boolean;
   status: string;
-  mongo: ISample | IPartita;
-  neo4j: import('neo4j-driver').QueryResult;
+  mongo?: ISample | IPartita | any;
+  neo4j?: import('neo4j-driver').QueryResult;
+  isQuarantined?: boolean;
 }
 
 export interface FosterSamplePayload {
@@ -19,7 +27,11 @@ export interface FosterSamplePayload {
   title: string;
   slug?: string;
   audioUrl: string;
-  digitalSignature: string;
+  cryptoSeal: {
+    digitalSignature: string;
+    timestampedAt: Date;
+    copyrightMetadata?: any;
+  };
   tempoBpm?: number;
   style?: string;
   [key: string]: unknown;
@@ -37,7 +49,7 @@ export interface ExportProjectPayload {
     permissions?: {
       allowShowcase?: boolean;
       allowRadio?: boolean;
-      allowBlindTest?: boolean; // 🛡️ Ajout indispensable ici pour stopper l'erreur TypeScript
+      allowBlindTest?: boolean;
     };
     [key: string]: unknown;
   };
@@ -46,8 +58,7 @@ export interface ExportProjectPayload {
 
 /**
  * SAMPLOTEK ORCHESTRATOR
- * Gère la sédimentation des samples (E-Jay) et le mixage final.
- * Applique le tissage Neo4j avec un typage strict et une unicité atomique anti-concurrence.
+ * Gère la sédimentation des samples (E-Jay), le mixage final, la modération et l'économie passive.
  */
 export class SamplotekOrchestrator {
 
@@ -59,8 +70,8 @@ export class SamplotekOrchestrator {
       throw new IlotError("Oiseau non authentifié pour graver un sample.", "UNAUTHORIZED", 401);
     }
 
-    if (!data.title || !data.audioUrl || !data.digitalSignature) {
-      throw new IlotError("Données de sample incomplètes ou non scellées.", "BAD_REQUEST", 400);
+    if (!data.title || !data.audioUrl || !data.cryptoSeal?.digitalSignature) {
+      throw new IlotError("Données de sample incomplètes ou Sceau Cryptographique manquant.", "BAD_REQUEST", 400);
     }
 
     const actorCanonicalUid = signature.actorUid;
@@ -69,7 +80,6 @@ export class SamplotekOrchestrator {
       const now = new Date();
       const sampleUid = data.uid || `samp_${randomUUID()}`;
 
-      // Sécurisation atomique de l'unicité du slug via l'utilitaire global
       const baseSlug = generateSlug(data.slug || data.title);
       const finalSlug = await ensureUniqueSlug(SampleModel, baseSlug, mongoSession);
 
@@ -77,14 +87,13 @@ export class SamplotekOrchestrator {
         ...data,
         uid: sampleUid,
         slug: finalSlug,
-        creatorUid: actorCanonicalUid,
-        dates: {
-          createdAt: now,
-          updatedAt: now
-        }
+        authorUid: actorCanonicalUid,
+        cryptoSeal: data.cryptoSeal,
+        createdAt: now,
+        updatedAt: now
       };
 
-      // 1. Sédimentation dans la Silice (MongoDB) avec gestion gracieuse de l'unicité (Retry pattern minimaliste)
+      // 1. Sédimentation dans la Silice
       let newSample: ISample;
       try {
         const created = await SampleModel.create([newSampleData], { session: mongoSession });
@@ -109,7 +118,7 @@ export class SamplotekOrchestrator {
            digitalSignature: $digitalSignature,
            createdAt: datetime($now)
         })
-        CREATE (u)-[:GRAVED]->(s)
+        CREATE (u)-[:GRAVED_SAMPLE]->(s)
         RETURN s
       `;
 
@@ -120,7 +129,7 @@ export class SamplotekOrchestrator {
         slug: newSample.slug,
         tempoBpm: newSample.tempoBpm || 120,
         style: newSample.style || 'Ambient',
-        digitalSignature: newSample.digitalSignature,
+        digitalSignature: newSample.cryptoSeal!.digitalSignature,
         now: now.toISOString()
       });
 
@@ -133,7 +142,41 @@ export class SamplotekOrchestrator {
   }
 
   /**
-   * 🎛️ EXPORTER UN PROJET STUDIO (MIXAGE)
+   * 🚩 MODÉRATION : SIGNALER UN SAMPLE
+   */
+  async reportSample(sampleUid: string, signature: ActionSignature): Promise<SamplotekSyncResult> {
+    if (!signature.actorUid) {
+      throw new IlotError("Oiseau non authentifié pour signaler un sample.", "UNAUTHORIZED", 401);
+    }
+
+    return await TransactionManager.execute("Signalement Sample", async (mongoSession) => {
+      const sample = await SampleModel.findOne({ uid: sampleUid }).session(mongoSession);
+      if (!sample) {
+        throw new IlotError("Sample introuvable dans la matrice.", "NOT_FOUND", 404);
+      }
+
+      const currentReports = sample.moderation?.reportsCount || 0;
+      const newReports = currentReports + 1;
+      const shouldQuarantine = newReports > 3;
+
+      sample.moderation = {
+        reportsCount: newReports,
+        isQuarantined: shouldQuarantine
+      };
+
+      if (shouldQuarantine) {
+        sample.status = 'QUARANTINED';
+        console.warn(`[MODÉRATION] Le sample ${sampleUid} a été placé en quarantaine par la communauté.`);
+      }
+
+      await sample.save({ session: mongoSession });
+
+      return { success: true, status: 'success', mongo: sample, isQuarantined: shouldQuarantine };
+    });
+  }
+
+  /**
+   * 🎛️ EXPORTER UN PROJET STUDIO (MIXAGE & ROYALTIES)
    */
   async exportProject(data: ExportProjectPayload, signature: ActionSignature): Promise<SamplotekSyncResult> {
     if (!signature.actorUid) {
@@ -150,7 +193,6 @@ export class SamplotekOrchestrator {
       const now = new Date();
       const projectUid = data.uid || `samplotek_${randomUUID()}`;
 
-      // Sécurisation atomique de l'unicité du slug de projet via l'utilitaire global
       const baseSlug = generateSlug(data.slug || data.title);
       const finalSlug = await ensureUniqueSlug(PartitaModel, baseSlug, mongoSession);
 
@@ -181,9 +223,8 @@ export class SamplotekOrchestrator {
         throw err;
       }
 
-      // 2. Tissage dans Neo4j
-      const metadataObj = data.metadata;
-      const usedSampleUids = metadataObj?.usedSampleUids || [];
+      // 2. Tissage dans Neo4j & Extraction des Ayants Droit (Royalties)
+      const usedSampleUids = data.metadata?.usedSampleUids || [];
       
       const cypher = `
         MATCH (u:User { uid: $actorUid })
@@ -199,9 +240,12 @@ export class SamplotekOrchestrator {
         UNWIND (CASE WHEN size($sampleUids) = 0 THEN [null] ELSE $sampleUids END) AS sUid
         FOREACH (_ IN CASE WHEN sUid IS NOT NULL THEN [1] ELSE [] END |
           MERGE (s:Sample {uid: sUid})
-          MERGE (p)-[:USES_SAMPLE]->(s)
+          MERGE (p)-[:CONTAINS_SAMPLE_FROM]->(s)
         )
-        RETURN p
+        WITH p
+        OPTIONAL MATCH (author:User)-[:GRAVED_SAMPLE]->(s2:Sample)<-[:CONTAINS_SAMPLE_FROM]-(p)
+        WHERE author.uid <> $actorUid
+        RETURN p, collect(DISTINCT author.uid) AS royaltyBeneficiaries
       `;
 
       const neoResult = await neo4jTx.run(cypher, {
@@ -217,8 +261,44 @@ export class SamplotekOrchestrator {
         throw new IlotError("Échec du tissage du projet dans Neo4j.", "INTERNAL_ERROR", 500);
       }
 
-      // 3. Indexation Universelle si autorisé
-      const permissions = metadataObj?.permissions;
+      // 3. Versement de l'Économie Passive (Kompta) - Schéma stricte
+      const royaltyBeneficiaries = neoResult.records[0].get('royaltyBeneficiaries') || [];
+      if (royaltyBeneficiaries.length > 0) {
+        const ledgerEntries = royaltyBeneficiaries.map((beneficiaryUid: string) => {
+          const entryUid = `ldg_${randomUUID()}`;
+          return {
+            entryUid: entryUid,
+            ownerUid: beneficiaryUid,
+            counterpartyUid: 'SYSTEM', // Les royalties sont générées par la Canopée
+            amountCents: 500, // 5.00 Vinyles
+            currency: 'VINYLE',
+            type: 'CREDIT', // Comptabilité stricte
+            category: 'REWARD', 
+            referenceUid: newProject.uid,
+            entryHash: `hash_seal_${entryUid}`, // Sceau unique pour le Grand Livre
+            description: `Économie Passive : Votre sample a été utilisé dans l'œuvre "${newProject.title}".`,
+            status: 'COMPLETED',
+            createdAt: now
+          };
+        });
+        await LedgerEntryModel.create(ledgerEntries, { session: mongoSession });
+      }
+
+      // 4. Inscription Univers'Hall (Balise d'Agora)
+      await UniversHallBeaconModel.create([{
+        uid: `beacon_${newProject.uid}`,
+        sourceModule: 'SAMPLOTEK',
+        entityUid: newProject.uid,
+        title: newProject.title,
+        summary: `Nouvelle symphonie SamploTek composée de ${usedSampleUids.length} samples.`,
+        tags: ['samplotek', 'musique', 'mix'],
+        resonanceScore: 10,
+        metadata: { isStudioProject: true },
+        createdAt: now
+      }], { session: mongoSession });
+
+      // 5. Indexation Universelle si autorisé
+      const permissions = data.metadata?.permissions;
       if (permissions?.allowShowcase) {
         await UniversalMediaRegistry.indexItem({
           mediaId: newProject.uid,
@@ -228,7 +308,7 @@ export class SamplotekOrchestrator {
           title: data.title,
           mediaUrl: '',
           consentForShowcase: true,
-          consentForMusicSync: permissions.allowRadio,
+          consentForMusicSync: permissions?.allowRadio,
           createdAt: now,
           metadata: { isStudioProject: true }
         });

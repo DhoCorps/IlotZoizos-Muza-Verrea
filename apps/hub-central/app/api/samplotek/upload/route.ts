@@ -28,7 +28,7 @@ function revalidateSamplotekCascades(userUid?: string, sampleUid?: string) {
 // ==========================================
 export const POST = withRateLimit('upload-sample', 10, 60, withAura(async (req: NextRequest, _context: ApiContext, currentUser: OiseauUser) => {
   try {
-    // 2. Extraction du FormData
+    // 1. Extraction du FormData
     let formData: FormData;
     try {
       formData = await req.formData();
@@ -41,7 +41,7 @@ export const POST = withRateLimit('upload-sample', 10, 60, withAura(async (req: 
       return NextResponse.json({ success: false, error: 'Aucun fichier audio fourni.' }, { status: 400 });
     }
 
-    // 3. Validation des métadonnées
+    // 2. Validation des métadonnées
     const rawData = {
       title: String(formData.get('title') || 'Sample Sans Nom'),
       tempoBpm: Number(formData.get('tempoBpm') || 120),
@@ -58,7 +58,7 @@ export const POST = withRateLimit('upload-sample', 10, 60, withAura(async (req: 
     }
     const data = validation.data;
 
-    // 4. Sceau Cryptographique (SHA-256)
+    // 3. Création du Sceau Cryptographique Unifié (SHA-256)
     let fileBuffer: Buffer;
     try {
       fileBuffer = Buffer.from(await file.arrayBuffer());
@@ -66,8 +66,19 @@ export const POST = withRateLimit('upload-sample', 10, 60, withAura(async (req: 
       fileBuffer = Buffer.from('ilot-zoizos-mock-sample-audio');
     }
     const digitalSignature = generateFileHash(fileBuffer);
+    
+    // 🛡️ Assemblage du Sceau
+    const cryptoSeal = {
+      digitalSignature,
+      timestampedAt: new Date(),
+      copyrightMetadata: {
+        role: String(formData.get('copyrightRole') || 'CREATOR'),
+        isExclusiveIlot: formData.get('isExclusiveIlot') !== 'false',
+        license: String(formData.get('license') || 'STANDARD'),
+      }
+    };
 
-    // 5. Stockage Cloud (Cloudflare R2) via la méthode unifiée en mode LEGACY
+    // 4. Stockage Cloud (Cloudflare R2) via la méthode unifiée en mode LEGACY
     const sampleUid = `samp_${uuidv4()}`;
     const customKey = storageService.generateKey({
       mode: 'LEGACY',
@@ -91,7 +102,7 @@ export const POST = withRateLimit('upload-sample', 10, 60, withAura(async (req: 
     const publicUrl = typeof resObj === 'string' ? resObj : (resObj?.publicUrl || resObj?.url || 'https://mock-url.com/sample.mp3');
     const storageKey = (typeof resObj === 'object' && resObj !== null && 'key' in resObj ? resObj.key : undefined) || customKey;
 
-    // 6. Transfert de responsabilité à l'Orchestrateur (qui associe l'auteur via currentUser.uid)
+    // 5. Transfert de responsabilité à l'Orchestrateur
     const orchestrator = new SamplotekOrchestrator();
     let result: Awaited<ReturnType<SamplotekOrchestrator['fosterSample']>>;
     try {
@@ -108,7 +119,7 @@ export const POST = withRateLimit('upload-sample', 10, 60, withAura(async (req: 
           allowBlindTest: data.allowBlindTest,
           allowShowcase: data.allowShowcase,
         },
-        digitalSignature
+        cryptoSeal // 🛡️ On transfère le sceau unifié complet à la place du simple string
       }, { actorUid: currentUser.uid, capabilities: currentUser.capabilities || [] });
     } catch (orchErr: unknown) {
       const err = orchErr as { status?: number; statusCode?: number; message?: string };
@@ -116,7 +127,7 @@ export const POST = withRateLimit('upload-sample', 10, 60, withAura(async (req: 
       return NextResponse.json({ success: false, error: err.message || "L'Orchestrateur a rejeté le sample." }, { status });
     }
 
-    // 7. Invalidation globale et centralisée en cascade
+    // 6. Invalidation globale et centralisée en cascade
     revalidateSamplotekCascades(currentUser.uid, sampleUid);
 
     return NextResponse.json({

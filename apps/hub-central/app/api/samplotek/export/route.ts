@@ -37,12 +37,13 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     const { title, bpm, tracks } = validation.data;
     const sampleUids = tracks.map(t => t.sampleUid);
 
-    // 1. Auscultation des permissions dans la Silice
+    // 1. Auscultation des permissions dans la Silice pour tous les samples utilisés
     const usedSamples = (await SampleModel.find({ uid: { $in: sampleUids } }).lean()) as unknown as ISample[];
     if (!usedSamples || usedSamples.length === 0) {
-      return NextResponse.json({ success: false, error: 'Aucun sample valide trouvé.' }, { status: 404 });
+      return NextResponse.json({ success: false, error: 'Aucun sample valide trouvé dans ce projet.' }, { status: 404 });
     }
 
+    // Le mix final hérite des permissions les plus restrictives de ses composants
     let finalAllowRadio = true;
     let finalAllowBlindTest = true;
     let finalAllowShowcase = true;
@@ -53,7 +54,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
       if (!sample.permissions?.allowShowcase) finalAllowShowcase = false;
     });
 
-    // 2. Transfert à l'Orchestrateur pour le Mixage (Mongo + Neo4j + Univers)
+    // 2. Transfert à l'Orchestrateur pour le Mixage (Mongo + Neo4j + Kompta + Univers)
     const orchestrator = new SamplotekOrchestrator();
     let result;
     try {
@@ -73,10 +74,10 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     } catch (orchErr: unknown) {
       const err = orchErr as { status?: number; statusCode?: number; message?: string };
       const status = err.status || err.statusCode || 500;
-      return NextResponse.json({ success: false, error: err.message || 'Erreur interne du mixage.' }, { status });
+      return NextResponse.json({ success: false, error: err.message || 'Erreur interne lors du mixage.' }, { status });
     }
 
-    // 3. Invalidation du cache
+    // 3. Invalidation du cache en cascade
     revalidateTag('partitas');
     revalidateTag(`partitas-user-${currentUser.uid}`);
     revalidateTag('universal-media');
