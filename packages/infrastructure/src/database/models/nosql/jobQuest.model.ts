@@ -1,5 +1,14 @@
 import mongoose from 'mongoose';
 import type { Document } from 'mongoose';
+import {
+  WorkArrangementSchema,
+  ContractTypeSchema,
+  EmploymentTypeSchema,
+  ExperienceLevelSchema,
+  BudgetTypeSchema,
+  QuestDifficultySchema,
+  QuestStatusSchema
+} from '@ilot/types';
 
 const { Schema } = mongoose;
 
@@ -28,6 +37,10 @@ export interface IJobQuestDocument extends Document {
   // ⚖️ SUTURE MATCHMAKING
   minBudgetCents?: number | null;
   maxBudgetCents?: number | null;
+  budgetConstraint?: {
+    minBudgetCents: number;
+    maxBudgetCents: number;
+  };
   budgetType: 'DAILY_RATE' | 'FIXED_PRICE' | 'YEARLY_SALARY';
   currency: string;
 
@@ -42,6 +55,7 @@ export interface IJobQuestDocument extends Document {
   requirements: string[];
   responsibilities: string[];
   rewardLore?: string;
+  rewardXp: number;
   
   // 🎲 LE SUPERFLU NÉCESSAIRE (Flavor RPG)
   questDifficulty: 'PEACEFUL' | 'NORMAL' | 'HARD' | 'NIGHTMARE' | 'LUNATIC';
@@ -53,12 +67,17 @@ export interface IJobQuestDocument extends Document {
   seo: {
     metaTitle?: string;
     metaDescription?: string;
+    ogImageUrl?: string;
+    canonicalUrl?: string;
+    ogType?: 'website' | 'article' | 'book';
+    articleAuthor?: string;
+    publishedTime?: string;
   };
   settings: {
     allowApplications: boolean;
   };
 
-  status: 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'FILLED' | 'ARCHIVED';
+  status: 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'FILLED' | 'COMPLETED' | 'ARCHIVED';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -66,7 +85,7 @@ export interface IJobQuestDocument extends Document {
 const JobQuestSchema = new Schema<IJobQuestDocument>({
   uid: { type: String, required: true, unique: true, index: true },
   projectUid: { type: String, required: true, index: true },
-  title: { type: String, required: true },
+  title: { type: String, required: true, trim: true },
   slug: { type: String, required: true, unique: true, index: true }, // 🪡 Indexé pour la recherche SEO
   description: { type: String, required: true },
   
@@ -77,25 +96,25 @@ const JobQuestSchema = new Schema<IJobQuestDocument>({
     logoUrl: { type: String }
   },
 
-  // 💼 --- LOGISTIQUE & CONDITIONS MATÉRIELLES ---
+  // 💼 --- LOGISTIQUE & CONDITIONS MATÉRIELLES (Synchronisé sur Zod .options) ---
   workArrangement: { 
     type: String, 
-    enum: ['FULL_REMOTE', 'HYBRID', 'ON_SITE'], 
+    enum: WorkArrangementSchema.options, 
     default: 'FULL_REMOTE' 
   },
   contractType: { 
     type: String, 
-    enum: ['FREELANCE', 'CDI', 'CDD', 'INTERNSHIP', 'PARTNERSHIP', 'BOUNTY', 'OTHER'], 
+    enum: ContractTypeSchema.options, 
     default: 'FREELANCE' 
   },
   employmentType: { 
     type: String, 
-    enum: ['FULL_TIME', 'PART_TIME', 'FREELANCE', 'CONTRACT', 'INTERNSHIP'], 
+    enum: EmploymentTypeSchema.options, 
     default: 'FULL_TIME' 
   },
   experienceLevel: { 
     type: String, 
-    enum: ['APPRENTICE', 'JUNIOR', 'MID', 'CONFIRMED', 'SENIOR', 'LEAD', 'MASTER', 'GURU'], 
+    enum: ExperienceLevelSchema.options, 
     default: 'CONFIRMED' 
   },
   location: { type: String, default: 'Remote' },
@@ -116,9 +135,13 @@ const JobQuestSchema = new Schema<IJobQuestDocument>({
     }
   },
   maxBudgetCents: { type: Number, min: 0 },
+  budgetConstraint: {
+    minBudgetCents: { type: Number, min: 0 },
+    maxBudgetCents: { type: Number, min: 0 }
+  },
   budgetType: { 
     type: String, 
-    enum: ['DAILY_RATE', 'FIXED_PRICE', 'YEARLY_SALARY'], 
+    enum: BudgetTypeSchema.options, 
     default: 'DAILY_RATE' 
   },
   currency: { type: String, default: 'EUR' },
@@ -134,11 +157,12 @@ const JobQuestSchema = new Schema<IJobQuestDocument>({
   requirements: [{ type: String }],
   responsibilities: [{ type: String }],
   rewardLore: { type: String },
+  rewardXp: { type: Number, default: 100, min: 0 },
   
   // 🎲 --- LE SUPERFLU NÉCESSAIRE (Le "Flavor" RPG) ---
   questDifficulty: { 
     type: String, 
-    enum: ['PEACEFUL', 'NORMAL', 'HARD', 'NIGHTMARE', 'LUNATIC'], 
+    enum: QuestDifficultySchema.options, 
     default: 'NORMAL' 
   },
   dangerLevel: { type: Number, min: 0, max: 100, default: 10 },
@@ -148,7 +172,12 @@ const JobQuestSchema = new Schema<IJobQuestDocument>({
   tags: [{ type: String }],
   seo: {
     metaTitle: { type: String },
-    metaDescription: { type: String }
+    metaDescription: { type: String },
+    ogImageUrl: { type: String },
+    canonicalUrl: { type: String },
+    ogType: { type: String, enum: ['website', 'article', 'book'], default: 'website' },
+    articleAuthor: { type: String },
+    publishedTime: { type: String }
   },
   settings: {
     allowApplications: { type: Boolean, default: true }
@@ -156,7 +185,7 @@ const JobQuestSchema = new Schema<IJobQuestDocument>({
 
   status: { 
     type: String, 
-    enum: ['DRAFT', 'ACTIVE', 'PAUSED', 'FILLED', 'ARCHIVED'], 
+    enum: QuestStatusSchema.options, 
     default: 'ACTIVE' 
   },
 }, { timestamps: true });

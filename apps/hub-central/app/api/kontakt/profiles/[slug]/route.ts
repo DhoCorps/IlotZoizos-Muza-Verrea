@@ -2,13 +2,13 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { KontaktProfileModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { TTRPGAlignmentEnum } from '@ilot/types';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
-import { handleRouteError } from '@/lib/api-guards';
+import { withSilice, withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
-// 🛡️ Schéma Zod strict pour interdire l'assignation de masse sur les profils Kontakt
+// 🛡️ Schéma Zod strict pour interdire l'assignation de masse sur les profils Kontakt (SSOT via .options + instances Zod locales)
 const UpdateKontaktProfileSchema = z.object({
   professionalTitle: z.string().min(1, "Le titre professionnel est requis.").optional(),
   seniorityYears: z.number().min(0).optional(),
@@ -16,14 +16,9 @@ const UpdateKontaktProfileSchema = z.object({
   availabilityStatus: z.enum(['OPEN_TO_WORK', 'ON_A_QUEST', 'RECRUITED']).optional(),
   portfolioUrl: z.string().url().nullable().optional(),
   
-  // 🎲 --- LE SUPERFLU NÉCESSAIRE (Le "Flavor" RPG) ---
+  // 🎲 --- LE SUPERFLU NÉCESSAIRE (Le "Flavor" RPG - SSOT via .options) ---
   archetypeClass: z.string().min(1).optional(),
-  alignment: z.enum([
-    'LOYAL_GOOD', 'NEUTRAL_GOOD', 'CHAOTIC_GOOD',
-    'LOYAL_NEUTRAL', 'TRUE_NEUTRAL', 'CHAOTIC_NEUTRAL',
-    'LOYAL_EVIL', 'NEUTRAL_EVIL', 'CHAOTIC_EVIL',
-    'ANGE_INS', 'DEMON_INS', 'REPLICANT_BR', 'HUMAIN_BR'
-  ]).optional(),
+  alignment: z.enum(TTRPGAlignmentEnum.options).optional(),
   attributes: z.object({
     force: z.number().min(1).max(20).optional(),
     agilite: z.number().min(1).max(20).optional(),
@@ -34,7 +29,7 @@ const UpdateKontaktProfileSchema = z.object({
   specialArtifacts: z.array(z.string()).optional(),
   biographyLore: z.string().max(500).optional(),
   
-  // 💼 --- PORTFOLIO & REVIEWS ---
+  // 💼 --- PORTFOLIO, TARIFS & REVIEWS ---
   portfolioItems: z.array(z.object({
     type: z.enum(['IMAGE', 'GITHUB_REPO', 'AUDIO', '3D', 'WEB']),
     url: z.string().url(),
@@ -57,8 +52,13 @@ const UpdateKontaktProfileSchema = z.object({
   // 🚀 --- SQUELETTE MUTUALISÉ ---
   tags: z.array(z.string()).optional(),
   seo: z.object({
-    metaTitle: z.string().optional(),
-    metaDescription: z.string().optional()
+    metaTitle: z.string().max(60).optional(),
+    metaDescription: z.string().max(160).optional(),
+    ogImageUrl: z.string().url().optional(),
+    canonicalUrl: z.string().url().optional(),
+    ogType: z.enum(['website', 'article', 'book']).optional(),
+    articleAuthor: z.string().optional(),
+    publishedTime: z.string().datetime().optional(),
   }).optional(),
   settings: z.object({
     allowDirectContact: z.boolean().optional(),

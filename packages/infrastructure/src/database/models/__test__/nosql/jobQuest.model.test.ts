@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { JobQuestModel } from '../../nosql/jobQuest.model'; 
 
-describe('JobQuest Model (Recrutement & Quêtes)', () => {
+describe('JobQuest Model (Recrutement & Quêtes - SSOT Unifiée)', () => {
     it('🟢 doit valider une quête conforme avec ses valeurs requises, logistiques, entreprise et RPG par défaut', () => {
         const validData = {
             uid: 'quest_123',
@@ -18,6 +18,10 @@ describe('JobQuest Model (Recrutement & Quêtes)', () => {
             rewardLore: 'Un fragment d\'étoile éternel',
             minBudgetCents: 45000,
             maxBudgetCents: 50000,
+            budgetConstraint: {
+                minBudgetCents: 45000,
+                maxBudgetCents: 50000
+            },
             perks: ['Setup triple écran', 'Café infusé à froid']
         };
 
@@ -33,9 +37,10 @@ describe('JobQuest Model (Recrutement & Quêtes)', () => {
         expect(quest.rewardLore).toBe('Un fragment d\'étoile éternel');
         expect(quest.minBudgetCents).toBe(45000);
         expect(quest.maxBudgetCents).toBe(50000);
+        expect(quest.budgetConstraint?.maxBudgetCents).toBe(50000);
         expect(quest.perks).toEqual(['Setup triple écran', 'Café infusé à froid']);
         
-        // Vérification des valeurs injectées par défaut (Mongoose)
+        // Vérification des valeurs injectées par défaut (Mongoose + SSOT)
         expect(quest.status).toBe('ACTIVE'); 
         expect(quest.workArrangement).toBe('FULL_REMOTE');
         expect(quest.contractType).toBe('FREELANCE');
@@ -44,6 +49,7 @@ describe('JobQuest Model (Recrutement & Quêtes)', () => {
         expect(quest.location).toBe('Remote');
         expect(quest.budgetType).toBe('DAILY_RATE');
         expect(quest.currency).toBe('EUR');
+        expect(quest.rewardXp).toBe(100);
         expect(quest.questDifficulty).toBe('NORMAL');
         expect(quest.dangerLevel).toBe(10);
         expect(quest.settings?.allowApplications).toBe(true);

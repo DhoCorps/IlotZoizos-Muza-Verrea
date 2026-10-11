@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, POST } from '@/app/api/kontakt/profiles/route';
 import { KontaktProfileModel } from '@ilot/infrastructure';
+import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
 
@@ -18,6 +19,9 @@ vi.mock('@/lib/api-guards', () => ({
     }
     return await handler(req, context, mockUser);
   },
+  handleRouteError: vi.fn((err: unknown, context: string) => {
+    return NextResponse.json({ error: context, details: String(err) }, { status: 500 });
+  }),
 }));
 
 vi.mock('@/lib/slugify', () => ({
@@ -32,25 +36,31 @@ vi.mock('next/cache', () => ({
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   KontaktProfileModel: {
-    find: vi.fn().mockReturnValue({
-      sort: vi.fn().mockReturnValue({
-        lean: vi.fn().mockResolvedValue([]),
-      }),
-    }),
-    findOne: vi.fn().mockReturnValue({
-      lean: vi.fn().mockResolvedValue(null),
-    }),
+    find: vi.fn(),
+    findOne: vi.fn(),
     create: vi.fn(),
-    findOneAndUpdate: vi.fn().mockReturnValue({
-      lean: vi.fn().mockResolvedValue(null),
-    }),
+    findOneAndUpdate: vi.fn(),
   },
 }));
 
-describe('API Kontakt Profiles - Gestion des profils de la canopée', () => {
+describe('API Kontakt Profiles - Gestion des profils de la canopée (SSOT Unifiée)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete global.__mockUser;
+
+    // 🛡️ Ré-affirmation systématique pour survivre au mockReset global de Vitest
+    vi.mocked(slugify).mockImplementation((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || '');
+    vi.mocked(KontaktProfileModel.find).mockReturnValue({
+      sort: vi.fn().mockReturnValue({
+        lean: vi.fn().mockResolvedValue([]),
+      }),
+    } as unknown as ReturnType<typeof KontaktProfileModel.find>);
+    vi.mocked(KontaktProfileModel.findOne).mockReturnValue({
+      lean: vi.fn().mockResolvedValue(null),
+    } as unknown as ReturnType<typeof KontaktProfileModel.findOne>);
+    vi.mocked(KontaktProfileModel.findOneAndUpdate).mockReturnValue({
+      lean: vi.fn().mockResolvedValue(null),
+    } as unknown as ReturnType<typeof KontaktProfileModel.findOneAndUpdate>);
   });
 
   // =========================================================================
@@ -110,6 +120,14 @@ describe('API Kontakt Profiles - Gestion des profils de la canopée', () => {
         professionalTitle: 'Mage Silice', 
         archetypeClass: 'Mage',
         alignment: 'CHAOTIC_NEUTRAL',
+        portfolioItems: [
+          { type: 'GITHUB_REPO', url: 'https://github.com/ilot/zoizos', title: 'Repo Principal' }
+        ],
+        pricing: { hourlyRateCents: 5000, missionRateCents: 40000 },
+        seo: {
+          metaTitle: 'Mage Silice | Kontakt',
+          ogType: 'article'
+        },
         tags: ['silice', 'backend'] 
       })
     });

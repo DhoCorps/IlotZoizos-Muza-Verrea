@@ -14,7 +14,7 @@ const mockRegistry: BlockRegistry = {
     renderEditForm: ({ data, onChange }) => (
       <input 
         data-testid="test-input"
-        value={data.value} 
+        value={String(data.value || '')} 
         onChange={e => onChange({ value: e.target.value })} 
       />
     ),

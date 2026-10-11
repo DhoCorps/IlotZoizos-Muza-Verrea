@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import type { Document } from 'mongoose';
-import { KontaktProfile } from '@ilot/types';
+import { KontaktProfile, TTRPGAlignmentEnum } from '@ilot/types';
 
 const { Schema } = mongoose;
 
@@ -8,13 +8,6 @@ export interface IKontaktProfileDocument extends Omit<KontaktProfile, '_id'>, Do
   createdAt: Date;
   updatedAt: Date;
 }
-
-const ttrpgAlignments = [
-  'LOYAL_GOOD', 'NEUTRAL_GOOD', 'CHAOTIC_GOOD',
-  'LOYAL_NEUTRAL', 'TRUE_NEUTRAL', 'CHAOTIC_NEUTRAL',
-  'LOYAL_EVIL', 'NEUTRAL_EVIL', 'CHAOTIC_EVIL',
-  'ANGE_INS', 'DEMON_INS', 'REPLICANT_BR', 'HUMAIN_BR'
-];
 
 // 🚀 Sous-schéma Mongoose pour les éléments du Portfolio
 const PortfolioItemSchema = new Schema({
@@ -65,10 +58,10 @@ const KontaktProfileSchema = new Schema<IKontaktProfileDocument>({
   },
   archetypeClass: { type: String, required: true, trim: true },
   
-  // 🛡️ Application stricte de l'énumération RPG issue de Zod
+  // 🛡️ Application stricte de l'énumération RPG issue de la SSOT Zod (.options)
   alignment: { 
     type: String, 
-    enum: ttrpgAlignments,
+    enum: TTRPGAlignmentEnum.options,
     default: 'TRUE_NEUTRAL', 
     trim: true 
   },

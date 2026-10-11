@@ -2,7 +2,7 @@ import { TaskResonanceInput } from './../utils/seve.engine';
 import { TaskModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
-import { ActionSignature } from '@ilot/types';
+import { ActionSignature, TaskStatus } from '@ilot/types'; // 🛡️ Import de la SSOT TaskStatus
 import type { ClientSession } from 'mongoose';
 import type { Transaction, QueryResult } from 'neo4j-driver';
 
@@ -80,10 +80,11 @@ export class TaskResonanceOrchestrator {
             throw new IlotError("Aura insuffisante pour calculer la résonance de cet Oiseau.", "FORBIDDEN", 403);
         }
 
+        // 🛡️ SUTURE : Utilisation stricte de TaskStatus.DONE au lieu de 'COMPLETED'
         // Récupération des tâches complétées assignées ou créées par l'oiseau
         const completedTasks = (await TaskModel.find({
             $or: [{ creatorUid: canonicalUid }, { assigneeUids: canonicalUid }],
-            status: 'COMPLETED'
+            status: TaskStatus.DONE 
         }).lean()) as unknown as ITaskCompletedLean[];
 
         const taskInputs: TaskResonanceInput[] = completedTasks.map((t) => ({

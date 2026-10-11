@@ -3,6 +3,8 @@ import { IProject, CAPABILITIES, ActionSignature } from '@ilot/types';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
 import { v4 as uuidv4 } from 'uuid';
+import { generateSlug } from '../utils/string.engine';
+import { ensureUniqueSlug } from '../utils/orchestrator.engine';
 import type { ClientSession } from 'mongoose';
 import type { Transaction, QueryResult } from 'neo4j-driver';
 
@@ -75,20 +77,35 @@ export class ProjectOrchestrator {
     return await TransactionManager.execute("Fondation Chantier", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
       
+      // 🛡️ SUTURE : Génération et sécurisation atomique du slug[cite: 4]
+      const baseSlug = projectData.slug || generateSlug(projectData.name);
+      const finalSlug = await ensureUniqueSlug(ProjectModel, baseSlug, mongoSession);
+
       const finalProjectData = {
         ...projectData,
         uid,
         ownerUid: teamUid,
         creatorUid: actorUid,
         documents: projectData.documents || [],
-        slug: projectData.slug || uid,
+        slug: finalSlug,
         dates: {
           createdAt: now,
           updatedAt: now
         }
       };
 
-      const [newProject] = await ProjectModel.create([finalProjectData], { session: mongoSession });
+      // 🛡️ Gestion gracieuse de la collision de slug MongoDB[cite: 4]
+      let newProject;
+      try {
+        const created = await ProjectModel.create([finalProjectData], { session: mongoSession });
+        newProject = created[0];
+      } catch (err: unknown) {
+        const error = err as { code?: number };
+        if (error.code === 11000) {
+          throw new IlotError("Collision critique de slug sur le chantier. Veuillez réessayer.", "CONFLICT", 409);
+        }
+        throw err;
+      }
 
       const cypher = `
         MATCH (u:User { uid: $actorUid })
@@ -117,7 +134,7 @@ export class ProjectOrchestrator {
       })) as QueryResult;
 
       if (neoResult.records.length === 0) {
-        throw new IlotError("Échec du scelllement : Utilisateur ou Nid introuvable dans le Graphe.", "NOT_FOUND", 404);
+        throw new IlotError("Échec du scellement : Utilisateur ou Nid introuvable dans le Graphe.", "NOT_FOUND", 404);
       }
 
       return {
@@ -185,7 +202,13 @@ export class ProjectOrchestrator {
    * 🌋 DISSOLUTION GLOBALE DU CHANTIER (Phase 3 : Éradication des verrous longs & Memory Spikes)
    * Utilise des curseurs Mongoose et un traitement par lots incrémentiels pour préserver la RAM.
    */
-  public async dissolveProject(projectIdentifier: string, _signature: ActionSignature): Promise<ProjectSyncResult> {
+  public async dissolveProject(projectIdentifier: string, signature: ActionSignature): Promise<ProjectSyncResult> {
+    
+    // 🛡️ SUTURE : Vérification de l'Aura[cite: 4]
+    if (!signature.capabilities.includes(CAPABILITIES.PROJECT.DELETE) && !signature.capabilities.includes('*')) {
+      throw new IlotError("Aura insuffisante pour dissoudre ce chantier.", "FORBIDDEN", 403);
+    }
+
     const project = await findEntityBySlugOrUid(ProjectModel, projectIdentifier) as unknown as IProjectEntity | null;
     if (!project) throw new IlotError("Chantier introuvable", "NOT_FOUND", 404);
     
@@ -301,7 +324,7 @@ export class ProjectOrchestrator {
 
     const updated = await ProjectModel.findOneAndUpdate(
       { uid: project.uid },
-      { $push: { fileUploads: { $each: fileUrls } }, $set: { "dates.lastActivity": now, "dates.updatedAt": now } },
+      { $push: { fileUploads: { $each: fileUrls } },$set: { "dates.lastActivity": now, "dates.updatedAt": now } },
       { new: true }
     );
     

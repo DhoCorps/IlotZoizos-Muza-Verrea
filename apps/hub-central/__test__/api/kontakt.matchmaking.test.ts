@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { POST } from '@/app/api/kontakt/matchmaking/route';
 import { NextResponse, NextRequest } from 'next/server';
 
+const { mockMatchmakingEngine } = vi.hoisted(() => ({
+  mockMatchmakingEngine: vi.fn()
+}));
+
 // -------------------------------------------------------------------------
 // 🎭 MOCKS DE L'ENVIRONNEMENT ET DES DÉPENDANCES
 // -------------------------------------------------------------------------
@@ -22,11 +26,7 @@ vi.mock('@/lib/api-guards', () => ({
 // 🛠️ MOCK TOTAL DE LA CLASSE VIA UN CONSTRUCTEUR EXPLICITE
 vi.mock('@ilot/shared-core', () => {
   class MockOrchestrator {
-    matchmakingEngine = vi.fn().mockResolvedValue({
-      isFavorable: true,
-      matchFlag: 'FAVORABLE_MATCH',
-      compatibilityScore: 95
-    });
+    matchmakingEngine = mockMatchmakingEngine;
     registerSwipe = vi.fn();
   }
   return {
@@ -34,10 +34,17 @@ vi.mock('@ilot/shared-core', () => {
   };
 });
 
-describe('API Kontakt Matchmaking - Évaluation des affinités', () => {
+describe('API Kontakt Matchmaking - Évaluation des affinités (SSOT Unifiée)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete global.__mockUser;
+
+    // 🛡️ Ré-affirmation systématique pour survivre au mockReset global de Vitest
+    mockMatchmakingEngine.mockResolvedValue({
+      isFavorable: true,
+      matchFlag: 'FAVORABLE_MATCH',
+      compatibilityScore: 95
+    });
   });
 
   it('🔴 doit rejeter (401) si l’oiseau n’est pas connecté', async () => {
@@ -88,5 +95,36 @@ describe('API Kontakt Matchmaking - Évaluation des affinités', () => {
     expect(json.success).toBe(true);
     expect(json.data.isFavorable).toBe(true);
     expect(json.data.compatibilityScore).toBe(95);
+  });
+
+  it('🟢 doit valider et transmettre les nouveaux champs SSOT (questBudgetConstraint et questRequirements) à matchmakingEngine (200)', async () => {
+    global.__mockUser = { uid: 'bird_1', capabilities: [] };
+
+    const payload = {
+      questBudgetConstraint: { minBudgetCents: 35000, maxBudgetCents: 60000 },
+      profileHourlyRateCents: 45000,
+      questWorkArrangement: 'HYBRID',
+      profileRemotePreference: 'FLEXIBLE',
+      questRequirements: ['TypeScript', 'Neo4j'],
+      questBonusSkills: ['Zod'],
+      profileSkills: ['TypeScript', 'Neo4j', 'Zod'],
+    };
+
+    const req = new NextRequest('http://localhost/api/kontakt/matchmaking', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+
+    const res = await POST(req, { params: Promise.resolve({}) });
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(json.data.isFavorable).toBe(true);
+    expect(mockMatchmakingEngine).toHaveBeenCalledWith(expect.objectContaining({
+      questBudgetConstraint: { minBudgetCents: 35000, maxBudgetCents: 60000 },
+      questRequirements: ['TypeScript', 'Neo4j'],
+      questBonusSkills: ['Zod'],
+    }));
   });
 });

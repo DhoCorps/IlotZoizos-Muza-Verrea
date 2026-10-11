@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { TeamModel } from '../../nosql/team.model'; // Ajuste le chemin relatif selon ton arborescence
+import { TeamModel } from '../../nosql/team.model'; 
 
-describe('Team Model', () => {
+describe('Team Model (Mongoose)', () => {
     it('🟢 doit valider une équipe conforme avec toutes ses valeurs requises, par défaut et auto-générées', () => {
         const validData = {
             name: 'Cercle des Sélénites',
             ownerUid: 'bird_owner_1',
+            members: [
+              { uid: 'bird_owner_1', capabilities: ['*'], contributionPoints: 100 }
+            ]
         };
 
         const team = new TeamModel(validData);
@@ -13,9 +16,15 @@ describe('Team Model', () => {
         expect(team.name).toBe('Cercle des Sélénites');
         expect(team.ownerUid).toBe('bird_owner_1');
         expect(team.category).toBe('SOCIAL');     // Valeur par défaut
-        expect(team.frequency).toBe('#2A3B4C');   // Valeur par défaut (Gris Bleuté)
+        expect(team.frequency).toBe('#8b9dc3');   // Valeur par défaut (Gris Bleuté aligné avec Zod)
         expect(team.isPrivate).toBe(true);        // Valeur par défaut
         expect(team.governance.votingSystem).toBe('DEMOCRATIC'); // Valeur par défaut
+        expect(team.settings.defaultLocale).toBe('fr'); // Valeur par défaut
+        
+        // Vérification des tableaux imbriqués
+        expect(team.members.length).toBe(1);
+        expect(team.members[0].uid).toBe('bird_owner_1');
+        expect(team.invitations.length).toBe(0);
     });
 
     it('🔴 doit rejeter une équipe si les champs obligatoires (name, ownerUid) manquent', () => {

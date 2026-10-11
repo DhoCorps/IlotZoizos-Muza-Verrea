@@ -3,6 +3,7 @@ import { TaskResonanceOrchestrator } from '../task.resonance.orchestrator';
 import { OiseauModel, TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
+import { TaskStatus } from '@ilot/types';
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
@@ -26,7 +27,7 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-describe('TaskResonanceOrchestrator - Résonance des Atomes (Phase 2)', () => {
+describe('TaskResonanceOrchestrator - Résonance des Atomes (Phase 2 & 3)', () => {
   let orchestrator: TaskResonanceOrchestrator;
   
   const selfSignature = { actorUid: 'bird_1', capabilities: [] };
@@ -67,14 +68,15 @@ describe('TaskResonanceOrchestrator - Résonance des Atomes (Phase 2)', () => {
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit calculer et persister la résonance via canonicalUid avec succès', async () => {
+    it('🟢 doit calculer et persister la résonance via canonicalUid avec succès (en filtrant les DONE)', async () => {
       const mockUser = { uid: 'bird_1', slug: 'bird-1' };
       
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockUser as any);
       
+      // On mocke la récupération des tâches terminées (DONE)
       vi.mocked(TaskModel.find).mockReturnValue({
         lean: vi.fn().mockResolvedValueOnce([
-          { pomodoros: { estimated: 2, completed: 1 }, metrics: { complexity: 2 } }
+          { status: TaskStatus.DONE, pomodoros: { estimated: 2, completed: 1 }, metrics: { complexity: 2 } }
         ])
       } as any);
 
@@ -86,6 +88,12 @@ describe('TaskResonanceOrchestrator - Résonance des Atomes (Phase 2)', () => {
 
       expect(res.success).toBe(true);
       expect(res.totalResonance).toBe(4);
+      
+      // On s'assure qu'on cherche bien les tâches DONE
+      expect(TaskModel.find).toHaveBeenCalledWith(
+        expect.objectContaining({ status: TaskStatus.DONE })
+      );
+      
       expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
     });
   });

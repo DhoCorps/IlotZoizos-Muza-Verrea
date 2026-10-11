@@ -5,10 +5,10 @@ import React from 'react';
 import { Terminal, X, Settings2 } from 'lucide-react';
 import { UniversalBlock, BlockRegistry } from '@ilot/shared-core';
 
-interface CVSidebarPanelProps {
+export interface CVSidebarPanelProps {
   selectedBlock: UniversalBlock | null;
   registry: BlockRegistry;
-  onUpdateData: (id: string, newData: any) => void;
+  onUpdateData: (id: string, newData: Record<string, unknown>) => void;
   onClose: () => void;
 }
 
@@ -66,7 +66,7 @@ export function CVSidebarPanel({
       <div className="space-y-4">
         <EditForm 
           data={selectedBlock.data} 
-          onChange={(newData) => onUpdateData(selectedBlock.id, newData)} 
+          onChange={(newData: Record<string, unknown>) => onUpdateData(selectedBlock.id, newData)} 
         />
       </div>
     </div>

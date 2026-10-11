@@ -3,6 +3,7 @@ import { ITeam } from '@ilot/types';
 import { CAPABILITIES, ActionSignature } from '@ilot/types';
 import { MoralChecker } from '../integrity/moral.checker';
 import { TransactionManager } from './transactionManager';
+import { NotificationOrchestrator } from './notification.orchestrator'; // 🛡️ SUTURE : Import pour les notifications
 import { IlotError } from '../errors/ilot.errors';
 import { randomUUID } from 'crypto';
 import { resolveCanonicalUid, safeSyncUniversalInteraction } from '../utils/orchestrator.engine';
@@ -55,6 +56,7 @@ interface ITeamLookupEntity {
   _id: unknown;
   frequency?: string;
   isPrivate?: boolean;
+  name?: string;
   [key: string]: unknown;
 }
 
@@ -73,16 +75,18 @@ interface IProjectStorageEntity {
 
 /**
  * 🛰️ TEAM ORCHESTRATOR 
- * Assure la cohérence entre la Silice (Mongo) et le Graphe (Neo4j) avec index stricts (Phase 2).
+ * Assure la cohérence entre la Silice (Mongo) et le Graphe (Neo4j) avec index stricts (Phase 2 & 3).
  */
 export class TeamOrchestrator {
   private storageService: IStorageManager;
+  private notificationOrchestrator: NotificationOrchestrator;
 
-  constructor(customStorageService?: IStorageManager) {
+  constructor(customStorageService?: IStorageManager, notificationOrchestrator?: NotificationOrchestrator) {
     this.storageService = customStorageService || {
       deleteFile: async () => ({ success: true }),
       extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
     };
+    this.notificationOrchestrator = notificationOrchestrator || new NotificationOrchestrator();
   }
 
   public async fosterTeam(
@@ -103,7 +107,7 @@ export class TeamOrchestrator {
     if (!creator) throw new IlotError("Empreinte créatrice introuvable dans la canopée.", "NOT_FOUND", 404);
 
     const teamUid = `team_${randomUUID()}`;
-    const defaultFreq = teamData.frequency || '#2A3B4C';
+    const defaultFreq = teamData.frequency || '#8b9dc3'; // 🛡️ Alignement de la couleur avec Zod
 
     return await TransactionManager.execute("Fondation d'Escouade", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
@@ -127,8 +131,7 @@ export class TeamOrchestrator {
       await OiseauModel.findOneAndUpdate(
         { uid: creator.uid },
         { 
-          $push: { teams: creator._id },
-          $set: { 'dates.updatedAt': now }
+          $push: { teams: creator._id },$set: { 'dates.updatedAt': now }
         }, 
         { session: mongoSession }
       );
@@ -186,7 +189,7 @@ export class TeamOrchestrator {
   public async getRecruitableBirds(search: string = "") {
     return await OiseauModel.find({
       isOpenToInvitations: true, 
-      pseudo: { $regex: search, $options: 'i' }
+      pseudo: { $regex: search,$options: 'i' }
     }).select('uid pseudo frequenceHEX capabilities bio').limit(10).lean();
   }
 
@@ -251,9 +254,27 @@ export class TeamOrchestrator {
       };
     });
 
-    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA L'UTILISATEUR GLOBAL
+    // 🛡️ SÉCURISATION DU TISSAGE UNIVERSEL VIA L'UTILITAIRE GLOBAL
     if (actorCanonicalUid !== targetCanonicalUid) {
       await safeSyncUniversalInteraction(actorCanonicalUid, targetCanonicalUid, 'TEAM', 'inviteBird');
+      
+      // 🔔 SUTURE : Ajout de l'envoi de la Notification manquante
+      try {
+        await this.notificationOrchestrator.fosterNotification({
+          recipientUid: targetCanonicalUid,
+          senderUid: actorCanonicalUid,
+          category: 'SOCIAL',
+          type: 'TEAM_INVITATION',
+          payload: {
+            title: "Nouvelle Invitation",
+            message: `Vous avez été invité à rejoindre le Nid : "${team.name || 'Inconnu'}"`,
+            targetUid: team.uid,
+            targetType: 'TEAM'
+          }
+        }, signature);
+      } catch (e) {
+        console.error("[TeamOrchestrator] Échec envoi notification invitation :", e);
+      }
     }
 
     return result;
@@ -292,7 +313,7 @@ export class TeamOrchestrator {
           `MATCH (t:Team {uid: $teamUid}) SET t.frequency = $freq, t.isPrivate = $priv, t.name = coalesce($name, t.name), t.updatedAt = datetime($now) RETURN t`,
           { 
             teamUid: existingTeam.uid, 
-            freq: data.frequency ?? updatedTeam?.frequency ?? '#2A3B4C', 
+            freq: data.frequency ?? updatedTeam?.frequency ?? '#8b9dc3', 
             priv: data.isPrivate ?? updatedTeam?.isPrivate ?? false,
             name: data.name ?? null,
             now: now.toISOString()
@@ -484,8 +505,7 @@ export class TeamOrchestrator {
       await OiseauModel.findOneAndUpdate(
         { uid: targetCanonicalUid },
         { 
-          $pull: { teams: team._id },
-          $set: { 'dates.updatedAt': now }
+          $pull: { teams: team._id },$set: { 'dates.updatedAt': now }
         },
         { session: mongoSession }
       );

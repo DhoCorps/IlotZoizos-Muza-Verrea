@@ -1,19 +1,33 @@
-// packages/infrastructure/src/database/models/nosql/project.model.ts
 import mongoose from 'mongoose'; 
-import type{ Document, Model, Types} from 'mongoose';
+import type { Document, Model, Types } from 'mongoose';
 
 const { Schema } = mongoose;
 
 import { v4 as uuidv4 } from 'uuid';
-import { IProject } from '@ilot/types'; // 🛡️ Utilisation de l'interface purifiée
+import { IProject } from '@ilot/types'; 
 
 /**
  * 🏗️ PROJECT DOCUMENT
  */
-export interface IProjectDocument extends Omit<IProject, '_id'>, Document {
+export interface IProjectDocument extends Omit<IProject, '_id' | 'dates' | 'documents'>, Document {
   _id: Types.ObjectId;
-  createdAt: Date;
-  updatedAt: Date;
+  // Suture : Mongoose gère les dates nativement, on override les types Zod qui incluent des strings
+  dates: {
+    start?: Date;
+    deadline?: Date;
+    completedAt?: Date;
+    lastActivity: Date;
+    createdAt?: Date;
+    updatedAt?: Date;
+  };
+  documents: Array<{
+    uid: string;
+    name: string;
+    label: string;
+    url: string;
+    mimeType: string;
+    createdAt: Date;
+  }>;
 }
 
 const ProjectSchema = new Schema<IProjectDocument>(
@@ -28,8 +42,8 @@ const ProjectSchema = new Schema<IProjectDocument>(
     },
 
     // --- 🏷️ IDENTITÉ & HIÉRARCHIE ---
-    name: { type: String, required: true, trim: true, index: true, unique: false },
-    slug: { type: String, required: true, unique: false, trim: true, index: true }, 
+    name: { type: String, required: true, trim: true, index: true },
+    slug: { type: String, required: true, trim: true, index: true }, 
     tag: { type: String, uppercase: true, trim: true }, 
     description: { type: String, maxlength: 2000 },
     
@@ -37,7 +51,6 @@ const ProjectSchema = new Schema<IProjectDocument>(
     ownerUid: { type: String, required: true, index: true },
     creatorUid: { type: String, required: true, index: true },  
     
-    // 🛡️ SUTURE : Remplacement de managerId par guardianUid [cite: 2026-02-11]
     guardianUid: { type: String, index: true }, 
     
     teamIds: [{ type: String, index: true }], 
@@ -45,7 +58,6 @@ const ProjectSchema = new Schema<IProjectDocument>(
     // --- 🎨 APPARENCE (Vibration Bio-Tech) ---
     appearance: {
       icon: { type: String, default: 'folder' },
-      // 🛡️ SUTURE : Gris Bleuté par défaut [cite: 2026-03-27]
       color: { type: String, default: '#8b9dc3' }, 
       bannerUrl: String,
       avatarUrl: String,
@@ -54,12 +66,12 @@ const ProjectSchema = new Schema<IProjectDocument>(
     // --- 📊 ÉTAT & TEMPORALITÉ ---
     status: { 
       type: String, 
-      enum: ['CONCEPT', 'PLANNED', 'IN_PROGRESS', 'DONE', 'BLOCKED', 'REDUCED_SPEED', 'ARCHIVED'],
+      enum: ['CONCEPT', 'PLANNED', 'ACTIVE', 'PAUSED', 'COMPLETED', 'ARCHIVED'],
       default: 'CONCEPT' 
     },
     priority: { 
       type: String, 
-      enum: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL', 'BLOCKER'],
+      enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'],
       default: 'MEDIUM' 
     },
     category: { 
@@ -69,7 +81,7 @@ const ProjectSchema = new Schema<IProjectDocument>(
     },
     visibility: { 
       type: String, 
-      enum: ['PUBLIC', 'INTERNAL', 'PRIVATE', 'SECRET'],
+      enum: ['PUBLIC', 'INTERNAL', 'PRIVATE', 'SECRET', 'OPEN_SOURCE'],
       default: 'PRIVATE' 
     },
 
@@ -99,7 +111,6 @@ const ProjectSchema = new Schema<IProjectDocument>(
         dueDate: Date,
         weight: { type: Number, default: 1 }
       }],
-      // 🛡️ SUTURE : Adieu KPIs, bonjour Vibrations [cite: 2025-06-14]
       vibrations: [{
         label: String,
         target: Number,
@@ -109,7 +120,6 @@ const ProjectSchema = new Schema<IProjectDocument>(
     },
 
     // --- 🌳 LA SÈVE (Énergie & Ressources) ---
-    // 🛡️ SUTURE : Remplacement de financials par energySap [cite: 2025-06-14]
     energySap: {
       resourceFlow: {
         estimated: { type: Number, default: 0 },

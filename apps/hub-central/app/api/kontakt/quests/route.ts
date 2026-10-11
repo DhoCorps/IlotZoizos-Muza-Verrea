@@ -2,39 +2,50 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { JobQuestModel } from '@ilot/infrastructure';
+import {
+  WorkArrangementSchema,
+  ContractTypeSchema,
+  EmploymentTypeSchema,
+  ExperienceLevelSchema,
+  BudgetTypeSchema,
+  QuestDifficultySchema
+} from '@ilot/types';
 import { v4 as uuidv4 } from 'uuid';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withSilice, withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedActiveQuests } from '@/lib/cache/kontakt.cache';
-import { handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
-// 🛡️ Schéma Zod strict pour la création d'une quête de recrutement (Harmonisé avec @ilot/types)
+// 🛡️ Schéma Zod strict pour la création d'une quête de recrutement (SSOT @ilot/types via .options + inférence locale native)
 const CreateJobQuestSchema = z.object({
-  projectUid: z.string().min(1, "L'identifiant du projet est requis."),
+  projectUid: z.string().min(1, "L'identifiant du projet ne peut être vide.").optional(),
   title: z.string().min(3, "Le titre de la quête est requis."),
   description: z.string().min(10, "La description est requise et doit faire au moins 10 caractères."),
   
   // 🏢 INFORMATIONS ENTREPRISE / GUILDE
   company: z.object({
     name: z.string().min(2, "Le nom de l'entreprise est requis"),
-    description: z.string().min(10).default(''),
+    description: z.string().min(10, "La description de l'entreprise doit être plus détaillée").default(''),
     websiteUrl: z.string().url().optional(),
     logoUrl: z.string().url().optional(),
   }).optional(),
 
-  // 💼 LOGISTIQUE & CONDITIONS MATÉRIELLES
-  workArrangement: z.enum(['FULL_REMOTE', 'HYBRID', 'ON_SITE']).default('FULL_REMOTE'),
-  contractType: z.enum(['FREELANCE', 'CDI', 'CDD', 'INTERNSHIP', 'PARTNERSHIP', 'BOUNTY', 'OTHER']).default('FREELANCE'),
-  employmentType: z.enum(['FULL_TIME', 'PART_TIME', 'FREELANCE', 'CONTRACT', 'INTERNSHIP']).default('FULL_TIME'),
-  experienceLevel: z.enum(['APPRENTICE', 'JUNIOR', 'MID', 'CONFIRMED', 'SENIOR', 'LEAD', 'MASTER', 'GURU']).default('CONFIRMED'),
+  // 💼 LOGISTIQUE & CONDITIONS MATÉRIELLES (Piloté par la SSOT @ilot/types)
+  workArrangement: z.enum(WorkArrangementSchema.options).default('FULL_REMOTE'),
+  contractType: z.enum(ContractTypeSchema.options).default('FREELANCE'),
+  employmentType: z.enum(EmploymentTypeSchema.options).default('FULL_TIME'),
+  experienceLevel: z.enum(ExperienceLevelSchema.options).default('CONFIRMED'),
   location: z.string().default('Remote'),
 
-  // ⚖️ SUTURE MATCHMAKING
+  // ⚖️ SUTURE MATCHMAKING (Piloté par la SSOT @ilot/types)
   minBudgetCents: z.number().min(0, "Le budget minimum ne peut être négatif").optional().nullable(),
   maxBudgetCents: z.number().min(0, "Le budget maximum ne peut être négatif").optional().nullable(),
-  budgetType: z.enum(['DAILY_RATE', 'FIXED_PRICE', 'YEARLY_SALARY']).default('DAILY_RATE'),
+  budgetConstraint: z.object({
+    minBudgetCents: z.number().min(0),
+    maxBudgetCents: z.number().min(0),
+  }).optional(),
+  budgetType: z.enum(BudgetTypeSchema.options).default('DAILY_RATE'),
   currency: z.string().default('EUR'),
 
   // ⏳ TEMPORALITÉ
@@ -48,25 +59,34 @@ const CreateJobQuestSchema = z.object({
   requirements: z.array(z.string()).default([]),
   responsibilities: z.array(z.string()).default([]),
   rewardLore: z.string().optional(),
+  rewardXp: z.number().min(0).default(100),
 
-  // 🎲 LE SUPERFLU NÉCESSAIRE (Flavor RPG)
-  questDifficulty: z.enum(['PEACEFUL', 'NORMAL', 'HARD', 'NIGHTMARE', 'LUNATIC']).default('NORMAL'),
+  // 🎲 LE SUPERFLU NÉCESSAIRE (Flavor RPG - Piloté par la SSOT @ilot/types)
+  questDifficulty: z.enum(QuestDifficultySchema.options).default('NORMAL'),
   dangerLevel: z.number().min(0).max(100).default(10),
   perks: z.array(z.string()).default([]),
 
   // 🚀 SQUELETTE MUTUALISÉ & TAGS
- tags: z.array(z.string()).default([]),
+  tags: z.array(z.string()).default([]),
   seo: z.object({
-    metaTitle: z.string().optional(),
-    metaDescription: z.string().optional()
+    metaTitle: z.string().max(60).optional(),
+    metaDescription: z.string().max(160).optional(),
+    ogImageUrl: z.string().url().optional(),
+    canonicalUrl: z.string().url().optional(),
+    ogType: z.enum(['website', 'article', 'book']).default('website').optional(),
+    articleAuthor: z.string().optional(),
+    publishedTime: z.string().datetime().optional(),
   }).default({}),
   settings: z.object({
     allowApplications: z.boolean().default(true),
-  }).default({ allowApplications: true }), // 🛠️ Le fix est ici !
+  }).default({ allowApplications: true }),
 }).refine(
   (data) => {
     if (data.minBudgetCents != null && data.maxBudgetCents != null) {
-      return data.minBudgetCents <= data.maxBudgetCents;
+      if (data.minBudgetCents > data.maxBudgetCents) return false;
+    }
+    if (data.budgetConstraint?.minBudgetCents != null && data.budgetConstraint?.maxBudgetCents != null) {
+      if (data.budgetConstraint.minBudgetCents > data.budgetConstraint.maxBudgetCents) return false;
     }
     return true;
   },

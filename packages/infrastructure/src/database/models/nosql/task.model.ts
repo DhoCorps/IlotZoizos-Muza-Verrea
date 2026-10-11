@@ -1,6 +1,5 @@
-// packages/infrastructure/src/models/task.model.ts
 import mongoose from 'mongoose';
-import type { Document } from 'mongoose';
+import type { Document, Model } from 'mongoose';
 
 const { Schema } = mongoose;
 
@@ -9,9 +8,21 @@ import { SeveEngine } from '../../../../../shared-core/src/utils/seve.engine';
 import { TaskIrrigationOrchestrator } from '../../../../../shared-core/src/sync-engine/task.irrigation.orchestrator';
 import { OiseauModel } from './user.model';
 
-export type TaskDocument = ITask & Document;
+/**
+ * 🏗️ TASK DOCUMENT (Typage strict basé sur Zod)
+ */
+export interface ITaskDocument extends Omit<ITask, '_id' | 'dates'>, Document {
+  // 🪡 Suture : Mongoose gère les dates nativement, on override les types Zod (String/Date)
+  dates: {
+    createdAt?: Date;
+    updatedAt?: Date;
+    deadline?: Date;
+    scheduledAt?: Date | null;
+    completedAt?: Date | null;
+  };
+}
 
-const TaskSchema = new Schema<TaskDocument>({
+const TaskSchema = new Schema<ITaskDocument>({
   // 🌉 LE PONT (Graphe Muet)
   uid: { type: String, required: true, unique: true },
   
@@ -36,7 +47,7 @@ const TaskSchema = new Schema<TaskDocument>({
     targetEntityUid: { type: String, default: null }
   },
 
-  // ⚙️ ÉTATS
+  // ⚙️ ÉTATS (Alignés sur la SSOT Zod)
   status: { type: String, enum: Object.values(TaskStatus), default: TaskStatus.TODO, index: true },
   priority: { type: String, enum: Object.values(TaskPriority), default: TaskPriority.MEDIUM },
 
@@ -53,7 +64,7 @@ const TaskSchema = new Schema<TaskDocument>({
     completed: { type: Number, default: 0 }
   },
 
-  // 🧠 MÉTRIQUE (Optionnelle, par ex: Complexité ressentie)
+  // 🧠 MÉTRIQUE
   metrics: {
     complexity: { type: Number, default: 1, min: 1, max: 10 }
   },
@@ -71,7 +82,8 @@ const TaskSchema = new Schema<TaskDocument>({
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
     deadline: { type: Date },
-    scheduledAt: { type: Date }
+    scheduledAt: { type: Date },
+    completedAt: { type: Date }
   }
 }, { 
   timestamps: true,
@@ -85,7 +97,7 @@ const TaskSchema = new Schema<TaskDocument>({
   }
 });
 
-// 🛡️ Suture Mongoose : Application directe du SeveEngine
+// 🛡️ Suture Mongoose : Application directe de l'Orchestrateur & SeveEngine
 TaskSchema.pre('save', async function (next) {
   // 1. Loi de l'Irrigation (It)
   if (this.dependencies && this.dependencies.length > 0) {
@@ -99,6 +111,7 @@ TaskSchema.pre('save', async function (next) {
     this.isIrrigated = sanitized.isIrrigated ?? 1;
     if (sanitized.status === 'ROMPU') {
       this.isIrrigated = 0;
+      this.status = TaskStatus.ROMPU; // Mise à jour de sécurité locale
     }
   }
 
@@ -117,6 +130,7 @@ TaskSchema.pre('save', async function (next) {
 
     console.log(`✨ [Résonance] Tâche "${this.content?.title}" achevée. Score Rz calculé : ${rzScore}`);
 
+    // Propagation de la sève vers l'Oiseau
     if (this.creatorUid) {
       await OiseauModel.updateOne(
         { uid: this.creatorUid },
@@ -133,4 +147,4 @@ TaskSchema.index({ projectUid: 1, status: 1 });
 // Nouvel index pour optimiser les requêtes transversales
 TaskSchema.index({ 'connections.targetEntityUid': 1 }); 
 
-export const TaskModel = mongoose.models.Task || mongoose.model<TaskDocument>('Task', TaskSchema);
+export const TaskModel = (mongoose.models.Task as Model<ITaskDocument>) || mongoose.model<ITaskDocument>('Task', TaskSchema);

@@ -2,15 +2,15 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { KontaktProfileModel } from '@ilot/infrastructure';
+import { TTRPGAlignmentEnum } from '@ilot/types';
 import { v4 as uuidv4 } from 'uuid';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withSilice, withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedKontaktProfiles } from '@/lib/cache/kontakt.cache';
-import { handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
-// 🛡️ Schéma Zod pour la création/sédimentation de profil Kontakt (Harmonisé)
+// 🛡️ Schéma Zod pour la création/sédimentation de profil Kontakt (SSOT via .options + instances Zod locales)
 const CreateKontaktProfileSchema = z.object({
   professionalTitle: z.string().min(1, "Le titre professionnel est requis."),
   seniorityYears: z.number().min(0).default(0),
@@ -18,25 +18,26 @@ const CreateKontaktProfileSchema = z.object({
   availabilityStatus: z.enum(['OPEN_TO_WORK', 'ON_A_QUEST', 'RECRUITED']).default('OPEN_TO_WORK'),
   portfolioUrl: z.string().url().nullable().optional(),
   
-  // 🎲 --- LE SUPERFLU NÉCESSAIRE (Le "Flavor" RPG) ---
+  // 🎲 --- LE SUPERFLU NÉCESSAIRE (Le "Flavor" RPG - SSOT via .options) ---
   archetypeClass: z.string().min(1, "L'archétype est requis"),
-  alignment: z.enum([
-    'LOYAL_GOOD', 'NEUTRAL_GOOD', 'CHAOTIC_GOOD',
-    'LOYAL_NEUTRAL', 'TRUE_NEUTRAL', 'CHAOTIC_NEUTRAL',
-    'LOYAL_EVIL', 'NEUTRAL_EVIL', 'CHAOTIC_EVIL',
-    'ANGE_INS', 'DEMON_INS', 'REPLICANT_BR', 'HUMAIN_BR'
-  ]).default('TRUE_NEUTRAL'),
+  alignment: z.enum(TTRPGAlignmentEnum.options).default('TRUE_NEUTRAL'),
   attributes: z.object({
     force: z.number().min(1).max(20).default(10),
     agilite: z.number().min(1).max(20).default(10),
     intelligence: z.number().min(1).max(20).default(10),
     charisme: z.number().min(1).max(20).default(10),
     empathieVoightKampff: z.number().min(0).max(100).default(50),
-  }).default({ force: 10, agilite: 10, intelligence: 10, charisme: 10, empathieVoightKampff: 50 }),
+  }).default({
+    force: 10,
+    agilite: 10,
+    intelligence: 10,
+    charisme: 10,
+    empathieVoightKampff: 50
+  }),
   specialArtifacts: z.array(z.string()).default([]),
   biographyLore: z.string().max(500, "Le lore ne doit pas dépasser le parchemin").default(''),
   
-  // 💼 --- PORTFOLIO & REVIEWS ---
+  // 💼 --- PORTFOLIO, TARIFS & REVIEWS ---
   portfolioItems: z.array(z.object({
     type: z.enum(['IMAGE', 'GITHUB_REPO', 'AUDIO', '3D', 'WEB']),
     url: z.string().url(),
@@ -59,8 +60,13 @@ const CreateKontaktProfileSchema = z.object({
   // 🚀 --- SQUELETTE MUTUALISÉ ---
   tags: z.array(z.string()).default([]),
   seo: z.object({
-    metaTitle: z.string().optional(),
-    metaDescription: z.string().optional()
+    metaTitle: z.string().max(60).optional(),
+    metaDescription: z.string().max(160).optional(),
+    ogImageUrl: z.string().url().optional(),
+    canonicalUrl: z.string().url().optional(),
+    ogType: z.enum(['website', 'article', 'book']).default('website').optional(),
+    articleAuthor: z.string().optional(),
+    publishedTime: z.string().datetime().optional(),
   }).default({}),
   settings: z.object({
     allowDirectContact: z.boolean().default(true),

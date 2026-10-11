@@ -7,6 +7,11 @@ import * as orchestratorEngine from '../../utils/orchestrator.engine';
 import type { ClientSession } from 'mongoose';
 import type { Transaction } from 'neo4j-driver';
 
+// 🛡️ Mocks de Notifications
+const { mockFosterNotification } = vi.hoisted(() => ({
+  mockFosterNotification: vi.fn().mockResolvedValue({ success: true })
+}));
+
 // 🛡️ Mock unifié et sécurisé incluant le chaînage Mongoose complet, les curseurs et la DLQ
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual = await importOriginal() as Record<string, unknown>;
@@ -51,7 +56,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-// Mock complet du moteur d'orchestration global (incluant safeSyncUniversalInteraction et resolveCanonicalUid)
+// Mock complet du moteur d'orchestration global
 vi.mock('../../utils/orchestrator.engine', () => ({
   safeSyncUniversalInteraction: vi.fn(async () => {}),
   resolveCanonicalUid: vi.fn(async (_model: unknown, identifier?: string) => `resolved_${identifier || 'unknown'}`)
@@ -77,8 +82,15 @@ vi.mock('../transactionManager', () => ({
     },
 }));
 
-describe('TeamOrchestrator (Synchronisation Mongo/Neo4j pour les Nids - Phase 2)', () => {
+vi.mock('../notification.orchestrator', () => ({
+  NotificationOrchestrator: vi.fn().mockImplementation(() => ({
+    fosterNotification: mockFosterNotification
+  }))
+}));
+
+describe('TeamOrchestrator (Synchronisation Mongo/Neo4j pour les Nids - Phase 2 & 3)', () => {
     let orchestrator: TeamOrchestrator;
+    
     const mockStorageManager = {
         extractKeyFromUrl: vi.fn((url: string) => `key_${url}`),
         deleteFile: vi.fn().mockResolvedValue(true),
@@ -86,7 +98,12 @@ describe('TeamOrchestrator (Synchronisation Mongo/Neo4j pour les Nids - Phase 2)
 
     beforeEach(() => {
         vi.clearAllMocks();
-        orchestrator = new TeamOrchestrator(mockStorageManager);
+        
+        const injectedNotificationOrchestrator = {
+          fosterNotification: mockFosterNotification
+        } as any;
+        
+        orchestrator = new TeamOrchestrator(mockStorageManager, injectedNotificationOrchestrator);
 
         vi.mocked(ProjectModel.find).mockReturnValue({
             select: vi.fn().mockReturnThis(),
@@ -112,12 +129,12 @@ describe('TeamOrchestrator (Synchronisation Mongo/Neo4j pour les Nids - Phase 2)
 
         vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model: unknown, identifier?: string) => {
             const clean = identifier || 'unknown';
-            return { uid: `resolved_${clean}`, ownerUid: `resolved_${clean}` } as never;
+            return { uid: `resolved_${clean}`, ownerUid: `resolved_${clean}`, name: 'Nid Test' } as never;
         });
     });
 
     describe('fosterTeam', () => {
-        it('🟢 doit fonder un nid avec succès après résolution canonique via findEntityBySlugOrUid', async () => {
+        it('🟢 doit fonder un nid avec succès après résolution canonique', async () => {
             vi.mocked(TeamModel.create).mockResolvedValueOnce([{ uid: 'team_new_123', name: 'Canopée Studio' }] as never);
             
             const payload = {
@@ -182,10 +199,10 @@ describe('TeamOrchestrator (Synchronisation Mongo/Neo4j pour les Nids - Phase 2)
     });
 
     describe('inviteBird', () => {
-        it('🟢 doit inviter un oiseau et propager l\'interaction universelle au niveau de la Team', async () => {
+        it('🟢 doit inviter un oiseau et propager l\'interaction universelle ET LA NOTIFICATION au niveau de la Team', async () => {
             vi.mocked(findEntityBySlugOrUid).mockImplementation(async (_model: unknown, identifier?: string) => {
                 if (identifier === 'team_123') {
-                    return { uid: 'team_123', ownerUid: 'resolved_bird_creator' } as never;
+                    return { uid: 'team_123', ownerUid: 'resolved_bird_creator', name: 'Studio Canopée' } as never;
                 }
                 return { uid: `resolved_${identifier}` } as never;
             });
@@ -206,12 +223,19 @@ describe('TeamOrchestrator (Synchronisation Mongo/Neo4j pour les Nids - Phase 2)
             expect(result.success).toBe(true);
             expect(TransactionManager.execute).toHaveBeenCalledTimes(1);
 
+            // Vérification de la mécanique d'interaction
             expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledTimes(1);
             expect(orchestratorEngine.safeSyncUniversalInteraction).toHaveBeenCalledWith(
                 'resolved_bird_creator', 
                 'resolved_bird_target', 
                 'TEAM',
                 'inviteBird'
+            );
+
+            // 🛡️ SUTURE : Vérification de la Notification
+            expect(mockFosterNotification).toHaveBeenCalledWith(
+              expect.objectContaining({ type: 'TEAM_INVITATION', recipientUid: 'resolved_bird_target' }),
+              expect.anything()
             );
         });
     });

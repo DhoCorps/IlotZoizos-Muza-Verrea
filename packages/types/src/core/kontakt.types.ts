@@ -1,3 +1,4 @@
+// Fichier : packages/types/src/core/kontakt.types.ts
 import { z } from 'zod';
 import { SeoMetadataSchema } from './seo.types'; // 🚀 Intégration du squelette SEO
 
@@ -40,7 +41,7 @@ export const ReviewSchema = z.object({
   rating: z.number().min(1).max(5),
   comment: z.string(),
   isVerifiedHire: z.boolean().default(false),
-  createdAt: z.date().optional(),
+  createdAt: z.coerce.date().optional(),
 });
 
 export const KontaktProfileSchema = z.object({
@@ -72,53 +73,13 @@ export const KontaktProfileSchema = z.object({
     showcaseBadge: z.boolean().default(true),
   }).default({}),
 
-  createdAt: z.date().optional(),
-});
-
-// 🆕 Sous-schéma pour les informations de l'entreprise / guilde
-export const CompanyInfoSchema = z.object({
-  name: z.string().min(2, "Le nom de l'entreprise est requis"),
-  description: z.string().min(10, "La description de l'entreprise doit être plus détaillée").default(''),
-  websiteUrl: z.string().url().optional(),
-  logoUrl: z.string().url().optional(),
-});
-
-// Schéma pour les Quêtes JDR / Job Quests avec Slug, Budget et Squelette mutualisé
-export const JobQuestSchema = z.object({
-  uid: z.string(),
-  title: z.string().min(3, "Le titre de la quête est requis"),
-  slug: z.string().min(1, "Slug requis"), // 🪡 L'empreinte URL de la quête
-  description: z.string(), // Description globale de la quête
-  
-  // 🆕 Nouveaux champs d'enrichissement pour le Recrutement
-  company: CompanyInfoSchema.optional(), // Infos sur la guilde/entreprise
-  requirements: z.array(z.string()).default([]), // Compétences/Prérequis attendus
-  responsibilities: z.array(z.string()).default([]), // Missions spécifiques du poste
-  employmentType: z.enum(['FULL_TIME', 'PART_TIME', 'FREELANCE', 'CONTRACT', 'INTERNSHIP']).default('FULL_TIME'),
-  experienceLevel: z.enum(['JUNIOR', 'MID', 'SENIOR', 'LEAD', 'MASTER']).default('MID'),
-  location: z.string().default('Remote'), // Localisation ou "Remote"
-  perks: z.array(z.string()).default([]), // Avantages (mutuelle, matériel, loots spécifiques...)
-
-  rewardXp: z.number().default(100),
-  status: z.enum(['ACTIVE', 'COMPLETED', 'ARCHIVED']).default('ACTIVE'),
-  
-  budgetConstraint: BudgetConstraintSchema.optional(),
-
-  // 🚀 Squelette obligatoire mutualisé pour les quêtes
-  tags: z.array(z.string()).default([]),
-  seo: SeoMetadataSchema.default({}),
-  settings: z.object({
-    allowApplications: z.boolean().default(true),
-  }).default({}),
-
-  createdAt: z.date().optional(),
+  createdAt: z.coerce.date().optional(),
 });
 
 export type PortfolioItem = z.infer<typeof PortfolioItemSchema>;
 export type PricingProfile = z.infer<typeof PricingProfileSchema>;
 export type BudgetConstraint = z.infer<typeof BudgetConstraintSchema>;
 export type Review = z.infer<typeof ReviewSchema>;
-export type CompanyInfo = z.infer<typeof CompanyInfoSchema>;
 
 export type KontaktProfile = z.infer<typeof KontaktProfileSchema>;
-export type JobQuest = z.infer<typeof JobQuestSchema>;
+export type KontaktProfileInput = z.input<typeof KontaktProfileSchema>;

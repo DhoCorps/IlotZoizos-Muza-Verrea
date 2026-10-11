@@ -2,22 +2,39 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { KontaktOrchestrator } from '@ilot/shared-core';
+import {
+  WorkArrangementSchema,
+  RemotePreferenceSchema,
+  ContractTypeSchema,
+  ProfessionalStatusSchema,
+  BudgetTypeSchema,
+  EmploymentTypeSchema,
+  ExperienceLevelSchema
+} from '@ilot/types';
 import { revalidateTag } from 'next/cache';
-import { withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
-import { handleRouteError } from '@/lib/api-guards';
+import { withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
-// 🛡️ Sous-schéma pour le Matchmaking optionnel fourni par le front-end lors du Swipe
+// 🛡️ Sous-schéma pour le Matchmaking optionnel fourni lors du Swipe (SSOT via .options pour éviter l'inférence unknown)
 const MatchmakingDataSchema = z.object({
-  questMaxBudgetCents: z.number().optional(),
-  profileHourlyRateCents: z.number().optional(),
-  questWorkArrangement: z.enum(['FULL_REMOTE', 'HYBRID', 'ON_SITE']).optional(),
-  profileRemotePreference: z.enum(['FULL_REMOTE', 'HYBRID', 'ON_SITE', 'FLEXIBLE']).optional(),
-  questContractType: z.enum(['FREELANCE', 'CDI', 'CDD', 'INTERNSHIP', 'PARTNERSHIP', 'BOUNTY', 'OTHER']).optional(),
-  profileProfessionalStatus: z.enum(['FREELANCE', 'EMPLOYEE', 'JOB_SEEKER', 'STUDENT', 'ENTREPRENEUR', 'OTHER']).optional(),
-  questExperienceLevel: z.enum(['APPRENTICE', 'JUNIOR', 'MID', 'CONFIRMED', 'SENIOR', 'LEAD', 'MASTER', 'GURU']).optional(),
-  profileExperienceLevel: z.enum(['APPRENTICE', 'JUNIOR', 'MID', 'CONFIRMED', 'SENIOR', 'LEAD', 'MASTER', 'GURU']).optional(),
+  questMaxBudgetCents: z.number().min(0).optional(),
+  questBudgetConstraint: z.object({
+    minBudgetCents: z.number().min(0),
+    maxBudgetCents: z.number().min(0),
+  }).optional(),
+  profileHourlyRateCents: z.number().min(0).optional(),
+  questWorkArrangement: z.enum(WorkArrangementSchema.options).optional(),
+  profileRemotePreference: z.enum(RemotePreferenceSchema.options).optional(),
+  questContractType: z.enum(ContractTypeSchema.options).optional(),
+  profileProfessionalStatus: z.enum(ProfessionalStatusSchema.options).optional(),
+  questMinBudgetCents: z.number().min(0).nullable().optional(),
+  questBudgetType: z.enum(BudgetTypeSchema.options).optional(),
+  questEmploymentType: z.enum(EmploymentTypeSchema.options).optional(),
+  questExperienceLevel: z.enum(ExperienceLevelSchema.options).optional(),
+  profileExperienceLevel: z.enum(ExperienceLevelSchema.options).optional(),
   questRequiredSkills: z.array(z.string()).optional(),
+  questRequirements: z.array(z.string()).optional(),
+  questBonusSkills: z.array(z.string()).optional(),
   profileSkills: z.array(z.string()).optional(),
   questTags: z.array(z.string()).optional(),
   profileTags: z.array(z.string()).optional(),
@@ -27,7 +44,7 @@ const MatchmakingDataSchema = z.object({
 const RegisterSwipeSchema = z.object({
   targetUid: z.string().min(1, "L'identifiant de la cible est requis."),
   action: z.enum(['LIKE', 'PASS'], { message: "L'action doit être 'LIKE' ou 'PASS'." }),
-  matchmakingData: MatchmakingDataSchema.optional(), // 🆕 Données pour valider l'affinité avant de swiper
+  matchmakingData: MatchmakingDataSchema.optional(),
 });
 
 type RegisterSwipeInput = z.infer<typeof RegisterSwipeSchema>;
@@ -59,20 +76,25 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     // Appel de l'Orchestrator métier pour gérer la transaction Graph & Mongo
     const orchestrator = new KontaktOrchestrator();
 
-    // 🔮 VÉRIFICATION D'AFFINITÉ (MATCHMAKING) AVANT LE LIKE
+    // 🔮 VÉRIFICATION D'AFFINITÉ (MATCHMAKING) AVANT LE LIKE (Zéro 'any', zéro 'unknown')
     if (sanitizedData.action === 'LIKE' && sanitizedData.matchmakingData) {
-      // On passe les données à l'orchestrateur pour un calcul de compatibilité préventif
-      const matchResult = await orchestrator.matchmakingEngine(sanitizedData.matchmakingData as any);
+      const matchResult = await orchestrator.matchmakingEngine(sanitizedData.matchmakingData);
       
       if (!matchResult.isFavorable) {
         // Rejet ferme si la compatibilité est notoirement trop basse
-        const criticalFlags = ['SKILLS_MISMATCH', 'INCOMPATIBLE_WORK_ARRANGEMENT', 'INCOMPATIBLE_CONTRACT_TYPE', 'OUT_OF_BUDGET', 'INSUFFICIENT_EXPERIENCE'];
+        const criticalFlags = [
+          'SKILLS_MISMATCH',
+          'INCOMPATIBLE_WORK_ARRANGEMENT',
+          'INCOMPATIBLE_CONTRACT_TYPE',
+          'OUT_OF_BUDGET',
+          'INSUFFICIENT_EXPERIENCE'
+        ];
         if (criticalFlags.includes(matchResult.matchFlag)) {
-           return NextResponse.json({ 
-             error: "L'Îlot juge cette affinité trop faible pour justifier une mise en relation.", 
-             flag: matchResult.matchFlag,
-             compatibilityScore: matchResult.compatibilityScore
-           }, { status: 403 }); // 403 Forbidden : L'action est refusée par les règles métier
+          return NextResponse.json({ 
+            error: "L'Îlot juge cette affinité trop faible pour justifier une mise en relation.", 
+            flag: matchResult.matchFlag,
+            compatibilityScore: matchResult.compatibilityScore
+          }, { status: 403 }); // 403 Forbidden : L'action est refusée par les règles métier
         }
       }
     }

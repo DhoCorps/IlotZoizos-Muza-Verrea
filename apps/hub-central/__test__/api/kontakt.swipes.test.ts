@@ -15,7 +15,7 @@ vi.mock('@/lib/api-guards', () => ({
     }
     return await handler(req, context, mockUser);
   },
-  handleRouteError: vi.fn((err) => NextResponse.json({ error: "Erreur Interne" }, { status: 500 }))
+  handleRouteError: vi.fn((_err) => NextResponse.json({ error: "Erreur Interne" }, { status: 500 }))
 }));
 
 vi.mock('next/cache', () => ({
@@ -29,7 +29,7 @@ vi.mock('@ilot/shared-core', () => ({
   })),
 }));
 
-describe('API Kontakt Swipes - Enregistrement des affinités', () => {
+describe('API Kontakt Swipes - Enregistrement des affinités (SSOT Unifiée)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete global.__mockUser;
@@ -62,7 +62,6 @@ describe('API Kontakt Swipes - Enregistrement des affinités', () => {
     expect(json.error).toContain('incomplets');
   });
 
-  // 🆕 Test : Rejet de matchmaking
   it('🔴 doit rejeter (403) un LIKE si l\'affinité calculée est trop basse (ex: SKILLS_MISMATCH)', async () => {
     global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
@@ -100,17 +99,20 @@ describe('API Kontakt Swipes - Enregistrement des affinités', () => {
     expect(registerSwipeMock).not.toHaveBeenCalled(); // Le swipe en base n'a pas eu lieu !
   });
 
-  it('🟢 doit enregistrer le swipe avec succès (200) et invalider le cache si bonne affinité', async () => {
+  it('🟢 doit enregistrer le swipe avec succès (200), transmettre les champs SSOT au matchmakingEngine et invalider le cache', async () => {
     global.__mockUser = { uid: 'bird_1', capabilities: [] };
 
     const mockSwipeResult = { matched: true, matchId: 'match_123' };
     const registerSwipeMock = vi.fn().mockResolvedValueOnce(mockSwipeResult);
-    
-    // Le mock par défaut de matchmakingEngine (Favorable) défini en haut sera utilisé
+    const matchmakingEngineMock = vi.fn().mockResolvedValueOnce({
+      isFavorable: true,
+      matchFlag: 'FAVORABLE_MATCH',
+      compatibilityScore: 90
+    });
 
     vi.mocked(KontaktOrchestrator).mockImplementationOnce(() => ({
       registerSwipe: registerSwipeMock,
-      matchmakingEngine: vi.fn().mockResolvedValue({ isFavorable: true, matchFlag: 'FAVORABLE_MATCH', compatibilityScore: 90 })
+      matchmakingEngine: matchmakingEngineMock
     } as unknown as KontaktOrchestrator));
 
     const req = new NextRequest('http://localhost/api/kontakt/swipes', {
@@ -119,8 +121,12 @@ describe('API Kontakt Swipes - Enregistrement des affinités', () => {
         targetUid: 'target_2', 
         action: 'LIKE',
         matchmakingData: {
-          questRequiredSkills: ['React'],
-          profileSkills: ['React']
+          questBudgetConstraint: { minBudgetCents: 30000, maxBudgetCents: 50000 },
+          profileHourlyRateCents: 40000,
+          questWorkArrangement: 'FULL_REMOTE',
+          profileRemotePreference: 'FULL_REMOTE',
+          questRequirements: ['React', 'TypeScript'],
+          profileSkills: ['React', 'TypeScript']
         } 
       })
     });
@@ -131,6 +137,10 @@ describe('API Kontakt Swipes - Enregistrement des affinités', () => {
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
     expect(json.data).toEqual(mockSwipeResult);
+    expect(matchmakingEngineMock).toHaveBeenCalledWith(expect.objectContaining({
+      questBudgetConstraint: { minBudgetCents: 30000, maxBudgetCents: 50000 },
+      questRequirements: ['React', 'TypeScript']
+    }));
     expect(registerSwipeMock).toHaveBeenCalledWith(
       { swiperUid: 'bird_1', targetUid: 'target_2', action: 'LIKE' },
       { actorUid: 'bird_1', capabilities: [] }

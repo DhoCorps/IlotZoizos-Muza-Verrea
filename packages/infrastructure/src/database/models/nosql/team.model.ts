@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 import type { Document, Model, Types } from 'mongoose';
 
 // 3. Extraction propre des constructeurs d'exécution
-const { Schema, model, models } = mongoose;
+const { Schema } = mongoose;
 
 import { v4 as uuidv4 } from 'uuid';
 import { ITeam } from '@ilot/types'; // 👈 Source de vérité unique issue de Zod purifié
@@ -14,10 +14,39 @@ import { ITeam } from '@ilot/types'; // 👈 Source de vérité unique issue de 
  * 🏗️ TEAM DOCUMENT
  * On étend l'interface ITeam (Zod purifié) avec les propriétés système de Mongoose.
  */
-export interface ITeamDocument extends Omit<ITeam, '_id'>, Document {
+export interface ITeamDocument extends Omit<ITeam, '_id' | 'dates' | 'members' | 'invitations' | 'documents' | 'collectiveHealth'>, Document {
   _id: Types.ObjectId; 
-  createdAt: Date;
-  updatedAt: Date;
+  
+  // 🪡 Suture : Mongoose gère les dates nativement, on override les types Zod (String/Date)
+  members: Array<{
+    uid: string;
+    capabilities: string[];
+    contributionPoints: number;
+    joinedAt: Date;
+  }>;
+  invitations: Array<{
+    uid: string;
+    targetUid: string;
+    inviterUid: string;
+    status: string;
+    capabilities: string[];
+    invitedAt: Date;
+  }>;
+  documents: Array<{
+    uid: string;
+    name: string;
+    label: string;
+    url: string;
+    mimeType: string;
+    createdAt: Date;
+  }>;
+  collectiveHealth: {
+    lastPulseCheck?: Date;
+  };
+  dates: {
+    createdAt?: Date;
+    updatedAt?: Date;
+  };
 }
 
 const TeamSchema = new Schema<ITeamDocument>(
@@ -43,7 +72,7 @@ const TeamSchema = new Schema<ITeamDocument>(
     },
     frequency: { // 🩸 NOUVEAU : La Vibration qui remplace "themeColor"
       type: String, 
-      default: '#2A3B4C',
+      default: '#8b9dc3', // Suture : Aligné avec le schéma Zod (Gris bleuté)
       validate: {
         validator: function(v: string) {
           return /^#[0-9A-F]{6}$/i.test(v);
@@ -51,8 +80,8 @@ const TeamSchema = new Schema<ITeamDocument>(
         message: props => `${props.value} n'est pas une couleur HEX valide!`
       }
     },
-    ownerUid: { type: String, required: true, index: true }, // ✅ Changé ownerId -> ownerUid
-    leaderUid: { type: String, index: true },                // ✅ Changé leaderId -> leaderUid
+    ownerUid: { type: String, required: true, index: true }, 
+    leaderUid: { type: String, index: true },                
     parentId: { type: String, default: null, index: true },
     isPrivate: { type: Boolean, default: true },
 
@@ -69,7 +98,8 @@ const TeamSchema = new Schema<ITeamDocument>(
     // --- ⚙️ RÉGLAGES DE L'HORLOGERIE ---
     settings: {
       isGlobalReducedSpeed: { type: Boolean, default: false },
-      allowSearch: { type: Boolean, default: true }
+      allowSearch: { type: Boolean, default: true },
+      defaultLocale: { type: String, default: 'fr' }
     },
 
     // --- 🧠 SANTÉ COLLECTIVE & MODÉRATION ---
@@ -82,6 +112,23 @@ const TeamSchema = new Schema<ITeamDocument>(
       reportCount: { type: Number, default: 0 }
     },
 
+    // --- 👥 RELATIONS (Silice) ---
+    invitations: [{
+      uid: { type: String, required: true },
+      targetUid: { type: String, required: true },
+      inviterUid: { type: String, required: true },
+      status: { type: String, enum: ['PENDING', 'ACCEPTED', 'DECLINED'], default: 'PENDING' },
+      capabilities: [{ type: String }],
+      invitedAt: { type: Date, default: Date.now }
+    }],
+
+    members: [{
+      uid: { type: String, required: true },
+      capabilities: [{ type: String }],
+      contributionPoints: { type: Number, default: 0 },
+      joinedAt: { type: Date, default: Date.now }
+    }],
+
     documents: [{
       uid: String,
       name: String,
@@ -89,7 +136,13 @@ const TeamSchema = new Schema<ITeamDocument>(
       url: String,
       mimeType: String,
       createdAt: { type: Date, default: Date.now }
-    }]
+    }],
+
+    // --- ⏱️ DATES ---
+    dates: {
+      createdAt: { type: Date, default: Date.now },
+      updatedAt: { type: Date, default: Date.now }
+    }
 
   },
    

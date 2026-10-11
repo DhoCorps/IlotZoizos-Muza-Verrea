@@ -1,15 +1,18 @@
 // apps/hub-central/components/kontakt/KontaktSwipeDeck.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Heart, X, Sparkles, Shield, Zap, Skull, Award, Compass, 
-  Cpu, Flame, Feather, Terminal, Star, ArrowRight, Briefcase 
+  Cpu, Flame, Feather, Terminal, Star, ArrowRight, Briefcase,
+  MapPin, Building2, CheckCircle2
 } from 'lucide-react';
 import ResonanceButton from '../resonance/ResonanceButton'; // 🕸️ Le tisseur de liens
 
-interface Profile {
+export interface Profile {
   uid: string;
+  userUid?: string; // 🛡️ Identifiant canonique de l'Oiseau (Mode Recruteur)
+  slug?: string;
   name: string;
   professionalTitle: string;
   archetypeClass: string;
@@ -28,18 +31,47 @@ interface Profile {
   biographyLore: string;
   availabilityStatus: 'OPEN_TO_WORK' | 'ON_A_QUEST' | 'RECRUITED';
   avatarUrl?: string;
-  // Propriétés alternatives pour les quêtes (mode chercheur)
+
+  // 📜 Propriétés SSOT unifiées pour les Quêtes (Mode Chercheur)
+  projectUid?: string;
   title?: string;
   description?: string;
+  company?: {
+    name: string;
+    description?: string;
+    websiteUrl?: string;
+    logoUrl?: string;
+  };
+  location?: string;
   rewardLore?: string;
+  rewardXp?: number;
   requiredSkills?: string[];
+  bonusSkills?: string[];
+  requirements?: string[];
+  responsibilities?: string[];
+  perks?: string[];
+  questDifficulty?: 'PEACEFUL' | 'NORMAL' | 'HARD' | 'NIGHTMARE' | 'LUNATIC';
+  dangerLevel?: number;
   status?: string;
-  // ⚖️ Champs pour le matchmaking préventif
-  maxBudgetCents?: number;
-  pricing?: { hourlyRateCents?: number };
+
+  // ⚖️ Champs SSOT pour le matchmaking préventif
+  minBudgetCents?: number | null;
+  maxBudgetCents?: number | null;
+  budgetConstraint?: {
+    minBudgetCents: number;
+    maxBudgetCents: number;
+  };
+  budgetType?: 'DAILY_RATE' | 'FIXED_PRICE' | 'YEARLY_SALARY';
+  currency?: string;
+  pricing?: {
+    hourlyRateCents?: number;
+    missionRateCents?: number;
+    currency?: string;
+  };
   workArrangement?: 'FULL_REMOTE' | 'HYBRID' | 'ON_SITE';
   remotePreference?: 'FULL_REMOTE' | 'HYBRID' | 'ON_SITE' | 'FLEXIBLE';
   contractType?: 'FREELANCE' | 'CDI' | 'CDD' | 'INTERNSHIP' | 'PARTNERSHIP' | 'BOUNTY' | 'OTHER';
+  employmentType?: 'FULL_TIME' | 'PART_TIME' | 'FREELANCE' | 'CONTRACT' | 'INTERNSHIP';
   professionalStatus?: 'FREELANCE' | 'EMPLOYEE' | 'JOB_SEEKER' | 'STUDENT' | 'ENTREPRENEUR' | 'OTHER';
   experienceLevel?: 'APPRENTICE' | 'JUNIOR' | 'MID' | 'CONFIRMED' | 'SENIOR' | 'LEAD' | 'MASTER' | 'GURU';
   tags?: string[];
@@ -48,6 +80,7 @@ interface Profile {
 const MOCK_PROFILES: Profile[] = [
   {
     uid: 'kontakt-001',
+    userUid: 'bird-vaelen',
     name: 'Vaelen de l’Ombre',
     professionalTitle: 'Mage Fullstack & Sceaux Neo4j',
     archetypeClass: 'Nécromancien de Silice',
@@ -62,6 +95,7 @@ const MOCK_PROFILES: Profile[] = [
   },
   {
     uid: 'kontakt-002',
+    userUid: 'bird-kaelen',
     name: 'Kaelen-7',
     professionalTitle: 'Enquêteur & Chasseur de Fuites Mémoire',
     archetypeClass: 'Réplicant Nexus-8',
@@ -76,6 +110,7 @@ const MOCK_PROFILES: Profile[] = [
   },
   {
     uid: 'kontakt-003',
+    userUid: 'bird-morgane',
     name: 'Morgane la Paladine',
     professionalTitle: 'Architecte DevOps & Rempart des CI/CD',
     archetypeClass: 'Paladine de l’Infra',
@@ -98,6 +133,8 @@ export default function KontaktSwipeDeck() {
   const [animationDirection, setAnimationDirection] = useState<'left' | 'right' | null>(null);
   const [matchModal, setMatchModal] = useState<Profile | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [applicationFeedback, setApplicationFeedback] = useState<string | null>(null);
+  const [coverMessage, setCoverMessage] = useState<string>('');
 
   // Chargement dynamique depuis l'API selon le mode actif
   useEffect(() => {
@@ -105,6 +142,8 @@ export default function KontaktSwipeDeck() {
       setLoading(true);
       setCurrentIndex(0);
       setErrorMessage(null);
+      setApplicationFeedback(null);
+      setCoverMessage('');
       try {
         const endpoint = mode === 'recruiter' ? '/api/kontakt/profiles' : '/api/kontakt/quests';
         const res = await fetch(endpoint);
@@ -129,61 +168,114 @@ export default function KontaktSwipeDeck() {
 
   const currentItem = items[currentIndex];
 
+  const advanceDeck = () => {
+    setTimeout(() => {
+      setCurrentIndex(prev => prev + 1);
+      setAnimationDirection(null);
+      setCoverMessage('');
+    }, 300);
+  };
+
   const handleSwipe = async (action: 'LIKE' | 'PASS') => {
     if (!currentItem) return;
 
     setAnimationDirection(action === 'LIKE' ? 'right' : 'left');
     setErrorMessage(null);
+    setApplicationFeedback(null);
+
+    // 🛡️ FIX CRITIQUE : En mode Chercheur (candidate), un PASS ne doit PAS postuler à la quête !
+    if (mode === 'candidate' && action === 'PASS') {
+      advanceDeck();
+      return;
+    }
 
     try {
-      const targetUid = mode === 'recruiter' ? currentItem.uid : (currentItem.uid || 'quest-default');
-      const endpoint = mode === 'recruiter' ? '/api/kontakt/swipes' : '/api/kontakt/quests/apply';
+      if (mode === 'recruiter') {
+        // 🎯 En mode Recruteur, on cible l'UID de l'Oiseau (userUid) s'il est présent, sinon uid
+        const targetUid = currentItem.userUid || currentItem.uid;
+        const bodyPayload: Record<string, unknown> = { targetUid, action };
 
-      // ⚖️ Construction du payload enrichi avec matchmakingData pour les likes de type recruteur/candidat
-      let bodyPayload: Record<string, unknown> = { targetUid, action };
-
-      if (action === 'LIKE') {
-        bodyPayload.matchmakingData = {
-          questMaxBudgetCents: currentItem.maxBudgetCents || 50000,
-          profileHourlyRateCents: currentItem.pricing?.hourlyRateCents || 40000,
-          questWorkArrangement: currentItem.workArrangement || 'FULL_REMOTE',
-          profileRemotePreference: currentItem.remotePreference || 'FULL_REMOTE',
-          questContractType: currentItem.contractType || 'FREELANCE',
-          profileProfessionalStatus: currentItem.professionalStatus || 'FREELANCE',
-          questRequiredSkills: currentItem.requiredSkills || [],
-          profileSkills: currentItem.skills || [],
-          questTags: currentItem.tags || [],
-          profileTags: currentItem.tags || []
-        };
-      }
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bodyPayload)
-      });
-
-      const result = await res.json();
-
-      if (!res.ok) {
-        // Gestion du rejet par le moteur de matchmaking (ex: affinités trop faibles - 403)
-        if (res.status === 403) {
-          setErrorMessage(result.error || "L'Îlot juge cette affinité trop faible pour justifier une mise en relation.");
+        if (action === 'LIKE') {
+          bodyPayload.matchmakingData = {
+            questMaxBudgetCents:
+              currentItem.maxBudgetCents ??
+              currentItem.budgetConstraint?.maxBudgetCents ??
+              50000,
+            ...(currentItem.budgetConstraint ? { questBudgetConstraint: currentItem.budgetConstraint } : {}),
+            ...(currentItem.minBudgetCents !== undefined ? { questMinBudgetCents: currentItem.minBudgetCents } : {}),
+            ...(currentItem.budgetType ? { questBudgetType: currentItem.budgetType } : {}),
+            ...(currentItem.employmentType ? { questEmploymentType: currentItem.employmentType } : {}),
+            ...(currentItem.experienceLevel ? {
+              questExperienceLevel: currentItem.experienceLevel,
+              profileExperienceLevel: currentItem.experienceLevel
+            } : {}),
+            profileHourlyRateCents: currentItem.pricing?.hourlyRateCents || 40000,
+            questWorkArrangement: currentItem.workArrangement || 'FULL_REMOTE',
+            profileRemotePreference: currentItem.remotePreference || 'FULL_REMOTE',
+            questContractType: currentItem.contractType || 'FREELANCE',
+            profileProfessionalStatus: currentItem.professionalStatus || 'FREELANCE',
+            questRequiredSkills: currentItem.requiredSkills || [],
+            questRequirements: currentItem.requirements || [],
+            questBonusSkills: currentItem.bonusSkills || [],
+            profileSkills: currentItem.skills || [],
+            questTags: currentItem.tags || [],
+            profileTags: currentItem.tags || []
+          };
         }
-        console.warn("Swipe rejeté ou bloqué :", result);
+
+        const res = await fetch('/api/kontakt/swipes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(bodyPayload)
+        });
+
+        const result = await res.json();
+
+        if (!res.ok) {
+          if (res.status === 403) {
+            setErrorMessage(result.error || "L'Îlot juge cette affinité trop faible pour justifier une mise en relation.");
+          }
+          console.warn("Swipe rejeté ou bloqué :", result);
+        } else {
+          // 🛡️ Éradication du faux positif Math.random() > 0.3 : uniquement sur vrai match serveur
+          const isServerMatch = Boolean(result?.data?.match || result?.match);
+          if (action === 'LIKE' && isServerMatch) {
+            setMatchModal(currentItem);
+          }
+        }
       } else {
-        if (action === 'LIKE' && (result?.data?.match || result?.match || Math.random() > 0.3)) {
-          setMatchModal(currentItem);
+        // 📜 Mode Chercheur (candidate) + action === 'LIKE' : Postulation à la quête avec coverMessage
+        const targetUid = currentItem.uid || 'quest-default';
+        const res = await fetch('/api/kontakt/quests/apply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            targetUid,
+            coverMessage: coverMessage.trim()
+          })
+        });
+
+        const result = await res.json();
+
+        if (!res.ok) {
+          setErrorMessage(result.error || "Échec de la transmission de candidature.");
+          console.warn("Candidature rejetée :", result);
+        } else {
+          const isServerMatch = Boolean(result?.data?.match || result?.match);
+          if (isServerMatch) {
+            setMatchModal(currentItem);
+          } else {
+            setApplicationFeedback(
+              result.message || "Candidature transmise et enregistrée avec succès pour cette quête."
+            );
+          }
         }
       }
     } catch (err) {
       console.error("Erreur lors du swipe :", err);
     }
 
-    setTimeout(() => {
-      setCurrentIndex(prev => prev + 1);
-      setAnimationDirection(null);
-    }, 300);
+    advanceDeck();
   };
 
   const getAlignmentColor = (alignment?: string) => {
@@ -193,6 +285,19 @@ export default function KontaktSwipeDeck() {
       case 'LOYAL_GOOD': return 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
       default: return 'text-slate-400 border-slate-500/30 bg-slate-500/10';
     }
+  };
+
+  const formatBudget = (item: Profile) => {
+    const min = item.minBudgetCents ?? item.budgetConstraint?.minBudgetCents;
+    const max = item.maxBudgetCents ?? item.budgetConstraint?.maxBudgetCents;
+    const currency = item.currency || 'EUR';
+    if (min != null && max != null) {
+      return `${Math.round(min / 100)} - ${Math.round(max / 100)} ${currency}`;
+    }
+    if (max != null) {
+      return `Jusqu'à ${Math.round(max / 100)} ${currency}`;
+    }
+    return null;
   };
 
   if (loading) {
@@ -241,6 +346,15 @@ export default function KontaktSwipeDeck() {
     );
   }
 
+  const effectiveQuestSkills =
+    (currentItem.requiredSkills && currentItem.requiredSkills.length > 0)
+      ? currentItem.requiredSkills
+      : (currentItem.requirements && currentItem.requirements.length > 0)
+        ? currentItem.requirements
+        : (currentItem.skills || []);
+
+  const formattedBudget = formatBudget(currentItem);
+
   return (
     <div className="max-w-md mx-auto space-y-6 pb-12 relative">
       
@@ -260,10 +374,18 @@ export default function KontaktSwipeDeck() {
         </button>
       </div>
 
-      {/* Message d'alerte si le matchmaking bloque l'action */}
+      {/* Message d'alerte si le matchmaking ou la quête bloque l'action */}
       {errorMessage && (
         <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-2xl text-xs font-mono text-red-400 text-center animate-in shake">
           {errorMessage}
+        </div>
+      )}
+
+      {/* Confirmation de transmission de candidature */}
+      {applicationFeedback && (
+        <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-xs font-mono text-emerald-400 text-center flex items-center justify-center gap-2">
+          <CheckCircle2 size={14} />
+          <span>{applicationFeedback}</span>
         </div>
       )}
 
@@ -278,7 +400,7 @@ export default function KontaktSwipeDeck() {
         {mode === 'recruiter' && (
           <div className="absolute top-4 right-4 z-20">
             <ResonanceButton 
-              targetSlug={currentItem.uid}
+              targetSlug={currentItem.userUid || currentItem.uid}
               type="FOLLOWS_GLOBAL"
               variant="icon"
               initialIsFollowing={false}
@@ -358,31 +480,129 @@ export default function KontaktSwipeDeck() {
 
         {mode === 'candidate' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between border-b border-white/5 pb-4">
-              <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-full text-[10px] font-mono uppercase text-emerald-400">
-                {currentItem.status || 'QUÊTE ACTIVE'}
+            <div className="flex items-center justify-between border-b border-white/5 pb-4 flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded-full text-[10px] font-mono uppercase text-emerald-400">
+                  {currentItem.status || 'QUÊTE ACTIVE'}
+                </span>
+                {currentItem.questDifficulty && (
+                  <span className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full text-[10px] font-mono uppercase text-amber-400">
+                    {currentItem.questDifficulty}
+                  </span>
+                )}
+              </div>
+              <span className="text-[10px] font-mono text-slate-400">
+                {currentItem.rewardXp !== undefined ? `+${currentItem.rewardXp} XP` : "Appel d'Équipage"}
               </span>
-              <span className="text-[10px] font-mono text-slate-500">Appel d'Équipage</span>
             </div>
 
-            <div className="space-y-1">
-              <h2 className="text-2xl font-black uppercase text-white">{currentItem.title || currentItem.name || 'Mission sans nom'}</h2>
-              <p className="text-xs font-mono text-emerald-400 font-bold">Récompense : {currentItem.rewardLore || 'Aura & Part d\'artefacts'}</p>
+            <div className="space-y-1.5">
+              <h2 className="text-2xl font-black uppercase text-white">
+                {currentItem.title || currentItem.name || 'Mission sans nom'}
+              </h2>
+              {currentItem.company?.name && (
+                <div className="flex items-center gap-1.5 text-xs font-mono text-slate-300">
+                  <Building2 size={13} className="text-[#E5484D]" />
+                  <span>{currentItem.company.name}</span>
+                </div>
+              )}
+              <p className="text-xs font-mono text-emerald-400 font-bold">
+                Récompense : {currentItem.rewardLore || "Aura & Part d'artefacts"}
+              </p>
+            </div>
+
+            {/* 💼 Badges logistiques SSOT (Mode de travail, Contrat, Niveau, Localisation, Budget, Danger) */}
+            <div className="flex flex-wrap gap-1.5 text-[10px] font-mono">
+              {currentItem.workArrangement && (
+                <span className="px-2 py-0.5 rounded-lg bg-white/5 border border-white/10 text-slate-300">
+                  {currentItem.workArrangement}
+                </span>
+              )}
+              {currentItem.contractType && (
+                <span className="px-2 py-0.5 rounded-lg bg-white/5 border border-white/10 text-slate-300">
+                  {currentItem.contractType}
+                </span>
+              )}
+              {currentItem.employmentType && (
+                <span className="px-2 py-0.5 rounded-lg bg-white/5 border border-white/10 text-slate-300">
+                  {currentItem.employmentType}
+                </span>
+              )}
+              {currentItem.experienceLevel && (
+                <span className="px-2 py-0.5 rounded-lg bg-[#E5484D]/10 border border-[#E5484D]/30 text-[#E5484D]">
+                  Rang : {currentItem.experienceLevel}
+                </span>
+              )}
+              {currentItem.location && (
+                <span className="px-2 py-0.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 flex items-center gap-1">
+                  <MapPin size={10} /> {currentItem.location}
+                </span>
+              )}
+              {formattedBudget && (
+                <span className="px-2 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300">
+                  {formattedBudget}
+                </span>
+              )}
+              {currentItem.dangerLevel !== undefined && (
+                <span className="px-2 py-0.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 flex items-center gap-1">
+                  <Skull size={10} /> Danger {currentItem.dangerLevel}%
+                </span>
+              )}
             </div>
 
             <p className="text-xs text-slate-300 font-sans leading-relaxed bg-black/40 p-4 rounded-2xl border border-white/5 max-h-40 overflow-y-auto custom-scrollbar">
               {currentItem.description || currentItem.biographyLore || 'Aucune description fournie pour cette quête.'}
             </p>
 
-            <div className="space-y-2 pt-2">
+            <div className="space-y-2 pt-1">
               <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500">Compétences requises :</span>
               <div className="flex flex-wrap gap-1.5">
-                {(currentItem.requiredSkills || currentItem.skills || []).map((skill: string, i: number) => (
+                {effectiveQuestSkills.map((skill: string, i: number) => (
                   <span key={i} className="px-2.5 py-1 bg-white/5 border border-white/10 rounded-lg text-[10px] font-mono text-slate-300">
                     {skill}
                   </span>
                 ))}
               </div>
+            </div>
+
+            {currentItem.responsibilities && currentItem.responsibilities.length > 0 && (
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500">Missions :</span>
+                <ul className="space-y-1 text-xs font-mono text-slate-300 list-disc list-inside">
+                  {currentItem.responsibilities.map((resp, idx) => (
+                    <li key={idx}>{resp}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {currentItem.perks && currentItem.perks.length > 0 && (
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-slate-500">Avantages & Loots :</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {currentItem.perks.map((perk, idx) => (
+                    <span key={idx} className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[10px] font-mono text-amber-300">
+                      {perk}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ✍️ Message de motivation (coverMessage) transmis à /api/kontakt/quests/apply */}
+            <div className="space-y-1.5 pt-2 border-t border-white/5">
+              <label htmlFor="quest-cover-message" className="text-[10px] font-mono uppercase tracking-widest text-slate-400 block">
+                Missive de motivation (Optionnel)
+              </label>
+              <textarea
+                id="quest-cover-message"
+                rows={2}
+                maxLength={2000}
+                value={coverMessage}
+                onChange={(e) => setCoverMessage(e.target.value)}
+                placeholder="Présente ton profil ou tes artefacts pour cette quête..."
+                className="w-full bg-black/50 border border-white/10 rounded-xl p-2.5 text-xs font-mono text-white placeholder:text-slate-600 focus:border-[#E5484D] outline-none resize-none"
+              />
             </div>
           </div>
         )}

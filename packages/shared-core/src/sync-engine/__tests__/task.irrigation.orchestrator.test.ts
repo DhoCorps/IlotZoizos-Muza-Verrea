@@ -3,7 +3,7 @@ import { TaskIrrigationOrchestrator } from '../task.irrigation.orchestrator';
 import { TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from '../transactionManager';
 import { IlotError } from '../../errors/ilot.errors';
-import { CAPABILITIES } from '@ilot/types';
+import { CAPABILITIES, TaskStatus } from '@ilot/types'; // 🛡️ SUTURE : Import de TaskStatus
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
   const actual: any = await importOriginal();
@@ -24,7 +24,7 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
-describe('TaskIrrigationOrchestrator - Loi de l\'Irrigation (Sève)', () => {
+describe("TaskIrrigationOrchestrator - Loi de l'Irrigation (Sève)", () => {
   let orchestrator: TaskIrrigationOrchestrator;
   
   const adminSignature = { uid: 'u1', role: 'admin', capabilities: [CAPABILITIES.TASK.UPDATE] };
@@ -36,13 +36,13 @@ describe('TaskIrrigationOrchestrator - Loi de l\'Irrigation (Sève)', () => {
   });
 
   describe('processTaskIrrigation', () => {
-    it('🔴 doit rejeter (403) si l\'Oiseau n\'a pas la capacité requise', async () => {
+    it("🔴 doit rejeter (403) si l'Oiseau n'a pas la capacité requise", async () => {
       await expect(
         orchestrator.processTaskIrrigation('task-1', restrictedSignature as any)
       ).rejects.toThrow(IlotError);
     });
 
-    it('🔴 doit lever une erreur 404 si l\'atome/tâche est introuvable dans la Silice', async () => {
+    it("🔴 doit lever une erreur 404 si l'atome/tâche est introuvable dans la Silice", async () => {
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(null);
 
       await expect(
@@ -50,18 +50,18 @@ describe('TaskIrrigationOrchestrator - Loi de l\'Irrigation (Sève)', () => {
       ).rejects.toThrow(IlotError);
     });
 
-    it('🟢 doit irriguer la tâche (résolue par uid ou slug via findEntityBySlugOrUid), mettre à jour la Silice et synchroniser Neo4j avec succès', async () => {
+    it("🟢 doit irriguer la tâche (résolue par uid ou slug via findEntityBySlugOrUid), mettre à jour la Silice et synchroniser Neo4j avec succès", async () => {
       const mockTask = {
         uid: 'task-uid-1',
         slug: 'atome-slug',
         content: { title: 'Tâche Test' },
-        status: 'PENDING',
+        status: TaskStatus.TODO, // 🛡️ SUTURE : 'PENDING' -> TaskStatus.TODO
         dependencies: []
       };
 
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce(mockTask as any);
       vi.mocked(TaskModel.findOneAndUpdate).mockReturnValue({
-        lean: vi.fn().mockResolvedValueOnce({ ...mockTask, status: 'ACTIVE', isIrrigated: 1 }),
+        lean: vi.fn().mockResolvedValueOnce({ ...mockTask, status: TaskStatus.IN_PROGRESS, isIrrigated: 1 }), // 🛡️ SUTURE : 'ACTIVE' -> TaskStatus.IN_PROGRESS
       } as any);
 
       const res = await orchestrator.processTaskIrrigation('atome-slug', adminSignature as any);

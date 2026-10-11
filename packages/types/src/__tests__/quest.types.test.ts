@@ -2,25 +2,36 @@
 import { describe, it, expect } from 'vitest';
 import { JobQuestSchema } from '../core/quest.types';
 
-describe('JobQuest - Validation Zod des Appels à Candidatures', () => {
+describe('JobQuest - Validation Zod des Appels à Candidatures (SSOT Unifiée)', () => {
   const validQuest = {
     uid: 'quest-001',
     projectUid: 'project-ilot-01',
     title: 'Recherche Paladin Fullstack',
     slug: 'recherche-paladin-fullstack', 
     description: 'Sceller la base Neo4j et stabiliser l\'interface.',
+    company: {
+      name: 'Ordre de la Silice',
+      description: 'Bâtisseurs des fondations hybrides de la Canopée.',
+      websiteUrl: 'https://ilotzoizos.com'
+    },
     workArrangement: 'FULL_REMOTE',
     contractType: 'FREELANCE',
+    employmentType: 'FREELANCE',
     experienceLevel: 'MASTER',
+    location: 'Remote',
     minBudgetCents: 50000, // 🆕 500€ / jour
     maxBudgetCents: 65000, // 650€ / jour
     budgetType: 'DAILY_RATE', // 🆕
     requiredSkills: ['Next.js', 'Neo4j', 'TypeScript'],
     bonusSkills: ['Zod', 'GraphQL'], // 🆕
+    requirements: ['Maîtrise des transactions atomiques'],
+    responsibilities: ['Maintenir le pont MongoDB / Neo4j'],
     rewardLore: 'Part d\'artefacts et aura lumineuse',
+    rewardXp: 250,
     questDifficulty: 'NIGHTMARE',
     dangerLevel: 85, // Mission critique !
     perks: ['Accès au canal secret', 'Potion d\'endurance infinie (Café)'],
+    tags: ['nextjs', 'neo4j'],
     status: 'ACTIVE'
   };
 
@@ -44,12 +55,19 @@ describe('JobQuest - Validation Zod des Appels à Candidatures', () => {
     expect(parsed.status).toBe('ACTIVE');
     expect(parsed.workArrangement).toBe('FULL_REMOTE'); // Par défaut
     expect(parsed.contractType).toBe('FREELANCE'); // Par défaut
+    expect(parsed.employmentType).toBe('FULL_TIME'); // Par défaut
     expect(parsed.experienceLevel).toBe('CONFIRMED'); // Par défaut
+    expect(parsed.location).toBe('Remote'); // Par défaut
     expect(parsed.budgetType).toBe('DAILY_RATE'); // 🆕 Par défaut
     expect(parsed.bonusSkills).toEqual([]); // 🆕 Par défaut
+    expect(parsed.requirements).toEqual([]);
+    expect(parsed.responsibilities).toEqual([]);
+    expect(parsed.rewardXp).toBe(100);
     expect(parsed.questDifficulty).toBe('NORMAL');
     expect(parsed.dangerLevel).toBe(10); // Chill par défaut
     expect(parsed.perks).toEqual([]);
+    expect(parsed.tags).toEqual([]);
+    expect(parsed.settings.allowApplications).toBe(true);
     expect(parsed.updatedAt).toBeInstanceOf(Date); // 🆕 Par défaut
   });
 

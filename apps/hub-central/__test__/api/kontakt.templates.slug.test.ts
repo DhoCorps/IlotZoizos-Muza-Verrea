@@ -18,6 +18,9 @@ vi.mock('@/lib/api-guards', () => ({
     }
     return await handler(req, context, mockUser);
   },
+  handleRouteError: vi.fn((err: unknown, context: string) => {
+    return NextResponse.json({ error: context, details: String(err) }, { status: 500 });
+  }),
 }));
 
 vi.mock('@/lib/slugify', () => ({
@@ -48,7 +51,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
     findEntityBySlugOrUid: vi.fn(async (model: typeof CVTemplateModel, identifier: string, options = { lean: true }) => {
       const doc = await model.findOne({ $or: [{ slug: identifier }, { uid: identifier }] });
       if (!doc) return null;
-      if (options.lean && typeof (doc as unknown as Record<string, unknown>).lean === 'function') {
+      if (typeof (doc as unknown as Record<string, unknown>).lean === 'function') {
         return await (doc as unknown as { lean: () => Promise<unknown> }).lean();
       }
       return doc;
@@ -56,7 +59,7 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
   };
 });
 
-describe('API Kontakt Template Slug - Gestion d\'un template spécifique', () => {
+describe('API Kontakt Template Slug - Gestion d\'un template spécifique (Sécurité IDOR incluse)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete global.__mockUser;
@@ -111,10 +114,25 @@ describe('API Kontakt Template Slug - Gestion d\'un template spécifique', () =>
       expect(res.status).toBe(401);
     });
 
-    it('doit muter le template avec succès (200) et invalider le cache', async () => {
+    it('🔴 doit rejeter (403) en cas de tentative IDOR par un oiseau non propriétaire', async () => {
+      global.__mockUser = { uid: 'bird_intrus', capabilities: [] };
+      mockLean.mockResolvedValueOnce({ uid: 't_1', slug: 'cyberpunk', authorUid: 'bird_1', title: 'Cyberpunk' });
+
+      const req = new NextRequest('http://localhost/api/kontakt/templates/cyberpunk', {
+        method: 'PUT',
+        body: JSON.stringify({ title: 'Piraté' })
+      });
+      const context = { params: Promise.resolve({ slug: 'cyberpunk' }) };
+
+      const res = await PUT(req, context);
+      expect(res.status).toBe(403);
+      expect(CVTemplateModel.findOneAndUpdate).not.toHaveBeenCalled();
+    });
+
+    it('doit muter le template avec succès (200) si l\'oiseau est propriétaire et invalider le cache', async () => {
       global.__mockUser = { uid: 'bird_1', capabilities: [] };
-      mockLean.mockResolvedValueOnce({ uid: 't_1', slug: 'cyberpunk', title: 'Cyberpunk' })
-              .mockResolvedValueOnce({ slug: 'cyberpunk', title: 'Muté', tags: ['neo4j', 'cyberpunk'] });
+      mockLean.mockResolvedValueOnce({ uid: 't_1', slug: 'cyberpunk', authorUid: 'bird_1', title: 'Cyberpunk' })
+              .mockResolvedValueOnce({ uid: 't_1', slug: 'cyberpunk', authorUid: 'bird_1', title: 'Muté', tags: ['neo4j', 'cyberpunk'] });
 
       const req = new NextRequest('http://localhost/api/kontakt/templates/cyberpunk', {
         method: 'PUT',
@@ -149,9 +167,23 @@ describe('API Kontakt Template Slug - Gestion d\'un template spécifique', () =>
       expect(res.status).toBe(401);
     });
 
-    it('doit dissoudre le template avec succès (200) et purger le cache', async () => {
+    it('🔴 doit rejeter (403) en cas de tentative de suppression IDOR par un oiseau non propriétaire', async () => {
+      global.__mockUser = { uid: 'bird_intrus', capabilities: [] };
+      mockLean.mockResolvedValueOnce({ uid: 't_1', slug: 'cyberpunk', authorUid: 'bird_1' });
+
+      const req = new NextRequest('http://localhost/api/kontakt/templates/cyberpunk', {
+        method: 'DELETE',
+      });
+      const context = { params: Promise.resolve({ slug: 'cyberpunk' }) };
+
+      const res = await DELETE(req, context);
+      expect(res.status).toBe(403);
+      expect(CVTemplateModel.findOneAndDelete).not.toHaveBeenCalled();
+    });
+
+    it('doit dissoudre le template avec succès (200) si l\'oiseau est propriétaire et purger le cache', async () => {
       global.__mockUser = { uid: 'bird_1', capabilities: [] };
-      mockLean.mockResolvedValueOnce({ uid: 't_1', slug: 'cyberpunk' });
+      mockLean.mockResolvedValueOnce({ uid: 't_1', slug: 'cyberpunk', authorUid: 'bird_1' });
       vi.mocked(CVTemplateModel.findOneAndDelete).mockResolvedValueOnce({ slug: 'cyberpunk' } as unknown as Awaited<ReturnType<typeof CVTemplateModel.findOneAndDelete>>);
 
       const req = new NextRequest('http://localhost/api/kontakt/templates/cyberpunk', {

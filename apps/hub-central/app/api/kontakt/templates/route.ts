@@ -3,10 +3,10 @@ export const dynamic = 'force-dynamic';
 import { NextResponse, NextRequest } from 'next/server';
 import { CVTemplateModel } from '@ilot/infrastructure';
 import { v4 as uuidv4 } from 'uuid';
+import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withSilice, withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedTemplates } from '@/lib/cache/kontakt.cache';
-import { handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
 // 🛡️ Schéma Zod optimisé : Délégation des valeurs par défaut au validateur
@@ -24,6 +24,7 @@ type CreateCVTemplateInput = z.infer<typeof CreateCVTemplateSchema>;
 
 interface CVTemplateDocument {
   uid: string;
+  slug: string;
   authorUid: string;
   title: string;
   [key: string]: unknown;
@@ -66,12 +67,39 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     const userName = (currentUser as Record<string, unknown>).name as string || 'Oiseau Inconnu';
     const templateUid = `tmpl_${uuidv4()}`;
 
+    // 🪡 SUTURE : Génération du slug obligatoire pour CVTemplateModel avec gestion des collisions
+    const baseSlug = slugify(sanitizedData.title) || `parchemin-${templateUid.slice(0, 8)}`;
+    let finalSlug = baseSlug;
+
+    let slugExists: CVTemplateDocument | null = null;
+    try {
+      if (typeof CVTemplateModel.findOne === 'function') {
+        slugExists = (await CVTemplateModel.findOne({ slug: finalSlug }).lean()) as CVTemplateDocument | null;
+      }
+    } catch (slugErr) {
+      console.error("  [TEMPLATE SLUG CHECK ERROR]", slugErr);
+    }
+
+    let counter = 1;
+    let safetyCounter = 0;
+    while (slugExists && safetyCounter < 50) {
+      finalSlug = `${baseSlug}-${counter}`;
+      try {
+        slugExists = (await CVTemplateModel.findOne({ slug: finalSlug }).lean()) as CVTemplateDocument | null;
+      } catch {
+        break;
+      }
+      counter++;
+      safetyCounter++;
+    }
+
     let newTemplate: CVTemplateDocument;
     try {
-      // 🔮 L'insertion en base est maintenant très épurée grâce au typage strict de Zod
+      // 🔮 Insertion en base avec le slug requis par CVTemplateSchema
       newTemplate = (await CVTemplateModel.create({
         ...sanitizedData,
         uid: templateUid,
+        slug: finalSlug,
         authorUid: userUid,
         authorName: userName,
       })) as unknown as CVTemplateDocument;
@@ -81,7 +109,11 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     }
 
     revalidateTag('cv-templates');
+    revalidateTag('kontakt-templates');
     revalidateTag(`author-${userUid}`);
+    if (newTemplate?.slug) {
+      revalidateTag(`template-${newTemplate.slug}`);
+    }
 
     return NextResponse.json({
       success: true,

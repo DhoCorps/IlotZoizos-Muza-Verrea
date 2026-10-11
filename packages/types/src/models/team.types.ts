@@ -1,4 +1,3 @@
-// packages/types/src/schemas/team.types.ts
 import { z } from 'zod';
 import { BaseNodeSchema } from './common.types';
 
@@ -8,6 +7,32 @@ import { BaseNodeSchema } from './common.types';
  */
 export const TeamCategorySchema = z.enum(['SOCIAL', 'SYSTEM', 'DAWN']);
 
+export const TeamDocumentSchema = z.object({
+  uid: z.string(),
+  name: z.string(),
+  label: z.string(),
+  url: z.string(),
+  mimeType: z.string(),
+  // 🪡 SUTURE API : Acceptation des dates ISO (String) ou Objets Date
+  createdAt: z.union([z.date(), z.string().datetime()]).optional()
+});
+
+export const TeamInvitationSchema = z.object({
+  uid: z.string(),
+  targetUid: z.string(),
+  inviterUid: z.string(),
+  status: z.enum(['PENDING', 'ACCEPTED', 'DECLINED']).default('PENDING'),
+  capabilities: z.array(z.string()).default([]),
+  invitedAt: z.union([z.date(), z.string().datetime()]).default(() => new Date())
+});
+
+export const TeamMemberSchema = z.object({
+  uid: z.string(), // UID de l'oiseau
+  capabilities: z.array(z.string()).default([]),
+  contributionPoints: z.number().min(0).default(0),
+  joinedAt: z.union([z.date(), z.string().datetime()]).default(() => new Date())
+});
+
 export const TeamSchema = BaseNodeSchema.extend({
   // --- 🏷️ IDENTITÉ (Silice) ---
   uid: z.string(),
@@ -16,7 +41,7 @@ export const TeamSchema = BaseNodeSchema.extend({
   
   // --- 🕸️ STRUCTURE & VIBRATION ---
   category: TeamCategorySchema.default('SOCIAL'),
-  frequency: z.string().regex(/^#[0-9A-F]{6}$/i).default('#8b9dc3'), // Gris bleuté par défaut [cite: 2026-03-27]
+  frequency: z.string().regex(/^#[0-9A-F]{6}$/i).default('#8b9dc3'), // Gris bleuté par défaut
   
   // Identifiants uniques de souveraineté
   ownerUid: z.string(), 
@@ -33,15 +58,15 @@ export const TeamSchema = BaseNodeSchema.extend({
 
   // --- ⚙️ RÉGLAGES SYSTÈME (L'Horlogerie) ---
   settings: z.object({
-    // Suture avec la réorganisation à vitesse réduite [cite: 2026-03-11]
+    // Suture avec la réorganisation à vitesse réduite
     isGlobalReducedSpeed: z.boolean().default(false), 
     allowSearch: z.boolean().default(true),
     defaultLocale: z.string().default('fr'),
   }).default({ isGlobalReducedSpeed: false, allowSearch: true, defaultLocale: 'fr' }),
 
-  // --- 🧠 RÉSILLIENCE & MODÉRATION [cite: 2026-02-11] ---
+  // --- 🧠 RÉSILLIENCE & MODÉRATION ---
   collectiveHealth: z.object({
-    lastPulseCheck: z.date().optional()
+    lastPulseCheck: z.union([z.date(), z.string().datetime()]).optional()
   }).default({}),
 
   moderation: z.object({
@@ -49,18 +74,18 @@ export const TeamSchema = BaseNodeSchema.extend({
     reportCount: z.number().default(0)
   }).default({ isFlagged: false, reportCount: 0 }),
 
-  // TODO
-  invitations:z.array(z.object({})),
-  members:z.array(z.object({})),
+  // --- 👥 RELATIONS (Silice) ---
+  invitations: z.array(TeamInvitationSchema).default([]),
+  members: z.array(TeamMemberSchema).default([]),
 
-  documents: z.array(z.object({
-      uid: z.string(),
-      name: z.string(),
-      label: z.string(),
-      url: z.string(),
-      mimeType: z.string()
-  })).default([])
-
+  // --- 📂 DOCUMENTS ---
+  documents: z.array(TeamDocumentSchema).default([]),
+  
+  // 🪡 SUTURE API
+  dates: z.object({
+    createdAt: z.union([z.date(), z.string().datetime()]).optional(),
+    updatedAt: z.union([z.date(), z.string().datetime()]).optional(),
+  }).default({})
 });
 
 export type ITeam = z.infer<typeof TeamSchema>;
@@ -69,10 +94,37 @@ export type ITeam = z.infer<typeof TeamSchema>;
  * 🛡️ LA RELATION DE NIDIFICATION (Neo4j)
  * C'est ici que l'absurdité du rôle est remplacée par la fluidité de l'Aura.
  */
-
 export interface INestingRelation {
   since: Date;
   // 🕊️ SUTURE : On ne stocke plus de "role" figé, mais l'aura (capabilities)
   capabilities: string[]; 
   contributionPoints: number; // Score de sédimentation (activité réelle dans ce nid)
 }
+
+/**
+ * 📤 PAYLOADS D'API
+ */
+export const FosterTeamPayloadSchema = TeamSchema.pick({
+  name: true,
+  description: true,
+  category: true,
+  frequency: true,
+  isPrivate: true,
+  parentId: true,
+  ownerUid: true,
+  leaderUid: true
+}).partial({
+  description: true,
+  frequency: true,
+  parentId: true,
+  leaderUid: true
+});
+
+export type FosterTeamPayload = z.infer<typeof FosterTeamPayloadSchema>;
+
+export const UpdateTeamPayloadSchema = TeamSchema.partial().omit({ 
+  uid: true, 
+  ownerUid: true 
+});
+
+export type UpdateTeamPayload = z.infer<typeof UpdateTeamPayloadSchema>;

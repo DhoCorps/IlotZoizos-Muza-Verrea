@@ -1,9 +1,16 @@
 import { OiseauModel } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
-import { ActionSignature } from '@ilot/types';
+import { ActionSignature, JobQuest, IOiseau } from '@ilot/types';
 import { IlotError } from '../errors/ilot.errors';
 import { resolveCanonicalUid, safeSyncUniversalInteraction } from '../utils/orchestrator.engine';
 import { NotificationOrchestrator } from './notification.orchestrator'; // 🔔 Import du Moteur d'Échos
+
+export interface ApplyToQuestPayload {
+  applicantUid: string;
+  questUid: string;
+  questTitle?: string;
+  coverMessage?: string;
+}
 
 export interface RegisterSwipePayload {
   swiperUid: string;
@@ -38,32 +45,45 @@ export interface RequestIntroductionPayload {
   [key: string]: unknown;
 }
 
-// 🚀 NOUVEAU PAYLOAD DE MATCHMAKING ENRICHI
+// 🛡️ Extraction SSOT depuis JobQuest et IOiseau (@ilot/types)
+type CvProfileSSOT = NonNullable<IOiseau['cvProfile']>;
+
+// 🚀 PAYLOAD DE MATCHMAKING ENRICHI & ALIGNÉ SSOT
 export interface MatchmakingPayload {
   questMaxBudgetCents?: number;
+  questBudgetConstraint?: JobQuest['budgetConstraint'];
   profileHourlyRateCents?: number;
-  questWorkArrangement?: 'FULL_REMOTE' | 'HYBRID' | 'ON_SITE';
-  profileRemotePreference?: 'FULL_REMOTE' | 'HYBRID' | 'ON_SITE' | 'FLEXIBLE';
-  questContractType?: 'FREELANCE' | 'CDI' | 'CDD' | 'INTERNSHIP' | 'PARTNERSHIP' | 'BOUNTY' | 'OTHER';
-  profileProfessionalStatus?: 'FREELANCE' | 'EMPLOYEE' | 'JOB_SEEKER' | 'STUDENT' | 'ENTREPRENEUR' | 'OTHER';
+  questWorkArrangement?: JobQuest['workArrangement'];
+  profileRemotePreference?: CvProfileSSOT['remotePreference'];
+  questContractType?: JobQuest['contractType'];
+  profileProfessionalStatus?: CvProfileSSOT['professionalStatus'];
   
-  // 🆕 Nouveaux champs d'harmonisation
+  // 🆕 Champs d'harmonisation (Quête & Profil)
   questMinBudgetCents?: number | null;
-  questBudgetType?: 'DAILY_RATE' | 'FIXED_PRICE' | 'YEARLY_SALARY';
-  questEmploymentType?: 'FULL_TIME' | 'PART_TIME' | 'FREELANCE' | 'CONTRACT' | 'INTERNSHIP';
-  questExperienceLevel?: 'APPRENTICE' | 'JUNIOR' | 'MID' | 'CONFIRMED' | 'SENIOR' | 'LEAD' | 'MASTER' | 'GURU';
-  profileExperienceLevel?: 'APPRENTICE' | 'JUNIOR' | 'MID' | 'CONFIRMED' | 'SENIOR' | 'LEAD' | 'MASTER' | 'GURU';
+  questBudgetType?: JobQuest['budgetType'];
+  questEmploymentType?: JobQuest['employmentType'];
+  questExperienceLevel?: JobQuest['experienceLevel'];
+  profileExperienceLevel?: JobQuest['experienceLevel'];
   questRequiredSkills?: string[];
+  questRequirements?: string[];
+  questBonusSkills?: string[];
   profileSkills?: string[];
 
-  // 🏷️ Nouveaux champs pour le matching sémantique (SEO / Tags)
+  // 🏷️ Champs pour le matching sémantique (SEO / Tags)
   questTags?: string[];
   profileTags?: string[];
 }
 
 export interface MatchmakingResult {
   isFavorable: boolean;
-  matchFlag: 'FAVORABLE_MATCH' | 'OUT_OF_BUDGET' | 'INCOMPATIBLE_WORK_ARRANGEMENT' | 'INCOMPATIBLE_CONTRACT_TYPE' | 'MISSING_DATA' | 'INSUFFICIENT_EXPERIENCE' | 'SKILLS_MISMATCH';
+  matchFlag:
+    | 'FAVORABLE_MATCH'
+    | 'OUT_OF_BUDGET'
+    | 'INCOMPATIBLE_WORK_ARRANGEMENT'
+    | 'INCOMPATIBLE_CONTRACT_TYPE'
+    | 'MISSING_DATA'
+    | 'INSUFFICIENT_EXPERIENCE'
+    | 'SKILLS_MISMATCH';
   compatibilityScore?: number; // 🆕 Score de matching en %
 }
 
@@ -186,6 +206,10 @@ export class KontaktOrchestrator {
     const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, data.targetUid, "Oiseau cible");
     const endorserCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau émetteur");
 
+    if (endorserCanonicalUid === targetCanonicalUid) {
+      throw new IlotError("On ne peut pas s'auto-attribuer un Sceau de Confiance.", "BAD_REQUEST", 400);
+    }
+
     const result = await TransactionManager.execute("Apposition du Sceau de Confiance", async (_mongoSession, neo4jTx) => {
       const now = new Date();
       const cypher = `
@@ -233,6 +257,10 @@ export class KontaktOrchestrator {
 
     const endorserCanonicalUid = await resolveCanonicalUid(OiseauModel, signature.actorUid, "Oiseau émetteur");
     const targetCanonicalUid = await resolveCanonicalUid(OiseauModel, data.targetUid, "Oiseau cible");
+
+    if (endorserCanonicalUid === targetCanonicalUid) {
+      throw new IlotError("On ne peut pas s'auto-recommander.", "BAD_REQUEST", 400);
+    }
 
     const result = await TransactionManager.execute("Enregistrement VOUCHES_FOR", async (_mongoSession, neo4jTx) => {
       const now = new Date();
@@ -380,8 +408,12 @@ export class KontaktOrchestrator {
    * Logique enrichie croisant télétravail, statut pro, budget, EXPÉRIENCE, COMPÉTENCES et TAGS SEO !
    */
   async matchmakingEngine(payload: MatchmakingPayload): Promise<MatchmakingResult> {
+    // 🛡️ Suture JobQuest : Support de questMaxBudgetCents OU questBudgetConstraint.maxBudgetCents
+    const effectiveMaxBudgetCents =
+      payload.questMaxBudgetCents ?? payload.questBudgetConstraint?.maxBudgetCents;
+
     if (
-      payload.questMaxBudgetCents === undefined || 
+      effectiveMaxBudgetCents === undefined || 
       payload.profileHourlyRateCents === undefined ||
       !payload.questWorkArrangement ||
       !payload.profileRemotePreference
@@ -405,7 +437,7 @@ export class KontaktOrchestrator {
     }
 
     // 3. 💰 Compatibilité Budgétaire
-    if (payload.profileHourlyRateCents > payload.questMaxBudgetCents) {
+    if (payload.profileHourlyRateCents > effectiveMaxBudgetCents) {
       return { isFavorable: false, matchFlag: 'OUT_OF_BUDGET', compatibilityScore: 0 };
     }
 
@@ -414,8 +446,8 @@ export class KontaktOrchestrator {
       const expWeights: Record<string, number> = {
         'APPRENTICE': 0, 'JUNIOR': 1, 'MID': 2, 'CONFIRMED': 3, 'SENIOR': 4, 'LEAD': 5, 'MASTER': 6, 'GURU': 7
       };
-      const questWeight = expWeights[payload.questExperienceLevel] || 0;
-      const profileWeight = expWeights[payload.profileExperienceLevel] || 0;
+      const questWeight = expWeights[payload.questExperienceLevel] ?? 0;
+      const profileWeight = expWeights[payload.profileExperienceLevel] ?? 0;
       
       if (profileWeight < questWeight) {
         return { isFavorable: false, matchFlag: 'INSUFFICIENT_EXPERIENCE', compatibilityScore: 30 };
@@ -424,12 +456,17 @@ export class KontaktOrchestrator {
 
     let compatibilityScore = 100;
 
-    // 5. 🔮 Compatibilité des Compétences (Calcul de Résonance)
-    if (payload.questRequiredSkills && payload.questRequiredSkills.length > 0 && payload.profileSkills) {
+    // 5. 🔮 Compatibilité des Compétences (Supporte questRequiredSkills et/ou questRequirements)
+    const effectiveRequiredSkills =
+      payload.questRequiredSkills && payload.questRequiredSkills.length > 0
+        ? payload.questRequiredSkills
+        : payload.questRequirements;
+
+    if (effectiveRequiredSkills && effectiveRequiredSkills.length > 0 && payload.profileSkills) {
       const profileSkillsLower = payload.profileSkills.map(s => s.toLowerCase());
-      const missingSkills = payload.questRequiredSkills.filter(s => !profileSkillsLower.includes(s.toLowerCase()));
+      const missingSkills = effectiveRequiredSkills.filter(s => !profileSkillsLower.includes(s.toLowerCase()));
       
-      const matchRatio = (payload.questRequiredSkills.length - missingSkills.length) / payload.questRequiredSkills.length;
+      const matchRatio = (effectiveRequiredSkills.length - missingSkills.length) / effectiveRequiredSkills.length;
       
       // Si moins de 50% de match sur les skills stricts requis, on rejette poliment
       if (matchRatio < 0.5) {
@@ -450,11 +487,81 @@ export class KontaktOrchestrator {
       
       // Bonus : +5 points par tag en commun, plafonné à +20%
       if (matchingTags.length > 0) {
-         const tagBonus = Math.min(20, matchingTags.length * 5);
-         compatibilityScore = Math.min(100, compatibilityScore + tagBonus);
+        const tagBonus = Math.min(20, matchingTags.length * 5);
+        compatibilityScore = Math.min(100, compatibilityScore + tagBonus);
       }
     }
 
     return { isFavorable: true, matchFlag: 'FAVORABLE_MATCH', compatibilityScore };
   }
+
+  /**
+   * 📜 CANDIDATURE À UNE QUÊTE (Mode Chercheur)
+   * Ancre la candidature sur le nœud JobQuest dans Neo4j et notifie le créateur du chantier s'il est relié.
+   */
+  async applyToQuest(data: ApplyToQuestPayload, signature: ActionSignature): Promise<KontaktSyncResult> {
+    if (!signature.actorUid) {
+      throw new IlotError("Oiseau non authentifié pour postuler à une quête.", "UNAUTHORIZED", 401);
+    }
+
+    const applicantCanonicalUid = await resolveCanonicalUid(OiseauModel, data.applicantUid, "Oiseau candidat");
+
+    const txResult = await TransactionManager.execute("Candidature Quête Kontakt", async (_mongoSession, neo4jTx) => {
+      const now = new Date();
+      const cypher = `
+        MATCH (applicant:User {uid: $applicantUid})
+        MERGE (q:JobQuest {uid: $questUid})
+        ON CREATE SET q.title = $questTitle, q.createdAt = datetime($now)
+        MERGE (applicant)-[r:APPLIED_TO]->(q)
+        ON CREATE SET r.createdAt = datetime($now), r.coverMessage = $coverMessage, r.status = 'PENDING'
+        ON MATCH SET r.updatedAt = datetime($now), r.coverMessage = $coverMessage
+        WITH q, r
+        OPTIONAL MATCH (q)-[:QUEST_OF]->(p:Project)<-[:CREATED|OWNER_OF]-(owner:User)
+        RETURN r, owner.uid AS ownerUid LIMIT 1
+      `;
+
+      const neoResult = await neo4jTx.run(cypher, {
+        applicantUid: applicantCanonicalUid,
+        questUid: data.questUid,
+        questTitle: data.questTitle || "Quête de la Canopée",
+        coverMessage: data.coverMessage || "",
+        now: now.toISOString()
+      });
+
+      if (neoResult.records.length === 0) {
+        throw new IlotError("Échec de l'ancrage de la candidature dans le Graphe.", "INTERNAL_ERROR", 500);
+      }
+
+      const ownerUid = neoResult.records[0].get('ownerUid') as string | null;
+      return { ownerUid };
+    });
+
+    if (txResult.ownerUid && txResult.ownerUid !== applicantCanonicalUid) {
+      await safeSyncUniversalInteraction(applicantCanonicalUid, txResult.ownerUid, 'KONTAKT', 'applyToQuest');
+
+      try {
+        await this.notificationOrchestrator.fosterNotification({
+          recipientUid: txResult.ownerUid,
+          senderUid: applicantCanonicalUid,
+          category: 'SOCIAL',
+          type: 'QUEST_APPLICATION_RECEIVED',
+          payload: {
+            title: "Nouvelle candidature sur votre Quête",
+            message: `Un Oiseau a répondu à l'appel de la quête : "${data.questTitle || data.questUid}".`,
+            targetUid: data.questUid,
+            targetType: 'PROJECT'
+          }
+        }, signature);
+      } catch (e) {
+        console.error("[Kontakt Orchestrator] Erreur de notification Candidature :", e);
+      }
+    }
+
+    return {
+      success: true,
+      status: 'APPLICATION_SENT',
+      targetUid: data.questUid
+    };
+  }
+  
 }

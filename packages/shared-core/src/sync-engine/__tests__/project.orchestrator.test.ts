@@ -51,6 +51,10 @@ vi.mock('../transactionManager', () => ({
   },
 }));
 
+vi.mock('../utils/orchestrator.engine', () => ({
+  ensureUniqueSlug: vi.fn((_model, slug) => slug)
+}));
+
 describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
   let orchestrator: ProjectOrchestrator;
   
@@ -101,12 +105,19 @@ describe('ProjectOrchestrator - Architecture de Chantier (Phase 3)', () => {
   });
 
   describe('dissolveProject (Purge Récursive en Masse via Curseurs)', () => {
+    it("🌋 doit rejeter la désintégration si l'Aura est insuffisante", async () => {
+      // 🛡️ SUTURE : Un oiseau sans la permission 'PROJECT.DELETE'[cite: 4]
+      const invalidSignature: ActionSignature = { actorUid: 'bird_guest', capabilities: [] };
+      await expect(orchestrator.dissolveProject('proj_123', invalidSignature)).rejects.toThrow(IlotError);
+    });
+
     it("🌋 doit désintégrer le chantier entier (Projets + Tâches) en utilisant des curseurs Mongoose pour le stockage", async () => {
+      // 🛡️ SUTURE : Avec l'étoile d'architecte, la purge est autorisée[cite: 4]
       const signature: ActionSignature = { actorUid: 'architect_root', capabilities: ['*'] };
       
       vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({ uid: 'proj_123' } as any);
       
-      // 🛠️ Adaptation des mocks TaskModel.find et ProjectModel.find pour retourner un curseur Mongoose asynchrone
+      // Adaptation des mocks TaskModel.find et ProjectModel.find
       vi.mocked(TaskModel.find).mockReturnValue({
         select: vi.fn().mockReturnThis(),
         session: vi.fn().mockReturnThis(),

@@ -18,6 +18,9 @@ vi.mock('@/lib/api-guards', () => ({
     }
     return await handler(req, context, mockUser);
   },
+  handleRouteError: vi.fn((err: unknown, context: string) => {
+    return NextResponse.json({ error: context, details: String(err) }, { status: 500 });
+  }),
 }));
 
 vi.mock('@/lib/slugify', () => ({
@@ -44,7 +47,7 @@ vi.mock('@ilot/infrastructure', () => ({
   },
 }));
 
-describe('API Kontakt Job Quests - Gestion des quêtes de recrutement', () => {
+describe('API Kontakt Job Quests - Gestion des quêtes de recrutement (SSOT Unifiée)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete global.__mockUser;
@@ -81,7 +84,7 @@ describe('API Kontakt Job Quests - Gestion des quêtes de recrutement', () => {
       body: JSON.stringify({ 
         projectUid: 'proj_xyz',
         title: 'Nouvelle Quête', 
-        description: 'Test desc' 
+        description: 'Test desc suffisamment longue' 
       })
     });
 
@@ -148,5 +151,62 @@ describe('API Kontakt Job Quests - Gestion des quêtes de recrutement', () => {
     expect(json.data.slug).toBe('developpeur-matrix');
     expect(revalidateTag).toHaveBeenCalledWith('job-quests');
     expect(revalidateTag).toHaveBeenCalledWith('kontakt-quests');
+  });
+
+  it('🟢 doit publier une quête de guilde hors-chantier (sans projectUid) avec rewardXp, budgetConstraint et SEO complet (201)', async () => {
+    global.__mockUser = { uid: 'bird_guild_master', capabilities: [] };
+
+    const mockGuildQuest = {
+      uid: 'quest_guild_1',
+      title: 'Quête de la Guilde',
+      slug: 'quete-de-la-guilde',
+      rewardXp: 500,
+      status: 'ACTIVE'
+    };
+
+    vi.mocked(JobQuestModel.create).mockResolvedValueOnce(mockGuildQuest as unknown as Awaited<ReturnType<typeof JobQuestModel.create>>);
+
+    const req = new NextRequest('http://localhost/api/kontakt/quests', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Quête de la Guilde',
+        description: 'Mission transversale pour la Guilde des Zoizos sans projectUid.',
+        employmentType: 'CONTRACT',
+        experienceLevel: 'SENIOR',
+        rewardXp: 500,
+        budgetConstraint: {
+          minBudgetCents: 30000,
+          maxBudgetCents: 60000
+        },
+        requirements: ['TypeScript', 'Zod'],
+        responsibilities: ['Harmoniser la SSOT'],
+        seo: {
+          metaTitle: 'Quête de la Guilde | Kontakt',
+          metaDescription: 'Rejoignez la Guilde des Zoizos.',
+          ogImageUrl: 'https://cdn.ilot/quest.png',
+          canonicalUrl: 'https://ilotzoizos.com/kontakt/quests/quete-de-la-guilde',
+          ogType: 'article'
+        }
+      })
+    });
+
+    const res = await POST(req, { params: Promise.resolve({}) });
+    const json = await res.json();
+
+    expect(res.status).toBe(201);
+    expect(json.success).toBe(true);
+    expect(JobQuestModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Quête de la Guilde',
+        employmentType: 'CONTRACT',
+        experienceLevel: 'SENIOR',
+        rewardXp: 500,
+        budgetConstraint: { minBudgetCents: 30000, maxBudgetCents: 60000 },
+        seo: expect.objectContaining({
+          ogImageUrl: 'https://cdn.ilot/quest.png',
+          ogType: 'article'
+        })
+      })
+    );
   });
 });

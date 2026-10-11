@@ -28,7 +28,7 @@ vi.mock('@/lib/api-guards', () => ({
     if (!mockUser || !mockUser.uid) return NextResponse.json({ error: 'Accès non autorisé.' }, { status: 401 });
     return await handler(req, context, mockUser);
   },
-  handleRouteError: vi.fn((err) => NextResponse.json({ error: "Erreur Interne" }, { status: 500 }))
+  handleRouteError: vi.fn((_err) => NextResponse.json({ error: "Erreur Interne" }, { status: 500 }))
 }));
 
 vi.mock('@ilot/infrastructure', async (importOriginal) => {
@@ -131,8 +131,6 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
   it('🔴 DELETE - doit échouer (400) si l\'URL fournie n\'est pas valide (Zod)', async () => {
     global.__mockUser = { uid: 'u-123', capabilities: [] };
     
-    // 🛠️ CORRECTION : Simuler l'existence du template pour que la route passe la vérification 404
-    // et arrive bien jusqu'à la validation Zod de l'URL
     vi.mocked(findEntityBySlugOrUid).mockResolvedValueOnce({
       uid: 'tmpl_123',
       slug: 'mon-template',
@@ -184,6 +182,7 @@ describe('POST /api/kontakt/templates/[slug]/upload avec Sceau SHA-256', () => {
     const json = await res.json();
 
     expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
     expect(storageService.deleteFile).toHaveBeenCalledWith('mock-key');
     expect(CVTemplateModel.updateOne).toHaveBeenCalledWith(
       { uid: 'tmpl_123' },

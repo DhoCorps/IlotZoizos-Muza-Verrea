@@ -2,13 +2,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse, NextRequest } from 'next/server';
 import { storageService } from '@/modules/storage/storage.service';
-import { IlotError } from '@ilot/shared-core';
 import { CVTemplateModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withAura, withRateLimit, OiseauUser, ApiContext } from '@/lib/api-guards';
+import { withAura, withRateLimit, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { generateFileHash } from '@/lib/cryptoHelper'; // 🛡️ Sceau SHA-256 d'antériorité
-import { handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod'; // 🚀 Ajout de Zod pour la validation d'URL
 
 interface CVTemplateDocument {
@@ -23,12 +21,15 @@ interface CVTemplateDocument {
 function revalidateKontaktCascades(template: { slug?: string; uid?: string }) {
   revalidateTag('kontakt');
   revalidateTag('cv-templates');
+  revalidateTag('kontakt-templates');
   if (template.uid) {
     revalidateTag(`kontakt-template-${template.uid}`);
+    revalidateTag(`template-${template.uid}`);
   }
   if (template.slug) {
     revalidateTag(`kontakt-template-${template.slug}`);
     revalidateTag(`kontakt-template-slug-${template.slug}`);
+    revalidateTag(`template-${template.slug}`);
   }
 }
 

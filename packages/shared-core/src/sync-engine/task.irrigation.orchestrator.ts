@@ -2,15 +2,15 @@ import { SeveEngine, Dependency } from '../utils/seve.engine';
 import { TaskModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
 import { IlotError } from '../errors/ilot.errors';
-import { ActionSignature, CAPABILITIES } from '@ilot/types';
+import { ActionSignature, CAPABILITIES, TaskStatus } from '@ilot/types'; // 🛡️ SUTURE : Import du TaskStatus unifié
 import type { ClientSession } from 'mongoose';
 import type { Transaction } from 'neo4j-driver';
 
-export type TaskStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'ROMPU';
+// 🗑️ SUPPRESSION : export type TaskStatus = 'PENDING' | 'ACTIVE' | 'COMPLETED' | 'ROMPU'; (On utilise la SSOT)
 
 export interface TaskPayload {
     title: string;
-    status: TaskStatus;
+    status: TaskStatus; // 🛡️ SUTURE : Utilisation du type global
     dependencies: Dependency[];
     isIrrigated?: number;
     [key: string]: unknown;
@@ -45,7 +45,7 @@ export class TaskIrrigationOrchestrator {
         taskData.isIrrigated = irrigationFlow;
 
         if (irrigationFlow === 0) {
-            taskData.status = 'ROMPU';
+            taskData.status = TaskStatus.ROMPU; // 🛡️ SUTURE : Utilisation de l'enum
             console.warn(`💀 [Sève] Irrigation rompue pour la tâche "${taskData.title}". Flux stoppé dans MongoDB.`);
         } else {
             console.log(`🌱 [Sève] Irrigation active pour "${taskData.title}" (It = 1).`);
@@ -73,7 +73,7 @@ export class TaskIrrigationOrchestrator {
 
         const payload: TaskPayload = {
             title: task.content?.title || "Tâche sans nom",
-            status: (task.status as TaskStatus) || 'PENDING',
+            status: (task.status as TaskStatus) || TaskStatus.TODO, // 🛡️ SUTURE : Fallback sur TODO au lieu de PENDING
             dependencies: task.dependencies || []
         };
 

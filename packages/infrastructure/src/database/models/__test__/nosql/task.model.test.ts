@@ -1,21 +1,21 @@
-// packages/infrastructure/src/models/__tests__/task.model.test.ts
 import { describe, it, expect, vi } from 'vitest';
 import { TaskModel } from '../../nosql/task.model';
 import { TaskStatus, TaskPriority } from '@ilot/types';
 
 // On mocke les dépendances externes pour isoler le test du schéma
-vi.mock('../../../../../shared-core/src/utils/seve.engine', () => ({
+vi.mock('../../../../../../shared-core/src/utils/seve.engine', () => ({
   SeveEngine: {
     calculateResonance: vi.fn().mockReturnValue(5)
   }
 }));
-vi.mock('../../../../../shared-core/src/sync-engine/task.irrigation.orchestrator', () => ({
+
+vi.mock('../../../../../../shared-core/src/sync-engine/task.irrigation.orchestrator', () => ({
   TaskIrrigationOrchestrator: {
     evaluateAndSanitize: vi.fn((data) => data)
   }
 }));
 
-describe('TaskModel - Schéma Silice et Maillage Transversal', () => {
+describe('Task Model (Mongoose) - Schéma Silice et Maillage Transversal', () => {
   
   it('⚙️ doit valider un Atome complet incluant la sève et le maillage transversal (connections)', () => {
     const validTaskData = {
@@ -80,10 +80,9 @@ describe('TaskModel - Schéma Silice et Maillage Transversal', () => {
     expect(validationError).toBeUndefined();
     
     // Vérification des valeurs par défaut du schéma de la Silice
-    expect(task.connections?.targetModule).toBeNull();
-    expect(task.connections?.targetEntityUid).toBeNull();
     expect(task.status).toBe(TaskStatus.TODO);
     expect(task.priority).toBe(TaskPriority.MEDIUM);
     expect(task.pomodoros?.estimated).toBe(1);
+    expect(task.pomodoros?.completed).toBe(0);
   });
 });

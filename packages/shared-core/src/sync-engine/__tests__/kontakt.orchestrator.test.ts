@@ -239,6 +239,20 @@ describe('KontaktOrchestrator - Réseau RH, Swipes & Matchmaking Avancé', () =>
       expect(res.compatibilityScore).toBe(100);
     });
 
+    it('🟢 doit supporter les champs fusionnés de JobQuest (questBudgetConstraint & questRequirements)', async () => {
+      const res = await orchestrator.matchmakingEngine({
+        questBudgetConstraint: { minBudgetCents: 30000, maxBudgetCents: 55000 },
+        profileHourlyRateCents: 45000,
+        questWorkArrangement: 'FULL_REMOTE',
+        profileRemotePreference: 'FULL_REMOTE',
+        questRequirements: ['TypeScript', 'Cypher'],
+        profileSkills: ['TypeScript', 'Cypher', 'Next.js']
+      });
+      expect(res.isFavorable).toBe(true);
+      expect(res.matchFlag).toBe('FAVORABLE_MATCH');
+      expect(res.compatibilityScore).toBe(100);
+    });
+
     it('🟢 doit flagger FAVORABLE_MATCH avec un score boosté par les tags SEO communs', async () => {
       const res = await orchestrator.matchmakingEngine({
         questMaxBudgetCents: 50000,

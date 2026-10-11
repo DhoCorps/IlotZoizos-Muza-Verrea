@@ -11,10 +11,20 @@ import { z } from 'zod';
 // 🛡️ Schéma Zod strict pour valider la candidature à une quête (Mode Chercheur)
 const QuestApplyPayloadSchema = z.object({
   targetUid: z.string().min(1, "L'identifiant de la quête (targetUid) est requis."),
-  coverMessage: z.string().optional().default(''),
+  coverMessage: z.string().max(2000, "Le message de motivation est trop long.").optional().default(''),
 });
 
 type QuestApplyInput = z.infer<typeof QuestApplyPayloadSchema>;
+
+interface IJobQuestLean {
+  uid: string;
+  title: string;
+  status?: string;
+  settings?: {
+    allowApplications?: boolean;
+  };
+  [key: string]: unknown;
+}
 
 // ==========================================
 // POST : Postuler à une Quête / Enregistrer une candidature (Strictement Privé / Aura)
@@ -38,27 +48,40 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     const sanitizedData: QuestApplyInput = validation.data;
     const applicantUid = currentUser.uid;
 
-    // Vérification de l'existence de la quête dans la Silice
-    const targetQuest = await JobQuestModel.findOne({ uid: sanitizedData.targetUid }).lean();
+    // 1. Vérification de l'existence de la quête dans la Silice
+    const targetQuest = (await JobQuestModel.findOne({ uid: sanitizedData.targetUid }).lean()) as unknown as IJobQuestLean | null;
     if (!targetQuest) {
       return NextResponse.json({ success: false, error: "Quête introuvable dans la matrice." }, { status: 404 });
     }
+
+    // 2. Vérification de l'ouverture des candidatures (Gouvernance JobQuest SSOT)
+    if (
+      targetQuest.settings?.allowApplications === false ||
+      (targetQuest.status && targetQuest.status !== 'ACTIVE')
+    ) {
+      return NextResponse.json(
+        { success: false, error: "Les candidatures pour cette quête sont actuellement fermées." },
+        { status: 403 }
+      );
+    }
+
+    const questCanonicalUid = targetQuest.uid || sanitizedData.targetUid;
 
     const signature: ActionSignature = {
       actorUid: applicantUid,
       capabilities: currentUser.capabilities || []
     };
 
-    // 🕊️ Enregistrement de l'interaction de candidature via l'Orchestrateur ou transaction dédiée
+    // 3. 🕊️ Enregistrement de la candidature via la méthode dédiée de l'Orchestrateur
     const orchestrator = new KontaktOrchestrator();
     
-    // Si la quête comporte un système de swipe/postulation, on l'enregistre ou on déclenche une liaison de graphe
     let applyResult;
     try {
-      applyResult = await orchestrator.registerSwipe({
-        swiperUid: applicantUid,
-        targetUid: sanitizedData.targetUid,
-        action: 'LIKE',
+      applyResult = await orchestrator.applyToQuest({
+        applicantUid,
+        questUid: questCanonicalUid,
+        questTitle: targetQuest.title,
+        coverMessage: sanitizedData.coverMessage,
       }, signature);
     } catch (orchErr: unknown) {
       const errObj = orchErr as { status?: number; message?: string };
@@ -69,7 +92,7 @@ export const POST = withAura(async (req: NextRequest, _context: ApiContext, curr
     // 💥 Invalidation chirurgicale du cache en cascade
     revalidateTag('job-quests');
     revalidateTag('kontakt-quests');
-    revalidateTag(`quest-applications-${sanitizedData.targetUid}`);
+    revalidateTag(`quest-applications-${questCanonicalUid}`);
     revalidateTag(`user-applications-${applicantUid}`);
 
     return NextResponse.json({

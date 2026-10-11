@@ -1,4 +1,3 @@
-// packages/types/src/schemas/project.types.ts
 import { z } from 'zod';
 import { 
   BaseNodeSchema, 
@@ -21,28 +20,27 @@ export const ProjectDocumentSchema = z.object({
   label: z.string(),
   url: z.string(),
   mimeType: z.string(),
+  // 🪡 SUTURE API : Acceptation des dates ISO (String) ou Objets Date
   createdAt: z.union([z.date(), z.string().datetime()]).default(() => new Date())
 });
 
-// 2. Inférence du Type (pour TypeScript)
 export type IProjectDocument = z.infer<typeof ProjectDocumentSchema>;
 
 /**
- * 🏗️ LE SCHÉMA DU CHANTIER (Purifié)
+ * 🏗️ LE SCHÉMA DU CHANTIER (Purifié et Aligné avec Neo4j)
  */
 export const ProjectSchema = BaseNodeSchema.extend({
   // --- 🏷️ IDENTITÉ & RÉSONANCE ---
-  // TODO
   uid: z.string(),
   name: z.string().min(3).max(100),
   slug: z.string(), 
   tag: z.string().min(2).max(10).optional(), 
   description: z.string().max(2000).optional(),
   
-  // 🔗 ARCHITECTURE (Récursivité)
+  // 🔗 ARCHITECTURE (Récursivité et Appartenance)
   parentId: z.string().nullable().optional(), 
-  ownerUid: z.string(),
-  creatorUid: z.string(),
+  ownerUid: z.string(), // UID du Nid (Team)
+  creatorUid: z.string(), // UID de l'Architecte (Oiseau)
   guardianUid: z.string().optional(),
   teamIds: z.array(z.string()).default([]),
 
@@ -60,16 +58,17 @@ export const ProjectSchema = BaseNodeSchema.extend({
   category: ProjectCategorySchema.default('TECHNICAL'),
   visibility: ProjectVisibilitySchema.default('PRIVATE'),
   
-  // 🪡 SUTURE API : Acceptation des dates ISO (String) ou Objets Date
+  // 🪡 SUTURE API : Tolérance pour la sérialisation SSR Next.js
   dates: z.object({
     start: z.union([z.date(), z.string().datetime()]).optional(),
     deadline: z.union([z.date(), z.string().datetime()]).optional(),
-    
     completedAt: z.union([z.date(), z.string().datetime()]).optional(),
     lastActivity: z.union([z.date(), z.string().datetime()]).default(() => new Date()),
+    createdAt: z.union([z.date(), z.string().datetime()]).optional(),
+    updatedAt: z.union([z.date(), z.string().datetime()]).optional()
   }).default({}),
 
-  // --- 📂 SÉDIMENTATION (Fichiers) ---
+  // --- 📂 SÉDIMENTATION (Fichiers & Documents) ---
   documents: z.array(ProjectDocumentSchema).default([]),
   
   // --- 🎯 FEUILLE DE ROUTE (Repères factuels) ---
@@ -142,3 +141,31 @@ export const ProjectContributionSchema = z.object({
 });
 
 export type IProjectContribution = z.infer<typeof ProjectContributionSchema>;
+
+/**
+ * 📤 PAYLOADS D'API : Vues partielles du schéma
+ */
+export const FosterProjectPayloadSchema = ProjectSchema.pick({
+  name: true,
+  slug: true,
+  description: true,
+  ownerUid: true,
+  parentId: true,
+  priority: true,
+  category: true,
+  visibility: true,
+  documents: true
+}).partial({
+  slug: true,
+  description: true,
+  parentId: true,
+  priority: true,
+  category: true,
+  visibility: true,
+  documents: true
+});
+
+export type FosterProjectPayload = z.infer<typeof FosterProjectPayloadSchema>;
+
+export const UpdateProjectPayloadSchema = ProjectSchema.partial().omit({ uid: true, ownerUid: true, creatorUid: true });
+export type UpdateProjectPayload = z.infer<typeof UpdateProjectPayloadSchema>;

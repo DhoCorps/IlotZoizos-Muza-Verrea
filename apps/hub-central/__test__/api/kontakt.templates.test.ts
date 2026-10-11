@@ -18,6 +18,13 @@ vi.mock('@/lib/api-guards', () => ({
     }
     return await handler(req, context, mockUser);
   },
+  handleRouteError: vi.fn((err: unknown, context: string) => {
+    return NextResponse.json({ error: context, details: String(err) }, { status: 500 });
+  }),
+}));
+
+vi.mock('@/lib/slugify', () => ({
+  slugify: vi.fn((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || ''),
 }));
 
 vi.mock('next/cache', () => ({
@@ -25,7 +32,7 @@ vi.mock('next/cache', () => ({
   unstable_cache: vi.fn((cb: Function) => cb),
 }));
 
-// 🛡️ MOCK MONGOOSE PLEINEMENT CHAÎNABLE
+// 🛡️ MOCK MONGOOSE PLEINEMENT CHAÎNABLE (avec findOne pour le check de collision de slug)
 vi.mock('@ilot/infrastructure', () => ({
   connectToDatabase: vi.fn().mockResolvedValue(true),
   CVTemplateModel: {
@@ -33,6 +40,9 @@ vi.mock('@ilot/infrastructure', () => ({
       sort: vi.fn().mockReturnValue({
         lean: vi.fn().mockResolvedValue([]),
       }),
+    }),
+    findOne: vi.fn().mockReturnValue({
+      lean: vi.fn().mockResolvedValue(null),
     }),
     create: vi.fn(),
   },
@@ -96,11 +106,12 @@ describe('API CV Templates - Gestion des modèles de CV', () => {
     expect(CVTemplateModel.create).not.toHaveBeenCalled();
   });
 
-  it('🟢 doit créer un modèle de CV avec succès et invalider le cache (201)', async () => {
+  it('🟢 doit créer un modèle de CV avec un slug généré et invalider le cache (201)', async () => {
     global.__mockUser = { uid: 'bird_1', name: 'Oiseau Fer', capabilities: [] };
 
     const mockCreatedTemplate = {
       uid: 'tmpl_new',
+      slug: 'nouveau-modele',
       title: 'Nouveau Modèle',
       authorUid: 'bird_1'
     };
@@ -118,15 +129,23 @@ describe('API CV Templates - Gestion des modèles de CV', () => {
     expect(res.status).toBe(201);
     expect(json.success).toBe(true);
     expect(json.data.uid).toBe('tmpl_new');
+    expect(CVTemplateModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Nouveau Modèle',
+        slug: 'nouveau-modèle',
+        authorUid: 'bird_1',
+      })
+    );
     expect(revalidateTag).toHaveBeenCalledWith('cv-templates');
     expect(revalidateTag).toHaveBeenCalledWith('author-bird_1');
   });
 
-  it('🟢 doit créer un modèle de CV avec les valeurs par défaut de Zod si le corps est vide', async () => {
+  it('🟢 doit créer un modèle de CV avec les valeurs par défaut de Zod et son slug si le corps est vide', async () => {
     global.__mockUser = { uid: 'bird_1', name: 'Oiseau Fer', capabilities: [] };
 
     const mockCreatedTemplate = {
       uid: 'tmpl_default',
+      slug: 'parchemin-sans-nom',
       title: 'Parchemin Sans Nom', // Valeur par défaut Zod
       authorUid: 'bird_1'
     };
@@ -143,10 +162,11 @@ describe('API CV Templates - Gestion des modèles de CV', () => {
 
     expect(res.status).toBe(201);
     expect(json.success).toBe(true);
-    // Vérifie que Zod a bien injecté les defaults dans l'appel Mongoose
+    // Vérifie que Zod a bien injecté les defaults ET le slug dans l'appel Mongoose
     expect(CVTemplateModel.create).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'Parchemin Sans Nom',
+        slug: 'parchemin-sans-nom',
         description: 'Modèle forgé dans la matrice.',
         priceShards: 0,
         barterAccepted: true,

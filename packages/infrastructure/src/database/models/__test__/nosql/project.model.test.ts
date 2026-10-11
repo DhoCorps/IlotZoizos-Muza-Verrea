@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ProjectModel } from '../../nosql/project.model'; // Ajuste le chemin relatif selon ton arborescence
+import { ProjectModel } from '../../nosql/project.model'; 
 
-describe('Project Model', () => {
+describe('Project Model (Mongoose)', () => {
     it('🟢 doit valider un projet conforme avec toutes ses valeurs requises, par défaut et auto-générées', () => {
         const validData = {
             name: 'Îlot Zoizos Reboot',
@@ -23,7 +23,7 @@ describe('Project Model', () => {
         expect(project.appearance.color).toBe('#8b9dc3'); // Couleur par défaut (Gris Bleuté)
     });
 
-    it('🔴 doit rejeter un projet si les champs obligatoires (name, slug, ownerUid, creatorUid) manquent', () => {
+    it('🔴 doit rejeter un projet si les champs obligatoires manquent', () => {
         const invalidData = {
             description: 'Projet orphelin sans identifiants',
             // Tous les champs required sont omis

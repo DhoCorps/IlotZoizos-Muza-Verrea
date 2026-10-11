@@ -48,6 +48,7 @@ export const routing = defineRouting({
     '/letrinSprite': '/letrinSprite',
     '/kontakt': '/kontakt',
     '/kontakt/cv-editor': '/kontakt/cv-editor',
+    '/kontakt/profiles/[slug]': '/kontakt/profiles/[slug]', // 🛡️ Route dynamique de profil Kontakt
     '/tom-hat-toes': '/tom-hat-toes',
     
     // 🔭 Observatoire des Fréquences

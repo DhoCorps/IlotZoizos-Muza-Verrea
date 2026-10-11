@@ -1,10 +1,11 @@
 import { TaskModel, ProjectModel, OiseauModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { TransactionManager } from './transactionManager';
+import { NotificationOrchestrator } from './notification.orchestrator';
 import { ITask, TaskStatus, CAPABILITIES, ActionSignature } from '@ilot/types'; 
 import { IlotError } from '../errors/ilot.errors'; 
 import { randomUUID } from 'crypto';
 import { generateSlug } from '../utils/string.engine';
-import { resolveCanonicalUid } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
+import { resolveCanonicalUid, safeSyncUniversalInteraction } from '../utils/orchestrator.engine';
 import type { ClientSession } from 'mongoose';
 import type { Transaction, QueryResult } from 'neo4j-driver';
 
@@ -22,22 +23,19 @@ export interface TaskSyncResult {
   [key: string]: unknown;
 }
 
+// 🛡️ SUTURE : Harmonisation avec la SSOT Zod (Fin des redondances)
 export interface FosterTaskPayload {
   uid?: string;
   slug?: string;
   projectUid?: string;
   projectSlug?: string;
   parentUid?: string | null;
-  title?: string;
-  description?: string;
   status?: TaskStatus;
   priority?: string;
   documents?: Array<{ url?: string; [key: string]: unknown }>;
   assigneeUids?: string[];
-  pomoEst?: number;
   pomodoros?: { estimated?: number; completed?: number };
-  complexity?: number;
-  scheduledAt?: Date | string;
+  metrics?: { complexity?: number };
   dates?: { scheduledAt?: Date | string; [key: string]: unknown };
   content?: { title?: string; description?: string; tags?: string[]; [key: string]: unknown };
   connections?: { targetModule?: string; targetEntityUid?: string; [key: string]: unknown };
@@ -73,13 +71,14 @@ interface ITaskEntity {
 
 export class TaskOrchestrator {
   private storageService: IStorageManager;
+  private notificationOrchestrator: NotificationOrchestrator;
 
-  constructor(customStorageService?: IStorageManager) {
-    // Par défaut (pour les tests), on injecte un mock silencieux
+  constructor(customStorageService?: IStorageManager, notificationOrchestrator?: NotificationOrchestrator) {
     this.storageService = customStorageService || {
       deleteFile: async () => ({ success: true }),
       extractKeyFromUrl: (url: string) => url.split('/').pop() || ''
     };
+    this.notificationOrchestrator = notificationOrchestrator || new NotificationOrchestrator();
   }
 
   private async resolveUserCanonicalUserUidSafe(identifier: string): Promise<string> {
@@ -91,7 +90,7 @@ export class TaskOrchestrator {
   }
 
   /**
-   * 🧱 FONDATION : FORGER UN ATOME (Avec Maillage Transversal)
+   * 🧱 FONDATION : FORGER UN ATOME (Avec Maillage Transversal & Assignation)
    */
   public async fosterTask(
     data: FosterTaskPayload, 
@@ -104,7 +103,7 @@ export class TaskOrchestrator {
     if (!project) throw new IlotError("Chantier parent introuvable.", "NOT_FOUND", 404);
     
     const actorCanonicalUid = await this.resolveUserCanonicalUserUidSafe(signature.actorUid);
-    const scheduledAt = data.scheduledAt || data.dates?.scheduledAt;
+    const scheduledAt = data.dates?.scheduledAt;
 
     // 🔗 Extraction des liens transversaux potentiels pour la Matrice
     const targetModule = data.connections?.targetModule;
@@ -116,11 +115,10 @@ export class TaskOrchestrator {
       else if (targetModule === 'LETRIN') targetLabel = 'Letter';
       else if (targetModule === 'SAMPLOTEK') targetLabel = 'Sample';
       else if (targetModule === 'ABYSS') targetLabel = 'Sujet';
-      else throw new IlotError("Module cible invalide pour le maillage.", "BAD_REQUEST", 400); // 🛡️ Anti-Injection Cypher
+      else throw new IlotError("Module cible invalide pour le maillage.", "BAD_REQUEST", 400);
     }
 
-    return await TransactionManager.execute("Fondation d'Atome", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+    const newTask = await TransactionManager.execute("Fondation d'Atome", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
              
       const isCreator = project.creatorUid === actorCanonicalUid;
@@ -146,8 +144,8 @@ export class TaskOrchestrator {
       }
 
       const taskUid = data.uid || `task_${randomUUID()}`;
-      const title = data.title || data.content?.title || "Atome sans nom";
-      const description = data.description || data.content?.description || "";
+      const title = data.content?.title || "Atome sans nom";
+      const description = data.content?.description || "";
       const taskSlug = data.slug || generateSlug(title);
 
       const created = await TaskModel.create([{
@@ -170,10 +168,11 @@ export class TaskOrchestrator {
         documents: data.documents || [],
         assigneeUids: data.assigneeUids || [],
         pomodoros: { 
-           estimated: Number(data.pomoEst || data.pomodoros?.estimated || 1), 
+           // 🛡️ SUTURE : Exploitation du Payload propre
+           estimated: Number(data.pomodoros?.estimated || 1), 
            completed: 0 
          },
-        metrics: { complexity: Number(data.complexity || 1) },
+        metrics: { complexity: Number(data.metrics?.complexity || 1) },
         dates: { 
            createdAt: now, 
            updatedAt: now,
@@ -181,9 +180,8 @@ export class TaskOrchestrator {
         }
       }], { session: mongoSession });
 
-      const newTask = created[0].toObject() as unknown as ITask;
+      const taskObj = created[0].toObject() as unknown as ITask;
              
-      // 🕸️ Tissage Neo4j sécurisé avec lien transversal éventuel et date synchronisée
       const targetCypher = targetLabel && targetEntityUid ? `
         WITH t
         CALL {
@@ -229,18 +227,48 @@ export class TaskOrchestrator {
       await neo4jTx.run(cypher, {
         projectUid: project.uid, 
         actorUid: actorCanonicalUid,
-        parentUid: newTask.parentUid || null, 
-        assigneeUids: newTask.assigneeUids || [], 
-        taskUid: newTask.uid, 
+        parentUid: taskObj.parentUid || null, 
+        assigneeUids: taskObj.assigneeUids || [], 
+        taskUid: taskObj.uid, 
         slug: taskSlug,
         name: title,
-        status: newTask.status,
+        status: taskObj.status,
         targetEntityUid: targetEntityUid || null,
         now: now.toISOString()
       });
 
-      return newTask;
+      return taskObj;
     });
+
+    // 🔔 NOTIFICATIONS D'ASSIGNATION (Hors transaction pour ne pas bloquer)
+    if (newTask.assigneeUids && newTask.assigneeUids.length > 0) {
+      for (const targetUid of newTask.assigneeUids) {
+        if (targetUid !== actorCanonicalUid) {
+          // Interactions Karma
+          await safeSyncUniversalInteraction(actorCanonicalUid, targetUid, 'TASK', 'assignTask');
+          
+          // Notifications Canopée
+          try {
+            await this.notificationOrchestrator.fosterNotification({
+              recipientUid: targetUid,
+              senderUid: actorCanonicalUid,
+              category: 'SYSTEM',
+              type: 'TASK_ASSIGNED',
+              payload: {
+                title: "Nouvel Atome assigné",
+                message: `L'Architecte t'a confié la tâche : "${newTask.content.title}"`,
+                targetUid: newTask.uid,
+                targetType: 'TASK'
+              }
+            }, signature);
+          } catch (e) {
+            console.error("[TaskOrchestrator] Échec envoi notification assignation :", e);
+          }
+        }
+      }
+    }
+
+    return newTask;
   }
 
   /**
@@ -252,9 +280,31 @@ export class TaskOrchestrator {
     
     const taskUid = task.uid;
 
-    return await TransactionManager.execute("Mutation Atome (Atomique)", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
+    const updatedTask = await TransactionManager.execute("Mutation Atome (Atomique)", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
       const now = new Date();
+      
+      // 🛡️ SUTURE : Vérification de l'Aura d'édition
+      const isCreator = task.creatorUid === signature.actorUid;
+      const isArchitect = signature.capabilities.includes('*');
+
+      if (!isCreator && !isArchitect) {
+        const checkCypher = `
+          MATCH (u:User {uid: $actorUid})
+          OPTIONAL MATCH (u)-[r:MEMBER_OF|OWNER_OF]->(t:Team)-[:HAS_PROJECT]->(p:Project)<-[:TASK_OF]-(tk:Task {uid: $taskUid})
+          OPTIONAL MATCH (u)-[r2:CONTRIBUTES_TO|OWNER_OF|CREATED]->(p2:Project)<-[:TASK_OF]-(tk2:Task {uid: $taskUid})
+          RETURN collect(r.capabilities) + collect(r2.capabilities) AS allCaps
+        `;
+        const check = await neo4jTx.run(checkCypher, { 
+           actorUid: signature.actorUid, 
+           taskUid: taskUid 
+        });
+        const capsRecord = check.records[0]?.get('allCaps');
+        const caps = Array.isArray(capsRecord) ? (capsRecord.flat() as string[]) : [];
+        const isAuthorized = caps.includes(CAPABILITIES.TASK.UPDATE) || caps.includes('*');
+        if (!isAuthorized) {
+          throw new IlotError("Ton Aura ne permet pas de modifier cet Atome.", "FORBIDDEN", 403);
+        }
+      }
              
       const mongoUpdate: Record<string, unknown> = { $set: { ...updates, "dates.updatedAt": now } };
              
@@ -266,16 +316,14 @@ export class TaskOrchestrator {
         }
       }
 
-      // 🛡️ Retour au Type Assertion pour bypasser le FlattenMaps de Mongoose
-      const updatedTask = await TaskModel.findOneAndUpdate(
+      const newTaskDoc = await TaskModel.findOneAndUpdate(
         { uid: taskUid },
         mongoUpdate,
         { new: true, session: mongoSession }
       ).lean() as unknown as ITask;
 
-      if (!updatedTask) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
+      if (!newTaskDoc) throw new IlotError("Atome introuvable.", "NOT_FOUND", 404);
 
-      // Mutation ciblée Neo4j avec date synchronisée
       let cypherQuery = `MATCH (t:Task { uid: $taskUid }) SET t.updatedAt = datetime($now)`;
       const cypherParams: Record<string, unknown> = { taskUid, now: now.toISOString() };
 
@@ -299,7 +347,6 @@ export class TaskOrchestrator {
 
       await neo4jTx.run(cypherQuery, cypherParams);
 
-      // Gestion relationnelle parentale
       if ('parentUid' in updates) {
         await neo4jTx.run(`MATCH (t:Task {uid: $taskUid})-[r:CHILD_OF]->() DELETE r`, { taskUid });
         if (updates.parentUid && updates.parentUid !== "null") {
@@ -310,7 +357,6 @@ export class TaskOrchestrator {
         }
       }
 
-      // Gestion relationnelle des membres
       if ('assigneeUids' in updates) {
          await neo4jTx.run(
            `MATCH (u:User)-[r:ASSIGNED_TO]->(t:Task {uid: $taskUid}) DELETE r`,
@@ -328,7 +374,6 @@ export class TaskOrchestrator {
          }
       }
 
-      // 🕸️ Gestion relationnelle transversale
       if (updates.connections && ('targetModule' in updates.connections || 'targetEntityUid' in updates.connections)) {
         const tModule = updates.connections.targetModule;
         const tEntityUid = updates.connections.targetEntityUid;
@@ -339,13 +384,11 @@ export class TaskOrchestrator {
           else if (tModule === 'LETRIN') tLabel = 'Letter';
           else if (tModule === 'SAMPLOTEK') tLabel = 'Sample';
           else if (tModule === 'ABYSS') tLabel = 'Sujet';
-          else throw new IlotError("Module cible invalide pour le maillage.", "BAD_REQUEST", 400); // 🛡️ Anti-Injection Cypher
+          else throw new IlotError("Module cible invalide pour le maillage.", "BAD_REQUEST", 400); 
         }
 
-        // Nettoyage de l'ancien lien
         await neo4jTx.run(`MATCH (t:Task {uid: $taskUid})-[r:RELATES_TO]->() DELETE r`, { taskUid });
 
-        // Tissage du nouveau lien si applicable
         if (tLabel && tEntityUid) {
            await neo4jTx.run(
              `MATCH (t:Task {uid: $taskUid}), (target:${tLabel} {uid: $targetEntityUid}) MERGE (t)-[:RELATES_TO]->(target)`,
@@ -354,8 +397,37 @@ export class TaskOrchestrator {
         }
       }
              
-      return updatedTask;
+      return newTaskDoc;
      });
+
+     // 🔔 NOTIFICATIONS DE NOUVELLE ASSIGNATION
+     if (updates.assigneeUids && Array.isArray(updates.assigneeUids)) {
+      const oldAssignees = task.assigneeUids || [];
+      const newAssignees = updates.assigneeUids.filter(uid => !oldAssignees.includes(uid));
+
+      for (const targetUid of newAssignees) {
+        if (targetUid !== signature.actorUid) {
+          try {
+            await this.notificationOrchestrator.fosterNotification({
+              recipientUid: targetUid,
+              senderUid: signature.actorUid,
+              category: 'SYSTEM',
+              type: 'TASK_ASSIGNED',
+              payload: {
+                title: "Renfort sur un Atome",
+                message: `L'Oiseau a sollicité votre aide sur la tâche : "${updatedTask.content.title}"`,
+                targetUid: updatedTask.uid,
+                targetType: 'TASK'
+              }
+            }, signature);
+          } catch (e) {
+            console.error("[TaskOrchestrator] Échec envoi notification assignation :", e);
+          }
+        }
+      }
+    }
+
+    return updatedTask;
   }
 
   /**
@@ -389,7 +461,6 @@ export class TaskOrchestrator {
         DETACH DELETE t
       `, { uidsToPurge });
 
-      // 🛡️ Optimisation : Ajout de .lean() pour la mémoire
       const task = await TaskModel.findOne({ uid: taskUid }).session(mongoSession).lean() as unknown as ITaskEntity | null;
       
       const filesToDelete: string[] = [];
@@ -399,7 +470,6 @@ export class TaskOrchestrator {
         });
       }
 
-      // ⚡ Parallélisation massive de la purge des fichiers
       await Promise.all(
         filesToDelete.map(async (key) => {
           try {
@@ -426,10 +496,8 @@ export class TaskOrchestrator {
     const actorCanonicalUid = await this.resolveUserCanonicalUserUidSafe(signature.actorUid);
 
     return await TransactionManager.execute("Validation Pomodoro", async (mongoSession: ClientSession, neo4jTx: Transaction) => {
-      // ⏱️ SYNCHRONISATION DES HORODATAGES : Constante unique 'now'
       const now = new Date();
 
-      // 🛡️ Retour au Type Assertion pour bypasser le FlattenMaps de Mongoose
       const updatedTask = await TaskModel.findOneAndUpdate(
         { uid: taskUid },
         { 

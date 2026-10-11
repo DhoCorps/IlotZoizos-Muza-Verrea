@@ -4,10 +4,8 @@ import { NextResponse, NextRequest } from 'next/server';
 import { CVTemplateModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
 import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
-import { withSilice, withAura, OiseauUser, ApiContext } from '@/lib/api-guards';
-import { IlotError } from '@ilot/shared-core';
+import { withSilice, withAura, OiseauUser, ApiContext, handleRouteError } from '@/lib/api-guards';
 import { getCachedTemplateDetail } from '@/lib/cache/kontakt.cache';
-import { handleRouteError } from '@/lib/api-guards';
 import { z } from 'zod';
 
 // 🛡️ Schéma Zod strict pour éviter les vulnérabilités d'assignation de masse (Mass Assignment)
@@ -27,6 +25,7 @@ type UpdateCVTemplateInput = z.infer<typeof UpdateCVTemplateSchema>;
 interface CVTemplateDocument {
   uid: string;
   slug?: string;
+  authorUid?: string;
   title?: string;
   tags?: string[];
   [key: string]: unknown;
@@ -64,7 +63,7 @@ export const GET = withSilice(async (_req: NextRequest, context: ApiContext) => 
   }
 });
 
-export const PUT = withAura(async (req: NextRequest, context: ApiContext, _currentUser: OiseauUser) => {
+export const PUT = withAura(async (req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     let resolvedParams;
     let body: unknown;
@@ -94,6 +93,13 @@ export const PUT = withAura(async (req: NextRequest, context: ApiContext, _curre
     const targetTemplate = (await findEntityBySlugOrUid(CVTemplateModel, identifier, { lean: false })) as CVTemplateDocument | null;
     if (!targetTemplate) {
       return NextResponse.json({ error: 'Parchemin introuvable dans la matrice.' }, { status: 404 });
+    }
+
+    // 🛡️ SUTURE ANTI-IDOR : Seul l'auteur du template ou un Architecte (*) peut le modifier
+    const isOwner = targetTemplate.authorUid === currentUser.uid;
+    const isArchitect = currentUser.capabilities?.includes('*');
+    if (!isOwner && !isArchitect) {
+      return NextResponse.json({ error: "Souveraineté violée : tu ne peux altérer ce parchemin." }, { status: 403 });
     }
 
     const updatedTemplate = (await CVTemplateModel.findOneAndUpdate(
@@ -126,7 +132,7 @@ export const PUT = withAura(async (req: NextRequest, context: ApiContext, _curre
   }
 });
 
-export const DELETE = withAura(async (_req: NextRequest, context: ApiContext, _currentUser: OiseauUser) => {
+export const DELETE = withAura(async (_req: NextRequest, context: ApiContext, currentUser: OiseauUser) => {
   try {
     let resolvedParams;
     try {
@@ -147,6 +153,13 @@ export const DELETE = withAura(async (_req: NextRequest, context: ApiContext, _c
     const targetTemplate = (await findEntityBySlugOrUid(CVTemplateModel, identifier)) as CVTemplateDocument | null;
     if (!targetTemplate) {
       return NextResponse.json({ error: 'Parchemin introuvable pour dissolution.' }, { status: 404 });
+    }
+
+    // 🛡️ SUTURE ANTI-IDOR : Seul l'auteur du template ou un Architecte (*) peut le dissoudre
+    const isOwner = targetTemplate.authorUid === currentUser.uid;
+    const isArchitect = currentUser.capabilities?.includes('*');
+    if (!isOwner && !isArchitect) {
+      return NextResponse.json({ error: "Souveraineté violée : tu ne peux dissoudre ce parchemin." }, { status: 403 });
     }
 
     const deletedTemplate = await CVTemplateModel.findOneAndDelete({ uid: targetTemplate.uid });

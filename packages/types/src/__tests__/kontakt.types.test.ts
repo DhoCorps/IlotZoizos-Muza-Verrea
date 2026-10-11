@@ -1,5 +1,7 @@
+// Fichier : packages/types/src/__tests__/kontakt.types.test.ts
 import { describe, it, expect } from 'vitest';
-import { KontaktProfileSchema, JobQuestSchema } from '../core/kontakt.types';
+import { KontaktProfileSchema } from '../core/kontakt.types';
+import { JobQuestSchema } from '../core/quest.types'; // 🛡️ Import depuis la SSOT unifiée
 
 describe('KontaktProfile - Validation Zod des Profils Hybrides & Squelette Mutualisé', () => {
   const validProfile = {
@@ -126,7 +128,7 @@ describe('KontaktProfile - Validation Zod des Profils Hybrides & Squelette Mutua
     
     const result = JobQuestSchema.parse(minimalQuest);
     expect(result.employmentType).toBe('FULL_TIME'); // valeur par défaut
-    expect(result.experienceLevel).toBe('MID'); // valeur par défaut
+    expect(result.experienceLevel).toBe('CONFIRMED'); // valeur par défaut unifiée (SSOT)
     expect(result.location).toBe('Remote'); // valeur par défaut
     expect(result.requirements).toEqual([]);
     expect(result.responsibilities).toEqual([]);

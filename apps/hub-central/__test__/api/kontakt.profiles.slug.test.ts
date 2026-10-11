@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET, PUT, DELETE } from '@/app/api/kontakt/profiles/[slug]/route';
 import { KontaktProfileModel, findEntityBySlugOrUid } from '@ilot/infrastructure';
+import { slugify } from '@/lib/slugify';
 import { revalidateTag } from 'next/cache';
 import { NextResponse, NextRequest } from 'next/server';
 
@@ -16,6 +17,9 @@ vi.mock('@/lib/api-guards', () => ({
     }
     return await handler(req, ctx, mockUser);
   },
+  handleRouteError: vi.fn((err: unknown, context: string) => {
+    return NextResponse.json({ error: context, details: String(err) }, { status: 500 });
+  }),
 }));
 
 vi.mock('@/lib/slugify', () => ({ slugify: vi.fn((val: string) => val) }));
@@ -41,10 +45,13 @@ vi.mock('@ilot/infrastructure', async (importOriginal) => {
 
 global.__mockUser = { uid: 'bird_owner', capabilities: [] };
 
-describe('API Kontakt Profiles [slug] - GET, PUT, DELETE', () => {
+describe('API Kontakt Profiles [slug] - GET, PUT, DELETE (SSOT Unifiée)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete global.__mockUser;
+
+    // 🛡️ Ré-affirmation pour survivre au mockReset global de Vitest
+    vi.mocked(slugify).mockImplementation((val: string) => val?.toLowerCase().trim().replace(/\s+/g, '-') || '');
   });
 
   describe('GET - Auscultation du Profil', () => {
@@ -96,7 +103,7 @@ describe('API Kontakt Profiles [slug] - GET, PUT, DELETE', () => {
       expect(res.status).toBe(403);
     });
 
-    it('🟢 doit mettre à jour le profil (200) si c\'est le propriétaire, en acceptant les champs hybrides', async () => {
+    it('🟢 doit mettre à jour le profil (200) si c\'est le propriétaire, en acceptant les champs hybrides SSOT', async () => {
       global.__mockUser = { uid: 'bird_owner', capabilities: [] };
 
       vi.mocked(findEntityBySlugOrUid)
@@ -117,8 +124,11 @@ describe('API Kontakt Profiles [slug] - GET, PUT, DELETE', () => {
         body: JSON.stringify({ 
           professionalTitle: 'Nouveau Titre',
           archetypeClass: 'Cyber-Samurai',
+          alignment: 'REPLICANT_BR',
+          attributes: { intelligence: 19 },
+          pricing: { hourlyRateCents: 6500 },
           tags: ['neo4j', 'silice'],
-          seo: { metaTitle: 'Nouveau Titre | Kontakt' }
+          seo: { metaTitle: 'Nouveau Titre | Kontakt', canonicalUrl: 'https://ilotzoizos.com/kontakt/nouveau-titre' }
         })
       });
 
@@ -142,10 +152,11 @@ describe('API Kontakt Profiles [slug] - GET, PUT, DELETE', () => {
         userUid: 'bird_owner'
       });
 
-    vi.mocked(KontaktProfileModel.deleteOne).mockResolvedValueOnce({
-      acknowledged: true,
-      deletedCount: 1,
-    } as any);
+      vi.mocked(KontaktProfileModel.deleteOne).mockResolvedValueOnce({
+        acknowledged: true,
+        deletedCount: 1,
+      } as any);
+
       const req = new NextRequest('http://localhost/api/kontakt/profiles/dev-matrix', { method: 'DELETE' });
       const res = await DELETE(req, { params: Promise.resolve({ slug: 'dev-matrix' }) });
       const json = await res.json();
