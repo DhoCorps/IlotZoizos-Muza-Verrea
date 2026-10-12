@@ -1,5 +1,6 @@
+// Fichier : packages/shared-core/src/sync-engine/__tests__/showcase.orchestrator.test.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ShowcaseOrchestrator } from '../showcase.orchestrator';
+import { ShowcaseOrchestrator, IAmbientTrackInfo } from '../showcase.orchestrator';
 import { UniversalMediaModel } from '@ilot/infrastructure';
 import { UserShowcaseShuffler } from '../../utils/userShowcaseShuffler';
 import { IlotError } from '../../errors/ilot.errors';
@@ -82,12 +83,13 @@ describe('ShowcaseOrchestrator - Séquençage et Association Multimédia', () =>
     
     expect(visualItems).toHaveLength(2);
 
-    // Vérification de l'association multimédia
+    // Vérification de l'association multimédia avec typage strict de ambientTrackInfo
     visualItems.forEach(item => {
       expect(item.metadata).toBeDefined();
-      expect(item.metadata!.ambientTrackInfo).toBeDefined();
-      expect(item.metadata!.ambientTrackInfo.title).toBe('Vibration Alpha');
-      expect(item.metadata!.ambientTrackInfo.mediaUrl).toBe('url_audio');
+      const ambientInfo = item.metadata?.ambientTrackInfo as IAmbientTrackInfo | undefined;
+      expect(ambientInfo).toBeDefined();
+      expect(ambientInfo!.title).toBe('Vibration Alpha');
+      expect(ambientInfo!.mediaUrl).toBe('url_audio');
     });
 
     const audioItem = playlist.find(item => item.sourceApp === 'PARTITA');

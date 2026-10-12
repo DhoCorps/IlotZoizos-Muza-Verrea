@@ -1,7 +1,9 @@
+// Fichier : packages/types/src/__tests__/seo.types.test.ts
 import { describe, it, expect } from 'vitest';
-import { SeoMetadataSchema, CrossLinkSchema, SharedMediaSchema } from '../core/seo.types';
+import { SeoMetadataSchema, CrossLinkSchema, SharedMediaSchema, EntityTypeSchema } from '../core/seo.types';
+import { EntityTargetEnum } from '../models/common.types';
 
-describe('Schémas Partagés : SEO, CrossLinks & Médias (DRY Architecture)', () => {
+describe('Schémas Partagés : SEO, CrossLinks & Médias (DRY Architecture & SSOT)', () => {
   
   describe('SeoMetadataSchema', () => {
     it('🟢 valide un bloc SEO vide ou partiellement rempli', () => {
@@ -40,15 +42,25 @@ describe('Schémas Partagés : SEO, CrossLinks & Médias (DRY Architecture)', ()
     });
   });
 
-  describe('CrossLinkSchema (Le Graphe)', () => {
-    it('🟢 valide un lien croisé valide vers une autre entité', () => {
+  describe('CrossLinkSchema (Le Graphe & EntityTargetEnum)', () => {
+    it('🟢 vérifie que EntityTypeSchema pointe directement sur la SSOT EntityTargetEnum', () => {
+      expect(EntityTypeSchema).toBe(EntityTargetEnum);
+    });
+
+    it('🟢 valide un lien croisé valide vers une entité de la SSOT (ex: FONT, TASK, PRODUCT)', () => {
       const validLink = {
         entityType: 'FONT',
         entityId: 'font-uuid-999',
         label: 'Découvrir la police Letr\'In'
       };
-      const result = CrossLinkSchema.safeParse(validLink);
-      expect(result.success).toBe(true);
+      expect(CrossLinkSchema.safeParse(validLink).success).toBe(true);
+
+      const validTaskLink = {
+        entityType: 'TASK',
+        entityId: 'task-uuid-001',
+        label: 'Atome lié'
+      };
+      expect(CrossLinkSchema.safeParse(validTaskLink).success).toBe(true);
     });
 
     it('🔴 rejète un entityType non reconnu par la taxonomie de l\'Îlot', () => {

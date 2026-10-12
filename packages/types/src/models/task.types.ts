@@ -1,4 +1,6 @@
+// Fichier : packages/types/src/models/task.types.ts
 import { z } from 'zod';
+import { EntityTargetEnum } from './common.types';
 
 /**
  * 🔄 CYCLE DE VIE UNIFIÉ (SSOT)
@@ -42,9 +44,9 @@ export const TaskSchema = z.object({
 
   fileUploads: z.array(z.string()).default([]),
 
-  // 🕸️ LE PONT TRANSVERSAL (Il est vital qu'il soit ici !)
+  // 🕸️ LE PONT TRANSVERSAL (Sécurisé via la SSOT EntityTargetEnum)
   connections: z.object({
-    targetModule: z.string().nullable().optional(),
+    targetModule: EntityTargetEnum.nullable().optional(),
     targetEntityUid: z.string().nullable().optional()
   }).optional(),
 

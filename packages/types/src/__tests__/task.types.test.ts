@@ -1,3 +1,4 @@
+// Fichier : packages/types/src/__tests__/task.types.test.ts
 import { describe, it, expect } from 'vitest';
 import { 
   TaskSchema, 
@@ -10,9 +11,9 @@ import {
 // 🕵️‍♂️ L'INVESTIGATION : Voyons ce que Zod a réellement dans le ventre en direct !
 console.log("🔍 STRUCTURE RÉELLE CHARGÉE PAR ZOD :", Object.keys(TaskSchema.shape));
 
-describe('TaskSchema (Zod) - Validation Typographique', () => {
+describe('TaskSchema (Zod) - Validation Typographique & Pont Transversal SSOT', () => {
   
-  it('🛡️ doit valider un payload complet et strict avec maillage transversal', () => {
+  it('🛡️ doit valider un payload complet et strict avec maillage transversal (EntityTargetEnum)', () => {
     const fullPayload = {
       uid: 'task_zod_1',
       projectUid: 'proj_zod_1',
@@ -87,7 +88,7 @@ describe('TaskSchema (Zod) - Validation Typographique', () => {
     }
   });
 
-  it('💥 doit rejeter un payload avec des valeurs hors limites', () => {
+  it('💥 doit rejeter un payload avec des valeurs hors limites ou un targetModule inconnu de EntityTargetEnum', () => {
     const invalidPayload = {
       uid: 'task_zod_3',
       projectUid: 'proj_zod_3',
@@ -98,8 +99,20 @@ describe('TaskSchema (Zod) - Validation Typographique', () => {
       metrics: { complexity: 15 }, // <-- Invalide (max 10)
     };
 
-    const result = TaskSchema.safeParse(invalidPayload);
-    expect(result.success).toBe(false);
+    expect(TaskSchema.safeParse(invalidPayload).success).toBe(false);
+
+    const invalidModulePayload = {
+      uid: 'task_zod_4',
+      projectUid: 'proj_zod_4',
+      creatorUid: 'bird_delta',
+      content: { title: 'Pont corrompu' },
+      connections: {
+        targetModule: 'MODULE_INCONNU',
+        targetEntityUid: 'ent_1'
+      }
+    };
+
+    expect(TaskSchema.safeParse(invalidModulePayload).success).toBe(false);
   });
 
   describe('Payloads API (Foster & Update)', () => {

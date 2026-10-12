@@ -13,7 +13,7 @@ import {
   CreateRoomRequest,
 } from '../types/shared.types';
 import { IlotError } from '../errors/ilot.errors';
-import { IUniversalAttachment } from '../../../types/src/models/message.types';
+import { IUniversalAttachment, AttachmentSourceType } from '../../../types/src/models/message.types';
 
 // Import des types stricts pour le blindage des mocks de test
 import type { AtomikKFardEGameOptions } from '../games/atomikkfar/Atomik-K-FarTypes';
@@ -52,14 +52,14 @@ describe('Shared Types & Core Logic', () => {
     });
 
     it('🔴 doit lever une IlotError si aucun résolveur n\'est enregistré pour la source', async () => {
-      await expect(registry.resolve('POETRY' as any, 'poetry-999')).rejects.toThrow(IlotError);
-      await expect(registry.resolve('POETRY' as any, 'poetry-999')).rejects.toThrowError(/Aucun résolveur enregistré/);
+      await expect(registry.resolve('POETRY' as AttachmentSourceType, 'poetry-999')).rejects.toThrow(IlotError);
+      await expect(registry.resolve('POETRY' as AttachmentSourceType, 'poetry-999')).rejects.toThrowError(/Aucun résolveur enregistré/);
     });
 
     it('🔴 doit lever une IlotError si le résolveur ne trouve pas l\'entité ciblée', async () => {
-      registry.register('SONG', async () => null);
-      await expect(registry.resolve('SONG' as any, 'song-unknown')).rejects.toThrow(IlotError);
-      await expect(registry.resolve('SONG' as any, 'song-unknown')).rejects.toThrowError(/est introuvable/);
+      registry.register('SONG' as AttachmentSourceType, async () => null);
+      await expect(registry.resolve('SONG' as AttachmentSourceType, 'song-unknown')).rejects.toThrow(IlotError);
+      await expect(registry.resolve('SONG' as AttachmentSourceType, 'song-unknown')).rejects.toThrowError(/est introuvable/);
     });
   });
 
@@ -140,14 +140,14 @@ describe('Shared Types & Core Logic', () => {
       const plumZeeRoom: RoomToSend = {
         id: 'r3', name: 'PlumZee Room', gameType: 'PlumZee', state: 'playing', round: 1, maxPlayers: 4, scores: {},
         players: [], 
-        gameOptions: { maxRounds: 10, turnTimeLimitSec: 60 } as unknown as PlumZeeGameOptions, // 🛡️ Corrigé
+        gameOptions: { maxRounds: 10, turnTimeLimitSec: 60 } as unknown as PlumZeeGameOptions,
         currentDice: [], currentTurnPlayerId: null, currentRound: 1
       };
 
       const galakTKRoom: RoomToSend = {
         id: 'r4', name: 'Galak Room', gameType: 'GalakTK', state: 'inGame', round: 1, maxPlayers: 2, scores: {},
         players: [], 
-        gameOptions: { gridWidth: 10, gridHeight: 10, totalStars: 5, mode: 'local', gridSize: 'small' }, // 🚀 gridSize ajouté !
+        gameOptions: { gridWidth: 10, gridHeight: 10, totalStars: 5, mode: 'local', gridSize: 'small' },
         stars: [], currentTurnPlayerId: null
       };
 
@@ -177,7 +177,7 @@ describe('Shared Types & Core Logic', () => {
         gameType: 'AtomikKFardE',
         players: [],
         gameOptions: { 
-          nbPlayer: 'duo', // 🛡️ Corrigé ('duo' au lieu de 2)
+          nbPlayer: 'duo',
           mode: 'Stratege', option: 'Sonic', gameStyle: 'Classique', 
           maxRounds: 3, timePerRound: 30, scoreToWin: 2, teamMode: 'Defined' 
         } as unknown as AtomikKFardEGameOptions,
@@ -211,7 +211,9 @@ describe('Shared Types & Core Logic', () => {
     });
 
     it('🟢 TYPE CHECK: BaseMakeMoveRequest doit être étendu proprement par chaque jeu', () => {
-      const morpionMove = { roomId: 'r1', playerId: 'p1', gameType: 'CrazyMorpion' as const, x: 0, y: 1 };
+      const morpionMove: BaseMakeMoveRequest & { x: number; y: number } = {
+        roomId: 'r1', playerId: 'p1', gameType: 'CrazyMorpion' as const, x: 0, y: 1
+      };
       
       const cinemaxMove = { 
         roomId: 'r2', playerId: 'p2', gameType: 'CineMax' as const, 

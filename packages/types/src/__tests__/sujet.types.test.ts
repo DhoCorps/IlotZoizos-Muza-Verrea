@@ -1,14 +1,21 @@
 // Fichier : packages/types/src/__tests__/sujet.types.test.ts
 import { describe, it, expect } from 'vitest';
-import { SujetSchema, SujetCategorySchema } from '../models/sujet.types';
+import { SujetSchema, SujetCategorySchema, ExtendedEntityTypeSchema } from '../models/sujet.types';
+import { EntityTargetEnum } from '../models/common.types';
 
-describe('Schéma Zod : SujetSchema (DRY Edition)', () => {
+describe('Schéma Zod : SujetSchema (DRY Edition & SSOT EntityTargetEnum)', () => {
   
-  describe('Validations des Catégories', () => {
+  describe('Validations des Catégories et de la SSOT EntityTargetEnum', () => {
     it('valide les catégories autorisées', () => {
       expect(SujetCategorySchema.parse('MONOLOGUE')).toBe('MONOLOGUE');
       expect(SujetCategorySchema.parse('MANIFESTO')).toBe('MANIFESTO');
       expect(() => SujetCategorySchema.parse('INCONNU')).toThrow();
+    });
+
+    it('vérifie que ExtendedEntityTypeSchema est strictement aligné sur EntityTargetEnum', () => {
+      expect(ExtendedEntityTypeSchema).toBe(EntityTargetEnum);
+      expect(ExtendedEntityTypeSchema.safeParse('SUJET').success).toBe(true);
+      expect(ExtendedEntityTypeSchema.safeParse('PRODUCT').success).toBe(true);
     });
   });
 

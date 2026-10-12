@@ -1,5 +1,6 @@
 // packages/types/src/models/moderation.types.ts
 import { z } from 'zod';
+import { EntityTargetEnum, EntityTarget } from './common.types';
 
 /**
  * 🛡️ MODÉRATION & BIEN-ÊTRE MENTAL
@@ -10,9 +11,13 @@ import { z } from 'zod';
 export const ModerationSeveritySchema = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
 export const ModerationActionSchema = z.enum(['WARN', 'EXILE', 'BURN', 'SUPPORT_TICKET']);
 
+// 🌌 Alignement sur la SSOT EntityTargetEnum (inclut USER, FRAGMENT, PROJECT et toute entité de l'Îlot)
+export const ModerationTargetTypeSchema = EntityTargetEnum;
+export type ModerationTargetType = EntityTarget;
+
 export const ModerationRequestSchema = z.object({
-  targetId: z.string(),
-  targetType: z.enum(['USER', 'FRAGMENT', 'PROJECT']),
+  targetId: z.string().min(1, "L'identifiant de la cible est requis."),
+  targetType: ModerationTargetTypeSchema,
   reason: z.string().min(5, "La raison de la modération est trop succincte."),
   severity: ModerationSeveritySchema,
   reportedBy: z.string().optional(),

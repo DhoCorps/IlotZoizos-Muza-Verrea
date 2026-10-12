@@ -1,4 +1,6 @@
+// Fichier : packages/types/src/models/resonance.types.ts
 import { z } from 'zod';
+import { EntityTarget } from './common.types';
 
 /**
  * 🕸️ LES FRÉQUENCES DE RÉSONANCE
@@ -20,24 +22,9 @@ export type ResonanceType =
   | 'ECLIPSES';         // Masquage ciblé (Mute granulaire d'un élément précis)
 
 /**
- * 🏷️ LES ÉTIQUETTES D'ENTITÉS (Labels Neo4j)
+ * 🏷️ LES ÉTIQUETTES D'ENTITÉS (Labels Cypher Neo4j en PascalCase)
+ * Enrichi avec JobQuest, KontaktProfile, Sample, Poem et LibraryBook.
  */
-export type EntityLabel = 
-  | 'User' 
-  | 'Sujet' 
-  | 'Project' 
-  | 'Task' 
-  | 'Team' 
-  | 'Product' 
-  | 'Game' 
-  | 'Letter'
-  | 'Partita'
-  | 'Store'
-  | 'BarterOffer'
-  | 'Order'
-  | 'Tag';
-
-// Enum Zod correspondant aux labels d'entités pour les validations
 export const EntityLabelEnum = z.enum([
   'User', 
   'Sujet', 
@@ -51,8 +38,48 @@ export const EntityLabelEnum = z.enum([
   'Store',
   'BarterOffer',
   'Order',
-  'Tag'
+  'Tag',
+  'JobQuest',
+  'KontaktProfile',
+  'Sample',
+  'Poem',
+  'LibraryBook'
 ]);
+
+export type EntityLabel = z.infer<typeof EntityLabelEnum>;
+
+/**
+ * 🌉 Pont de correspondance entre la SSOT EntityTarget (UPPERCASE) et les Labels Neo4j (PascalCase)
+ */
+export const ENTITY_TARGET_TO_LABEL: Partial<Record<EntityTarget, EntityLabel>> = {
+  USER: 'User',
+  SUJET: 'Sujet',
+  BLOG: 'Sujet',
+  ARTICLE: 'Sujet',
+  PROJECT: 'Project',
+  TASK: 'Task',
+  TEAM: 'Team',
+  PRODUCT: 'Product',
+  GAME: 'Game',
+  FONT: 'Letter',
+  SPRITE: 'Letter',
+  LETRIN: 'Letter',
+  PARTITA: 'Partita',
+  STORE: 'Store',
+  SHOP: 'Store',
+  BARTER: 'BarterOffer',
+  ORDER: 'Order',
+  TAG: 'Tag',
+  QUEST: 'JobQuest',
+  PROFILE: 'KontaktProfile',
+  KONTAKT: 'KontaktProfile',
+  SAMPLE: 'Sample',
+  SAMPLOTEK: 'Sample',
+  POEM: 'Poem',
+  POETRIK: 'Poem',
+  BOOK: 'LibraryBook',
+  BIBLIOTEK: 'LibraryBook'
+};
 
 /**
  * 📦 LE PAYLOAD DE MUTATION DE RÉSONANCE
@@ -61,8 +88,8 @@ export const EntityLabelEnum = z.enum([
 export interface IResonancePayload {
   sourceUid: string;        // L'Oiseau qui agit (celui qui s'abonne ou réagit)
   targetUid: string;        // L'Oiseau cible (ou le créateur de l'entité cible)
-  type: ResonanceType;     // La nature du fil à tisser/couper
-  entityId?: string;       // L'ID du projet/app ciblé (Optionnel si c'est un lien GLOBAL)
+  type: ResonanceType;      // La nature du fil à tisser/couper
+  entityId?: string;        // L'ID du projet/app ciblé (Optionnel si c'est un lien GLOBAL)
 }
 
 /**
@@ -75,7 +102,7 @@ export interface IResonanceResponse {
   error?: string;
   
   // Spécifique aux Abonnements (Weave/Sever)
-  isHarmonic?: boolean;    // True si la connexion est mutuelle (Naissance du lien HARMONY)
+  isHarmonic?: boolean;     // True si la connexion est mutuelle (Naissance du lien HARMONY)
   
   // Spécifique au Calcul Historique (TaskResonanceOrchestrator)
   resonanceScore?: number; 

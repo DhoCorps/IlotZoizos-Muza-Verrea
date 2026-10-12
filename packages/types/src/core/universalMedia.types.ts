@@ -1,6 +1,8 @@
+// Fichier : packages/types/src/core/universalMedia.types.ts
 import { z } from 'zod';
+import { EntityTargetEnum, EntityTarget } from '../models/common.types';
 
-// 1. Types de médias et Provenance
+// 1. Types de médias et Provenance (SSOT EntityTargetEnum)
 export const MediaTypeEnum = z.enum([
   'IMAGE', 
   'AUDIO_TRACK', 
@@ -9,17 +11,9 @@ export const MediaTypeEnum = z.enum([
 ]);
 export type MediaType = z.infer<typeof MediaTypeEnum>;
 
-export const SourceAppEnum = z.enum([
-  'PARTITA', 
-  'LETRIN', 
-  'ABYSS',
-  'BIBLIOTEK', 
-  'DHO', 
-  'GALLERY', 
-  'SPRITE',
-  'UNKNOWN'
-]);
-export type SourceApp = z.infer<typeof SourceAppEnum>;
+// 🌌 Alignement sur la SSOT EntityTargetEnum (avec maintien des alias SourceAppEnum / SourceApp)
+export const SourceAppEnum = EntityTargetEnum;
+export type SourceApp = EntityTarget;
 
 // 2. Multilinguisme
 export const MultilingualTextSchema = z.object({

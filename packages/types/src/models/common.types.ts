@@ -14,6 +14,58 @@ export const STATUS_CONFIG: Record<StatusEnum, { label: string, color: string }>
   ABANDONED: { label: 'X', color: 'red' }
 };
 
+// 🌌 SOURCE UNIQUE DE VÉRITÉ (SSOT) : Cibles d'Entités & Modules de l'Îlot
+// Unifie SourceAppEnum, CommentTargetTypeSchema, ExtendedEntityTypeSchema, EntityTypeSchema,
+// SubscriptionTargetTypeSchema, AgoraModuleSource, AnnotationTargetType et ModerationTargetType.
+export const EntityTargetEnum = z.enum([
+  // --- 🏛️ ENTITÉS MÉTIER ---
+  'USER',
+  'TEAM',
+  'PROJECT',
+  'TASK',
+  'FRAGMENT',
+  'SUJET',
+  'ARTICLE',
+  'BLOG',
+  'COMMENT',
+  'PRODUCT',
+  'STORE',
+  'SHOP',
+  'ORDER',
+  'BARTER',
+  'PARTITA',
+  'SAMPLE',
+  'FONT',
+  'SPRITE',
+  'BOOK',
+  'POEM',
+  'QUEST',
+  'PROFILE',
+  'TEMPLATE',
+  'KONTRAKT',
+  'SUBSIDY',
+  'RAFFLE',
+  'MESSAGE',
+  'TAG',
+
+  // --- 🛰️ MODULES & APPLICATIONS SOURCES (Rétrocompatibilité SourceApp & CrossLinks) ---
+  'ABYSS',
+  'BIBLIOTEK',
+  'POETRIK',
+  'SAMPLOTEK',
+  'LETRIN',
+  'KONTAKT',
+  'DHO',
+  'GALLERY',
+  'GAME',
+  'LYRIKA',
+  'UNKNOWN'
+]);
+
+// Alias de schéma et type inféré pour une interopérabilité totale dans le monorepo
+export const EntityTargetSchema = EntityTargetEnum;
+export type EntityTarget = z.infer<typeof EntityTargetEnum>;
+
 // 🏗️ Le Pivot MongoDB / Neo4j (Version unifiée et flexible)
 export const BaseNodeSchema = z.object({
   _id: z.string().optional(), 

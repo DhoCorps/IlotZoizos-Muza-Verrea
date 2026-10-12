@@ -1,9 +1,15 @@
+// Fichier : packages/types/src/__tests__/notification.types.test.ts
 import { describe, it, expect } from 'vitest';
-import { NotificationSchema } from '../core/notification.types';
+import { NotificationSchema, NotificationTargetTypeSchema } from '../core/notification.types';
+import { EntityTargetEnum } from '../models/common.types';
 import { randomUUID } from 'crypto';
 
-describe('🔔 NotificationSchema (Alertes & Canopée Tampon)', () => {
-  it('🟢 devrait valider une notification directe (REALTIME) avec les valeurs par défaut', () => {
+describe('🔔 NotificationSchema (Alertes, Canopée Tampon & SSOT EntityTargetEnum)', () => {
+  it('🟢 vérifie que NotificationTargetTypeSchema pointe directement sur EntityTargetEnum', () => {
+    expect(NotificationTargetTypeSchema).toBe(EntityTargetEnum);
+  });
+
+  it('🟢 devrait valider une notification directe (REALTIME) avec les valeurs par défaut et un targetType issu de EntityTargetEnum', () => {
     const payload = {
       uid: randomUUID(),
       recipientUid: randomUUID(),
@@ -12,7 +18,9 @@ describe('🔔 NotificationSchema (Alertes & Canopée Tampon)', () => {
       type: 'NEW_ECHO',
       payload: {
         message: "Un oiseau a répondu à votre monologue dans l'AbyssBlog.",
-        targetUrl: "/abyss-blog/monologue-1"
+        targetUrl: "/abyss-blog/monologue-1",
+        targetUid: randomUUID(),
+        targetType: 'PROJECT'
       }
     };
 
@@ -22,6 +30,7 @@ describe('🔔 NotificationSchema (Alertes & Canopée Tampon)', () => {
     if (result.success) {
       expect(result.data.isRead).toBe(false); // Valeur par défaut
       expect(result.data.scheduledFor).toBeUndefined(); // Pas de rétention dans le tampon
+      expect(result.data.payload.targetType).toBe('PROJECT');
     }
   });
 
@@ -51,7 +60,7 @@ describe('🔔 NotificationSchema (Alertes & Canopée Tampon)', () => {
     }
   });
 
-  it('🔴 devrait échouer si le payload n\'a pas de message (champ vital)', () => {
+  it('🔴 devrait échouer si le payload n\'a pas de message (champ vital) ou si targetType est invalide', () => {
     const invalidPayload = {
       uid: randomUUID(),
       recipientUid: randomUUID(),
@@ -67,6 +76,18 @@ describe('🔔 NotificationSchema (Alertes & Canopée Tampon)', () => {
     if (!result.success) {
       expect(result.error.errors[0].message).toContain('Le message de l\'alerte ne peut être vide');
     }
+
+    const invalidTargetTypePayload = {
+      uid: randomUUID(),
+      recipientUid: randomUUID(),
+      category: 'SOCIAL',
+      type: 'NEW_ECHO',
+      payload: {
+        message: "Alerte valide",
+        targetType: "CIBLE_INCONNUE"
+      }
+    };
+    expect(NotificationSchema.safeParse(invalidTargetTypePayload).success).toBe(false);
   });
 
   it('🔴 devrait échouer si les UIDs d\'expédition ou de réception sont corrompus', () => {

@@ -1,7 +1,13 @@
+// Fichier : packages/types/src/__tests__/universalComment.types.test.ts
 import { describe, it, expect } from 'vitest';
-import { UniversalCommentSchema } from '../models/universalComment.types';
+import { UniversalCommentSchema, CommentTargetTypeSchema } from '../models/universalComment.types';
+import { EntityTargetEnum } from '../models/common.types';
 
-describe('UniversalCommentSchema', () => {
+describe('UniversalCommentSchema (SSOT EntityTargetEnum)', () => {
+  it('vérifie que CommentTargetTypeSchema pointe directement sur la SSOT EntityTargetEnum', () => {
+    expect(CommentTargetTypeSchema).toBe(EntityTargetEnum);
+  });
+
   it('devrait valider un commentaire valide sur un SUJET avec les valeurs par défaut', () => {
     const validComment = {
       uid: '123e4567-e89b-12d3-a456-426614174000',
@@ -17,7 +23,7 @@ describe('UniversalCommentSchema', () => {
       expect(result.data.allowComments).toBe(true);
       expect(result.data.allowReactions).toBe(true);
       expect(result.data.isHidden).toBe(false);
-      expect(result.data.isScholarSealed).toBe(false); // Vérification de l'absence du sceau par défaut
+      expect(result.data.isScholarSealed).toBe(false);
     }
   });
 

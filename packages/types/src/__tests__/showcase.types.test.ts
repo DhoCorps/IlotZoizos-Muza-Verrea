@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { IUniversalMediaItem, ShowcaseFilterOptions, SourceApp } from '@ilot/types';
 
-describe('Showcase Types - Validation des structures et typages de la Canopée', () => {
+describe('Showcase Types - Validation des structures et typages de la Canopée (SSOT EntityTarget)', () => {
   it('doit valider la structure complète d\'un IUniversalMediaItem', () => {
     const mockMediaItem: IUniversalMediaItem = {
       mediaId: 'media_123',
@@ -25,7 +25,7 @@ describe('Showcase Types - Validation des structures et typages de la Canopée',
     expect(mockMediaItem.priceCents).toBe(1500);
   });
 
-  it('doit accepter l\'ensemble des types d\'applications supportés (UniversalMediaType)', () => {
+  it('doit accepter l\'ensemble des types d\'applications supportés (UniversalMediaType & EntityTarget)', () => {
     const supportedApps: SourceApp[] = ['PARTITA', 'LETRIN', 'ABYSS', 'DHO', 'GALLERY', 'SPRITE'];
 
     expect(supportedApps).toHaveLength(6);

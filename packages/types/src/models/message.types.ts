@@ -1,6 +1,10 @@
+// Fichier : packages/types/src/models/message.types.ts
 import { z } from 'zod';
+import { EntityTargetEnum, EntityTarget } from './common.types';
 
-export type AttachmentSourceType = 'LETRIN' | 'PARTITA' | 'BLOG' | 'SHOP' | string;
+// 🌌 Alignement strict sur la SSOT EntityTargetEnum (remplace l'union ouverte '... | string')
+export const AttachmentSourceTypeSchema = EntityTargetEnum;
+export type AttachmentSourceType = EntityTarget;
 
 /**
  * Pointeur brut envoyé par le client (léger et sécurisé).
@@ -12,7 +16,7 @@ export interface IRawAttachmentPointer {
 }
 
 export const RawAttachmentPointerSchema = z.object({
-  sourceType: z.string().min(1, "Type de source requis."),
+  sourceType: EntityTargetEnum,
   entitySlug: z.string().min(1, "Slug de l'entité requis.")
 });
 
@@ -29,8 +33,8 @@ export interface IUniversalAttachment {
 }
 
 export const UniversalAttachmentSchema = z.object({
-  sourceType: z.string(),
-  entitySlug: z.string(),
+  sourceType: EntityTargetEnum,
+  entitySlug: z.string().min(1, "Slug de l'entité requis."),
   title: z.string(),
   subtitle: z.string().optional(),
   thumbnailUrl: z.string().optional(),

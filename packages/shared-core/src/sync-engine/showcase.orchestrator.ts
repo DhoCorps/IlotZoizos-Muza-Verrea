@@ -1,8 +1,16 @@
+// Fichier : packages/shared-core/src/sync-engine/showcase.orchestrator.ts
 import { UniversalMediaModel, OiseauModel } from '@ilot/infrastructure';
 import { IUniversalMediaItem, ShowcaseFilterOptions, SourceApp } from '@ilot/types';
 import { UserShowcaseShuffler } from '../utils/userShowcaseShuffler';
 import { IlotError } from '../errors/ilot.errors';
 import { resolveCanonicalUid } from '../utils/orchestrator.engine'; // 🛡️ Import de l'utilitaire global unifié
+
+export interface IAmbientTrackInfo {
+  title: string;
+  author: string;
+  mediaUrl: string;
+  synchronizedAt: string;
+}
 
 interface IRawMediaDocument {
   mediaId: string;
@@ -13,7 +21,7 @@ interface IRawMediaDocument {
   mediaUrl: string;
   thumbnailUrl?: string;
   priceCents?: number;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, any>;
   consentForShowcase: boolean;
   consentForMusicSync: boolean;
   createdAt: Date;
@@ -50,7 +58,7 @@ export class ShowcaseOrchestrator {
         return [];
       }
 
-      // Conversion en objets typés propres avec assertion stricte de sourceApp vers UniversalMediaType
+      // Conversion en objets typés propres avec assertion stricte de sourceApp vers SourceApp (EntityTarget)
       const mediaItems: IUniversalMediaItem[] = rawItems.map((item) => ({
         mediaId: item.mediaId,
         sourceApp: item.sourceApp as SourceApp,
@@ -78,14 +86,16 @@ export class ShowcaseOrchestrator {
           if (item.sourceApp !== 'PARTITA') {
             // Attribution d'une piste de fond selon une rotation mathématique calée sur l'index (déterministe)
             const ambientTrack = ambientTracks[index % ambientTracks.length];
+            const ambientTrackInfo: IAmbientTrackInfo = {
+              title: ambientTrack.title,
+              author: ambientTrack.ownerSlug,
+              mediaUrl: ambientTrack.mediaUrl,
+              synchronizedAt: now.toISOString()
+            };
+
             item.metadata = {
               ...item.metadata,
-              ambientTrackInfo: {
-                title: ambientTrack.title,
-                author: ambientTrack.ownerSlug,
-                mediaUrl: ambientTrack.mediaUrl,
-                synchronizedAt: now.toISOString()
-              }
+              ambientTrackInfo
             };
           }
         });

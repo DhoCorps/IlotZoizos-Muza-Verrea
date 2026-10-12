@@ -26,7 +26,7 @@ import type {
     SoonArtGameRoom, 
     GalakTKGameRoom, 
     PlumZeeGameRoom, 
-    } from '../../../shared-core';
+} from '../../../shared-core';
 
 import type {
     KoOonTreezNbPlayer,
@@ -134,7 +134,7 @@ export type AnyGameRoom =
     | PlumZeeGameRoom 
     | WikiOracleGameRoom;
 
-
+export type RegistrySourceKey = AttachmentSourceType | (string & {});
 type AttachmentResolver = (entityUid: string) => Promise<IUniversalAttachment | null>;
 
 export interface BasePlayer {
@@ -198,7 +198,7 @@ export interface BaseRoomData {
     id: string;
     name: string;
     gameType: GameType;
-   state: 'waiting' | 'playing' | 'gameOver' | 'paused' | 'waitingForPlayers' | 'readyToStart' | 'inGame' | 'empty' | 'scanning' | 'marking';
+    state: 'waiting' | 'playing' | 'gameOver' | 'paused' | 'waitingForPlayers' | 'readyToStart' | 'inGame' | 'empty' | 'scanning' | 'marking';
     round: number;
     maxPlayers: number;
     scores: Record<string, number>;
@@ -232,7 +232,6 @@ export interface KoOonTreeZRoomToSend extends BaseRoomData {
     targetFlagsCount?: number | 'abandon';
     currentFlag?: CurrentFlag | null;
 }
-
 
 export interface AtomikKFardERoomToSend extends BaseRoomData {
     gameType: 'AtomikKFardE';
@@ -556,19 +555,19 @@ export interface JoinRoomRequest {
 }
 
 export class AttachmentRegistry {
-  private resolvers = new Map<AttachmentSourceType, AttachmentResolver>();
+  private resolvers = new Map<RegistrySourceKey, AttachmentResolver>();
 
   /**
    * Enregistre un module (Blog, Poésie, Chanson, Police, etc.) pour qu'il devienne attachable dans les messages
    */
-  public register(sourceType: AttachmentSourceType, resolver: AttachmentResolver) {
+  public register(sourceType: RegistrySourceKey, resolver: AttachmentResolver) {
     this.resolvers.set(sourceType, resolver);
   }
 
   /**
    * Résout et récupère les métadonnées universelles d'une entité à partir de son UID
    */
-  public async resolve(sourceType: AttachmentSourceType, entityUid: string): Promise<IUniversalAttachment> {
+  public async resolve(sourceType: RegistrySourceKey, entityUid: string): Promise<IUniversalAttachment> {
     const resolver = this.resolvers.get(sourceType);
     if (!resolver) {
       throw new IlotError(`Aucun résolveur enregistré pour la source d'attachement : ${sourceType}`, "NOT_FOUND", 404);

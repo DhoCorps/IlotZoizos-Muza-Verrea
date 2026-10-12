@@ -1,5 +1,6 @@
-// packages/shared-core/src/registry/__tests__/attachment.registry.test.ts
+// packages/shared-core/src/sync-engine/__tests__/attachment.registry.test.ts
 import { describe, it, expect, beforeEach } from 'vitest';
+import { AttachmentSourceType, IUniversalAttachment } from '@ilot/types';
 import { attachmentRegistry } from '../../registry/attachment.registry';
 
 describe('AttachmentRegistry - Le Registre Universel des Attachements', () => {
@@ -10,7 +11,7 @@ describe('AttachmentRegistry - Le Registre Universel des Attachements', () => {
   });
 
   it('🟢 doit enregistrer, vérifier et résoudre un attachement par slug avec succès', async () => {
-    const sourceKey = 'LETRIN_TEST';
+    const sourceKey = 'LETRIN_TEST' as AttachmentSourceType;
     
     attachmentRegistry.register(sourceKey, async (slug: string) => ({
       sourceType: sourceKey,
@@ -33,7 +34,7 @@ describe('AttachmentRegistry - Le Registre Universel des Attachements', () => {
   });
 
   it('🔴 doit lever une erreur si la source n’est pas enregistrée', async () => {
-    const unknownKey = 'UNKNOWN_SOURCE_XYZ';
+    const unknownKey = 'UNKNOWN_SOURCE_XYZ' as AttachmentSourceType;
     expect(attachmentRegistry.has(unknownKey)).toBe(false);
     
     await expect(
@@ -42,9 +43,9 @@ describe('AttachmentRegistry - Le Registre Universel des Attachements', () => {
   });
 
   it('🔴 doit lever une erreur si l’entité est introuvable par son résolveur (null retourné)', async () => {
-    const shopKey = 'SHOP_TEST_NULL';
+    const shopKey = 'SHOP_TEST_NULL' as AttachmentSourceType;
     // Utilisation de unknown au lieu de any pour un cast rigoureux
-    attachmentRegistry.register(shopKey, async () => null as unknown as { sourceType: string; entitySlug: string; title: string; targetRoute: string });
+    attachmentRegistry.register(shopKey, async () => null as unknown as IUniversalAttachment);
 
     await expect(
       attachmentRegistry.resolve(shopKey, 'produit-inexistant')

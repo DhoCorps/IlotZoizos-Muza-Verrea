@@ -1,4 +1,6 @@
+// Fichier : packages/types/src/core/subscription.types.ts
 import { z } from 'zod';
+import { EntityTargetEnum, EntityTarget } from '../models/common.types';
 
 /**
  * 🌿 Modes de réception de la Canopée Tampon
@@ -19,20 +21,10 @@ export type IDigestPreferences = z.infer<typeof DigestPreferencesSchema>;
 
 /**
  * 🎯 Cibles possibles d'un abonnement dans le Graphe (Neo4j)
+ * Aligné sur la SSOT EntityTargetEnum (inclut USER, BLOG, PROJECT, GAME, FONT, SPRITE, LYRIKA, SAMPLOTEK, BIBLIOTEK, POETRIK, etc.)
  */
-export const SubscriptionTargetTypeSchema = z.enum([
-  'USER',       // S'abonner à un créateur (Tous ses flux)
-  'BLOG',       // S'abonner à un monologue de l'AbyssBlog
-  'PROJECT',    // Suivre l'avancée d'un Chantier
-  'GAME',       // Suivre les mises à jour d'un jeu
-  'FONT',       // Letr'In
-  'SPRITE',     // Pixel art
-  'LYRIKA',     // Paroles
-  'SAMPLOTEK',  // Audio
-  'BIBLIOTEK',  // Sanctuaire des ouvrages
-  'POETRIK'     // Poésie
-]);
-export type SubscriptionTargetType = z.infer<typeof SubscriptionTargetTypeSchema>;
+export const SubscriptionTargetTypeSchema = EntityTargetEnum;
+export type SubscriptionTargetType = EntityTarget;
 
 /**
  * 🔗 Schéma principal de la relation d'abonnement (FOLLOWS)

@@ -1,28 +1,10 @@
+// Fichier : packages/types/src/models/universalComment.types.ts
 import { z } from 'zod';
+import { EntityTargetEnum, EntityTarget } from './common.types';
 
-// On définit les cibles possibles pour le polymorphisme.
-// 'COMMENT' est crucial pour permettre les réponses aux réponses.
-export const CommentTargetTypeSchema = z.enum([
-  'SUJET', 
-  'PARTITA', 
-  'SAMPLE', 
-  'COMMENT', 
-  'KONTRAKT', 
-  'PROJECT',
-  // Harmonisation absolue avec l'architecture de l'Îlot (CrossLinks & Propagation)
-  'BLOG', 
-  'FONT', 
-  'SPRITE', 
-  'PROFILE', 
-  'GAME', 
-  'LYRIKA', 
-  'SAMPLOTEK', 
-  'BIBLIOTEK', 
-  'POETRIK',
-  'SUBSIDY'
-]);
-
-export type CommentTargetType = z.infer<typeof CommentTargetTypeSchema>;
+// 🌌 Alignement sur la SSOT EntityTargetEnum (permet de commenter toute entité de l'Îlot + réponses 'COMMENT')
+export const CommentTargetTypeSchema = EntityTargetEnum;
+export type CommentTargetType = EntityTarget;
 
 export const UniversalCommentSchema = z.object({
   uid: z.string().uuid("L'UID du commentaire doit être un UUID valide"),

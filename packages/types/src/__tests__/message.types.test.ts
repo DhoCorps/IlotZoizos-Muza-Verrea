@@ -1,13 +1,19 @@
 // packages/types/src/__tests__/message.types.test.ts
 import { describe, it, expect } from 'vitest';
 import { 
+  AttachmentSourceTypeSchema,
   RawAttachmentPointerSchema, 
   UniversalAttachmentSchema, 
   SendMessageBodySchema 
 } from '../models/message.types';
+import { EntityTargetEnum } from '../models/common.types';
 
-describe('Message Types & Zod Schemas - Validation par Slugs', () => {
+describe('Message Types & Zod Schemas - Validation par Slugs & SSOT EntityTargetEnum', () => {
   
+  it('🟢 vérifie que AttachmentSourceTypeSchema pointe directement sur la SSOT EntityTargetEnum', () => {
+    expect(AttachmentSourceTypeSchema).toBe(EntityTargetEnum);
+  });
+
   it('🟢 doit valider un pointeur d’attachement brut avec slug valide', () => {
     const validPointer = { sourceType: 'LETRIN', entitySlug: 'police-cyberpunk' };
     const result = RawAttachmentPointerSchema.safeParse(validPointer);
@@ -15,11 +21,12 @@ describe('Message Types & Zod Schemas - Validation par Slugs', () => {
     expect(result.success).toBe(true);
   });
 
-  it('🔴 doit rejeter un pointeur d’attachement brut sans slug', () => {
-    const invalidPointer = { sourceType: 'LETRIN' };
-    const result = RawAttachmentPointerSchema.safeParse(invalidPointer);
-    
-    expect(result.success).toBe(false);
+  it('🔴 doit rejeter un pointeur d’attachement brut sans slug ou avec un sourceType inconnu', () => {
+    const missingSlugPointer = { sourceType: 'LETRIN' };
+    expect(RawAttachmentPointerSchema.safeParse(missingSlugPointer).success).toBe(false);
+
+    const invalidSourcePointer = { sourceType: 'SOURCE_PIRATE', entitySlug: 'slug-test' };
+    expect(RawAttachmentPointerSchema.safeParse(invalidSourcePointer).success).toBe(false);
   });
 
   it('🟢 doit valider un attachement universel résolu complet par slug', () => {

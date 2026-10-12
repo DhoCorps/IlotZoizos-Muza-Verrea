@@ -1,7 +1,8 @@
+// Fichier : packages/types/src/__tests__/propagation.types.test.ts
 import { describe, it, expect } from 'vitest';
 import { ShareEventSchema } from '../models/propagation.types';
 
-describe('Schéma Zod : Propagation (ShareEvent)', () => {
+describe('Schéma Zod : Propagation (ShareEvent & SSOT EntityTargetEnum)', () => {
   
   const validBaseShare = {
     uid: '123e4567-e89b-12d3-a456-426614174000',
@@ -11,7 +12,6 @@ describe('Schéma Zod : Propagation (ShareEvent)', () => {
   };
 
   it('🟢 devrait valider un partage GLOBAL par défaut avec des métriques à zéro', () => {
-    // Un partage global n'a pas besoin de receiverUids
     const result = ShareEventSchema.safeParse(validBaseShare);
     
     expect(result.success).toBe(true);
@@ -23,9 +23,10 @@ describe('Schéma Zod : Propagation (ShareEvent)', () => {
     }
   });
 
-  it('🟢 devrait valider un partage TARGETED si des destinataires sont fournis', () => {
+  it('🟢 devrait valider un partage TARGETED si des destinataires sont fournis (et accepter les nouvelles entités de EntityTargetEnum)', () => {
     const targetedShare = {
       ...validBaseShare,
+      artifactType: 'QUEST',
       scope: 'TARGETED',
       receiverUids: [
         '123e4567-e89b-12d3-a456-426614174003',

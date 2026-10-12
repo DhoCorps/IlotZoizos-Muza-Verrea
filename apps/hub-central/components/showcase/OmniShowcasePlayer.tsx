@@ -11,6 +11,17 @@ interface OmniShowcasePlayerProps {
   userUid: string;
 }
 
+export interface ShowcaseMediaMetadata {
+  excerpt?: string;
+  content?: string;
+  isVideo?: boolean;
+  ambientTrackInfo?: {
+    title?: string;
+    mediaUrl?: string;
+  };
+  [key: string]: unknown;
+}
+
 const APPS_AVAILABLE: { id: SourceApp; label: string }[] = [
   { id: 'ABYSS', label: 'AbyssBlog' },
   { id: 'PARTITA', label: 'Partita' },
@@ -50,6 +61,7 @@ const VideoMediaViewer: React.FC<{ src: string; title: string; isPlaying: boolea
       <video 
         ref={videoRef}
         src={src}
+        title={title}
         loop
         playsInline
         muted
@@ -79,7 +91,7 @@ const AudioMediaViewer: React.FC<{ title: string; ownerSlug: string; thumbnailUr
 const TextMediaViewer: React.FC<{ title: string; excerpt?: string; content?: string }> = ({ title, excerpt, content }) => (
   <div className="w-full max-w-2xl mx-auto p-8 bg-slate-900/50 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl space-y-6 animate-in fade-in duration-500">
     <div className="flex items-center gap-2 text-red-400 text-xs font-mono uppercase tracking-widest">
-      <BookOpen size={14} /> Pensée de l'Abysse
+      <BookOpen size={14} /> Pensée de l&apos;Abysse
     </div>
     <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tight text-slate-100 leading-tight">{title}</h2>
     <div className="w-12 h-0.5 bg-red-600" />
@@ -127,6 +139,14 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
   });
 
   const currentItem = playlist[currentIndex];
+  const currentMeta = currentItem?.metadata as ShowcaseMediaMetadata | undefined;
+
+  const handleNext = () => {
+    setProgress(0);
+    if (playlist.length > 0) {
+      setCurrentIndex((prev) => (prev + 1) % playlist.length);
+    }
+  };
 
   // Gestion du timing et de la progression (15s pour Abyss, 8s pour le reste)
   useEffect(() => {
@@ -158,8 +178,13 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
       audioRef.current.src = '';
     }
 
-    if (currentItem?.metadata?.ambientTrackInfo?.mediaUrl || currentItem?.sourceApp === 'PARTITA') {
-      const trackUrl = currentItem.metadata?.ambientTrackInfo?.mediaUrl || currentItem.mediaUrl;
+    const ambientMediaUrl =
+      typeof currentMeta?.ambientTrackInfo?.mediaUrl === 'string'
+        ? currentMeta.ambientTrackInfo.mediaUrl
+        : undefined;
+
+    if (ambientMediaUrl || currentItem?.sourceApp === 'PARTITA') {
+      const trackUrl = ambientMediaUrl || currentItem.mediaUrl;
       const audio = new Audio(trackUrl);
       audio.loop = true;
       audio.muted = isMuted;
@@ -176,18 +201,13 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
         audioRef.current.src = '';
       }
     };
-  }, [currentItem, isPlaying]);
+  }, [currentItem, currentMeta, isPlaying]);
 
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.muted = isMuted;
     }
   }, [isMuted]);
-
-  const handleNext = () => {
-    setProgress(0);
-    setCurrentIndex((prev) => (prev + 1) % playlist.length);
-  };
 
   const toggleFilter = (app: SourceApp) => {
     setSelectedApps(prev => 
@@ -201,7 +221,7 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
         <div className="text-center space-y-4 max-w-lg">
           <h1 className="text-4xl md:text-5xl font-black uppercase text-slate-100 tracking-tight">Le Diaporama Universel</h1>
           <p className="text-sm font-mono text-slate-400">
-            Une exploration générative et sonore des créations de l'Îlot, tissée uniquement pour toi.
+            Une exploration générative et sonore des créations de l&apos;Îlot, tissée uniquement pour toi.
           </p>
         </div>
         
@@ -225,10 +245,20 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
             Flux de la Canopée
           </span>
           <div className="flex items-center gap-4">
-            <button onClick={() => setIsMuted(!isMuted)} className="text-slate-400 hover:text-white transition-colors">
+            <button
+              type="button"
+              aria-label={isMuted ? "Réactiver le son" : "Couper le son"}
+              onClick={() => setIsMuted(!isMuted)}
+              className="text-slate-400 hover:text-white transition-colors"
+            >
               {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
-            <button onClick={() => setShowFilters(!showFilters)} className={`p-2 rounded-xl transition-all border ${showFilters ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:text-white'}`}>
+            <button
+              type="button"
+              aria-label="Afficher les filtres"
+              onClick={() => setShowFilters(!showFilters)}
+              className={`p-2 rounded-xl transition-all border ${showFilters ? 'bg-red-500/20 border-red-500/50 text-red-400' : 'bg-slate-900/50 border-slate-800 text-slate-400 hover:text-white'}`}
+            >
               <Settings2 size={18} />
             </button>
           </div>
@@ -239,6 +269,7 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
             {APPS_AVAILABLE.map(app => (
               <button
                 key={app.id}
+                type="button"
                 onClick={() => toggleFilter(app.id)}
                 className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all border ${
                   selectedApps.includes(app.id)
@@ -251,6 +282,7 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
             ))}
             <div className="w-px h-6 bg-slate-700 mx-2" />
             <button
+              type="button"
               onClick={() => setOnlyTradable(!onlyTradable)}
               className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all border ${
                 onlyTradable ? 'bg-amber-500 text-slate-950 border-amber-400' : 'bg-slate-800 text-slate-400 border-slate-700'
@@ -277,8 +309,8 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
             {currentItem.sourceApp === 'ABYSS' || currentItem.sourceApp === 'LETRIN' ? (
               <TextMediaViewer 
                 title={currentItem.title} 
-                excerpt={currentItem.metadata?.excerpt} 
-                content={currentItem.metadata?.content} 
+                excerpt={typeof currentMeta?.excerpt === 'string' ? currentMeta.excerpt : undefined} 
+                content={typeof currentMeta?.content === 'string' ? currentMeta.content : undefined} 
               />
             ) : currentItem.sourceApp === 'PARTITA' ? (
               <AudioMediaViewer 
@@ -287,7 +319,7 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
                 thumbnailUrl={currentItem.thumbnailUrl}
                 isPlaying={isPlaying}
               />
-            ) : currentItem.mediaUrl?.endsWith('.mp4') || currentItem.metadata?.isVideo ? (
+            ) : currentItem.mediaUrl?.endsWith('.mp4') || Boolean(currentMeta?.isVideo) ? (
               <VideoMediaViewer 
                 src={currentItem.mediaUrl} 
                 title={currentItem.title} 
@@ -307,10 +339,12 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
                 Par <span className="text-slate-300">@{currentItem.ownerSlug}</span> • <span className="uppercase text-red-400">{currentItem.sourceApp}</span>
               </p>
               
-              {currentItem.metadata?.ambientTrackInfo && (
+              {currentMeta?.ambientTrackInfo?.title && (
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-slate-900/80 border border-slate-800 rounded-full mt-2">
                   <Music size={10} className="text-emerald-400" />
-                  <span className="text-[9px] font-mono text-slate-400">Ambiance: {currentItem.metadata.ambientTrackInfo.title}</span>
+                  <span className="text-[9px] font-mono text-slate-400">
+                    Ambiance: {currentMeta.ambientTrackInfo.title}
+                  </span>
                 </div>
               )}
             </div>
@@ -329,12 +363,16 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
           <div className="flex items-center justify-between">
             <div className="flex gap-4">
               <button 
+                type="button"
+                aria-label={isPlaying ? "Pause" : "Lecture"}
                 onClick={() => setIsPlaying(!isPlaying)} 
                 className="w-12 h-12 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-white rounded-full transition-colors shadow-lg"
               >
                 {isPlaying ? <Pause size={20} /> : <Play size={20} />}
               </button>
               <button 
+                type="button"
+                aria-label="Suivant"
                 onClick={handleNext} 
                 className="w-12 h-12 flex items-center justify-center bg-slate-900/50 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 rounded-full transition-colors"
               >
@@ -343,6 +381,7 @@ export const OmniShowcasePlayer: React.FC<OmniShowcasePlayerProps> = ({ userUid 
             </div>
 
             <button
+              type="button"
               onClick={() => {
                 setIsPlaying(false);
                 setWidgetOpen(true);

@@ -1,4 +1,6 @@
+// Fichier : packages/types/src/core/notification.types.ts
 import { z } from 'zod';
+import { EntityTargetEnum, EntityTarget } from '../models/common.types';
 
 /**
  * 🎨 Catégories Sémantiques des Notifications (Pour la Pulsation des Flux UI)
@@ -19,6 +21,10 @@ export const NotificationCategorySchema = z.enum([
 ]);
 export type NotificationCategory = z.infer<typeof NotificationCategorySchema>;
 
+// Alias vers la SSOT EntityTargetEnum pour le typage explicite des cibles de notifications
+export const NotificationTargetTypeSchema = EntityTargetEnum;
+export type NotificationTargetType = EntityTarget;
+
 /**
  * 🧩 Charge utile (Payload) dynamique de la notification
  * Conçue pour permettre l'Écho Intelligent (Regroupement de plusieurs actions)
@@ -32,7 +38,7 @@ export const NotificationPayloadSchema = z.object({
             
   targetUrl: z.string().optional(),
   targetUid: z.string().uuid().optional(),
-  targetType: z.string().optional(),
+  targetType: EntityTargetEnum.optional(), // 🛡️ Verrouillé par la SSOT EntityTargetEnum
   groupedCount: z.number().int().min(1).optional(), 
 });
 

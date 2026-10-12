@@ -1,7 +1,9 @@
+// Fichier : packages/types/src/__tests__/letrin.sprite.types.test.ts
 import { describe, it, expect } from 'vitest';
-import { LetrinFontSpriteSchema, TypographicCategoryEnum } from '@ilot/types';
+import { LetrinFontSpriteSchema, TypographicCategoryEnum, SeoMetadataSchema } from '@ilot/types';
+import { SeoMetadataSchema as CoreSeoMetadataSchema } from '../core/seo.types';
 
-describe('Letr\'In Sprite - Validation des Schémas Zod et de la Gamification', () => {
+describe('Letr\'In Sprite - Validation des Schémas Zod, du SEO unifié et de la Gamification', () => {
   const validSpriteFont = {
     uid: 'font-sprite-001',
     name: 'Pixel Abyss Font',
@@ -12,6 +14,10 @@ describe('Letr\'In Sprite - Validation des Schémas Zod et de la Gamification', 
     tags: ['pixel-art', 'cyberpunk'],
     frequencyHz: 528,
     isFrequencyMuted: false,
+    seo: {
+      metaTitle: 'Pixel Abyss Font | Letr\'In',
+      metaDescription: 'Police pixel-art forgée dans les profondeurs de la Canopée.'
+    },
     
     // 🚀 Intégration du sceau cryptographique unifié
     cryptoSeal: {
@@ -54,6 +60,10 @@ describe('Letr\'In Sprite - Validation des Schémas Zod et de la Gamification', 
     status: 'DRAFT'
   };
 
+  it('🟢 vérifie que SeoMetadataSchema est bien la SSOT issue de core/seo.types.ts', () => {
+    expect(SeoMetadataSchema).toBe(CoreSeoMetadataSchema);
+  });
+
   it('🟢 doit valider un ensemble de police de sprites complet avec classification, gamification et sceau cryptographique', () => {
     const result = LetrinFontSpriteSchema.safeParse(validSpriteFont);
     expect(result.success).toBe(true);
@@ -61,6 +71,7 @@ describe('Letr\'In Sprite - Validation des Schémas Zod et de la Gamification', 
       expect(result.data.category).toBe(TypographicCategoryEnum.FANTAISIE);
       expect(result.data.frequencyHz).toBe(528);
       expect(result.data.gamification?.palette.length).toBe(4);
+      expect(result.data.seo?.ogType).toBe('website');
       // 🚀 Validation du Sceau
       expect(result.data.cryptoSeal?.digitalSignature).toBeDefined();
       expect(result.data.cryptoSeal?.copyrightMetadata?.role).toBe('CREATOR');

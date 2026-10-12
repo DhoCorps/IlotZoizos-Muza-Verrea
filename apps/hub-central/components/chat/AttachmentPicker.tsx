@@ -1,29 +1,41 @@
 // apps/hub-central/components/chat/AttachmentPicker.tsx
-'tsx'
+'use client';
+
 import React, { useState, useEffect } from 'react';
 import { AttachmentSourceType, IRawAttachmentPointer } from '@ilot/types';
 
-interface AttachmentPickerProps {
+export interface AttachmentPickerItem {
+  slug: string;
+  title: string;
+  subtitle?: string;
+  thumbnailUrl?: string;
+}
+
+export interface AttachmentPickerProps {
   onSelect: (pointer: IRawAttachmentPointer) => void;
   onClose: () => void;
 }
 
+// 🛡️ Typage explicite avec la SSOT AttachmentSourceType (EntityTarget)
+const PICKER_SOURCES: AttachmentSourceType[] = ['LETRIN', 'SHOP', 'PARTITA', 'BLOG'];
+
 export function AttachmentPicker({ onSelect, onClose }: AttachmentPickerProps) {
   const [activeSource, setActiveSource] = useState<AttachmentSourceType>('LETRIN');
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<AttachmentPickerItem[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Simulation de chargement des créations de l'utilisateur selon la source active
+  // Chargement des créations de l'utilisateur selon la source active
   useEffect(() => {
     async function fetchUserCreations() {
       setLoading(true);
       try {
-        // Tu brancheras ici tes routes API respectives (ex: /api/letrin/my-fonts, /api/shop/my-products)
         const res = await fetch(`/api/creations/search?sourceType=${activeSource}`);
         const data = await res.json();
-        setItems(data.items || []);
+        const rawItems = Array.isArray(data) ? data : (data.items || data.data || []);
+        setItems(Array.isArray(rawItems) ? rawItems : []);
       } catch (err) {
         console.error("Erreur de chargement des créations", err);
+        setItems([]);
       } finally {
         setLoading(false);
       }
@@ -35,14 +47,21 @@ export function AttachmentPicker({ onSelect, onClose }: AttachmentPickerProps) {
     <div className="absolute bottom-16 left-0 w-96 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-4 z-50 text-white">
       <div className="flex justify-between items-center mb-3 border-b border-zinc-800 pb-2">
         <span className="font-semibold text-sm">Joindre une création</span>
-        <button onClick={onClose} className="text-zinc-400 hover:text-white text-xs">✕ Fermer</button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-zinc-400 hover:text-white text-xs"
+        >
+          ✕ Fermer
+        </button>
       </div>
 
-      {/* Onglets des sources */}
+      {/* Onglets des sources (SSOT EntityTarget) */}
       <div className="flex gap-2 mb-3 text-xs">
-        {['LETRIN', 'SHOP', 'PARTITA', 'BLOG'].map((source) => (
+        {PICKER_SOURCES.map((source) => (
           <button
             key={source}
+            type="button"
             onClick={() => setActiveSource(source)}
             className={`px-3 py-1 rounded-md transition-colors ${
               activeSource === source ? 'bg-indigo-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'

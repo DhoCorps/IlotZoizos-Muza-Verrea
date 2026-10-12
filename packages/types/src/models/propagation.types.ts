@@ -1,6 +1,6 @@
+// Fichier : packages/types/src/models/propagation.types.ts
 import { z } from 'zod';
-// On importe l'énumération des entités que nous avons créée dans le Sujet
-import { ExtendedEntityTypeSchema } from './sujet.types'; 
+import { EntityTargetEnum } from './common.types';
 
 // ==========================================
 // 1. ÉNUMÉRATIONS
@@ -22,16 +22,15 @@ export const PropagationMetricsSchema = z.object({
 });
 
 // ==========================================
-// 3. SCHÉMA PRINCIPAL : L'ÉVÉNEMENT DE PARTAGE
+// 3. SCHÉMA PRINCIPAL : L'ÉVÉNEMENT DE PARTAGE (Aligné SSOT EntityTargetEnum)
 // ==========================================
 export const ShareEventSchema = z.object({
   uid: z.string().uuid("L'UID de l'événement doit être un UUID valide"),
   
-  // CORRECTION ICI : Les messages reflètent bien une erreur de format UUID
   sourceUid: z.string().uuid("L'UID de l'Oiseau source doit être un UUID valide"),
   artifactUid: z.string().uuid("L'UID de l'œuvre cible doit être un UUID valide"),
   
-  artifactType: ExtendedEntityTypeSchema,
+  artifactType: EntityTargetEnum,
   
   // La portée et la liste des destinataires
   scope: PropagationScopeSchema.default('GLOBAL'),

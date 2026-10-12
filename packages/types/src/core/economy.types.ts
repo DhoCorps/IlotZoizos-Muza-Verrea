@@ -1,3 +1,4 @@
+// Fichier : packages/types/src/core/economy.types.ts
 import { z } from 'zod';
 
 // Devises et ressources reconnues par la Canopée
@@ -13,13 +14,30 @@ export const CurrencyEnum = z.enum([
 ]);
 export type ICurrency = z.infer<typeof CurrencyEnum>;
 
-export type AssetType = 'TASK' | 'SUJET' | 'PARTITA' | 'SAMPLE' | 'KAOS' | 'EURO' | 'TOX' | 'DHO';
+// Union des entités d'actifs et des devises pour les mises et paniers KonTraKt
+export const AssetTypeEnum = z.enum([
+  'TASK',
+  'SUJET',
+  'PARTITA',
+  'SAMPLE',
+  'KAOS',
+  'EURO',
+  'TOX',
+  'DHO'
+]);
+export type AssetType = z.infer<typeof AssetTypeEnum>;
 
 export interface IAssetValue {
   type: AssetType;
   amount: number;
   entityId?: string; // optionnel si c'est une monnaie pure
 }
+
+export const AssetValueSchema = z.object({
+  type: AssetTypeEnum,
+  amount: z.number().nonnegative(),
+  entityId: z.string().optional()
+});
 
 // Niveaux de difficulté
 export const DifficultyEnum = z.enum(['Initiate', 'Artisan', 'Maestro']);

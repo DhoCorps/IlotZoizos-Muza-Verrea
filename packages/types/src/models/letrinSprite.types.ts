@@ -1,6 +1,11 @@
+// Fichier : packages/types/src/models/letrinSprite.types.ts
 import { z } from 'zod';
 // 🚀 Import du Sceau Cryptographique Unifié (qui contient déjà le Copyright)
-import { CryptographicSealSchema } from '../core/cryptoSeal.types'; 
+import { CryptographicSealSchema } from '../core/cryptoSeal.types';
+// 🔍 Import & Ré-export de la SSOT SEO partagée (Élimination du doublon DRY)
+import { SeoMetadataSchema, ISeoMetadata } from '../core/seo.types';
+
+export { SeoMetadataSchema };
 
 // 🔠 Énumération des catégories typographiques historiques et descriptions explicatives
 export enum TypographicCategoryEnum {
@@ -24,12 +29,6 @@ export const TYPOGRAPHIC_CATEGORY_DESCRIPTIONS: Record<TypographicCategoryEnum, 
   [TypographicCategoryEnum.GOTHIQUE]: "Caractères brisés d'inspiration médiévale aux tracés anguleux et serrés.",
   [TypographicCategoryEnum.FANTAISIE]: "Polices expérimentales, décoratives ou pixel-art pures.",
 };
-
-export const SeoMetadataSchema = z.object({
-  metaTitle: z.string().optional(),
-  metaDescription: z.string().optional(),
-  ogImageUrl: z.string().optional(),
-});
 
 // 🔄 Modèle de Barter (Troc) pour les glyphes individuels
 export const GlyphBarterSchema = z.object({
@@ -93,6 +92,6 @@ export const LetrinFontSpriteSchema = z.object({
 export type LetrinFontSprite = z.infer<typeof LetrinFontSpriteSchema>;
 export type GlyphSpriteMapping = z.infer<typeof GlyphSpriteMappingSchema>;
 export type SpriteFrame = z.infer<typeof SpriteFrameSchema>;
-export type SeoMetadata = z.infer<typeof SeoMetadataSchema>;
+export type SeoMetadata = ISeoMetadata;
 export type GlyphBarter = z.infer<typeof GlyphBarterSchema>;
 export type LetrinGamification = z.infer<typeof LetrinGamificationSchema>;

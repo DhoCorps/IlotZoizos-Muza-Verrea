@@ -1,8 +1,18 @@
+// Fichier : packages/types/src/__tests__/subscription.types.test.ts
 import { describe, it, expect } from 'vitest';
-import { SubscriptionSchema, DigestPreferencesSchema } from '../core/subscription.types';
+import {
+  SubscriptionSchema,
+  DigestPreferencesSchema,
+  SubscriptionTargetTypeSchema
+} from '../core/subscription.types';
+import { EntityTargetEnum } from '../models/common.types';
 import { randomUUID } from 'crypto';
 
-describe('🌿 SubscriptionSchema (Canopée Tampon)', () => {
+describe('🌿 SubscriptionSchema (Canopée Tampon & SSOT EntityTargetEnum)', () => {
+  it('🟢 vérifie que SubscriptionTargetTypeSchema pointe directement sur EntityTargetEnum', () => {
+    expect(SubscriptionTargetTypeSchema).toBe(EntityTargetEnum);
+  });
+
   it('🟢 devrait valider un abonnement standard et appliquer le Digest par défaut à 20h', () => {
     const subscriber = randomUUID();
     const target = randomUUID();

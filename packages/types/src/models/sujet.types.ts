@@ -1,10 +1,11 @@
 // Fichier : packages/types/src/models/sujet.types.ts
 import { z } from 'zod';
+import { EntityTargetEnum, EntityTarget } from './common.types';
 import { SeoMetadataSchema, CrossLinkSchema, SharedMediaSchema } from '../core/seo.types';
 import { CryptographicSealSchema } from '../core/cryptoSeal.types'; // 🚀 Import du Sceau Unifié
 
 // ==========================================
-// 1. ÉNUMÉRATIONS & TYPES DE CONNEXIONS
+// 1. ÉNUMÉRATIONS & TYPES DE CONNEXIONS (SSOT)
 // ==========================================
 export const SujetCategorySchema = z.enum([
   'MONOLOGUE', 
@@ -20,21 +21,12 @@ export const SujetStatusSchema = z.enum([
   'ARCHIVED'
 ]);
 
-export const ExtendedEntityTypeSchema = z.enum([
-  'BLOG', 
-  'PROJECT', 
-  'FONT', 
-  'SPRITE', 
-  'PROFILE', 
-  'GAME', 
-  'LYRIKA', 
-  'SAMPLOTEK', 
-  'BIBLIOTEK', 
-  'POETRIK'
-]);
+// 🌌 Alignement sur la SSOT EntityTargetEnum (avec maintien de l'alias ExtendedEntityTypeSchema)
+export const ExtendedEntityTypeSchema = EntityTargetEnum;
+export type ExtendedEntityType = EntityTarget;
 
 export const ExtendedCrossLinkSchema = CrossLinkSchema.extend({
-  entityType: ExtendedEntityTypeSchema
+  entityType: EntityTargetEnum
 });
 
 // ==========================================
@@ -63,7 +55,7 @@ export const SujetSchema = z.object({
   tags: z.array(z.string()).default([]),
   
   publishedAt: z.string().datetime().optional(),
-  readingTimeMinutes: z.number().default(1),    
+  readingTimeMinutes: z.number().default(1),     
 
   // --- 🔍 OPTIMISATION SEO ---
   seo: SeoMetadataSchema.default({}),

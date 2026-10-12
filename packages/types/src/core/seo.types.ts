@@ -1,4 +1,6 @@
+// Fichier : packages/types/src/core/seo.types.ts
 import { z } from 'zod';
+import { EntityTargetEnum, EntityTarget } from '../models/common.types';
 
 // --- 🔍 SCHEMA SEO PARTAGÉ (Enrichi pour Bibliotek) ---
 export const SeoMetadataSchema = z.object({
@@ -16,27 +18,17 @@ export const SeoMetadataSchema = z.object({
 // Type inféré à utiliser dans les interfaces TS
 export type ISeoMetadata = z.infer<typeof SeoMetadataSchema>;
 
-
-// --- 🌐 SCHEMA CROSS-LINKS PARTAGÉ (LE GRAPH) ---
-export const EntityTypeSchema = z.enum([
-  'BLOG', 
-  'PROJECT', 
-  'FONT', 
-  'SPRITE', 
-  'PROFILE', 
-  'GAME', 
-  'LYRIKA', 
-  'SAMPLOTEK', 
-  'BIBLIOTEK', 
-  'POETRIK'
-]);
+// --- 🌐 SCHEMA CROSS-LINKS PARTAGÉ (LE GRAPH - Aligné sur la SSOT EntityTargetEnum) ---
+export const EntityTypeSchema = EntityTargetEnum;
+export type EntityType = EntityTarget;
 
 export const CrossLinkSchema = z.object({
-  entityType: EntityTypeSchema,
+  entityType: EntityTargetEnum,
   entityId: z.string(),
   label: z.string().optional()
 });
 
+export type ICrossLink = z.infer<typeof CrossLinkSchema>;
 
 // --- 🖼️ SCHEMA MÉDIAS & ACCESSIBILITÉ PARTAGÉ ---
 export const SharedMediaSchema = z.object({
@@ -45,3 +37,5 @@ export const SharedMediaSchema = z.object({
   audioTrackUrl: z.string().optional(),
   audioTitle: z.string().optional(),
 });
+
+export type ISharedMedia = z.infer<typeof SharedMediaSchema>;

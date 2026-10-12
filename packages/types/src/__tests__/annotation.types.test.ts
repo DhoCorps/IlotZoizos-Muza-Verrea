@@ -1,7 +1,18 @@
+// Fichier : packages/types/src/__tests__/annotation.types.test.ts
 import { describe, it, expect } from 'vitest';
-import { IUniversalAnnotation, ICreateUniversalAnnotationInput } from '../core/annotation.types';
+import {
+  IUniversalAnnotation,
+  ICreateUniversalAnnotationInput,
+  AnnotationTargetTypeSchema,
+  UniversalAnnotationSchema
+} from '../core/annotation.types';
+import { EntityTargetEnum } from '../models/common.types';
 
-describe('Types: Universal Annotation', () => {
+describe('Types: Universal Annotation (SSOT EntityTargetEnum)', () => {
+  it('🟢 vérifie que AnnotationTargetTypeSchema pointe sur la SSOT EntityTargetEnum', () => {
+    expect(AnnotationTargetTypeSchema).toBe(EntityTargetEnum);
+  });
+
   it('🟢 doit valider la structure d’une annotation pour un Ouvrage (BOOK)', () => {
     const bookAnnotation: IUniversalAnnotation = {
       uid: 'annot_123',
@@ -19,6 +30,7 @@ describe('Types: Universal Annotation', () => {
     expect(bookAnnotation.targetType).toBe('BOOK');
     expect(bookAnnotation.targetUid).toBe('book_456');
     expect(bookAnnotation.isScholarSealed).toBe(true);
+    expect(UniversalAnnotationSchema.safeParse(bookAnnotation).success).toBe(true);
   });
 
   it('🟢 doit valider la structure d’une annotation pour un Article de Blog (ARTICLE)', () => {
@@ -36,6 +48,7 @@ describe('Types: Universal Annotation', () => {
     expect(articleAnnotation.targetType).toBe('ARTICLE');
     expect(articleAnnotation.emotion).toBe('💡');
     expect(articleAnnotation.importance).toBeUndefined(); // L'importance est optionnelle
+    expect(UniversalAnnotationSchema.safeParse(articleAnnotation).success).toBe(true);
   });
 
   it('🟢 doit valider les données en entrée lors de la création d’une annotation', () => {
