@@ -1,3 +1,4 @@
+// Fichier : packages/types/src/models/team.types.ts
 import { z } from 'zod';
 import { BaseNodeSchema } from './common.types';
 
@@ -13,8 +14,8 @@ export const TeamDocumentSchema = z.object({
   label: z.string(),
   url: z.string(),
   mimeType: z.string(),
-  // 🪡 SUTURE API : Acceptation des dates ISO (String) ou Objets Date
-  createdAt: z.union([z.date(), z.string().datetime()]).optional()
+  // 🪡 SUTURE API : Harmonisation Date avec coerce
+  createdAt: z.coerce.date().optional()
 });
 
 export const TeamInvitationSchema = z.object({
@@ -23,14 +24,14 @@ export const TeamInvitationSchema = z.object({
   inviterUid: z.string(),
   status: z.enum(['PENDING', 'ACCEPTED', 'DECLINED']).default('PENDING'),
   capabilities: z.array(z.string()).default([]),
-  invitedAt: z.union([z.date(), z.string().datetime()]).default(() => new Date())
+  invitedAt: z.coerce.date().default(() => new Date()) // ⏳ Harmonisation Date avec coerce
 });
 
 export const TeamMemberSchema = z.object({
   uid: z.string(), // UID de l'oiseau
   capabilities: z.array(z.string()).default([]),
   contributionPoints: z.number().min(0).default(0),
-  joinedAt: z.union([z.date(), z.string().datetime()]).default(() => new Date())
+  joinedAt: z.coerce.date().default(() => new Date()) // ⏳ Harmonisation Date avec coerce
 });
 
 export const TeamSchema = BaseNodeSchema.extend({
@@ -66,7 +67,7 @@ export const TeamSchema = BaseNodeSchema.extend({
 
   // --- 🧠 RÉSILLIENCE & MODÉRATION ---
   collectiveHealth: z.object({
-    lastPulseCheck: z.union([z.date(), z.string().datetime()]).optional()
+    lastPulseCheck: z.coerce.date().optional() // ⏳ Harmonisation Date avec coerce
   }).default({}),
 
   moderation: z.object({
@@ -83,8 +84,8 @@ export const TeamSchema = BaseNodeSchema.extend({
   
   // 🪡 SUTURE API
   dates: z.object({
-    createdAt: z.union([z.date(), z.string().datetime()]).optional(),
-    updatedAt: z.union([z.date(), z.string().datetime()]).optional(),
+    createdAt: z.coerce.date().optional(), // ⏳ Harmonisation Date avec coerce
+    updatedAt: z.coerce.date().optional(), // ⏳ Harmonisation Date avec coerce
   }).default({})
 });
 

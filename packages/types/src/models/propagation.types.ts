@@ -42,7 +42,7 @@ export const ShareEventSchema = z.object({
   // La télémétrie de la qualité
   metrics: PropagationMetricsSchema.default({}),
   
-  createdAt: z.date().optional(),
+  createdAt: z.coerce.date().optional(), // ⏳ Harmonisation Date avec coerce
 })
 // 🛡️ SUPER-VALIDATION MÉTIER : Cohérence entre la portée et les destinataires
 .refine(data => {

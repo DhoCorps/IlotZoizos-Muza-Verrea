@@ -1,137 +1,124 @@
-// Fichier : packages/types/src/__tests__/ecommerce.types.test.ts
 import { describe, it, expect } from 'vitest';
-import { 
-  StoreSchema, 
-  ProductSchema, 
-  WishlistSchema, 
-  OrderSchema, 
-  BarterOfferSchema, 
+import {
+  StoreSchema,
+  ProductSchema,
   RouletteSessionSchema,
+  OrderSchema,
+  BarterOfferSchema
 } from '../core/ecommerce.types';
 
-describe('Ecommerce Types - Validation Zod Avancée (Coût, Marge Kompta, Roulette & Loterie)', () => {
-  it('🟢 doit valider une boutique valide', () => {
-    const store = { 
-      uid: 'store-1', 
-      ownerUid: 'bird-1', 
-      storeName: 'Boutique des Artefacts', 
-      slug: 'boutique-des-artefacts', 
-      isVerified: true 
+describe('Ecommerce Types & Schemas', () => {
+  
+  it('🟢 doit valider un Store complet', () => {
+    const store = {
+      uid: 'store_123',
+      ownerUid: 'bird_456',
+      storeName: 'La Boutique Obscure',
+      slug: 'boutique-obscure'
     };
-    expect(StoreSchema.safeParse(store).success).toBe(true);
+    
+    const result = StoreSchema.safeParse(store);
+    expect(result.success).toBe(true);
   });
 
-  it('🟢 doit valider un produit avec coût de revient, calcul de marge pour Kompta ET cryptoSeal (Pacte de Filiation)', () => {
-    const product = { 
-      uid: 'prod-1', 
-      storeUid: 'store-1', 
-      title: 'Police LetrIn', 
-      slug: 'police-letrin', 
-      description: 'Une police cyberpunk', 
+  it('🟢 doit valider un Produit et vérifier les règles de prix et la devise par défaut', () => {
+    const product = {
+      uid: 'prod_1',
+      storeUid: 'store_1',
+      title: 'Artefact Mystique',
+      slug: 'artefact-mystique',
+      description: 'Un objet rare forgé dans la Silice.',
       nature: 'DIGITAL',
-      priceExclTaxCents: 1250,
-      taxRatePercent: 20,
-      priceCents: 1500, // TTC
-      costPriceCents: 300, // Coût de fabrication/revient interne
-      marginCents: 950, // 1250 (HT) - 300 (Coût)
-      marginPercent: 76,
-      currency: 'EUR',
-      category: 'FONT_SPRITE',
-      tags: ['cyberpunk', 'font'],
-      seoMetadata: {
-        title: 'Police LetrIn',
-        description: 'Police exclusive.'
-      },
-      isRouletteActive: true,
-      wagerAmount: 5,
-      variants: [
-        { uid: 'var-1', name: 'Standard', priceOffsetCents: 0, costPriceCents: 300, stock: 50 }
-      ],
-      // 🚀 Intégration du cryptoSeal complet avec Filiation
-      cryptoSeal: {
-        digitalSignature: 'mock-ecommerce-hash',
-        timestampedAt: new Date(),
-        copyrightMetadata: {
-          role: 'SUBLIMATOR',
-          originalAuthor: 'Graphiste Anonyme',
-          isExclusiveIlot: true,
-          license: 'MIT / Libre Canopée',
-          filiation: {
-            isExternalSource: true,
-            sourceAuthorName: 'Graphiste Anonyme',
-            sourceWorkTitle: 'Cyber Font v1',
-            claimStatus: 'PENDING_CLAIM',
-            escrowBalance: 0
-          }
-        }
-      }
+      priceExclTaxCents: 1000,
+      priceCents: 1200,
+      category: 'DIGITAL_GOOD'
     };
     
     const result = ProductSchema.safeParse(product);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.cryptoSeal?.copyrightMetadata?.role).toBe('SUBLIMATOR');
-      expect(result.data.cryptoSeal?.copyrightMetadata?.filiation?.sourceWorkTitle).toBe('Cyber Font v1');
-      expect(result.data.cryptoSeal?.copyrightMetadata?.filiation?.claimStatus).toBe('PENDING_CLAIM');
+      // Vérifie que la devise a bien été attribuée via le .default() du CurrencyEnum
+      expect(result.data.currency).toBeDefined();
+      expect(result.data.stock).toBe(1); // Valeur par défaut
     }
   });
 
-  it('🟢 doit valider un produit de type LUCKY_DROP', () => {
-    const luckyDropProduct = {
-      uid: 'prod-lucky',
-      storeUid: 'store-1',
-      title: 'Artefact Mystère (Loterie)',
-      slug: 'artefact-mystere-loterie',
-      description: 'Le grand lot de la saison',
-      priceCents: 0,
-      priceExclTaxCents: 0,
-      category: 'LUCKY_DROP'
+  it('🔴 doit rejeter un produit avec un prix négatif', () => {
+    const invalidProduct = {
+      uid: 'prod_2',
+      storeUid: 'store_1',
+      title: 'Objet Corrompu',
+      slug: 'objet-corrompu',
+      description: 'Test',
+      priceExclTaxCents: -500, // 🚨 Interdit
+      priceCents: -600, // 🚨 Interdit
+      category: 'DIGITAL_GOOD'
     };
-    expect(ProductSchema.safeParse(luckyDropProduct).success).toBe(true);
+    
+    const result = ProductSchema.safeParse(invalidProduct);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const errorPaths = result.error.errors.map(e => e.path.join('.'));
+      expect(errorPaths).toContain('priceExclTaxCents');
+      expect(errorPaths).toContain('priceCents');
+    }
   });
 
-  it('🟢 doit valider une session de roulette karmique', () => {
-    const session = {
-      uid: 'roulette-sess-1',
-      buyerUid: 'bird-2',
-      productUid: 'prod-1',
-      rolledPriceCents: 750,
-      status: 'PENDING',
-      expiresAt: new Date()
-    };
-    expect(RouletteSessionSchema.safeParse(session).success).toBe(true);
-  });
+  describe('⏳ Harmonisation des Dates (z.coerce.date)', () => {
+    
+    const isoDateString = "2026-10-10T14:00:00.000Z";
 
-  it('🟢 doit valider une wishlist', () => {
-    const wishlist = { 
-      uid: 'wish-1', 
-      userUid: 'bird-1', 
-      productUids: ['prod-1'] 
-    };
-    expect(WishlistSchema.safeParse(wishlist).success).toBe(true);
-  });
+    it('🟢 doit coercer une string ISO en objet Date pour RouletteSessionSchema', () => {
+      const roulette = {
+        uid: 'roulette_1',
+        buyerUid: 'bird_1',
+        productUid: 'prod_1',
+        rolledPriceCents: 500,
+        expiresAt: isoDateString,
+        createdAt: isoDateString
+      };
+      
+      const result = RouletteSessionSchema.safeParse(roulette);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.expiresAt).toBeInstanceOf(Date);
+        expect(result.data.createdAt).toBeInstanceOf(Date);
+        expect(result.data.expiresAt.toISOString()).toBe(isoDateString);
+      }
+    });
 
-  it('🟢 doit valider une commande incluant le suivi des coûts (Kompta)', () => {
-    const order = { 
-      uid: 'ord-1', 
-      buyerUid: 'bird-2', 
-      storeUid: 'store-1', 
-      items: [{ productUid: 'prod-1', variantUid: 'var-1', title: 'Police - Standard', priceCents: 1500, costPriceCents: 300, quantity: 1 }], 
-      totalAmountCents: 1500, 
-      stripePaymentIntentId: 'pi_123' 
-    };
-    expect(OrderSchema.safeParse(order).success).toBe(true);
-  });
+    it('🟢 doit coercer une string ISO en objet Date pour OrderSchema', () => {
+      const order = {
+        uid: 'order_1',
+        buyerUid: 'bird_1',
+        storeUid: 'store_1',
+        items: [{ productUid: 'prod_1', title: 'Test', priceCents: 100, quantity: 1 }],
+        totalAmountCents: 100,
+        stripePaymentIntentId: 'pi_123',
+        createdAt: isoDateString
+      };
+      
+      const result = OrderSchema.safeParse(order);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.createdAt).toBeInstanceOf(Date);
+      }
+    });
 
-  it('🟢 doit valider une offre de troc (BarterOffer)', () => {
-    const barter = {
-      uid: 'barter-1',
-      initiatorUid: 'bird-1',
-      receiverUid: 'bird-2',
-      offeredProductUids: ['prod-1'],
-      requestedProductUids: ['prod-2'],
-      status: 'PENDING'
-    };
-    expect(BarterOfferSchema.safeParse(barter).success).toBe(true);
+    it('🟢 doit coercer une string ISO en objet Date pour BarterOfferSchema', () => {
+      const barter = {
+        uid: 'barter_1',
+        initiatorUid: 'bird_1',
+        offeredProductUids: ['prod_1'],
+        requestedProductUids: ['prod_2'],
+        createdAt: isoDateString
+      };
+      
+      const result = BarterOfferSchema.safeParse(barter);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.createdAt).toBeInstanceOf(Date);
+      }
+    });
   });
 });

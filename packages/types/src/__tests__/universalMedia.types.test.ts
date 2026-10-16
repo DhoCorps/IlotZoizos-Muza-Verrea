@@ -17,7 +17,8 @@ describe('Schéma Zod : UniversalMediaSchema & SourceAppEnum (SSOT EntityTargetE
     expect(SourceAppEnum.safeParse('UNKNOWN').success).toBe(true);
   });
 
-  it('🟢 valide un UniversalMedia complet avec les valeurs par défaut de droits et de provenance', () => {
+  it('🟢 valide un UniversalMedia complet avec les valeurs par défaut de droits, de provenance et la coercition des dates', () => {
+    const isoDate = new Date().toISOString();
     const validMedia = {
       creatorUid: 'bird_001',
       creatorSlug: 'oiseau-lyre',
@@ -25,7 +26,9 @@ describe('Schéma Zod : UniversalMediaSchema & SourceAppEnum (SSOT EntityTargetE
       title: { fr: 'Chant de la Canopée', en: 'Canopy Song' },
       fileUrl: 'https://cdn.ilot/audio/chant.mp3',
       mimeType: 'audio/mpeg',
-      sizeBytes: 4096000
+      sizeBytes: 4096000,
+      createdAt: isoDate, // ⏳ Test avec string ISO
+      updatedAt: isoDate
     };
 
     const result = UniversalMediaSchema.safeParse(validMedia);
@@ -35,6 +38,8 @@ describe('Schéma Zod : UniversalMediaSchema & SourceAppEnum (SSOT EntityTargetE
       expect(result.data.priceCents).toBe(0);
       expect(result.data.rights.allow_radio).toBe(false);
       expect(result.data.rights.consentForShowcase).toBe(false);
+      expect(result.data.createdAt).toBeInstanceOf(Date); // ⏳ Vérification du coerce
+      expect(result.data.createdAt?.toISOString()).toBe(isoDate);
     }
   });
 

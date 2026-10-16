@@ -48,8 +48,8 @@ export const SampleSchema = z.object({
   // 📜 SCEAU CRYPTOGRAPHIQUE UNIFIÉ (Empreinte SHA-256, Filiation, Exclusivité)
   cryptoSeal: CryptographicSealSchema.optional(),
 
-  createdAt: z.date().default(() => new Date()),
-  updatedAt: z.date().default(() => new Date()),
+  createdAt: z.coerce.date().default(() => new Date()), // ⏳ Harmonisation Date avec coerce
+  updatedAt: z.coerce.date().default(() => new Date()), // ⏳ Harmonisation Date avec coerce
 });
 
 // ==========================================
@@ -105,8 +105,8 @@ export const StudioProjectSchema = z.object({
   // 📜 SCEAU CRYPTOGRAPHIQUE UNIFIÉ
   cryptoSeal: CryptographicSealSchema.optional(),
 
-  createdAt: z.date().default(() => new Date()),
-  updatedAt: z.date().default(() => new Date()),
+  createdAt: z.coerce.date().default(() => new Date()), // ⏳ Harmonisation Date avec coerce
+  updatedAt: z.coerce.date().default(() => new Date()), // ⏳ Harmonisation Date avec coerce
 });
 
 // ==========================================

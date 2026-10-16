@@ -74,8 +74,8 @@ export const UniversalMediaSchema = z.object({
   
   rights: MediaRightsSchema.default({}),
   
-  createdAt: z.date().optional(),
-  updatedAt: z.date().optional(),
+  createdAt: z.coerce.date().optional(), // ⏳ Harmonisation Date avec coerce
+  updatedAt: z.coerce.date().optional(), // ⏳ Harmonisation Date avec coerce
 });
 
 export type UniversalMedia = z.infer<typeof UniversalMediaSchema>;

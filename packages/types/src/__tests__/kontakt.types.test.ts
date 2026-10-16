@@ -29,28 +29,38 @@ describe('KontaktProfile - Validation Zod des Profils Hybrides & Squelette Mutua
     pricing: {
       hourlyRateCents: 5000,
       missionRateCents: 40000,
-      currency: 'EUR'
+      currency: 'EURO' // 🌟 Testé avec la valeur validée par la SSOT CurrencyEnum
     },
     reviews: [
-      { authorUid: 'bird-beta', rating: 5, comment: 'Un mage hors pair !', isVerifiedHire: true }
+      { 
+        authorUid: 'bird-beta', 
+        rating: 5, 
+        comment: 'Un mage hors pair !', 
+        isVerifiedHire: true,
+        createdAt: "2026-10-10T14:00:00.000Z" // ⏳ Vérification du coerce date
+      }
     ],
     tags: ['mage', 'fullstack', 'silice'],
     seo: {
       metaTitle: 'Mage Fullstack Next.js | Kontakt Îlot',
       metaDescription: 'Profil de mage spécialisé Silice et Neo4j.'
-    }
+    },
+    createdAt: "2026-10-10T14:00:00.000Z" // ⏳ Vérification du coerce date
   };
 
-  it('🟢 doit valider un profil Kontakt complet avec son squelette SEO, tags et settings', () => {
+  it('🟢 doit valider un profil Kontakt complet avec son squelette SEO, tags, settings et dates ISO coercées', () => {
     const result = KontaktProfileSchema.safeParse(validProfile);
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.portfolioItems.length).toBe(1);
       expect(result.data.pricing?.hourlyRateCents).toBe(5000);
+      expect(result.data.pricing?.currency).toBe('EURO');
       expect(result.data.reviews[0].rating).toBe(5);
+      expect(result.data.reviews[0].createdAt).toBeInstanceOf(Date); // ⏳ Prouve que z.coerce.date() fonctionne
       expect(result.data.tags).toContain('silice');
       expect(result.data.seo.metaTitle).toBeDefined();
       expect(result.data.settings.allowDirectContact).toBe(true);
+      expect(result.data.createdAt).toBeInstanceOf(Date); // ⏳ Prouve que z.coerce.date() fonctionne au premier niveau
     }
   });
 
@@ -60,7 +70,7 @@ describe('KontaktProfile - Validation Zod des Profils Hybrides & Squelette Mutua
     expect(result.success).toBe(false);
   });
 
-  it('🐣 doit appliquer les valeurs par défaut (alignment, attributs à 10, seo vide, tags vides)', () => {
+  it('🐣 doit appliquer les valeurs par défaut (alignment, attributs à 10, seo vide, tags vides, createdAt natif)', () => {
     const minimal = {
       uid: 'kontakt-002',
       userUid: 'bird-beta',
@@ -76,6 +86,7 @@ describe('KontaktProfile - Validation Zod des Profils Hybrides & Squelette Mutua
     expect(parsed.reviews).toEqual([]);
     expect(parsed.tags).toEqual([]);
     expect(parsed.seo).toBeDefined();
+    expect(parsed.createdAt).toBeInstanceOf(Date); // ⏳ Date générée par défaut
   });
 
   it('🟢 doit valider une JobQuest riche avec informations entreprise, prérequis et avantages', () => {

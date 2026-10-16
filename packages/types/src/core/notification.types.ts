@@ -34,8 +34,8 @@ export const NotificationPayloadSchema = z.object({
   
   // On ajoute { required_error: ... } pour gérer l'absence totale du champ
   message: z.string({ required_error: "Le message de l'alerte ne peut être vide." })
-            .min(1, "Le message de l'alerte ne peut être vide."),
-            
+             .min(1, "Le message de l'alerte ne peut être vide."),
+             
   targetUrl: z.string().optional(),
   targetUid: z.string().uuid().optional(),
   targetType: EntityTargetEnum.optional(), // 🛡️ Verrouillé par la SSOT EntityTargetEnum
@@ -64,9 +64,9 @@ export const NotificationSchema = z.object({
   // 🌿 Le cœur de la Canopée Tampon : 
   // Si null/undefined, la notification est immédiate.
   // Sinon, elle reste invisible dans la base de données jusqu'à cette heure précise.
-  scheduledFor: z.date().optional().nullable(),
+  scheduledFor: z.coerce.date().optional().nullable(), // ⏳ Harmonisation Date avec coerce
   
-  createdAt: z.date().optional(),
+  createdAt: z.coerce.date().optional(), // ⏳ Harmonisation Date avec coerce
 });
 
 export type INotification = z.infer<typeof NotificationSchema>;

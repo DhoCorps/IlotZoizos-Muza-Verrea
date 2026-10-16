@@ -8,13 +8,16 @@ describe('UniversalCommentSchema (SSOT EntityTargetEnum)', () => {
     expect(CommentTargetTypeSchema).toBe(EntityTargetEnum);
   });
 
-  it('devrait valider un commentaire valide sur un SUJET avec les valeurs par défaut', () => {
+  it('devrait valider un commentaire valide sur un SUJET avec les valeurs par défaut et coercer les dates', () => {
+    const isoDate = new Date().toISOString();
     const validComment = {
       uid: '123e4567-e89b-12d3-a456-426614174000',
       authorUid: '123e4567-e89b-12d3-a456-426614174001',
       targetUid: '123e4567-e89b-12d3-a456-426614174002',
       targetType: 'SUJET',
       content: 'Ceci est une résonance magnifique.',
+      createdAt: isoDate, // ⏳ Test avec string ISO
+      updatedAt: isoDate
     };
 
     const result = UniversalCommentSchema.safeParse(validComment);
@@ -24,6 +27,8 @@ describe('UniversalCommentSchema (SSOT EntityTargetEnum)', () => {
       expect(result.data.allowReactions).toBe(true);
       expect(result.data.isHidden).toBe(false);
       expect(result.data.isScholarSealed).toBe(false);
+      expect(result.data.createdAt).toBeInstanceOf(Date); // ⏳ Vérification du coerce
+      expect(result.data.createdAt?.toISOString()).toBe(isoDate);
     }
   });
 

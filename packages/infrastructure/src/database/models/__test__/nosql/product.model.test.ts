@@ -57,7 +57,7 @@ describe('Product Model - Mongoose, Kompta & Sceau Cryptographique (cryptoSeal)'
         expect(product.tags).toContain('sélénite');
         expect(product.isRouletteActive).toBe(true);
         expect(product.wagerAmount).toBe(10);
-        expect(product.currency).toBe('EUR');
+        expect(product.currency).toBe('EURO'); // 🌟 Harmonisation SSOT CurrencyEnum ('EURO' au lieu de 'EUR')
         expect(product.stock).toBe(1);
         
         // 🚀 Vérifications sécurisées via le cryptoSeal

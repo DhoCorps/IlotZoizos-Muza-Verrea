@@ -1,9 +1,11 @@
+// Fichier : packages/types/src/models/project.types.ts
 import { z } from 'zod';
 import { 
   BaseNodeSchema, 
-  ProjectStatusSchema, 
-  ProjectPrioritySchema 
+  ProjectPrioritySchema,
+  StatusEnum 
 } from './common.types'; 
+import { CurrencyEnum } from '../core/economy.types';
 
 /**
  * 🎭 CATÉGORIES D'INTENTION
@@ -14,37 +16,38 @@ export const ProjectCategorySchema = z.enum([
 
 export const ProjectVisibilitySchema = z.enum(['PUBLIC', 'INTERNAL', 'PRIVATE', 'SECRET', 'OPEN_SOURCE']);
 
+// 🌟 Définition propre et unique de ProjectStatusSchema pour les chantiers
+export const ProjectStatusSchema = z.enum([
+  'CONCEPT', 'TODO', 'IN_PROGRESS', 'DONE', 'ARCHIVED', 'BLOCKED', 'ABANDONED'
+]);
+
 export const ProjectDocumentSchema = z.object({
   uid: z.string(),
   name: z.string(),
   label: z.string(),
   url: z.string(),
   mimeType: z.string(),
-  // 🪡 SUTURE API : Acceptation des dates ISO (String) ou Objets Date
-  createdAt: z.union([z.date(), z.string().datetime()]).default(() => new Date())
+  createdAt: z.coerce.date().default(() => new Date())
 });
 
 export type IProjectDocument = z.infer<typeof ProjectDocumentSchema>;
 
 /**
- * 🏗️ LE SCHÉMA DU CHANTIER (Purifié et Aligné avec Neo4j)
+ * 🏗️ LE SCHÉMA DU CHANTIER
  */
 export const ProjectSchema = BaseNodeSchema.extend({
-  // --- 🏷️ IDENTITÉ & RÉSONANCE ---
   uid: z.string(),
   name: z.string().min(3).max(100),
   slug: z.string(), 
   tag: z.string().min(2).max(10).optional(), 
   description: z.string().max(2000).optional(),
   
-  // 🔗 ARCHITECTURE (Récursivité et Appartenance)
   parentId: z.string().nullable().optional(), 
-  ownerUid: z.string(), // UID du Nid (Team)
-  creatorUid: z.string(), // UID de l'Architecte (Oiseau)
+  ownerUid: z.string(), 
+  creatorUid: z.string(), 
   guardianUid: z.string().optional(),
   teamIds: z.array(z.string()).default([]),
 
-  // --- 🎨 APPARENCE & VIBRATION ---
   appearance: z.object({
     icon: z.string().default('folder'),
     color: z.string().default('#8b9dc3'),
@@ -52,33 +55,29 @@ export const ProjectSchema = BaseNodeSchema.extend({
     avatarUrl: z.string().url().optional(),
   }).default({}),
 
-  // --- 📊 ÉTAT & TEMPORALITÉ ---
   status: ProjectStatusSchema.default('CONCEPT'),
   priority: ProjectPrioritySchema.default('MEDIUM'),
   category: ProjectCategorySchema.default('TECHNICAL'),
   visibility: ProjectVisibilitySchema.default('PRIVATE'),
   
-  // 🪡 SUTURE API : Tolérance pour la sérialisation SSR Next.js
   dates: z.object({
-    start: z.union([z.date(), z.string().datetime()]).optional(),
-    deadline: z.union([z.date(), z.string().datetime()]).optional(),
-    completedAt: z.union([z.date(), z.string().datetime()]).optional(),
-    lastActivity: z.union([z.date(), z.string().datetime()]).default(() => new Date()),
-    createdAt: z.union([z.date(), z.string().datetime()]).optional(),
-    updatedAt: z.union([z.date(), z.string().datetime()]).optional()
+    start: z.coerce.date().optional(),
+    deadline: z.coerce.date().optional(),
+    completedAt: z.coerce.date().optional(),
+    lastActivity: z.coerce.date().default(() => new Date()),
+    createdAt: z.coerce.date().optional(),
+    updatedAt: z.coerce.date().optional()
   }).default({}),
 
-  // --- 📂 SÉDIMENTATION (Fichiers & Documents) ---
   documents: z.array(ProjectDocumentSchema).default([]),
   
-  // --- 🎯 FEUILLE DE ROUTE (Repères factuels) ---
   roadmap: z.object({
     progress: z.number().min(0).max(100).default(0),
     milestones: z.array(z.object({
       id: z.string(),
       label: z.string(),
       isCompleted: z.boolean().default(false),
-      dueDate: z.union([z.date(), z.string().datetime()]).optional(),
+      dueDate: z.coerce.date().optional(),
       weight: z.number().default(1),
     })).default([]),
     vibrations: z.array(z.object({
@@ -89,12 +88,11 @@ export const ProjectSchema = BaseNodeSchema.extend({
     })).default([]),
   }).default({}),
 
-  // --- 🌳 LA SÈVE (Énergie & Ressources) ---
   energySap: z.object({
     resourceFlow: z.object({
       estimated: z.number().default(0),
       spent: z.number().default(0),
-      currency: z.string().default('EUR'),
+      currency: CurrencyEnum.default('EURO'),
     }).optional(),
     sources: z.array(z.string()).default([]),
     isMonetized: z.boolean().default(false),
@@ -106,14 +104,12 @@ export const ProjectSchema = BaseNodeSchema.extend({
     hardwareRequirements: z.array(z.string()).default([]),
   }).default({}),
 
-  // --- 🧠 COMPLEXITÉ & RISQUES ---
   health: z.object({
     complexityLevel: z.number().min(1).max(10).default(5),
     riskLevel: z.enum(['SAFE', 'STABLE', 'WARNING', 'CRITICAL']).default('SAFE'),
     mitigationPlans: z.array(z.string()).default([]),
   }).default({}),
 
-  // --- ⚖️ GOUVERNANCE SOUVERAINE ---
   governance: z.object({
     isOpenSource: z.boolean().default(false),
     license: z.string().default('MIT'),
@@ -121,7 +117,6 @@ export const ProjectSchema = BaseNodeSchema.extend({
     restrictedAccess: z.boolean().default(false),
   }).default({}),
 
-  // --- 🛡️ SÉCURITÉ DU SANCTUAIRE ---
   moderation: z.object({
     isFlagged: z.boolean().default(false),
     internalNotes: z.string().optional(),
@@ -130,21 +125,15 @@ export const ProjectSchema = BaseNodeSchema.extend({
 
 export type IProject = z.infer<typeof ProjectSchema>;
 
-/**
- * 🔗 RÉSONANCE DE CONTRIBUTION (Schéma Zod)
- */
 export const ProjectContributionSchema = z.object({
   userUid: z.string(),
   projectUid: z.string(),
-  since: z.union([z.date(), z.string().datetime()]),
+  since: z.coerce.date(),
   effortHours: z.number().min(0),
 });
 
 export type IProjectContribution = z.infer<typeof ProjectContributionSchema>;
 
-/**
- * 📤 PAYLOADS D'API : Vues partielles du schéma
- */
 export const FosterProjectPayloadSchema = ProjectSchema.pick({
   name: true,
   slug: true,

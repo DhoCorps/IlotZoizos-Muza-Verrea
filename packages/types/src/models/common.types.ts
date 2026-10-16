@@ -1,4 +1,4 @@
-// packages/types/src/models/common.types.ts
+// Fichier : packages/types/src/models/common.types.ts
 import { z } from 'zod';
 
 // 1. Renommé pour éviter la collision avec status.types.ts
@@ -15,8 +15,6 @@ export const STATUS_CONFIG: Record<StatusEnum, { label: string, color: string }>
 };
 
 // 🌌 SOURCE UNIQUE DE VÉRITÉ (SSOT) : Cibles d'Entités & Modules de l'Îlot
-// Unifie SourceAppEnum, CommentTargetTypeSchema, ExtendedEntityTypeSchema, EntityTypeSchema,
-// SubscriptionTargetTypeSchema, AgoraModuleSource, AnnotationTargetType et ModerationTargetType.
 export const EntityTargetEnum = z.enum([
   // --- 🏛️ ENTITÉS MÉTIER ---
   'USER',
@@ -48,7 +46,7 @@ export const EntityTargetEnum = z.enum([
   'MESSAGE',
   'TAG',
 
-  // --- 🛰️ MODULES & APPLICATIONS SOURCES (Rétrocompatibilité SourceApp & CrossLinks) ---
+  // --- 🛰️ MODULES & APPLICATIONS SOURCES ---
   'ABYSS',
   'BIBLIOTEK',
   'POETRIK',
@@ -62,11 +60,10 @@ export const EntityTargetEnum = z.enum([
   'UNKNOWN'
 ]);
 
-// Alias de schéma et type inféré pour une interopérabilité totale dans le monorepo
 export const EntityTargetSchema = EntityTargetEnum;
 export type EntityTarget = z.infer<typeof EntityTargetEnum>;
 
-// 🏗️ Le Pivot MongoDB / Neo4j (Version unifiée et flexible)
+// 🏗️ Le Pivot MongoDB / Neo4j
 export const BaseNodeSchema = z.object({
   _id: z.string().optional(), 
   uid: z.string().optional(), 
@@ -76,7 +73,7 @@ export const BaseNodeSchema = z.object({
 
 export type IBaseNode = z.infer<typeof BaseNodeSchema>;
 
-// 🛍️ Schéma e-commerce partagé entre les Sujets, les Partitions, etc.
+// 🛍️ Schéma e-commerce partagé
 export const MerchLinkSchema = z.object({
   productId: z.string(),
   sku: z.string().optional(),
@@ -85,8 +82,7 @@ export const MerchLinkSchema = z.object({
 
 export type IMerchLink = z.infer<typeof MerchLinkSchema>;
 
-// 📊 Constantes Globales
-export const ProjectStatusSchema = z.enum(['CONCEPT', 'PLANNED', 'IN_PROGRESS', 'DONE', 'BLOCKED', 'REDUCED_SPEED', 'ARCHIVED']);
+// 📊 Constantes Globales (ProjectStatusSchema supprimé d'ici pour éviter le doublon avec project.types.ts)
 export const ProjectPrioritySchema = z.enum(['TRIVIAL', 'EASY', 'MEDIUM', 'HARD', 'EXTREME', 'CRITICAL']);
 
 // 👉 L'EXPORT MANQUANT POUR TASKS

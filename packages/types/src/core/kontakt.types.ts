@@ -1,6 +1,7 @@
 // Fichier : packages/types/src/core/kontakt.types.ts
 import { z } from 'zod';
 import { SeoMetadataSchema } from './seo.types'; // 🚀 Intégration du squelette SEO
+import { CurrencyEnum } from './economy.types'; // 🌟 Importation de la SSOT des devises
 
 export const TTRPGAlignmentEnum = z.enum([
   'LOYAL_GOOD', 'NEUTRAL_GOOD', 'CHAOTIC_GOOD',
@@ -28,7 +29,7 @@ export const PortfolioItemSchema = z.object({
 export const PricingProfileSchema = z.object({
   hourlyRateCents: z.number().min(0),
   missionRateCents: z.number().min(0),
-  currency: z.string().default('EUR'),
+  currency: CurrencyEnum.default('EURO'), // 🌟 Harmonisation SSOT Devise
 });
 
 export const BudgetConstraintSchema = z.object({
@@ -41,7 +42,7 @@ export const ReviewSchema = z.object({
   rating: z.number().min(1).max(5),
   comment: z.string(),
   isVerifiedHire: z.boolean().default(false),
-  createdAt: z.coerce.date().optional(),
+  createdAt: z.coerce.date().default(() => new Date()), // ⏳ Sécurisation via coerce & Date auto
 });
 
 export const KontaktProfileSchema = z.object({
@@ -73,7 +74,7 @@ export const KontaktProfileSchema = z.object({
     showcaseBadge: z.boolean().default(true),
   }).default({}),
 
-  createdAt: z.coerce.date().optional(),
+  createdAt: z.coerce.date().default(() => new Date()), // ⏳ Sécurisation via coerce & Date auto
 });
 
 export type PortfolioItem = z.infer<typeof PortfolioItemSchema>;

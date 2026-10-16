@@ -41,7 +41,7 @@ export const SubscriptionSchema = z.object({
     timezone: 'Europe/Paris'
   }),
   
-  createdAt: z.date().optional(),
+  createdAt: z.coerce.date().optional(), // ⏳ Harmonisation Date avec coerce
 });
 
 export type ISubscription = z.infer<typeof SubscriptionSchema>;

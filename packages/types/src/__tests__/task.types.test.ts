@@ -13,7 +13,9 @@ console.log("🔍 STRUCTURE RÉELLE CHARGÉE PAR ZOD :", Object.keys(TaskSchema.
 
 describe('TaskSchema (Zod) - Validation Typographique & Pont Transversal SSOT', () => {
   
-  it('🛡️ doit valider un payload complet et strict avec maillage transversal (EntityTargetEnum)', () => {
+  it('🛡️ doit valider un payload complet et strict avec maillage transversal (EntityTargetEnum) et coercer les dates ISO', () => {
+    const isoDate = new Date().toISOString();
+    
     const fullPayload = {
       uid: 'task_zod_1',
       projectUid: 'proj_zod_1',
@@ -42,12 +44,19 @@ describe('TaskSchema (Zod) - Validation Typographique & Pont Transversal SSOT', 
       metrics: {
         complexity: 8
       },
-      documents: [],
+      documents: [{
+        uid: 'doc_1',
+        name: 'Spec',
+        label: 'spec.pdf',
+        url: 'https://cdn.ilot.zoizos/spec.pdf',
+        mimeType: 'application/pdf',
+        createdAt: isoDate // ⏳ String ISO
+      }],
       dates: {
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        scheduledAt: new Date(),
-        completedAt: new Date()
+        createdAt: isoDate, // ⏳ String ISO
+        updatedAt: isoDate, // ⏳ String ISO
+        scheduledAt: isoDate, // ⏳ String ISO
+        completedAt: isoDate // ⏳ String ISO
       }
     };
 
@@ -62,6 +71,13 @@ describe('TaskSchema (Zod) - Validation Typographique & Pont Transversal SSOT', 
     
     if (result.success) {
       expect(result.data.connections?.targetModule).toBe('SAMPLOTEK');
+      // ⏳ Vérification du coerce sur toutes les dates
+      expect(result.data.dates.createdAt).toBeInstanceOf(Date);
+      expect(result.data.dates.createdAt?.toISOString()).toBe(isoDate);
+      expect(result.data.dates.updatedAt).toBeInstanceOf(Date);
+      expect(result.data.dates.scheduledAt).toBeInstanceOf(Date);
+      expect(result.data.dates.completedAt).toBeInstanceOf(Date);
+      expect(result.data.documents[0].createdAt).toBeInstanceOf(Date);
     }
   });
 

@@ -1,10 +1,11 @@
 // packages/types/src/__tests__/samplotek.types.test.ts
 
 import { describe, it, expect } from 'vitest';
-import { SampleSchema, StudioProjectSchema } from '../models/sample.types';
+import { SampleSchema, StudioProjectSchema } from '../models/sample.types'; // Ajustement du chemin
 
 describe('Zod Schemas : SamploTek', () => {
-  it('🟢 SampleSchema : doit valider un sample et appliquer les valeurs par défaut (SEO, Moderation)', () => {
+  it('🟢 SampleSchema : doit valider un sample, appliquer les valeurs par défaut et coercer les dates ISO', () => {
+    const isoDate = "2026-10-16T18:00:00.000Z";
     const rawData = {
       uid: 'samp_123',
       title: 'Kick Cyberpunk',
@@ -14,13 +15,15 @@ describe('Zod Schemas : SamploTek', () => {
       authorUid: 'user_456',
       cryptoSeal: {
         digitalSignature: 'sha256-abc123def456',
-        timestampedAt: new Date(),
+        timestampedAt: isoDate, // ⏳ String ISO
         copyrightMetadata: {
           role: 'CREATOR',
           isExclusiveIlot: true,
           license: 'STANDARD'
         }
-      }
+      },
+      createdAt: isoDate, // ⏳ String ISO
+      updatedAt: isoDate  // ⏳ String ISO
     };
 
     const parsed = SampleSchema.parse(rawData);
@@ -31,6 +34,11 @@ describe('Zod Schemas : SamploTek', () => {
     expect(parsed.cryptoSeal?.digitalSignature).toBe('sha256-abc123def456');
     expect(parsed.cryptoSeal?.copyrightMetadata?.role).toBe('CREATOR');
 
+    // ⏳ Vérification de la coercition des dates
+    expect(parsed.createdAt).toBeInstanceOf(Date);
+    expect(parsed.updatedAt).toBeInstanceOf(Date);
+    expect(parsed.createdAt.toISOString()).toBe(isoDate);
+
     // Vérification de la robustesse des valeurs par défaut Zod
     expect(parsed.tempoBpm).toBe(120);
     expect(parsed.musicalKey).toBe('C major');
@@ -40,7 +48,8 @@ describe('Zod Schemas : SamploTek', () => {
     expect(parsed.seo).toBeDefined();
   });
 
-  it('🟢 StudioProjectSchema : doit valider un projet, ses pistes FX, et son Voile de Catharsis', () => {
+  it('🟢 StudioProjectSchema : doit valider un projet, ses pistes FX, son Voile de Catharsis et coercer les dates', () => {
+    const isoDate = "2026-10-16T18:30:00.000Z";
     const rawProject = {
       uid: 'proj_789',
       title: 'Aube Numérique',
@@ -57,7 +66,8 @@ describe('Zod Schemas : SamploTek', () => {
         snapToGrid: true,
         quantization: '1/8',
         allowComments: false
-      }
+      },
+      createdAt: isoDate // ⏳ String ISO
     };
 
     const parsedProject = StudioProjectSchema.parse(rawProject);
@@ -67,6 +77,10 @@ describe('Zod Schemas : SamploTek', () => {
     expect(parsedProject.tracks[0].steps).toHaveLength(16);
     expect(parsedProject.tracks[0].fx.reverb).toBe(0);
     expect(parsedProject.settings.allowComments).toBe(false);
+    
+    // ⏳ Vérification de la coercition des dates pour le StudioProject
+    expect(parsedProject.createdAt).toBeInstanceOf(Date);
+    expect(parsedProject.createdAt.toISOString()).toBe(isoDate);
   });
 
   it('🔴 SampleSchema : doit rejeter un sample si les données requises manquent', () => {

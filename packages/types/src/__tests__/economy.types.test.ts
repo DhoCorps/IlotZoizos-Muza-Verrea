@@ -24,7 +24,8 @@ describe('Schémas Zod : Économie, KonTraKt & Panier de Victoire (economy.types
     expect(validAsset.success).toBe(true);
   });
 
-  it('🟢 doit valider un KonTraKt en mode MULTIPLAYER avec une devise souveraine (DHO)', () => {
+  it('🟢 doit valider un KonTraKt en mode MULTIPLAYER avec une devise souveraine (DHO) et coercer la date', () => {
+    const isoDate = "2026-10-16T14:30:00.000Z";
     const validMultiplayerKontrakt = {
       creatorId: 'bird_001',
       gameId: 'CrazyMorpion',
@@ -33,11 +34,15 @@ describe('Schémas Zod : Économie, KonTraKt & Panier de Victoire (economy.types
       wagerAmount: 10,
       wagerCurrency: 'DHO',
       targetDhOValue: 20,
-      expiresAt: new Date(Date.now() + 3600_000)
+      expiresAt: isoDate // ⏳ String ISO
     };
 
     const result = KonTraKtCreationSchema.safeParse(validMultiplayerKontrakt);
     expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.expiresAt).toBeInstanceOf(Date); // ⏳ Vérification coerce
+      expect(result.data.expiresAt.toISOString()).toBe(isoDate);
+    }
   });
 
   it('🔴 doit rejeter un KonTraKt en mode SOLO si la mise est en DHO ou TOX', () => {

@@ -112,7 +112,7 @@ export class BibliotekOrchestrator {
 
       const defaultEconomy: LibraryBookEconomyMetadata = {
         priceCents: data.economy?.priceCents ?? 0,
-        currency: data.economy?.currency ?? 'EUR',
+        currency: data.economy?.currency ?? 'EURO',
         rights: {
           allowCommercial: data.economy?.rights?.allowCommercial ?? true,
           allowBarter: data.economy?.rights?.allowBarter ?? true,

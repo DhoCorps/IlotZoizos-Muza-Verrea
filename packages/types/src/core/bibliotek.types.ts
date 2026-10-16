@@ -1,6 +1,7 @@
 // Fichier : packages/types/src/core/bibliotek.types.ts
 import { ISeoMetadata } from './seo.types';
 import { ICryptographicSeal } from './cryptoSeal.types'; // 🚀 Import du Sceau unifié
+import { ICurrency } from './economy.types'; // 🌟 Importation de la SSOT des devises
 
 // ==========================================
 // 📚 TYPES & SCHÉMAS : BIBLIOTEK, GACHA & BARTER
@@ -64,7 +65,7 @@ export interface UniversalMediaRights {
 // 💰 Interface financière et d'échange de l'ouvrage (Gacha & Barter)
 export interface LibraryBookEconomyMetadata {
   priceCents: number;           // Valeur nominale en centimes
-  currency?: string;            // Ex: 'EUR', 'SILICE'
+  currency?: ICurrency;         // 🌟 Ex: 'EUR', 'DHO' (Remplace string générique)
   rights: UniversalMediaRights;
   barterAllowed: boolean;       // Actif pour le module Barter
   gachaTier: GachaTierCode;     // Rareté dans le Gacha Littéraire

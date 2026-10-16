@@ -13,8 +13,11 @@ describe('Types: Universal Annotation (SSOT EntityTargetEnum)', () => {
     expect(AnnotationTargetTypeSchema).toBe(EntityTargetEnum);
   });
 
-  it('🟢 doit valider la structure d’une annotation pour un Ouvrage (BOOK)', () => {
-    const bookAnnotation: IUniversalAnnotation = {
+  it('🟢 doit valider la structure d’une annotation pour un Ouvrage (BOOK) et coercer la date', () => {
+    const isoDateString = new Date().toISOString();
+    
+    // On simule un payload brut venant de l'API (avec une date en string)
+    const rawBookAnnotation = {
       uid: 'annot_123',
       targetUid: 'book_456',
       targetType: 'BOOK',
@@ -24,13 +27,20 @@ describe('Types: Universal Annotation (SSOT EntityTargetEnum)', () => {
       comment: 'Une fulgurance incontournable.',
       importance: 5,
       isScholarSealed: true,
-      createdAt: new Date().toISOString()
+      createdAt: isoDateString // String ISO
     };
 
-    expect(bookAnnotation.targetType).toBe('BOOK');
-    expect(bookAnnotation.targetUid).toBe('book_456');
-    expect(bookAnnotation.isScholarSealed).toBe(true);
-    expect(UniversalAnnotationSchema.safeParse(bookAnnotation).success).toBe(true);
+    const result = UniversalAnnotationSchema.safeParse(rawBookAnnotation);
+    
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.targetType).toBe('BOOK');
+      expect(result.data.targetUid).toBe('book_456');
+      expect(result.data.isScholarSealed).toBe(true);
+      // ⏳ Vérification du z.coerce.date()
+      expect(result.data.createdAt).toBeInstanceOf(Date);
+      expect(result.data.createdAt?.toISOString()).toBe(isoDateString);
+    }
   });
 
   it('🟢 doit valider la structure d’une annotation pour un Article de Blog (ARTICLE)', () => {
@@ -45,10 +55,13 @@ describe('Types: Universal Annotation (SSOT EntityTargetEnum)', () => {
       createdAt: new Date()
     };
 
-    expect(articleAnnotation.targetType).toBe('ARTICLE');
-    expect(articleAnnotation.emotion).toBe('💡');
-    expect(articleAnnotation.importance).toBeUndefined(); // L'importance est optionnelle
-    expect(UniversalAnnotationSchema.safeParse(articleAnnotation).success).toBe(true);
+    const result = UniversalAnnotationSchema.safeParse(articleAnnotation);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.targetType).toBe('ARTICLE');
+      expect(result.data.emotion).toBe('💡');
+      expect(result.data.importance).toBeUndefined(); // L'importance est optionnelle
+    }
   });
 
   it('🟢 doit valider les données en entrée lors de la création d’une annotation', () => {

@@ -41,4 +41,28 @@ describe('Types : PoemSchema (Poetrik)', () => {
     const result = PoemSchema.safeParse(poemWithAudio);
     expect(result.success).toBe(true);
   });
+
+  it('🟢 doit coercer les dates ISO en objets Date (createdAt, updatedAt, timestamp du sceau)', () => {
+    const isoDate = "2026-10-16T17:00:00.000Z";
+    const poemWithDates = {
+      authorUid: 'oiseau_123',
+      title: 'Les affres du temps',
+      content: 'Le temps s\'écoule...',
+      cryptoSeal: {
+        timestamp: isoDate // ⏳ String ISO
+      },
+      createdAt: isoDate, // ⏳ String ISO
+      updatedAt: isoDate // ⏳ String ISO
+    };
+
+    const result = PoemSchema.safeParse(poemWithDates);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.createdAt).toBeInstanceOf(Date);
+      expect(result.data.createdAt?.toISOString()).toBe(isoDate);
+      expect(result.data.updatedAt).toBeInstanceOf(Date);
+      expect(result.data.cryptoSeal?.timestamp).toBeInstanceOf(Date);
+      expect(result.data.cryptoSeal?.timestamp?.toISOString()).toBe(isoDate);
+    }
+  });
 });

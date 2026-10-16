@@ -34,9 +34,9 @@ describe('🔔 NotificationSchema (Alertes, Canopée Tampon & SSOT EntityTargetE
     }
   });
 
-  it('🟢 devrait valider une notification de type DIGEST avec une date de libération (Canopée Tampon)', () => {
-    const futureDate = new Date();
-    futureDate.setHours(20, 0, 0, 0); // Digest planifié pour 20h00 ce soir
+  it('🟢 devrait valider une notification de type DIGEST avec des dates ISO coercées (Canopée Tampon)', () => {
+    const futureDateIso = new Date(new Date().setHours(20, 0, 0, 0)).toISOString(); // Digest planifié pour 20h00 en ISO
+    const creationDateIso = new Date().toISOString();
 
     const payload = {
       uid: randomUUID(),
@@ -48,14 +48,18 @@ describe('🔔 NotificationSchema (Alertes, Canopée Tampon & SSOT EntityTargetE
         message: "3 nouveaux monologues et 2 samples ont enrichi la constellation aujourd'hui.",
         groupedCount: 5 // On indique à l'UI que c'est une alerte groupée
       },
-      scheduledFor: futureDate // 🌿 Retenue dans la Canopée jusqu'à l'heure H
+      scheduledFor: futureDateIso, // 🌿 Chaîne ISO pour tester la coercition
+      createdAt: creationDateIso
     };
 
     const result = NotificationSchema.safeParse(payload);
     
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.scheduledFor).toEqual(futureDate);
+      expect(result.data.scheduledFor).toBeInstanceOf(Date); // ⏳ Prouve que le coerce fonctionne
+      expect(result.data.scheduledFor?.toISOString()).toBe(futureDateIso);
+      expect(result.data.createdAt).toBeInstanceOf(Date);
+      expect(result.data.createdAt?.toISOString()).toBe(creationDateIso);
       expect(result.data.payload.groupedCount).toBe(5);
     }
   });

@@ -31,8 +31,8 @@ export const UniversalCommentSchema = z.object({
   // 🌟 Le Sceau de l'Érudit (Extraction SEO pour la section "Échos Remarquables")
   isScholarSealed: z.boolean().default(false),
 
-  createdAt: z.date().optional(),
-  updatedAt: z.date().optional(),
+  createdAt: z.coerce.date().optional(), // ⏳ Harmonisation Date avec coerce
+  updatedAt: z.coerce.date().optional(), // ⏳ Harmonisation Date avec coerce
 });
 
 export type UniversalComment = z.infer<typeof UniversalCommentSchema>;

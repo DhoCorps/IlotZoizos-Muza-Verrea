@@ -1,12 +1,22 @@
+// Fichier : packages/types/src/__tests__/project.types.test.ts
 import { describe, it, expect } from 'vitest';
 import { 
   ProjectSchema, 
   FosterProjectPayloadSchema,
-  UpdateProjectPayloadSchema
+  UpdateProjectPayloadSchema,
+  ProjectStatusSchema
 } from '../models/project.types';
+import { StatusEnum } from '../models/common.types';
 
 describe('Type Validation : ProjectSchema (Tom-Hat-Toes)', () => {
   
+  it('🟢 doit valider que ProjectStatusSchema est aligné sur la SSOT StatusEnum', () => {
+    const statuses: StatusEnum[] = ['CONCEPT', 'TODO', 'IN_PROGRESS', 'DONE', 'ARCHIVED', 'BLOCKED', 'ABANDONED'];
+    for (const status of statuses) {
+      expect(ProjectStatusSchema.safeParse(status).success).toBe(true);
+    }
+  });
+
   it('🟢 doit valider un chantier complet avec des objets Date natifs', () => {
     const mockProject = {
       uid: 'proj_123',
@@ -14,19 +24,24 @@ describe('Type Validation : ProjectSchema (Tom-Hat-Toes)', () => {
       slug: 'refonte-ilot-zoizos',
       ownerUid: 'team_alpha',
       creatorUid: 'bird_dev_1',
-      // 🎛️ CORRECTION : 'IN_PROGRESS' est généralement réservé aux Tâches.
-      // On utilise un statut de projet valide comme 'CONCEPT' (ou 'ACTIVE').
-      status: 'CONCEPT', 
+      status: 'IN_PROGRESS', 
       priority: 'MEDIUM',
       dates: {
         createdAt: new Date(),
         updatedAt: new Date()
+      },
+      energySap: {
+        resourceFlow: {
+          estimated: 1000,
+          spent: 500,
+          currency: 'EURO' // 🌟 Validation devises SSOT
+        }
       }
     };
 
     const result = ProjectSchema.safeParse(mockProject);
     
-    // 🛡️ SÉCURITÉ DEBUG : Affiche l'erreur exacte dans la console si Zod bloque
+    // 🛡️ SÉCURITÉ DEBUG
     if (!result.success) {
       console.error("Zod Validation Error:", result.error.flatten());
     }
@@ -34,16 +49,18 @@ describe('Type Validation : ProjectSchema (Tom-Hat-Toes)', () => {
     expect(result.success).toBe(true);
   });
 
-  it('🟢 doit valider un chantier avec des dates ISO (Cas SSR / API JSON)', () => {
+  it('🟢 doit valider un chantier avec des dates ISO coercées (Cas SSR / API JSON)', () => {
+    const isoDate = "2026-10-10T14:00:00.000Z";
     const ssrProject = {
       uid: 'proj_ssr',
       name: 'Data Pipeline',
       slug: 'data-pipeline',
       ownerUid: 'team_data',
       creatorUid: 'bird_data_1',
+      status: 'CONCEPT',
       dates: {
-        createdAt: "2026-10-10T14:00:00.000Z", // String au lieu de Date
-        updatedAt: "2026-10-10T15:30:00.000Z"
+        createdAt: isoDate, // String au lieu de Date
+        updatedAt: isoDate
       }
     };
 
@@ -54,9 +71,10 @@ describe('Type Validation : ProjectSchema (Tom-Hat-Toes)', () => {
     }
     
     expect(result.success).toBe(true);
-    // Zod conserve le format string car on a utilisé z.union()
+    // ⏳ Zod transforme proprement les chaînes en objets Date via z.coerce.date()
     if (result.success) {
-      expect(typeof result.data.dates.createdAt).toBe('string');
+      expect(result.data.dates.createdAt).toBeInstanceOf(Date);
+      expect(result.data.dates.createdAt?.toISOString()).toBe(isoDate);
     }
   });
 
@@ -93,6 +111,8 @@ describe('Type Validation : ProjectSchema (Tom-Hat-Toes)', () => {
       expect(result.data.health.riskLevel).toBe('SAFE');
       expect(result.data.governance.license).toBe('MIT');
       expect(result.data.roadmap.progress).toBe(0);
+      expect(result.data.status).toBe('CONCEPT'); 
+      expect(result.data.dates.lastActivity).toBeInstanceOf(Date); // ⏳ Vérification coerce auto
     }
   });
 
@@ -113,15 +133,15 @@ describe('Type Validation : ProjectSchema (Tom-Hat-Toes)', () => {
     it('🔴 doit rejeter un UpdateProjectPayload essayant de modifier l\'UID', () => {
       const payload = {
         uid: 'hacked_uid',
-        name: 'Nom modifié'
+        name: 'Nom modifié',
+        status: 'ARCHIVED'
       };
       
-      // En TypeScript strict (Zod .omit()), l'UID sera ignoré silencieusement 
-      // ou rejeté si on active strict(). Ici, on vérifie que l'UID n'est pas dans le schéma attendu.
       const result = UpdateProjectPayloadSchema.safeParse(payload);
       if (result.success) {
-        expect((result.data as any).uid).toBeUndefined(); // L'UID est stripé par Zod !
+        expect((result.data as any).uid).toBeUndefined(); // L'UID est stripé par Zod
         expect(result.data.name).toBe('Nom modifié');
+        expect(result.data.status).toBe('ARCHIVED');
       }
     });
   });

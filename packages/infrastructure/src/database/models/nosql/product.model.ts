@@ -91,7 +91,7 @@ const ProductSchema = new Schema<IProductDocument>(
     marginCents: { type: Number }, 
     marginPercent: { type: Number }, 
     
-    currency: { type: String, default: 'EUR' },
+    currency: { type: String, enum: ['plumes', 'totamtoes', 'parchemins', 'vinyles', 'sampleNotes', 'TOX', 'DHO', 'KAOS', 'EURO'], default: 'EURO' },
     stock: { type: Number, min: 0, default: 1 },
 
     // --- 🎨 DÉCLINAISONS ---

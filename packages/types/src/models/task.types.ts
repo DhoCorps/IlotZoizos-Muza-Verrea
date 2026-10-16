@@ -78,15 +78,15 @@ export const TaskSchema = z.object({
     label: z.string(),
     url: z.string(),
     mimeType: z.string(),
-    createdAt: z.union([z.date(), z.string().datetime()]).optional(),
+    createdAt: z.coerce.date().optional(), // ⏳ Harmonisation Date avec coerce
   })).default([]),
 
   dates: z.object({
-    createdAt: z.union([z.date(), z.string().datetime()]).optional(),
-    updatedAt: z.union([z.date(), z.string().datetime()]).optional(),
-    deadline: z.union([z.date(), z.string().datetime()]).optional(),
-    scheduledAt: z.union([z.date(), z.string().datetime()]).optional().nullable(),
-    completedAt: z.union([z.date(), z.string().datetime()]).optional().nullable(),
+    createdAt: z.coerce.date().optional(), // ⏳ Harmonisation Date avec coerce
+    updatedAt: z.coerce.date().optional(), // ⏳ Harmonisation Date avec coerce
+    deadline: z.coerce.date().optional(),  // ⏳ Harmonisation Date avec coerce
+    scheduledAt: z.coerce.date().optional().nullable(), // ⏳ Harmonisation Date avec coerce
+    completedAt: z.coerce.date().optional().nullable(), // ⏳ Harmonisation Date avec coerce
   }).default({}),
 });
 

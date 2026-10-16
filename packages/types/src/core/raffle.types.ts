@@ -1,3 +1,4 @@
+// Fichier : packages/types/src/core/raffle.types.ts
 import { z } from 'zod';
 
 // 🎫 MODULE LUCKY DROP : SCHÉMA DE LA LOTERIE
@@ -8,9 +9,9 @@ export const RaffleSchema = z.object({
   // Le prix est strictement en Éclats (Shards) pour respecter notre "Hack du Karma"
   ticketPriceShards: z.number().min(0, "Le prix du ticket en Éclats ne peut être négatif"),
   maxTickets: z.number().int().positive().optional(),
-  drawDate: z.date(),
+  drawDate: z.coerce.date(), // ⏳ Harmonisation Date
   status: z.enum(['OPEN', 'DRAWN', 'CANCELLED']).default('OPEN'),
-  createdAt: z.date().optional(),
+  createdAt: z.coerce.date().optional(), // ⏳ Harmonisation Date
 });
 export type IRaffle = z.infer<typeof RaffleSchema>;
 
@@ -21,6 +22,6 @@ export const RaffleTicketSchema = z.object({
   buyerUid: z.string(),
   // Le numéro du ticket permet de garantir l'unicité et la transparence du tirage
   ticketNumber: z.number().int().positive(),
-  purchasedAt: z.date().optional(),
+  purchasedAt: z.coerce.date().optional(), // ⏳ Harmonisation Date
 });
 export type IRaffleTicket = z.infer<typeof RaffleTicketSchema>;

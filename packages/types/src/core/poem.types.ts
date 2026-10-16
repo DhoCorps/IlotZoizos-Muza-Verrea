@@ -45,7 +45,7 @@ export const PoemSchema = z.object({
   // 🛡️ Sceau & Protection
   cryptoSeal: z.object({
     digitalSignature: z.string().optional(),
-    timestamp: z.date().optional(),
+    timestamp: z.coerce.date().optional(), // ⏳ Harmonisation Date
     copyrightMetadata: PoemCopyrightSchema.optional(),
   }).optional(),
 
@@ -57,8 +57,8 @@ export const PoemSchema = z.object({
   status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).default('DRAFT'),
   visibility: z.enum(['PUBLIC', 'PRIVATE', 'CONNECTIONS_ONLY']).default('PUBLIC'),
 
-  createdAt: z.date().optional(),
-  updatedAt: z.date().optional(),
+  createdAt: z.coerce.date().optional(), // ⏳ Harmonisation Date
+  updatedAt: z.coerce.date().optional(), // ⏳ Harmonisation Date
 });
 
 export type IPoemDTO = z.infer<typeof PoemSchema>;

@@ -1,17 +1,29 @@
+// Fichier : packages/types/src/__tests__/raffle.types.test.ts
 import { describe, it, expect } from 'vitest';
 import { RaffleSchema, RaffleTicketSchema } from '../core/raffle.types';
 
 describe('Raffle Types - Validation Zod (Module Lucky Drop)', () => {
-  it('🟢 doit valider une loterie (Raffle) valide sans limite de tickets', () => {
+  it('🟢 doit valider une loterie (Raffle) valide sans limite de tickets et coercer les dates ISO', () => {
+    const drawDateIso = '2026-12-31T23:59:59.000Z';
+    const createdAtIso = new Date().toISOString();
+
     const raffle = {
       uid: 'raffle_123',
       creatorUid: 'bird_artisan',
       prizeProductUid: 'prod_legendary',
       ticketPriceShards: 50, // 50 Éclats la participation
-      drawDate: new Date('2026-12-31T23:59:59Z'),
-      status: 'OPEN'
+      drawDate: drawDateIso, // ⏳ String ISO
+      status: 'OPEN',
+      createdAt: createdAtIso // ⏳ String ISO
     };
-    expect(RaffleSchema.safeParse(raffle).success).toBe(true);
+
+    const result = RaffleSchema.safeParse(raffle);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.drawDate).toBeInstanceOf(Date); // ⏳ Vérification coerce
+      expect(result.data.drawDate.toISOString()).toBe(drawDateIso);
+      expect(result.data.createdAt).toBeInstanceOf(Date); // ⏳ Vérification coerce
+    }
   });
 
   it('🟢 doit valider une loterie avec un nombre maximum de tickets', () => {
@@ -42,15 +54,23 @@ describe('Raffle Types - Validation Zod (Module Lucky Drop)', () => {
     }
   });
 
-  it('🟢 doit valider un ticket de loterie (RaffleTicket) valide', () => {
+  it('🟢 doit valider un ticket de loterie (RaffleTicket) valide et coercer la date', () => {
+    const purchaseDateIso = new Date().toISOString();
+    
     const ticket = {
       uid: 'ticket_001',
       raffleUid: 'raffle_123',
       buyerUid: 'bird_buyer',
       ticketNumber: 42,
-      purchasedAt: new Date()
+      purchasedAt: purchaseDateIso // ⏳ String ISO
     };
-    expect(RaffleTicketSchema.safeParse(ticket).success).toBe(true);
+    
+    const result = RaffleTicketSchema.safeParse(ticket);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.purchasedAt).toBeInstanceOf(Date); // ⏳ Vérification coerce
+      expect(result.data.purchasedAt?.toISOString()).toBe(purchaseDateIso);
+    }
   });
 
   it('🔴 doit rejeter un ticket avec un numéro invalide (négatif ou nul)', () => {

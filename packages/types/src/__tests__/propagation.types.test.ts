@@ -11,8 +11,14 @@ describe('Schéma Zod : Propagation (ShareEvent & SSOT EntityTargetEnum)', () =>
     artifactType: 'BLOG',
   };
 
-  it('🟢 devrait valider un partage GLOBAL par défaut avec des métriques à zéro', () => {
-    const result = ShareEventSchema.safeParse(validBaseShare);
+  it('🟢 devrait valider un partage GLOBAL par défaut avec des métriques à zéro et coercer la date', () => {
+    const isoDate = new Date().toISOString();
+    const shareWithDate = {
+      ...validBaseShare,
+      createdAt: isoDate // ⏳ Test avec string ISO
+    };
+
+    const result = ShareEventSchema.safeParse(shareWithDate);
     
     expect(result.success).toBe(true);
     if (result.success) {
@@ -20,6 +26,8 @@ describe('Schéma Zod : Propagation (ShareEvent & SSOT EntityTargetEnum)', () =>
       expect(result.data.receiverUids).toEqual([]);
       expect(result.data.metrics.merciCount).toBe(0);
       expect(result.data.metrics.returnRatio).toBe(0);
+      expect(result.data.createdAt).toBeInstanceOf(Date); // ⏳ Prouve que le coerce fonctionne
+      expect(result.data.createdAt?.toISOString()).toBe(isoDate);
     }
   });
 

@@ -1,3 +1,4 @@
+// Fichier : packages/types/src/__tests__/bibliotek.types.test.ts
 import { describe, it, expect } from 'vitest';
 import type { ILibraryBookMediaEntity, LibraryBookEconomyMetadata, IEmotionalHighlight } from '../core/bibliotek.types';
 
@@ -5,7 +6,7 @@ describe('Types partagés : Bibliotek Media, Gacha, Barter, Émotions & Copyrigh
   it('🟢 doit valider la structure complète d’un ouvrage enrichi avec l’économie Barter et Gacha', () => {
     const mockEconomy: LibraryBookEconomyMetadata = {
       priceCents: 1500, // 15.00 € ou équivalent Silice
-      currency: 'EUR',
+      currency: 'EURO', // 🌟 Modifié pour respecter ICurrency (ex: 'EURO', 'DHO', etc.)
       rights: {
         allowCommercial: true,
         allowBarter: true,

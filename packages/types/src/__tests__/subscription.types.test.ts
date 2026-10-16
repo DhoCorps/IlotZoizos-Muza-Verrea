@@ -13,14 +13,16 @@ describe('🌿 SubscriptionSchema (Canopée Tampon & SSOT EntityTargetEnum)', ()
     expect(SubscriptionTargetTypeSchema).toBe(EntityTargetEnum);
   });
 
-  it('🟢 devrait valider un abonnement standard et appliquer le Digest par défaut à 20h', () => {
+  it('🟢 devrait valider un abonnement standard, appliquer le Digest par défaut à 20h et coercer la date', () => {
     const subscriber = randomUUID();
     const target = randomUUID();
+    const isoDate = new Date().toISOString();
 
     const payload = {
       subscriberUid: subscriber,
       targetUid: target,
       targetType: 'USER',
+      createdAt: isoDate // ⏳ Test avec string ISO
     };
 
     const result = SubscriptionSchema.safeParse(payload);
@@ -29,6 +31,8 @@ describe('🌿 SubscriptionSchema (Canopée Tampon & SSOT EntityTargetEnum)', ()
     if (result.success) {
       expect(result.data.digestPreferences.mode).toBe('DIGEST');
       expect(result.data.digestPreferences.digestHour).toBe(20);
+      expect(result.data.createdAt).toBeInstanceOf(Date); // ⏳ Vérification coerce
+      expect(result.data.createdAt?.toISOString()).toBe(isoDate);
     }
   });
 

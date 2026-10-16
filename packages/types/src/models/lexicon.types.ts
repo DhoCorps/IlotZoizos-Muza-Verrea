@@ -34,8 +34,8 @@ export const LexiconEntrySchema = z.object({
     lang: z.string(),
   })).optional().default([]),
 
-  createdAt: z.date().optional(),
-  updatedAt: z.date().optional(),
+  createdAt: z.coerce.date().optional(), // ⏳ Harmonisation Date
+  updatedAt: z.coerce.date().optional(), // ⏳ Harmonisation Date
 });
 
 // ✨ Extraction automatique du type de l'entité (remplace ton ancienne interface ILexiconEntry)

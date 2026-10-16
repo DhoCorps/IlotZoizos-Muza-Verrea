@@ -18,8 +18,8 @@ export interface IUniversalAnnotation {
   emotion?: string;
   chapterReference?: string | null;
   isScholarSealed?: boolean;
-  createdAt?: Date | string;
-  updatedAt?: Date | string;
+  createdAt?: Date; // ⏳ Sécurisé : Seulement Date après validation
+  updatedAt?: Date; // ⏳ Sécurisé : Seulement Date après validation
 }
 
 export interface ICreateUniversalAnnotationInput {
@@ -45,8 +45,8 @@ export const UniversalAnnotationSchema = z.object({
   emotion: z.string().optional(),
   chapterReference: z.string().nullable().optional(),
   isScholarSealed: z.boolean().optional().default(false),
-  createdAt: z.union([z.date(), z.string()]).optional(),
-  updatedAt: z.union([z.date(), z.string()]).optional(),
+  createdAt: z.coerce.date().optional(), // ⏳ Harmonisation Date
+  updatedAt: z.coerce.date().optional(), // ⏳ Harmonisation Date
 });
 
 export const CreateUniversalAnnotationInputSchema = UniversalAnnotationSchema.omit({

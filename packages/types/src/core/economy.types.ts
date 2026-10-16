@@ -10,7 +10,8 @@ export const CurrencyEnum = z.enum([
   'sampleNotes',
   'TOX',
   'DHO',
-  'KAOS'
+  'KAOS',
+  'EURO'
 ]);
 export type ICurrency = z.infer<typeof CurrencyEnum>;
 
@@ -56,7 +57,7 @@ export const KonTraKtCreationSchema = z.object({
   wagerAmount: z.number().positive("La mise doit être strictement positive"),
   wagerCurrency: CurrencyEnum,
   targetDhOValue: z.number().positive("La valeur cible en DhÔ doit être positive"),
-  expiresAt: z.date()
+  expiresAt: z.coerce.date() // ⏳ Harmonisation Date avec coerce
 }).refine((data) => {
   if ((data.gameMode === 'solo' || data.gameMode === 'SOLO') && (data.wagerCurrency === 'DHO' || data.wagerCurrency === 'TOX')) {
     return false;

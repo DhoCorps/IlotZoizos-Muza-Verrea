@@ -1,4 +1,4 @@
-// packages/types/src/__tests__/common.types.test.ts
+// Fichier : packages/types/src/__tests__/common.types.test.ts
 import { describe, it, expect } from 'vitest';
 import {
   STATUS_CONFIG,
@@ -6,10 +6,10 @@ import {
   EntityTargetSchema,
   BaseNodeSchema,
   MerchLinkSchema,
-  ProjectStatusSchema,
   ProjectPrioritySchema,
   ComplexityLevelSchema
 } from '../models/common.types';
+import { ProjectStatusSchema } from '../models/project.types';
 
 describe('Socle SSOT : common.types.ts & EntityTargetEnum', () => {
   it('🟢 doit valider toutes les entités métier dans EntityTargetEnum', () => {
@@ -53,7 +53,7 @@ describe('Socle SSOT : common.types.ts & EntityTargetEnum', () => {
     const merch = MerchLinkSchema.parse({ productId: 'prod_001' });
     expect(merch.displayMode).toBe('card');
 
-    expect(ProjectStatusSchema.safeParse('REDUCED_SPEED').success).toBe(true);
+    expect(ProjectStatusSchema.safeParse('IN_PROGRESS').success).toBe(true);
     expect(ProjectPrioritySchema.safeParse('CRITICAL').success).toBe(true);
     expect(ComplexityLevelSchema.parse(undefined)).toBe(1);
     expect(ComplexityLevelSchema.safeParse(15).success).toBe(false);
